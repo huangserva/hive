@@ -19,12 +19,12 @@ Code, research, drafts, translations — if a team can split the work, a hive ca
 
 [![npm](https://img.shields.io/npm/v/@tt-a1i/hive.svg)](https://www.npmjs.com/package/@tt-a1i/hive)
 [![ci](https://img.shields.io/github/actions/workflow/status/tt-a1i/hive/release.yml?branch=main&label=ci)](https://github.com/tt-a1i/hive/actions/workflows/release.yml)
-[![Website](https://img.shields.io/badge/website-hive--site.pages.dev-5a8a8a.svg)](https://hive-site.pages.dev)
+[![Website](https://img.shields.io/badge/website-hive--site.pages.dev-5a8a8a.svg)](https://hivehq.dev)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-3c873a.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/license-BUSL--1.1-orange.svg)](./LICENSE.BSL)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows%20(best--effort)-lightgrey.svg)](#platform-support)
 
-🌐 **Website**: [hive-site.pages.dev/en/](https://hive-site.pages.dev/en/) · [中文](https://hive-site.pages.dev/)
+🌐 **Website**: [hivehq.dev/en/](https://hivehq.dev/en/) · [中文](https://hivehq.dev/)
 
 English · [简体中文](./README.md)
 
