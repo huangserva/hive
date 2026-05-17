@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/logo.png" width="120" alt="Hive logo" />
+</p>
+
 # Hive
 
 <p align="center">
