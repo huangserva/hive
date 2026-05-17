@@ -2,6 +2,7 @@ import type { FitAddon as XtermFitAddon } from '@xterm/addon-fit'
 import type { Terminal as XtermTerminal } from '@xterm/xterm'
 import { useEffect, useRef, useState } from 'react'
 
+import { resolveTerminalShortcut } from './shortcuts.js'
 import { createTerminalClient } from './terminal-client.js'
 
 export const useTerminalRun = (runId: string) => {
@@ -106,9 +107,22 @@ export const useTerminalRun = (runId: string) => {
 
         if (typeof nextTerminal.attachCustomKeyEventHandler === 'function') {
           nextTerminal.attachCustomKeyEventHandler((event) => {
-            if (event.key !== 'Enter' || !event.shiftKey) return true
-            if (event.type === 'keypress') client?.sendInput('\u001b[13;2u')
-            return false
+            const action = resolveTerminalShortcut(event)
+            switch (action.kind) {
+              case 'send':
+                event.preventDefault()
+                client?.sendInput(action.bytes)
+                return false
+              case 'clear':
+                event.preventDefault()
+                nextTerminal.clear()
+                return false
+              case 'block':
+                event.preventDefault()
+                return false
+              case 'passthrough':
+                return true
+            }
           })
         }
 
