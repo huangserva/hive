@@ -1,15 +1,17 @@
 # Hive
 
 <p align="center">
-  <img src="./assets/hive-hero.png" alt="Hive local-first multi-agent coding workspace hero image" />
+  <img src="./assets/hive-hero.png" alt="Hive local-first multi-agent collaboration workspace hero image" />
 </p>
 
-**Hive is a browser-native hive-mind for CLI coding agents.** The orchestrator
+**Hive is a browser-native workbench where a team of agents works together — one orchestrates, the rest execute, all on your laptop.** The orchestrator
 is a real `claude` / `codex` / `opencode` / `gemini` process — not you, and
 not a script — and so are the workers it dispatches to. Every agent runs as
 a real PTY on your machine, talks through a small `team` protocol that Hive
 injects into each agent's shell, and shares a markdown task graph at
 `<workspace>/.hive/tasks.md`.
+
+Code, research, drafts, translations — if a team can split the work, a hive can take it on.
 
 [![npm](https://img.shields.io/npm/v/@tt-a1i/hive.svg)](https://www.npmjs.com/package/@tt-a1i/hive)
 [![ci](https://img.shields.io/github/actions/workflow/status/tt-a1i/hive/release.yml?branch=main&label=ci)](https://github.com/tt-a1i/hive/actions/workflows/release.yml)
@@ -22,25 +24,26 @@ injects into each agent's shell, and shares a markdown task graph at
 
 English · [简体中文](./README.md)
 
-> Hive is local-first, runs on `127.0.0.1`, and is intended for developers who
-> already use CLI coding agents. The latest stable release is on
+> Hive is local-first, runs on `127.0.0.1`, and is intended for anyone who
+> already runs CLI agents. The latest stable release is on
 > [npm](https://www.npmjs.com/package/@tt-a1i/hive) and the badge above resolves
 > to it.
 
 ## Why Hive
 
-CLI coding agents are powerful, but coordinating several of them manually is
+CLI agents are powerful, but coordinating several of them manually is
 awkward:
 
 - Long-running sessions are spread across terminals.
-- It is hard to split a task into implementation, review, and testing without a
-  routing layer.
+- Splitting work across agents — implementation/review/testing,
+  research/drafting/fact-checking, or any other division of labor — needs a
+  routing layer you don't have.
 - Worker progress disappears into scrollback.
 - Restart recovery depends on each CLI's native session behavior.
 
-Hive adds that coordination layer without replacing the CLIs. The agents remain
-real terminal processes running on your machine; Hive manages the team shell
-around them.
+Hive adds the coordination layer without replacing the CLIs. Agents stay as
+real terminal processes on your machine; Hive just manages the shell around
+them.
 
 ## Try the demo first
 
@@ -128,15 +131,15 @@ same shell environment you use to start Hive.
 
 - Workspace sidebar for switching between local projects.
 - Orchestrator and worker terminals backed by real PTYs.
-- Add Worker flow with role presets for coder, reviewer, tester, and custom
-  members.
+- Add Worker flow with role presets for coder, reviewer, tester, and fully
+  custom prompts and commands — wire any CLI agent into the role you need.
 - `.hive/tasks.md` editor with external-file conflict handling.
 - Background PTY preservation and best-effort native session resume.
 - Local SQLite metadata under `~/.config/hive` by default, or `$HIVE_DATA_DIR`
   when set.
 
-Hive does not provide sandboxing, multi-user auth, cloud hosting, or its own
-coding model. It coordinates tools you already run locally.
+Hive does not provide sandboxing, multi-user auth, cloud hosting, or any
+bundled agent model. It coordinates the CLIs you already run locally.
 
 ## Platform Support
 
@@ -265,7 +268,7 @@ verifies macOS, Ubuntu, and Windows, then publishes to npm with `NPM_TOKEN`.
 ## Status
 
 Hive is published as a stable release. Current work focuses on polishing the
-multi-CLI-agent workflow, Windows support, and clearer orchestration
+multi-agent collaboration workflow, Windows support, and clearer orchestration
 observability.
 
 ## License
