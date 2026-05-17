@@ -158,7 +158,7 @@ export const createDispatchLedgerStore = (db: Database) => {
            WHERE id = ?
              AND workspace_id = ?
              AND to_agent_id = ?
-             AND status != 'reported'
+             AND status NOT IN ('reported', 'cancelled', 'failed')
            LIMIT 1`
         )
         .get(dispatchId, workspaceId, toAgentId) as DispatchRow | undefined
@@ -172,7 +172,7 @@ export const createDispatchLedgerStore = (db: Database) => {
          FROM dispatches
          WHERE workspace_id = ?
            AND to_agent_id = ?
-           AND status != 'reported'
+           AND status NOT IN ('reported', 'cancelled', 'failed')
          ORDER BY sequence ASC
          LIMIT 1`
       )
@@ -243,7 +243,7 @@ export const createDispatchLedgerStore = (db: Database) => {
       .prepare(
         `SELECT workspace_id, to_agent_id AS worker_id, 'send' AS type
            FROM dispatches
-           WHERE status != 'reported'
+           WHERE status NOT IN ('reported', 'cancelled', 'failed')
            ORDER BY sequence ASC`
       )
       .all() as Array<{ type: 'send'; worker_id: string; workspace_id: string }>
