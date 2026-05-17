@@ -1,5 +1,3 @@
-import { Hexagon } from 'lucide-react'
-
 import type { VersionInfo } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
@@ -31,7 +29,13 @@ export const Topbar = ({
       }}
     >
       <div className="flex items-center gap-2">
-        <Hexagon size={16} className="text-pri" aria-hidden />
+        <img
+          src="/logo.png"
+          alt=""
+          aria-hidden
+          className="h-5 w-5 rounded-md"
+          data-testid="topbar-logo"
+        />
         <span className="font-semibold text-pri">Hive</span>
         <span className="text-ter text-xs tabular-nums">v{version}</span>
         {updateInfo ? (

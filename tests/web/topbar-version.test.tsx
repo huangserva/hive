@@ -26,6 +26,7 @@ describe('Topbar version update hint', () => {
       />
     )
 
+    expect(screen.getByTestId('topbar-logo')).toHaveAttribute('src', '/logo.png')
     expect(screen.getByTestId('topbar-update-badge')).toHaveTextContent('Update available')
     expect(screen.getByText('v0.6.0-alpha.3 → v0.6.0-alpha.4')).toBeInTheDocument()
     expect(screen.getByText('npm update -g @tt-a1i/hive')).toBeInTheDocument()
