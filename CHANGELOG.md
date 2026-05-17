@@ -2,6 +2,23 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.1.0 - 2026-05-17
+
+Private-release line.
+
+- Added a Workspace terminal that opens from the active workspace and runs in
+  the workspace directory. It supports multiple shell tabs, full-height terminal
+  space, tab switching, and closing individual tabs without closing the whole
+  dialog.
+- Kept the external install path unchanged. Users still install with
+  `npm install -g @tt-a1i/hive` or run with `npx @tt-a1i/hive`; this release is
+  built from the private product repository and published to the same npm
+  package.
+- Hid the dormant task-graph / Blueprint entry from the main UI while keeping
+  the underlying code in place for possible future use.
+- Documented the public/private repository split and release policy in
+  `docs/private-release-strategy.md`.
+
 ## 1.0.0 - 2026-05-17
 
 Stable release.

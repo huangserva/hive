@@ -50,6 +50,7 @@ describe('npm package tarball', () => {
     expect(paths.some((path) => path.startsWith('tests/'))).toBe(false)
     expect(paths.some((path) => path.startsWith('web/src/'))).toBe(false)
     expect(paths.some((path) => path.startsWith('dist/tests/'))).toBe(false)
+    expect(paths.some((path) => path.endsWith('.map'))).toBe(false)
     expect(paths).not.toContain('AGENTS.md')
     expect(paths).not.toContain('CLAUDE.md')
     expect(paths).not.toContain('TODO.md')
