@@ -118,7 +118,10 @@ export const useTerminalRun = (runId: string) => {
                 nextTerminal.clear()
                 return false
               case 'block':
-                event.preventDefault()
+                // Intentionally NOT calling preventDefault here. Shift+Enter
+                // depends on keydown → keypress chaining; if we preventDefault
+                // on keydown the browser cancels the corresponding keypress and
+                // the 'send' branch never gets to emit \x1b[13;2u.
                 return false
               case 'passthrough':
                 return true
