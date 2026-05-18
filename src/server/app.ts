@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
+import { openWorkspace } from './open-target-commands.js'
+import type { OpenWorkspaceService } from './route-types.js'
 import { matchRoute } from './routes.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { createTasksFileService, type TasksFileService } from './tasks-file.js'
@@ -16,6 +18,7 @@ import { createVersionService, type VersionService } from './version-service.js'
 interface CreateAppOptions {
   store: RuntimeStore
   pickFolderService?: () => Promise<PickFolderResponse>
+  openWorkspaceService?: OpenWorkspaceService
   tasksFileService?: TasksFileService
   versionService?: VersionService
 }
@@ -97,6 +100,7 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown) =
 export const createApp = ({
   store,
   pickFolderService = pickFolder,
+  openWorkspaceService = (input) => openWorkspace(input),
   tasksFileService = createTasksFileService(),
   versionService = createVersionService(),
 }: CreateAppOptions) => {
@@ -117,6 +121,7 @@ export const createApp = ({
           store,
           tasksFileService,
           pickFolderService,
+          openWorkspaceService,
           versionService,
           params: match.params,
         })

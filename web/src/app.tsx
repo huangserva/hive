@@ -23,6 +23,7 @@ import { useWorkspaceSelection } from './useWorkspaceSelection.js'
 import { useWorkspaceWorkers } from './useWorkspaceWorkers.js'
 import { useFirstRunWizard } from './wizard/useFirstRunWizard.js'
 import { useWorkerActions } from './worker/useWorkerActions.js'
+import { OpenWorkspaceButton } from './workspace/OpenWorkspaceButton.js'
 
 // Task Graph/Blueprint was Hive's early first-class `.hive/tasks.md` planning surface.
 // Real usage has moved toward letting the Orchestrator agent plan in its own context,
@@ -95,6 +96,7 @@ const AppInner = () => {
   return (
     <MainLayout
       hideTopbarActions={!eff.effectiveActiveWorkspace}
+      topbarActions={<OpenWorkspaceButton workspace={eff.effectiveActiveWorkspace} />}
       sidebar={
         <Sidebar
           activeWorkspaceId={eff.effectiveActiveWorkspaceId}

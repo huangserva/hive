@@ -1,3 +1,4 @@
+import type { OpenTargetId, OpenWorkspaceErrorCode } from '../../src/shared/open-targets.js'
 import type {
   AgentSummary,
   TeamListItem,
@@ -5,6 +6,8 @@ import type {
   WorkerRole,
   WorkspaceSummary,
 } from '../../src/shared/types.js'
+
+export type { OpenTargetId, OpenWorkspaceErrorCode }
 
 const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   id: payload.id,
@@ -476,4 +479,47 @@ export const pickFolder = async (): Promise<PickFolderResponse> => {
     mode: 'same-origin',
   })
   return (await response.json()) as PickFolderResponse
+}
+
+export type OpenWorkspaceResult =
+  | { ok: true; effectiveTargetId: OpenTargetId }
+  | { ok: false; effectiveTargetId: OpenTargetId; errorCode: OpenWorkspaceErrorCode }
+
+interface OpenWorkspaceSuccessPayload {
+  ok: true
+  effective_target_id: OpenTargetId
+}
+
+interface OpenWorkspaceFailurePayload {
+  ok: false
+  effective_target_id: OpenTargetId
+  error_code: OpenWorkspaceErrorCode
+}
+
+export const openWorkspaceInEditor = async (
+  workspaceId: string,
+  targetId: OpenTargetId
+): Promise<OpenWorkspaceResult> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/open`, {
+    body: JSON.stringify({ target_id: targetId }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+
+  // 200 success and 502 service failure both return structured JSON we can
+  // surface; only true transport / 4xx failures (workspace gone, target id
+  // tampered) throw.
+  if (response.status === 200) {
+    const body = (await response.json()) as OpenWorkspaceSuccessPayload
+    return { ok: true, effectiveTargetId: body.effective_target_id }
+  }
+  if (response.status === 502) {
+    const body = (await response.json()) as OpenWorkspaceFailurePayload
+    return {
+      ok: false,
+      effectiveTargetId: body.effective_target_id,
+      errorCode: body.error_code,
+    }
+  }
+  throw new Error(await readErrorMessage(response, 'Failed to open workspace'))
 }

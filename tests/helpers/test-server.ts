@@ -6,6 +6,7 @@ import { createAgentManager } from '../../src/server/agent-manager.js'
 import { createApp } from '../../src/server/app.js'
 import { probeDirectory } from '../../src/server/fs-browse.js'
 import type { PickFolderResponse } from '../../src/server/fs-pick-folder.js'
+import type { OpenWorkspaceService } from '../../src/server/route-types.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 
 interface TestServerContext {
@@ -18,6 +19,7 @@ interface TestServerContext {
 export const startTestServer = async (
   input: {
     dataDir?: string
+    openWorkspaceService?: OpenWorkspaceService
     pickFolderPath?: string
     pickFolderService?: () => Promise<PickFolderResponse>
   } = {}
@@ -36,7 +38,11 @@ export const startTestServer = async (
           supported: true,
         })
       : undefined)
-  const app = createApp({ pickFolderService, store })
+  const app = createApp({
+    openWorkspaceService: input.openWorkspaceService,
+    pickFolderService,
+    store,
+  })
 
   await new Promise<void>((resolve) => {
     app.server.listen(0, '127.0.0.1', () => resolve())

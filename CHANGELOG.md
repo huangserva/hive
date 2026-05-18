@@ -2,6 +2,30 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.2.0 - 2026-05-18
+
+Opens the active workspace in your editor, terminal, or file manager from
+Hive's topbar.
+
+- Adds an "Open" split button to the topbar that launches the active workspace
+  in a chosen application. Ten targets on macOS (VS Code, VS Code Insiders,
+  Cursor, Windsurf, Finder, Terminal, iTerm2, Ghostty, IntelliJ IDEA, Zed) and
+  six on Windows / Linux (VS Code, VS Code Insiders, Cursor, Windsurf, File
+  Explorer / File Manager, Zed).
+- Persists the preferred target per browser via `localStorage` so the next
+  click jumps to the same app. Stale preferences for apps that aren't valid on
+  the current platform fall back to the OS file manager instead of erroring.
+- Surfaces failures as localized toast notifications. Distinguishes
+  "app not installed", "launcher not on PATH", and other failure modes so a
+  missing Cursor install reads differently from a misconfigured `code` CLI.
+- Backend launches each command via `execFile` with an argv array — no shell
+  is involved, so workspace paths containing spaces, Unicode, or quotes pass
+  through verbatim. Paths containing newlines or NUL bytes are rejected before
+  dispatch.
+- Special-cases Windows `explorer.exe`, which returns exit code 1 even on
+  success: spawn-errors are still surfaced, but a non-zero exit no longer
+  shows a spurious toast.
+
 ## 1.1.5 - 2026-05-18
 
 Custom startup command and close-guard fixes.

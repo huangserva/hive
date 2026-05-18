@@ -1,6 +1,6 @@
 {
   "name": "@tt-a1i/hive",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "Browser-native hive-mind for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.",
   "type": "module",
   "packageManager": "pnpm@10.30.3",
@@ -60,7 +60,7 @@
     "postinstall": "node scripts/fix-runtime-artifacts.mjs",
     "release:dry": "pnpm check && pnpm build && pnpm test && pnpm pack:check && pnpm pack:smoke",
     "test": "vitest run",
-    "test:windows": "vitest run tests/unit/agent-command-resolver.test.ts tests/unit/session-capture-multi-cli.test.ts tests/unit/claude-session-support.test.ts tests/unit/worker-name-generator.test.ts tests/server/fs-pick-folder.test.ts tests/server/fs-browse.test.ts tests/server/schema-version.test.ts tests/server/runtime-rehydration.test.ts tests/web/workspace-picker.test.tsx tests/web/confirm-dialog.test.tsx tests/web/toast.test.tsx --no-file-parallelism --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000",
+    "test:windows": "vitest run tests/unit/agent-command-resolver.test.ts tests/unit/session-capture-multi-cli.test.ts tests/unit/claude-session-support.test.ts tests/unit/worker-name-generator.test.ts tests/unit/open-target-commands.test.ts tests/server/fs-pick-folder.test.ts tests/server/fs-browse.test.ts tests/server/schema-version.test.ts tests/server/runtime-rehydration.test.ts tests/server/open-workspace-route.test.ts tests/web/workspace-picker.test.tsx tests/web/confirm-dialog.test.tsx tests/web/toast.test.tsx tests/web/open-workspace-button.test.tsx --no-file-parallelism --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000",
     "test:watch": "vitest"
   },
   "dependencies": {

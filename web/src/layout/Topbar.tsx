@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import type { VersionInfo } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
@@ -6,12 +8,14 @@ import { APP_VERSION } from '../version.js'
 import { LanguageToggle } from './LanguageToggle.js'
 
 type TopbarProps = {
+  actions?: ReactNode
   hideActions?: boolean
   version?: string
   versionInfo?: VersionInfo
 }
 
 export const Topbar = ({
+  actions,
   hideActions = false,
   version = APP_VERSION,
   versionInfo: providedVersionInfo,
@@ -60,6 +64,7 @@ export const Topbar = ({
       <div className="flex-1" />
       {hideActions ? null : (
         <div className="flex items-center gap-1">
+          {actions}
           {/* Task Graph/Blueprint is intentionally hidden from the primary shell.
               The dormant drawer/API remain behind TASK_GRAPH_PRIMARY_ENTRY_ENABLED
               in app.tsx for existing `.hive/tasks.md` workspaces and possible revival. */}

@@ -2,6 +2,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { WorkerRole } from '../shared/types.js'
 import type { PickFolderResponse } from './fs-pick-folder.js'
+import type {
+  OpenCommandResult,
+  OpenWorkspaceInput as OpenWorkspaceServiceInput,
+} from './open-target-commands.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { TasksFileService } from './tasks-file.js'
 import type { VersionService } from './version-service.js'
@@ -56,12 +60,19 @@ export interface ConfigureAgentLaunchBody {
   command_preset_id?: string | null
 }
 
+export interface OpenWorkspaceBody {
+  target_id: string
+}
+
+export type OpenWorkspaceService = (input: OpenWorkspaceServiceInput) => Promise<OpenCommandResult>
+
 export interface RouteContext {
   request: IncomingMessage
   response: ServerResponse
   store: RuntimeStore
   tasksFileService: TasksFileService
   pickFolderService: () => Promise<PickFolderResponse>
+  openWorkspaceService: OpenWorkspaceService
   versionService: VersionService
   params: Record<string, string>
 }

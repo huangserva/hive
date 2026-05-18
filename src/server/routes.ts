@@ -10,6 +10,7 @@ import type {
 } from './route-types.js'
 import { dispatchRoutes } from './routes-dispatches.js'
 import { fsRoutes } from './routes-fs.js'
+import { openWorkspaceRoutes } from './routes-open-workspace.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
 import { taskRoutes } from './routes-tasks.js'
@@ -20,6 +21,7 @@ import { workspaceRoutes } from './routes-workspaces.js'
 
 const routes: RouteDefinition[] = [
   ...workspaceRoutes,
+  ...openWorkspaceRoutes,
   ...dispatchRoutes,
   ...versionRoutes,
   ...uiRoutes,
