@@ -30,9 +30,9 @@ export interface CreateWorkspaceBody {
   name: string
   /** Default true. When false, skip orchestrator PTY spawn after creation. */
   autostart_orchestrator?: boolean
-  /** Optional command preset to use for the initial orchestrator launch. */
+  /** Optional command preset. With startup_command, this selects the CLI interaction driver. */
   command_preset_id?: string | null
-  /** Optional full startup command. When set, this overrides command_preset_id. */
+  /** Optional full startup command. When set, it overrides the executable only. */
   startup_command?: string | null
 }
 
@@ -42,7 +42,7 @@ export interface CreateWorkerBody {
   description?: string
   name: string
   role: WorkerRole
-  /** Optional full startup command. When set, this overrides command_preset_id. */
+  /** Optional full startup command. When set, it overrides the executable only. */
   startup_command?: string | null
 }
 

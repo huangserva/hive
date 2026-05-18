@@ -298,7 +298,7 @@ describe('worker flow with real server', () => {
     expect(nameInput.value).toMatch(/^[\u4e00-\u9fff]+-[\u4e00-\u9fff]+-[0-9]{2}$/)
   })
 
-  test('Add Worker dialog can override the default preset with a full startup command', async () => {
+  test('Add Worker dialog can run a generic full startup command without preset semantics', async () => {
     render(<App />)
 
     await waitFor(() => {
@@ -310,6 +310,10 @@ describe('worker flow with real server', () => {
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
       target: { value: 'CustomAgent' },
     })
+    await waitFor(() => {
+      expect(within(dialog).queryByTestId('agent-radio-generic')).toBeInTheDocument()
+    })
+    fireEvent.click(within(dialog).getByTestId('agent-radio-generic'))
     fireEvent.click(within(dialog).getByText('Startup command'))
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Startup command' }), {
       target: { value: 'bash -c "echo custom worker; sleep 60"' },
@@ -334,6 +338,50 @@ describe('worker flow with real server', () => {
         interactiveCommand: 'bash',
         presetAugmentationDisabled: true,
         sessionIdCapture: null,
+      })
+    )
+  })
+
+  test('Add Worker dialog keeps selected CLI semantics for startup aliases', async () => {
+    render(<App />)
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
+
+    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
+      target: { value: 'ClaudeAlias' },
+    })
+    await waitFor(() => {
+      expect(within(dialog).queryByTestId('agent-radio-claude')).toBeInTheDocument()
+    })
+    fireEvent.click(within(dialog).getByTestId('agent-radio-claude'))
+    fireEvent.click(within(dialog).getByText('Startup command'))
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Startup command' }), {
+      target: { value: 'ccs --continue' },
+    })
+    fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
+
+    await waitFor(
+      () => {
+        expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
+      },
+      { timeout: WORKER_FLOW_TIMEOUT_MS }
+    )
+
+    const worker = serverContext?.store
+      .getWorkspaceSnapshot(workspaceId)
+      .agents.find((agent) => agent.name === 'ClaudeAlias')
+    expect(worker?.id).toEqual(expect.any(String))
+    expect(serverContext?.store.peekAgentLaunchConfig(workspaceId, worker?.id ?? '')).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining(['ccs --continue']),
+        commandPresetId: null,
+        interactiveCommand: 'claude',
+        presetAugmentationDisabled: true,
+        sessionIdCapture: expect.objectContaining({ source: 'claude_project_jsonl_dir' }),
       })
     )
   })

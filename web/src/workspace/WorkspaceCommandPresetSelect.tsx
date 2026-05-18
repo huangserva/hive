@@ -29,11 +29,15 @@ export const WorkspaceCommandPresetSelect = ({
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const selected = presets.find((preset) => preset.id === value)
+  const genericSelected = value === ''
   const commandPreview = selected
     ? [selected.command, ...selected.args].join(' ').trim()
-    : t('workspace.preset.loading')
-  const buttonLabel = selected?.displayName ?? 'Claude Code (CC)'
-  const disabled = presets.length === 0
+    : genericSelected
+      ? t('workspace.preset.genericPreview')
+      : t('workspace.preset.loading')
+  const buttonLabel =
+    selected?.displayName ?? (genericSelected ? t('workspace.preset.generic') : 'Claude Code (CC)')
+  const disabled = presets.length === 0 && !genericSelected
 
   useEffect(() => {
     if (!open) return
@@ -110,6 +114,25 @@ export const WorkspaceCommandPresetSelect = ({
                 </button>
               )
             })}
+            <button
+              type="button"
+              role="option"
+              aria-selected={genericSelected}
+              data-testid="workspace-command-preset-option-generic"
+              className="cli-select__option"
+              onClick={() => {
+                onChange('')
+                setOpen(false)
+              }}
+            >
+              <Check
+                size={12}
+                aria-hidden
+                className="cli-select__check"
+                style={{ opacity: genericSelected ? 1 : 0 }}
+              />
+              <span>{t('workspace.preset.generic')}</span>
+            </button>
           </div>
         ) : null}
       </div>

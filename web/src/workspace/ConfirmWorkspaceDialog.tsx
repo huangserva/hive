@@ -14,7 +14,6 @@ type ConfirmWorkspaceDialogProps = {
   pasteFallbackDefault?: boolean
   commandPresetError: string | null
   commandPresetId: string
-  commandPresetTouched: boolean
   commandPresets: CommandPreset[]
   onCancel: () => void
   onCommandPresetChange: (value: string) => void
@@ -33,7 +32,6 @@ export const ConfirmWorkspaceDialog = ({
   pasteFallbackDefault = false,
   commandPresetError,
   commandPresetId,
-  commandPresetTouched,
   commandPresets,
   onCancel,
   onCommandPresetChange,
@@ -59,20 +57,24 @@ export const ConfirmWorkspaceDialog = ({
   const startupClean = startupCommand.trim()
   const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
   const presetsLoading = commandPresets.length === 0 && !commandPresetError
+  const genericPresetNeedsStartup = !commandPresetId && startupClean.length === 0
   const selectedPresetUnavailable = selectedPreset?.available === false && startupClean.length === 0
-  const presetAvailabilityError = selectedPresetUnavailable
-    ? t('workspace.preset.notInstalled', { name: selectedPreset.displayName })
-    : null
+  const presetAvailabilityError = genericPresetNeedsStartup
+    ? t('workspace.preset.genericRequiresStartup')
+    : selectedPresetUnavailable
+      ? t('workspace.preset.notInstalled', { name: selectedPreset.displayName })
+      : null
   const canCreate =
     name.trim().length > 0 &&
     resolvedPath.length > 0 &&
     !presetsLoading &&
+    !genericPresetNeedsStartup &&
     !selectedPresetUnavailable
 
   const handleCreate = () => {
     if (!canCreate) return
     onCreate({
-      commandPresetId: startupClean && !commandPresetTouched ? null : commandPresetId || null,
+      commandPresetId: commandPresetId || null,
       name: name.trim(),
       path: resolvedPath,
       ...(startupClean ? { startupCommand: startupClean } : {}),

@@ -156,4 +156,154 @@ describe('team prompt contract', () => {
       expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
     })
   })
+
+  test('team send submits to a shell-wrapped Claude worker startup command using the selected CLI driver', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-shell-wrapped-claude-send-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeShell = join(binDir, 'fake-zsh')
+    writeFileSync(
+      fakeShell,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "const PASTE_END = '\\u001b[201~'",
+        'let submitReadyAt = 0',
+        "process.stdout.write('❯ ')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('IN:' + chunk)",
+        '  if (chunk.includes(PASTE_END)) {',
+        '    process.stdout.write("\\n[Pasted text #1 +1 lines]\\n")',
+        '    submitReadyAt = Date.now() + 150',
+        '  }',
+        "  const isSubmit = submitReadyAt > 0 && (chunk === '\\r' || chunk === '\\n' || chunk === '\\r\\n')",
+        '  if (isSubmit) {',
+        "    if (Date.now() >= submitReadyAt) process.stdout.write('\\nSUBMITTED\\n❯ ')",
+        "    else process.stdout.write('\\nEARLY_ENTER_IGNORED\\n❯ ')",
+        '  }',
+        '})',
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeShell, 0o755)
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected default orchestrator')
+    }
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      args: ['-lic', 'ccs --continue'],
+      command: fakeShell,
+      interactiveCommand: 'claude',
+      presetAugmentationDisabled: true,
+    })
+
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('[Hive 系统消息：启动说明]')
+      expect(run?.output).toContain('SUBMITTED')
+    }, 4000)
+
+    await store.dispatchTaskByWorkerName(workspace.id, 'Alice', '实现登录', {
+      fromAgentId: orchestrator.id,
+    })
+
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('\u001b[200~[Hive 系统消息：来自 @Orchestrator 的派单]')
+      expect(run?.output).toContain('实现登录')
+      expect(run?.output).toContain('\u001b[201~')
+      expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    }, 4000)
+  })
+
+  test('team report submits to a shell-wrapped Claude startup command using the selected CLI driver', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-shell-wrapped-claude-report-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeShell = join(binDir, 'fake-zsh')
+    writeFileSync(
+      fakeShell,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "const PASTE_END = '\\u001b[201~'",
+        'let submitReadyAt = 0',
+        "process.stdout.write('❯ ')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('IN:' + chunk)",
+        '  if (chunk.includes(PASTE_END)) {',
+        '    process.stdout.write("\\n[Pasted text #1 +1 lines]\\n")',
+        '    submitReadyAt = Date.now() + 150',
+        '  }',
+        "  const isSubmit = submitReadyAt > 0 && (chunk === '\\r' || chunk === '\\n' || chunk === '\\r\\n')",
+        '  if (isSubmit) {',
+        "    if (Date.now() >= submitReadyAt) process.stdout.write('\\nSUBMITTED\\n❯ ')",
+        "    else process.stdout.write('\\nEARLY_ENTER_IGNORED\\n❯ ')",
+        '  }',
+        '})',
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeShell, 0o755)
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected default orchestrator')
+    }
+    store.configureAgentLaunch(workspace.id, orchestrator.id, {
+      args: ['-lic', 'ccs --continue'],
+      command: fakeShell,
+      interactiveCommand: 'claude',
+      presetAugmentationDisabled: true,
+    })
+
+    await store.startAgent(workspace.id, orchestrator.id, { hivePort: '4010' })
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, orchestrator.id)
+      expect(run?.output).toContain('[Hive 系统消息：启动说明]')
+      expect(run?.output).toContain('SUBMITTED')
+    }, 4000)
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      command: '/bin/bash',
+      args: ['-lc', `${process.execPath} -e "process.stdin.resume()"`],
+    })
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+    await store.dispatchTaskByWorkerName(workspace.id, 'Alice', 'Report through shell wrapper', {
+      fromAgentId: orchestrator.id,
+    })
+    store.reportTask(workspace.id, worker.id, {
+      requireActiveRun: true,
+      text: 'Done from shell-wrapped Claude',
+    })
+
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, orchestrator.id)
+      expect(run?.output).toContain('\u001b[200~[Hive 系统消息：来自 @Alice 的汇报]')
+      expect(run?.output).toContain('Done from shell-wrapped Claude')
+      expect(run?.output).toContain('\u001b[201~')
+      expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
+    }, 4000)
+  })
 })

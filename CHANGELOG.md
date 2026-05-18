@@ -2,6 +2,21 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.1.5 - 2026-05-18
+
+Custom startup command and close-guard fixes.
+
+- Keeps the selected CLI interaction driver when a custom startup command is
+  provided. This lets aliases such as `ccs --continue` start Claude Code while
+  Hive still submits messages using Claude Code's bracketed-paste flow.
+- Adds an explicit "Generic command" option for unknown CLIs such as Qwen or
+  custom agent shells that should use only the provided startup command.
+- Covers both directions of the shell-wrapper path: `team send` into a custom
+  worker command and `team report` back into a custom orchestrator command.
+- Prompts with the browser's native confirmation dialog before closing or
+  refreshing the Hive tab while the active workspace still has running terminal
+  sessions.
+
 ## 1.1.4 - 2026-05-17
 
 Update guidance polish.

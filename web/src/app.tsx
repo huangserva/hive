@@ -14,6 +14,7 @@ import { useOptimisticTerminalRuns } from './terminal/useOptimisticTerminalRuns.
 import { useTerminalRuns } from './terminal/useTerminalRuns.js'
 import { useToast } from './ui/useToast.js'
 import { useAppShortcuts } from './useAppShortcuts.js'
+import { useBeforeUnloadGuard } from './useBeforeUnloadGuard.js'
 import { useInitializeUiSession } from './useInitializeUiSession.js'
 import { useWorkerHighlight } from './useWorkerHighlight.js'
 import { useWorkspaceCreate } from './useWorkspaceCreate.js'
@@ -62,6 +63,7 @@ const AppInner = () => {
   const activeId = eff.effectiveActiveWorkspace?.id
   const activeWorkers = activeId ? (eff.effectiveWorkersByWorkspaceId[activeId] ?? []) : []
   const terms = useOptimisticTerminalRuns(eff.pollWorkspaceId, useTerminalRuns(eff.pollWorkspaceId))
+  useBeforeUnloadGuard(terms.terminalRuns.some((run) => run.status !== 'stopped'))
   const taskGraphWorkspaceId =
     TASK_GRAPH_PRIMARY_ENTRY_ENABLED && !demoMode ? (activeWorkspaceId ?? null) : null
   const tasksFile = useTasksFile(

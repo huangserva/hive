@@ -46,7 +46,6 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
   const [stage, setStage] = useState<Stage>({ kind: 'idle' })
   const [commandPresets, setCommandPresets] = useState<CommandPreset[]>([])
   const [commandPresetId, setCommandPresetId] = useState(DEFAULT_COMMAND_PRESET_ID)
-  const [commandPresetTouched, setCommandPresetTouched] = useState(false)
   const [commandPresetError, setCommandPresetError] = useState<string | null>(null)
   const commandPresetSnapshotRef = useRef<{
     error: string | null
@@ -66,7 +65,6 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
     if (trigger === 0) return
     let cancelled = false
     setCommandPresetError(null)
-    setCommandPresetTouched(false)
     const presetsReady = listCommandPresets()
       .then((presets) => {
         if (cancelled) return
@@ -149,7 +147,6 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
 
   const handleCommandPresetChange = (value: string) => {
     commandPresetSnapshotRef.current = { ...commandPresetSnapshotRef.current, id: value }
-    setCommandPresetTouched(true)
     setCommandPresetId(value)
   }
 
@@ -158,10 +155,14 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
       ? commandPresets
       : commandPresetSnapshotRef.current.presets
   const renderedCommandPresetId =
-    renderedCommandPresets.length > 0 &&
-    !renderedCommandPresets.some((preset) => preset.id === commandPresetId && preset.available)
-      ? commandPresetSnapshotRef.current.id
-      : commandPresetId
+    commandPresetId === ''
+      ? ''
+      : renderedCommandPresets.length > 0 &&
+          !renderedCommandPresets.some(
+            (preset) => preset.id === commandPresetId && preset.available
+          )
+        ? commandPresetSnapshotRef.current.id
+        : commandPresetId
   const renderedCommandPresetError = commandPresetError ?? commandPresetSnapshotRef.current.error
 
   if (stage.kind === 'idle') return null
@@ -256,7 +257,6 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
       <ServerBrowseDialog
         commandPresetError={renderedCommandPresetError}
         commandPresetId={renderedCommandPresetId}
-        commandPresetTouched={commandPresetTouched}
         commandPresets={renderedCommandPresets}
         onClose={handleCancel}
         onCommandPresetChange={handleCommandPresetChange}
@@ -269,7 +269,6 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
     <ConfirmWorkspaceDialog
       commandPresetError={renderedCommandPresetError}
       commandPresetId={renderedCommandPresetId}
-      commandPresetTouched={commandPresetTouched}
       commandPresets={renderedCommandPresets}
       pasteFallbackDefault={stage.pasteDefault}
       probe={stage.probe}

@@ -162,11 +162,19 @@ export const RoleInstructionsField = ({
 
 const AgentChip = ({
   active,
-  preset,
+  command,
+  disabled = false,
+  displayName,
+  notFound = false,
+  testId,
   onSelect,
 }: {
   active: boolean
-  preset: CommandPreset
+  command: string
+  disabled?: boolean
+  displayName: string
+  notFound?: boolean
+  testId: string
   onSelect: () => void
 }) => {
   const { t } = useI18n()
@@ -175,21 +183,41 @@ const AgentChip = ({
       type="button"
       onClick={onSelect}
       aria-pressed={active}
-      disabled={preset.available === false}
-      data-testid={`agent-radio-${preset.id}`}
+      disabled={disabled}
+      data-testid={testId}
       className="selectable-card flex items-center justify-between gap-2 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-45"
     >
       <span className="flex min-w-0 flex-col items-start gap-0.5">
-        <span className="truncate text-base font-medium text-pri">{preset.displayName}</span>
+        <span className="truncate text-base font-medium text-pri">{displayName}</span>
         <span className="mono truncate text-xs text-ter">
-          {preset.command}
-          {preset.available === false ? ` · ${t('addWorker.agentNotFound')}` : ''}
+          {command}
+          {notFound ? ` · ${t('addWorker.agentNotFound')}` : ''}
         </span>
       </span>
       {active ? <Check size={14} className="shrink-0 text-accent" aria-hidden /> : null}
     </button>
   )
 }
+
+const PresetAgentChip = ({
+  active,
+  preset,
+  onSelect,
+}: {
+  active: boolean
+  preset: CommandPreset
+  onSelect: () => void
+}) => (
+  <AgentChip
+    active={active}
+    command={preset.command}
+    disabled={preset.available === false}
+    displayName={preset.displayName}
+    notFound={preset.available === false}
+    testId={`agent-radio-${preset.id}`}
+    onSelect={onSelect}
+  />
+)
 
 export const AgentCliPicker = ({
   commandPresetId,
@@ -225,13 +253,20 @@ const AgentCliPickerInner = ({
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {commandPresets.map((preset) => (
-            <AgentChip
+            <PresetAgentChip
               key={preset.id}
               active={commandPresetId === preset.id}
               preset={preset}
               onSelect={() => onPresetChange(preset.id)}
             />
           ))}
+          <AgentChip
+            active={commandPresetId === ''}
+            command={t('addWorker.genericCommand')}
+            displayName={t('addWorker.genericAgent')}
+            testId="agent-radio-generic"
+            onSelect={() => onPresetChange('')}
+          />
         </div>
       )}
     </div>

@@ -132,7 +132,6 @@ export const useWorkerComposer = ({
   )
   const [commandPresets, setCommandPresets] = useState<CommandPreset[]>([])
   const [commandPresetId, setCommandPresetId] = useState('claude')
-  const [commandPresetTouched, setCommandPresetTouched] = useState(false)
   const [startupCommand, setStartupCommand] = useState('')
   const [createWorkerError, setCreateWorkerError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -227,7 +226,6 @@ export const useWorkerComposer = ({
   }
 
   const selectCommandPresetId = (value: string) => {
-    setCommandPresetTouched(true)
     setCommandPresetId(value)
   }
 
@@ -235,9 +233,8 @@ export const useWorkerComposer = ({
     event.preventDefault()
     setCreating(true)
     setCreateWorkerError(null)
-    const launchPresetId = startupCommand.trim() && !commandPresetTouched ? '' : commandPresetId
     void createWorker({
-      commandPresetId: launchPresetId,
+      commandPresetId,
       name: workerName,
       role: workerRole,
       roleDescription,
@@ -248,7 +245,6 @@ export const useWorkerComposer = ({
         workerNameGeneratedRef.current = false
         selectWorkerRole('coder')
         setCommandPresetId('claude')
-        setCommandPresetTouched(false)
         setStartupCommand('')
         onSuccess()
         if (error) setCreateWorkerError(error)

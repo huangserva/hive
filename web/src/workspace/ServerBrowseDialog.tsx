@@ -14,7 +14,6 @@ import type { WorkspaceCreateInput } from './workspace-create-input.js'
 type ServerBrowseDialogProps = {
   commandPresetError: string | null
   commandPresetId: string
-  commandPresetTouched: boolean
   commandPresets: CommandPreset[]
   onClose: () => void
   onCommandPresetChange: (value: string) => void
@@ -32,7 +31,6 @@ type ServerBrowseDialogProps = {
 export const ServerBrowseDialog = ({
   commandPresetError,
   commandPresetId,
-  commandPresetTouched,
   commandPresets,
   onClose,
   onCommandPresetChange,
@@ -67,21 +65,25 @@ export const ServerBrowseDialog = ({
   const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
   const startupClean = startupCommand.trim()
   const presetsLoading = commandPresets.length === 0 && !commandPresetError
+  const genericPresetNeedsStartup = !commandPresetId && startupClean.length === 0
   const selectedPresetUnavailable = selectedPreset?.available === false && startupClean.length === 0
-  const presetAvailabilityError = selectedPresetUnavailable
-    ? t('workspace.preset.notInstalled', { name: selectedPreset.displayName })
-    : null
+  const presetAvailabilityError = genericPresetNeedsStartup
+    ? t('workspace.preset.genericRequiresStartup')
+    : selectedPresetUnavailable
+      ? t('workspace.preset.notInstalled', { name: selectedPreset.displayName })
+      : null
   const canCreate =
     name.trim().length > 0 &&
     (probe?.is_dir === true || (advanced && manualPath.trim().length > 0)) &&
     !presetsLoading &&
+    !genericPresetNeedsStartup &&
     !selectedPresetUnavailable
 
   const handleCreate = () => {
     const path = advanced && manualPath.trim().length > 0 ? manualPath.trim() : (probe?.path ?? '')
     if (!path) return
     onCreate({
-      commandPresetId: startupClean && !commandPresetTouched ? null : commandPresetId || null,
+      commandPresetId: commandPresetId || null,
       name: name.trim(),
       path,
       ...(startupClean ? { startupCommand: startupClean } : {}),
