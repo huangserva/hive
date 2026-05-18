@@ -7,9 +7,6 @@ describe('report pending count', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    // Simulate PTY started before dispatching.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
-
     store.dispatchTask(workspace.id, worker.id, 'Task 1')
     store.dispatchTask(workspace.id, worker.id, 'Task 2')
     store.reportTask(workspace.id, worker.id, { status: 'success', text: 'Done one' })
@@ -18,7 +15,7 @@ describe('report pending count', () => {
       expect.objectContaining({
         id: worker.id,
         pendingTaskCount: 1,
-        status: 'working',
+        status: 'stopped',
       })
     )
   })

@@ -1,4 +1,4 @@
-import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
+import type { AgentSummary, TeamListItem, WorkspaceSummary } from '../shared/types.js'
 
 import { getHiveTeamRules } from './hive-team-guidance.js'
 import type { RecoveryMessage } from './message-log-store.js'
@@ -7,7 +7,7 @@ import { TASKS_RELATIVE_PATH } from './tasks-file.js'
 
 const TASKS_HEAD_LIMIT = 1024
 
-const formatWorkers = (workers: AgentSummary[]) => {
+const formatWorkers = (workers: TeamListItem[]) => {
   if (workers.length === 0) return ['- 当前没有其他 worker']
   return workers.map(
     (worker) =>
@@ -34,7 +34,7 @@ export const buildEnvSyncMessage = ({
 }: {
   agent: AgentSummary
   tasksContent: string
-  workers: AgentSummary[]
+  workers: TeamListItem[]
   workspace: WorkspaceSummary
   restartWindowMessages: RecoveryMessage[]
 }) =>

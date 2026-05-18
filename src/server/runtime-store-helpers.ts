@@ -73,7 +73,7 @@ export const createRuntimeStoreServices = (
 
   agentRunStore.markUnfinishedRunsStale()
 
-  const workspaceStore = createWorkspaceStore(db, dispatchLedgerStore.listOpenDispatchKinds())
+  const workspaceStore = createWorkspaceStore(db)
   const startExistingWorkspaceWatches = () => {
     for (const workspace of workspaceStore.listWorkspaces()) {
       void tasksFileWatcher.start(workspace.id, workspace.path)

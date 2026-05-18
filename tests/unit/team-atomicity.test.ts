@@ -202,9 +202,6 @@ describe('team atomicity', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    // Simulate PTY already running so dispatchTask can promote to working.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
-
     // Dispatch first so pendingTaskCount rises to 1 — gives reportTask something to decrement.
     store.dispatchTask(workspace.id, worker.id, 'Implement login')
     expect(store.listDispatches(workspace.id)).toContainEqual(
@@ -228,7 +225,7 @@ describe('team atomicity', () => {
       expect.objectContaining({
         id: worker.id,
         pendingTaskCount: 1,
-        status: 'working',
+        status: 'stopped',
       })
     )
     expect(store.listMessagesForRecovery(workspace.id, 0).length).toBe(beforeMessages)

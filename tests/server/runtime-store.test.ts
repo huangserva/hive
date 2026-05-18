@@ -76,7 +76,7 @@ describe('runtime store', () => {
     tempDirs.push(dataDir)
     const db = new Database(join(dataDir, 'runtime.sqlite'))
     initializeRuntimeDatabase(db)
-    const workspaceStore = createWorkspaceStore(db, [])
+    const workspaceStore = createWorkspaceStore(db)
     const originalPrepare = db.prepare.bind(db)
     vi.spyOn(db, 'prepare').mockImplementation((source: string) => {
       if (source.startsWith('INSERT INTO workspaces')) {
@@ -126,27 +126,25 @@ describe('runtime store', () => {
     })
   })
 
-  test('dispatchTask increments worker pending count and marks it working', () => {
-    const store = createRuntimeStore()
+  test('dispatchTask increments worker pending count and marks it working', async () => {
+    const store = createRuntimeStore({ agentManager: createFakeAgentManager() })
 
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, {
       name: 'Alice',
       role: 'coder',
     })
-    // Simulate PTY started: worker is idle, not stopped (spec §3.6.4 keeps
-    // stopped workers from being silently promoted to working when their
-    // PTY isn't actually running).
-    store.getWorker(workspace.id, worker.id).status = 'idle'
+    store.configureAgentLaunch(workspace.id, worker.id, { command: '/bin/bash', args: [] })
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
 
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
+    await store.dispatchTask(workspace.id, worker.id, 'Implement feature')
 
     const updatedWorker = store.getWorker(workspace.id, worker.id)
     expect(updatedWorker.pendingTaskCount).toBe(1)
     expect(updatedWorker.status).toBe('working')
   })
 
-  test('dispatchTask keeps a stopped worker stopped while accumulating queue', () => {
+  test('dispatchTask keeps a stopped worker stopped while accumulating queue', async () => {
     const store = createRuntimeStore()
 
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
@@ -156,7 +154,7 @@ describe('runtime store', () => {
     })
     // worker.addWorker initialises status='stopped' (PTY hasn't started).
 
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
+    await store.dispatchTask(workspace.id, worker.id, 'Implement feature')
 
     const updatedWorker = store.getWorker(workspace.id, worker.id)
     expect(updatedWorker.pendingTaskCount).toBe(1)
@@ -184,9 +182,7 @@ describe('runtime store', () => {
       name: 'Alice',
       role: 'coder',
     })
-    // Simulate the worker already having an active PTY before queuing.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
+    await store.dispatchTask(workspace.id, worker.id, 'Implement feature')
     store.configureAgentLaunch(workspace.id, worker.id, { command: '/bin/bash', args: [] })
 
     await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
@@ -194,18 +190,18 @@ describe('runtime store', () => {
     expect(store.getWorker(workspace.id, worker.id).status).toBe('working')
   })
 
-  test('reportTask resets worker pending count and returns it to idle', () => {
-    const store = createRuntimeStore()
+  test('reportTask resets worker pending count and returns it to idle', async () => {
+    const store = createRuntimeStore({ agentManager: createFakeAgentManager() })
 
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, {
       name: 'Alice',
       role: 'coder',
     })
-    // Simulate PTY already running so dispatchTask can promote to working.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
+    store.configureAgentLaunch(workspace.id, worker.id, { command: '/bin/bash', args: [] })
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
 
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
+    await store.dispatchTask(workspace.id, worker.id, 'Implement feature')
     store.reportTask(workspace.id, worker.id, { status: 'success', text: 'Done' })
 
     const updatedWorker = store.getWorker(workspace.id, worker.id)
@@ -213,7 +209,7 @@ describe('runtime store', () => {
     expect(updatedWorker.status).toBe('idle')
   })
 
-  test('reportTask keeps a stopped worker stopped while draining pending count', () => {
+  test('reportTask keeps a stopped worker stopped while draining pending count', async () => {
     const store = createRuntimeStore()
 
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
@@ -222,7 +218,7 @@ describe('runtime store', () => {
       role: 'coder',
     })
 
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
+    await store.dispatchTask(workspace.id, worker.id, 'Implement feature')
     store.getWorker(workspace.id, worker.id).status = 'stopped'
     store.reportTask(workspace.id, worker.id, { status: 'success', text: 'Done' })
 
@@ -314,7 +310,7 @@ describe('runtime store', () => {
     tempDirs.push(dataDir)
     const db = new Database(join(dataDir, 'runtime.sqlite'))
     initializeRuntimeDatabase(db)
-    const workspaceStore = createWorkspaceStore(db, [])
+    const workspaceStore = createWorkspaceStore(db)
     const workspace = workspaceStore.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const originalPrepare = db.prepare.bind(db)
     vi.spyOn(db, 'prepare').mockImplementation((source: string) => {

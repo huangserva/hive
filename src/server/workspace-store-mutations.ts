@@ -59,26 +59,17 @@ export const markAgentStopped = (
 }
 
 export const markTaskDispatched = (
-  workspaces: WorkspaceMap,
-  workspaceId: string,
-  workerId: string
+  _workspaces: WorkspaceMap,
+  _workspaceId: string,
+  _workerId: string
 ) => {
-  const worker = getWorkerRecord(workspaces, workspaceId, workerId)
-  worker.pendingTaskCount += 1
-  // spec §3.6.4: a stopped worker may accumulate queued tasks; PTY isn't
-  // running so it can't be `working`. Stay stopped until restart (mirrors
-  // markTaskReported's stopped guard below).
-  if (worker.status !== 'stopped')
-    worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
+  console.warn('[hive] markTaskDispatched is deprecated; pending state is derived from dispatches')
 }
 
 export const markTaskReported = (
-  workspaces: WorkspaceMap,
-  workspaceId: string,
-  workerId: string
+  _workspaces: WorkspaceMap,
+  _workspaceId: string,
+  _workerId: string
 ) => {
-  const worker = getWorkerRecord(workspaces, workspaceId, workerId)
-  worker.pendingTaskCount = Math.max(0, worker.pendingTaskCount - 1)
-  if (worker.status !== 'stopped')
-    worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
+  console.warn('[hive] markTaskReported is deprecated; pending state is derived from dispatches')
 }

@@ -1,12 +1,6 @@
 import type { AgentStatus, AgentSummary, WorkerRole } from '../shared/types.js'
 import { getDefaultRoleDescription } from './role-templates.js'
 
-export interface MessageKindRecord {
-  type: 'send' | 'report'
-  worker_id: string
-  workspace_id: string
-}
-
 export interface WorkspaceRow {
   id: string
   name: string
@@ -43,16 +37,4 @@ export const isWorkerAgent = (
 
 export const getStatusFromPendingCount = (pendingTaskCount: number): AgentStatus => {
   return pendingTaskCount > 0 ? 'working' : 'idle'
-}
-
-export const applyPendingTaskCount = (
-  worker: AgentSummary & { role: WorkerRole },
-  type: MessageKindRecord['type'],
-  preserveStoppedStatus: boolean
-) => {
-  worker.pendingTaskCount =
-    type === 'send' ? worker.pendingTaskCount + 1 : Math.max(0, worker.pendingTaskCount - 1)
-  if (!preserveStoppedStatus) {
-    worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
-  }
 }

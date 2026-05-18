@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import type { Database } from 'better-sqlite3'
 
-import type { AgentSummary } from '../shared/types.js'
+import type { AgentStatus, AgentSummary, TeamListItem } from '../shared/types.js'
+import {
+  countOpenDispatchesByWorker,
+  countOpenDispatchesForWorker,
+} from './dispatch-ledger-store.js'
 import { ConflictError } from './http-errors.js'
 import { getDefaultRoleDescription } from './role-templates.js'
 import type { WorkerInput, WorkspaceRecord, WorkspaceStore } from './workspace-store-contract.js'
@@ -15,13 +19,22 @@ import {
   markTaskDispatched,
   markTaskReported,
 } from './workspace-store-mutations.js'
-import {
-  createOrchestrator,
-  isWorkerAgent,
-  type MessageKindRecord,
-} from './workspace-store-support.js'
+import { createOrchestrator, isWorkerAgent } from './workspace-store-support.js'
 
 export type { WorkerInput, WorkspaceRecord, WorkspaceStore }
+
+const deriveWorkerStatus = (worker: AgentSummary, openCount: number): AgentStatus => {
+  if (worker.status === 'stopped') return 'stopped'
+  return openCount > 0 ? 'working' : 'idle'
+}
+
+const openDispatchCountMap = (db: Database, workspaceId: string) => {
+  const counts = new Map<string, number>()
+  for (const row of countOpenDispatchesByWorker(db, workspaceId)) {
+    counts.set(row.worker_id, row.open_count)
+  }
+  return counts
+}
 
 const normalizeWorkerName = (name: string) => {
   const trimmed = name.trim()
@@ -30,19 +43,31 @@ const normalizeWorkerName = (name: string) => {
   return trimmed
 }
 
-export const createWorkspaceStore = (
-  db: Database,
-  messageKinds: MessageKindRecord[]
-): WorkspaceStore => {
+export const createWorkspaceStore = (db: Database): WorkspaceStore => {
   const workspaces = new Map<string, WorkspaceRecord>()
-  seedWorkspacesFromDb(db, workspaces, messageKinds)
+  seedWorkspacesFromDb(db, workspaces)
 
   const getWorkspace = (workspaceId: string) => {
-    hydrateWorkspaceFromDb(db, workspaces, messageKinds, workspaceId)
+    hydrateWorkspaceFromDb(db, workspaces, workspaceId)
     const workspace = workspaces.get(workspaceId)
     if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`)
     return workspace
   }
+
+  const decorateAgent = (workspaceId: string, agent: AgentSummary): AgentSummary => {
+    if (!isWorkerAgent(agent)) return agent
+    const pendingTaskCount = countOpenDispatchesForWorker(db, workspaceId, agent.id)
+    return {
+      ...agent,
+      pendingTaskCount,
+      status: deriveWorkerStatus(agent, pendingTaskCount),
+    }
+  }
+
+  const decorateWorkspace = (workspace: WorkspaceRecord): WorkspaceRecord => ({
+    summary: workspace.summary,
+    agents: workspace.agents.map((agent) => decorateAgent(workspace.summary.id, agent)),
+  })
 
   return {
     addWorker(workspaceId, input) {
@@ -135,25 +160,37 @@ export const createWorkspaceStore = (
       })()
       workspace.agents = workspace.agents.filter((agent) => agent.id !== workerId)
     },
-    getAgent: (workspaceId, agentId) => getAgentRecord(workspaces, workspaceId, agentId),
-    getWorker: (workspaceId, workerId) => getWorkerRecord(workspaces, workspaceId, workerId),
-    getWorkerByName: (workspaceId, workerName) =>
-      getWorkerByNameRecord(workspaces, workspaceId, workerName),
-    getWorkspaceSnapshot: getWorkspace,
+    getAgent(workspaceId, agentId) {
+      getWorkspace(workspaceId)
+      return decorateAgent(workspaceId, getAgentRecord(workspaces, workspaceId, agentId))
+    },
+    getWorker(workspaceId, workerId) {
+      getWorkspace(workspaceId)
+      return decorateAgent(workspaceId, getWorkerRecord(workspaces, workspaceId, workerId))
+    },
+    getWorkerByName(workspaceId, workerName) {
+      getWorkspace(workspaceId)
+      return decorateAgent(workspaceId, getWorkerByNameRecord(workspaces, workspaceId, workerName))
+    },
+    getWorkspaceSnapshot: (workspaceId) => decorateWorkspace(getWorkspace(workspaceId)),
     hasAgent(workspaceId, agentId) {
-      hydrateWorkspaceFromDb(db, workspaces, messageKinds, workspaceId)
+      hydrateWorkspaceFromDb(db, workspaces, workspaceId)
       return workspaces.get(workspaceId)?.agents.some((agent) => agent.id === agentId) ?? false
     },
     listWorkers(workspaceId) {
+      const counts = openDispatchCountMap(db, workspaceId)
       return getWorkspace(workspaceId)
         .agents.filter(isWorkerAgent)
-        .map(({ id, name, role, status, pendingTaskCount }) => ({
-          id,
-          name,
-          role,
-          status,
-          pendingTaskCount,
-        }))
+        .map((worker): TeamListItem => {
+          const pendingTaskCount = counts.get(worker.id) ?? 0
+          return {
+            id: worker.id,
+            name: worker.name,
+            role: worker.role,
+            status: deriveWorkerStatus(worker, pendingTaskCount),
+            pendingTaskCount,
+          }
+        })
     },
     listWorkspaces() {
       return Array.from(workspaces.values(), (workspace) => workspace.summary)

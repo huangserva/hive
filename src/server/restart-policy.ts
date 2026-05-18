@@ -41,9 +41,15 @@ export const createRestartPolicy = ({
     const snapshot = getWorkspaceSnapshot(workspace.id)
     const agent = snapshot.agents.find((item) => item.id === agentId)
     if (!agent) return false
-    const workers = snapshot.agents.filter(
-      (item) => item.role !== 'orchestrator' && item.id !== agentId
-    )
+    const workers = snapshot.agents
+      .filter((item) => item.role !== 'orchestrator' && item.id !== agentId)
+      .map(({ id, name, pendingTaskCount, role, status }) => ({
+        id,
+        name,
+        pendingTaskCount,
+        role: role as Exclude<typeof role, 'orchestrator'>,
+        status,
+      }))
     const tasksContent = readTasks(snapshot.summary.path)
 
     if (startConfig.resumedSessionId) return true

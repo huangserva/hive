@@ -1,4 +1,4 @@
-import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
+import type { AgentSummary, TeamListItem, WorkspaceSummary } from '../shared/types.js'
 
 import { getHiveTeamRules } from './hive-team-guidance.js'
 import type { RecoveryMessage } from './message-log-store.js'
@@ -35,13 +35,13 @@ const formatTaskEvents = (messages: RecoveryMessage[], agent: AgentSummary) => {
     : ['- （最近没有任务事件）']
 }
 
-const getOpenTaskTargets = (agent: AgentSummary, workers: AgentSummary[]) =>
+const getOpenTaskTargets = (agent: AgentSummary, workers: TeamListItem[]) =>
   agent.role === 'orchestrator' ? workers : [agent]
 
 const formatOpenTasks = (
   messages: RecoveryMessage[],
   agent: AgentSummary,
-  workers: AgentSummary[]
+  workers: TeamListItem[]
 ) => {
   const targetAgents = getOpenTaskTargets(agent, workers).filter(
     (target) => target.role !== 'orchestrator'
@@ -78,7 +78,7 @@ const formatOpenTasks = (
   return lines.length > 0 ? lines : ['- （当前没有未完成任务）']
 }
 
-const formatWorkers = (workers: AgentSummary[]) => {
+const formatWorkers = (workers: TeamListItem[]) => {
   if (workers.length === 0) return ['- 当前没有其他 worker']
   return workers.map(
     (worker) =>
@@ -101,7 +101,7 @@ export const buildRecoverySummary = ({
   allTaskMessages?: RecoveryMessage[]
   messages: RecoveryMessage[]
   tasksContent: string
-  workers: AgentSummary[]
+  workers: TeamListItem[]
   workspace: WorkspaceSummary
 }) =>
   wrapSystemMessage(

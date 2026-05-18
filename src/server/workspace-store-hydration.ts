@@ -3,10 +3,7 @@ import type { AgentSummary } from '../shared/types.js'
 import { getDefaultRoleDescription } from './role-templates.js'
 import type { WorkspaceRecord } from './workspace-store-contract.js'
 import {
-  applyPendingTaskCount,
   createOrchestrator,
-  isWorkerAgent,
-  type MessageKindRecord,
   type WorkerRow,
   type WorkspaceRow,
   type WorkspaceSummaryRow,
@@ -25,31 +22,9 @@ const createWorkerSummary = (
   pendingTaskCount: 0,
 })
 
-const applyMessageKinds = (
-  workspaces: Map<string, WorkspaceRecord>,
-  messageKinds: MessageKindRecord[],
-  workspaceId?: string
-) => {
-  for (const row of messageKinds) {
-    if (workspaceId && row.workspace_id !== workspaceId) {
-      continue
-    }
-
-    const worker = workspaces
-      .get(row.workspace_id)
-      ?.agents.find((agent) => agent.id === row.worker_id)
-    if (!worker || !isWorkerAgent(worker)) {
-      continue
-    }
-
-    applyPendingTaskCount(worker, row.type, true)
-  }
-}
-
 export const hydrateWorkspaceFromDb = (
   db: Database,
   workspaces: Map<string, WorkspaceRecord>,
-  messageKinds: MessageKindRecord[],
   workspaceId: string
 ) => {
   if (workspaces.has(workspaceId)) {
@@ -75,15 +50,9 @@ export const hydrateWorkspaceFromDb = (
     .all(workspaceId) as WorkerRow[]) {
     workspaces.get(workspaceId)?.agents.push(createWorkerSummary(workerRow.workspace_id, workerRow))
   }
-
-  applyMessageKinds(workspaces, messageKinds, workspaceId)
 }
 
-export const seedWorkspacesFromDb = (
-  db: Database,
-  workspaces: Map<string, WorkspaceRecord>,
-  messageKinds: MessageKindRecord[]
-) => {
+export const seedWorkspacesFromDb = (db: Database, workspaces: Map<string, WorkspaceRecord>) => {
   for (const row of db
     .prepare('SELECT id, name, path FROM workspaces ORDER BY created_at ASC')
     .all() as WorkspaceRow[]) {
@@ -100,6 +69,4 @@ export const seedWorkspacesFromDb = (
     .all() as WorkerRow[]) {
     workspaces.get(row.workspace_id)?.agents.push(createWorkerSummary(row.workspace_id, row))
   }
-
-  applyMessageKinds(workspaces, messageKinds)
 }

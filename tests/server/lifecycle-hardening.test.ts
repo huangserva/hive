@@ -185,7 +185,7 @@ describe('lifecycle hardening (R2.1 / R2.2 / R2.3) — real PTY', () => {
     const { dataDir, workspacePath } = prepareWorkspace()
     const db = new Database(join(dataDir, 'runtime.sqlite'))
     initializeRuntimeDatabase(db)
-    const workspaceStore = createWorkspaceStore(db, [])
+    const workspaceStore = createWorkspaceStore(db)
     const workspace = workspaceStore.createWorkspace(workspacePath, 'Alpha')
     const worker = workspaceStore.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
     const startedAt = Date.now() - 60_000
@@ -257,7 +257,7 @@ describe('lifecycle hardening (R2.1 / R2.2 / R2.3) — real PTY', () => {
 
     const db = new Database(join(dataDir, 'runtime.sqlite'))
     initializeRuntimeDatabase(db)
-    const workspaceStore = createWorkspaceStore(db, [])
+    const workspaceStore = createWorkspaceStore(db)
     const agentRunStore = createAgentRunStore(db)
     const onAgentExitSpy = vi.fn((workspaceId: string, agentId: string) => {
       workspaceStore.markAgentStopped(workspaceId, agentId)

@@ -189,8 +189,6 @@ describe('runtime http app', () => {
       name: 'Alice',
       role: 'coder',
     })
-    // Simulate PTY already running so dispatchTask can promote to working.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
     store.dispatchTask(workspace.id, worker.id, 'Implement feature')
 
     const sessionResponse = await fetch(`${baseUrl}/api/ui/session`)
@@ -209,7 +207,7 @@ describe('runtime http app', () => {
         id: worker.id,
         name: 'Alice',
         role: 'coder',
-        status: 'working',
+        status: 'stopped',
         pending_task_count: 1,
         last_pty_line: null,
         command_preset_id: null,

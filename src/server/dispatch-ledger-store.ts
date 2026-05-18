@@ -51,10 +51,38 @@ interface ReportDispatchInput {
   workspaceId: string
 }
 
+const OPEN_FILTER = "status NOT IN ('reported', 'cancelled', 'failed')"
+
 export interface ListDispatchesOptions {
   limit?: number
   offset?: number
   status?: DispatchStatus
+}
+
+export const countOpenDispatchesByWorker = (db: Database, workspaceId: string) => {
+  return db
+    .prepare(
+      `SELECT to_agent_id AS worker_id, COUNT(*) AS open_count
+       FROM dispatches
+       WHERE workspace_id = ? AND ${OPEN_FILTER}
+       GROUP BY to_agent_id`
+    )
+    .all(workspaceId) as Array<{ open_count: number; worker_id: string }>
+}
+
+export const countOpenDispatchesForWorker = (
+  db: Database,
+  workspaceId: string,
+  workerId: string
+) => {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS open_count
+       FROM dispatches
+       WHERE workspace_id = ? AND to_agent_id = ? AND ${OPEN_FILTER}`
+    )
+    .get(workspaceId, workerId) as { open_count: number } | undefined
+  return row?.open_count ?? 0
 }
 
 const parseArtifacts = (value: string | null) => {
@@ -158,7 +186,7 @@ export const createDispatchLedgerStore = (db: Database) => {
            WHERE id = ?
              AND workspace_id = ?
              AND to_agent_id = ?
-             AND status NOT IN ('reported', 'cancelled', 'failed')
+             AND ${OPEN_FILTER}
            LIMIT 1`
         )
         .get(dispatchId, workspaceId, toAgentId) as DispatchRow | undefined
@@ -172,7 +200,7 @@ export const createDispatchLedgerStore = (db: Database) => {
          FROM dispatches
          WHERE workspace_id = ?
            AND to_agent_id = ?
-           AND status NOT IN ('reported', 'cancelled', 'failed')
+           AND ${OPEN_FILTER}
          ORDER BY sequence ASC
          LIMIT 1`
       )
@@ -243,7 +271,7 @@ export const createDispatchLedgerStore = (db: Database) => {
       .prepare(
         `SELECT workspace_id, to_agent_id AS worker_id, 'send' AS type
            FROM dispatches
-           WHERE status NOT IN ('reported', 'cancelled', 'failed')
+           WHERE ${OPEN_FILTER}
            ORDER BY sequence ASC`
       )
       .all() as Array<{ type: 'send'; worker_id: string; workspace_id: string }>
