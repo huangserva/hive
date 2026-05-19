@@ -11,6 +11,8 @@ import {
 } from './api.js'
 import { useI18n } from './i18n.js'
 import { WorkspaceNotifications } from './notifications/WorkspaceNotifications.js'
+import { TerminalBottomPanel } from './terminal/TerminalBottomPanel.js'
+import { useTerminalPanelTabs } from './terminal/useTerminalPanelTabs.js'
 import { findRunByAgentId } from './terminal/useTerminalRuns.js'
 import { WorkspaceShellDialog } from './terminal/WorkspaceShellDialog.js'
 import { useToast } from './ui/useToast.js'
@@ -110,6 +112,11 @@ export const WorkspaceDetail = ({
     },
   })
   const split = usePaneSplit()
+  const panelTabs = useTerminalPanelTabs({
+    workspaceId: workspace?.id ?? '',
+    workers,
+    terminalRuns,
+  })
 
   if (!workspace) {
     const welcomeProps: {
@@ -171,7 +178,10 @@ export const WorkspaceDetail = ({
     setShellError(null)
     setShellStarting(true)
     void startWorkspaceShell(workspace.id)
-      .then((run) => setShellRunId(run.run_id))
+      .then((run) => {
+        setShellRunId(run.run_id)
+        panelTabs.openShellTab(run.run_id)
+      })
       .catch((error) => {
         setShellError(error instanceof Error ? error.message : String(error))
       })
@@ -234,17 +244,44 @@ export const WorkspaceDetail = ({
           onPointerDown={split.beginDrag}
           onKeyDown={split.onKeyDown}
         />
-        <WorkersPane
-          onAddWorkerClick={() => setComposerOpen(true)}
-          onDeleteWorker={handleDeleteWorker}
-          onOpenShellTerminal={openShell}
-          onOpenWorker={(worker) => setActiveWorkerId(worker.id)}
-          onRenameWorker={handleRenameWorker}
-          onStartWorker={handleStartWorker}
-          startingWorkerId={startingWorkerId}
-          terminalRuns={terminalRuns}
-          workers={workers}
-        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <WorkersPane
+            onAddWorkerClick={() => setComposerOpen(true)}
+            onDeleteWorker={handleDeleteWorker}
+            onOpenShellTerminal={openShell}
+            onOpenWorker={(worker) => {
+              setActiveWorkerId(worker.id)
+              panelTabs.openWorkerTab(worker.id)
+            }}
+            onRenameWorker={handleRenameWorker}
+            onStartWorker={handleStartWorker}
+            startingWorkerId={startingWorkerId}
+            terminalRuns={terminalRuns}
+            workers={workers}
+          />
+          <TerminalBottomPanel
+            tabs={panelTabs.tabs}
+            activeId={panelTabs.activeId}
+            onSelect={panelTabs.setActive}
+            onClose={(tabId) => {
+              if (tabId.startsWith('shell:')) {
+                const runId = tabId.slice('shell:'.length)
+                closeShellTab(runId)
+              }
+              panelTabs.closeTab(tabId)
+            }}
+            onNewShell={() => {
+              startShell()
+              setShellOpen(false)
+            }}
+            newShellPending={shellStarting}
+            onStartWorker={(workerId) => {
+              const worker = workers.find((w) => w.id === workerId)
+              if (worker) handleStartWorker(worker)
+            }}
+            startingWorkerId={startingWorkerId}
+          />
+        </div>
       </div>
       {activeWorker ? (
         <WorkerModal
