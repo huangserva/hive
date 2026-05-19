@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { VersionInfo } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
+import { InstallAppButton } from '../pwa/InstallAppButton.js'
 import { useVersionInfo } from '../useVersionInfo.js'
 import { APP_VERSION } from '../version.js'
 import { LanguageToggle } from './LanguageToggle.js'
@@ -69,6 +70,7 @@ export const Topbar = ({
               The dormant drawer/API remain behind TASK_GRAPH_PRIMARY_ENTRY_ENABLED
               in app.tsx for existing `.hive/tasks.md` workspaces and possible revival. */}
           <LanguageToggle />
+          <InstallAppButton />
           <NotificationSettingsButton />
         </div>
       )}

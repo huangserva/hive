@@ -2,6 +2,43 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.3.0 - 2026-05-19
+
+Installable Hive: turns the web shell into a real PWA so Chrome / Edge can
+launch it from a dock icon, in its own window, without a visible browser
+chrome.
+
+- Adds a web app manifest with icons (192, 512, maskable 512, apple-touch 180),
+  a wide screenshot, and shortcuts for "Add Workspace" and "Try Demo" so
+  right-clicking the dock icon jumps straight to those flows.
+- Adds an `Install as app` button to the topbar between the language toggle and
+  notification settings. The button only shows when the browser exposes a
+  `beforeinstallprompt` and the page isn't already running standalone, so it
+  disappears the moment the user installs.
+- Ships a service worker (`/sw.js`) that caches the SPA shell + hashed asset
+  chunks + static icons / sounds / cli-icons, but never intercepts `/api/*`,
+  `/ws/*`, or non-GET requests — auth cookies and WebSockets keep their
+  native paths. Each release writes to its own cache bucket and older buckets
+  are kept so tabs still controlled by the previous SW can resolve their
+  lazy-imported chunks.
+- Surfaces shell updates as a bottom-right toast (`Web UI updated — Reload to
+  activate`) instead of forcing a refresh. The Reload button stays disabled
+  while any terminal run is still working so updates never interrupt an
+  in-flight agent.
+- Replaces the workspace area with a dedicated `Hive runtime is not running`
+  page when the initial bootstrap fails. The page pings `/api/version` every
+  three seconds and reloads automatically once the daemon comes back; a manual
+  Retry button is offered alongside.
+- Hardens the server: `/sw.js` is served with `Cache-Control: no-store` and the
+  manifest with `Cache-Control: max-age=0, must-revalidate`, so SW updates
+  propagate the next time the browser checks instead of waiting on a stale
+  HTTP cache.
+- Notes for first-time installers: the SW activates after the first reload
+  following install. On separate ports (`hive --port 4011` vs `--port 3000`)
+  Chrome treats Hive as two distinct PWAs because the install scope is keyed
+  by origin. To fully remove a PWA install, use
+  `chrome://apps` → right-click the Hive tile → Remove.
+
 ## 1.2.0 - 2026-05-18
 
 Opens the active workspace in your editor, terminal, or file manager from

@@ -68,6 +68,15 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+// PWA boot files must bypass HTTP caching: `sw.js` because the browser does its
+// own byte-diff update check, and the manifest because Chrome consults it on
+// every install/uninstall transition. Without these, SW updates can stall on a
+// stale cached copy and the install prompt won't reflect a renamed app.
+const PWA_BOOT_CACHE_CONTROL: Record<string, string> = {
+  '/manifest.webmanifest': 'max-age=0, must-revalidate',
+  '/sw.js': 'no-store',
+}
+
 const sendStatic = async (
   response: ServerResponse,
   staticDir: string,
@@ -83,6 +92,8 @@ const sendStatic = async (
       'content-type',
       CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream'
     )
+    const cacheControl = PWA_BOOT_CACHE_CONTROL[pathname]
+    if (cacheControl !== undefined) response.setHeader('cache-control', cacheControl)
     response.statusCode = 200
     response.end(request.method === 'HEAD' ? undefined : content)
     return true

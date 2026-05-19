@@ -60,6 +60,12 @@ hive update
 
 `hive update` 会在原位运行 `npm install -g @tt-a1i/hive@latest`，完事后重启 Hive 就能用上新版。如果当初是用 pnpm / yarn 装的 Hive，请用同一个包管理器升级，避免装出第二份。
 
+把 Hive 装为应用（可选）：
+
+在 Chrome / Edge / Brave 里打开 `http://127.0.0.1:3000/`，点顶栏的 **装为应用** 按钮，或者用浏览器地址栏右侧的安装图标。装好后 Hive 会以独立窗口启动、有自己的 dock 图标，且 dock 右键菜单上会显示 **添加 Workspace** / **试用演示** 两个快捷入口。Firefox 和 Safari 暂未实现 PWA install-prompt 协议，**装为应用** 按钮只在 Chromium 系浏览器里出现。
+
+PWA 只是 UI 壳，Hive 后端仍需要在终端里跑着。如果启动 PWA 时后端没起，会看到 “Hive 后端未启动” 页面，等你跑起 `hive` 后会自动刷新。PWA 的 install scope 按 origin（含端口）划分，所以 `hive --port 4011` 跟 `hive --port 3000` 在浏览器看来是两个独立应用。卸载方法：浏览器地址栏访问 `chrome://apps`，右键 Hive 图标，选 **从 Chrome 中移除…**。
+
 首次使用流程：
 
 1. 选择一个项目目录作为 workspace。

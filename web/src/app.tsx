@@ -8,6 +8,9 @@ import { DEMO_TASKS_MD } from './demo/demo-fixture.js'
 import { useDemoMode } from './demo/useDemoMode.js'
 import { useEffectiveWorkspaceState } from './demo/useEffectiveWorkspaceState.js'
 import { MainLayout } from './layout/MainLayout.js'
+import { RuntimeOfflinePage } from './pwa/RuntimeOfflinePage.js'
+import { UpdateAvailableToast } from './pwa/UpdateAvailableToast.js'
+import { useShortcutAction } from './pwa/use-shortcut-action.js'
 import { Sidebar } from './sidebar/Sidebar.js'
 import { useTasksFile } from './tasks/useTasksFile.js'
 import { useOptimisticTerminalRuns } from './terminal/useOptimisticTerminalRuns.js'
@@ -92,55 +95,76 @@ const AppInner = () => {
     onTriggerAddDialog: triggerAddDialog,
     workspaces: eff.effectiveWorkspaces,
   })
+  // PWA manifest shortcuts route through `?action=...` query params. Wait for
+  // bootstrap to *settle* (success OR explicit error) so the dispatcher fires
+  // even when the daemon is down — that's exactly when `Try Demo` is most
+  // useful, and a stuck-on-loading state would make the shortcut a dead URL.
+  useShortcutAction({
+    onAddWorkspace: triggerAddDialog,
+    onTryDemo: enableDemo,
+    ready: demoMode || workspaces !== null || bootstrapError !== null,
+  })
   const handleSelectOwner = useWorkerHighlight()
+  // Only escalate to the full-screen offline page when bootstrap explicitly
+  // failed AND we have no cached workspace data to fall back on AND the user
+  // isn't already in demo mode. Mid-session API failures keep the existing
+  // toast-based handling.
+  const runtimeOffline = bootstrapError !== null && !demoMode && workspaces === null
   return (
-    <MainLayout
-      hideTopbarActions={!eff.effectiveActiveWorkspace}
-      topbarActions={<OpenWorkspaceButton workspace={eff.effectiveActiveWorkspace} />}
-      sidebar={
-        <Sidebar
-          activeWorkspaceId={eff.effectiveActiveWorkspaceId}
-          createDisabledReason={bootstrapError ?? undefined}
-          onCreateClick={triggerAddDialog}
-          onDeleteWorkspace={deleteWorkspace}
-          onSelectWorkspace={selectWorkspace}
-          workersByWorkspaceId={eff.effectiveWorkersByWorkspaceId}
-          workspaces={eff.effectiveWorkspaces}
+    <>
+      <MainLayout
+        hideTopbarActions={!eff.effectiveActiveWorkspace}
+        topbarActions={<OpenWorkspaceButton workspace={eff.effectiveActiveWorkspace} />}
+        sidebar={
+          <Sidebar
+            activeWorkspaceId={eff.effectiveActiveWorkspaceId}
+            createDisabledReason={bootstrapError ?? undefined}
+            onCreateClick={triggerAddDialog}
+            onDeleteWorkspace={deleteWorkspace}
+            onSelectWorkspace={selectWorkspace}
+            workersByWorkspaceId={eff.effectiveWorkersByWorkspaceId}
+            workspaces={eff.effectiveWorkspaces}
+          />
+        }
+      >
+        {runtimeOffline ? (
+          <RuntimeOfflinePage onTryDemo={enableDemo} />
+        ) : (
+          <AppWorkspaceContent
+            activeId={activeId}
+            activeWorkspace={eff.effectiveActiveWorkspace}
+            bootstrapError={bootstrapError}
+            demoMode={demoMode}
+            onDeleteWorkspace={deleteWorkspace}
+            onExitDemo={exitDemo}
+            onRequestAddWorkspace={triggerAddDialog}
+            onTryDemo={enableDemo}
+            optimisticRunsByWorkspaceId={terms.optimisticRunsByWorkspaceId}
+            orchestratorAutostartErrors={wsCreate.orchestratorAutostartErrors}
+            orchestratorAutostartRunIds={wsCreate.orchestratorAutostartRunIds}
+            recordOrchestratorResult={wsCreate.recordOrchestratorResult}
+            terminalRuns={terms.terminalRuns}
+            workerActions={workerActions}
+            workers={activeWorkers}
+          />
+        )}
+        <AppOverlays
+          addDialogTrigger={addDialogTrigger}
+          wizardOpen={wizardOpen}
+          onAddWorkspace={triggerAddDialog}
+          onCloseTaskGraph={() => setTaskGraphOpen(false)}
+          onCloseWizard={closeWizard}
+          onCreateWorkspace={wsCreate.createNewWorkspace}
+          onTryDemo={enableDemo}
+          taskGraphOpen={effectiveTaskGraphOpen}
+          tasksFile={tasksFile}
+          workspacePath={eff.effectiveActiveWorkspace?.path ?? null}
+          workers={activeWorkers}
+          onSelectOwner={handleSelectOwner}
         />
-      }
-    >
-      <AppWorkspaceContent
-        activeId={activeId}
-        activeWorkspace={eff.effectiveActiveWorkspace}
-        bootstrapError={bootstrapError}
-        demoMode={demoMode}
-        onDeleteWorkspace={deleteWorkspace}
-        onExitDemo={exitDemo}
-        onRequestAddWorkspace={triggerAddDialog}
-        onTryDemo={enableDemo}
-        optimisticRunsByWorkspaceId={terms.optimisticRunsByWorkspaceId}
-        orchestratorAutostartErrors={wsCreate.orchestratorAutostartErrors}
-        orchestratorAutostartRunIds={wsCreate.orchestratorAutostartRunIds}
-        recordOrchestratorResult={wsCreate.recordOrchestratorResult}
-        terminalRuns={terms.terminalRuns}
-        workerActions={workerActions}
-        workers={activeWorkers}
-      />
-      <AppOverlays
-        addDialogTrigger={addDialogTrigger}
-        wizardOpen={wizardOpen}
-        onAddWorkspace={triggerAddDialog}
-        onCloseTaskGraph={() => setTaskGraphOpen(false)}
-        onCloseWizard={closeWizard}
-        onCreateWorkspace={wsCreate.createNewWorkspace}
-        onTryDemo={enableDemo}
-        taskGraphOpen={effectiveTaskGraphOpen}
-        tasksFile={tasksFile}
-        workspacePath={eff.effectiveActiveWorkspace?.path ?? null}
-        workers={activeWorkers}
-        onSelectOwner={handleSelectOwner}
-      />
-    </MainLayout>
+      </MainLayout>
+      <UpdateAvailableToast terminalRuns={terms.terminalRuns} />
+    </>
   )
 }
 

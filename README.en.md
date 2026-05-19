@@ -82,6 +82,22 @@ in-flight Hive process to pick up the new version. If you installed Hive with
 pnpm or yarn, upgrade through the same package manager — otherwise the new
 npm copy will shadow your existing install.
 
+Install Hive as an app (optional):
+
+Open `http://127.0.0.1:3000/` in Chrome, Edge, or Brave and click the topbar
+**Install as app** button — or use the browser's omnibox install icon. The
+PWA launches in its own dock-anchored window without browser chrome and shows
+**Add Workspace** / **Try Demo** shortcuts from the dock right-click menu.
+Firefox and Safari currently don't implement the install-prompt protocol, so
+the **Install as app** button only appears in Chromium-based browsers.
+
+The Hive daemon must still be running for the PWA to do anything; if the
+runtime isn't reachable when you launch the app, you'll see a "Hive runtime
+is not running" page that auto-reloads once `hive` is back on `127.0.0.1`.
+The PWA install scope is keyed by origin, so `hive --port 4011` installs as
+a separate app from `hive --port 3000`. To uninstall, visit `chrome://apps`,
+right-click the Hive tile, and choose **Remove from Chrome…**.
+
 First-run flow:
 
 1. Create a workspace from a project folder.
