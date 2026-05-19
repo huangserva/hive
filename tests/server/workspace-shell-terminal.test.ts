@@ -46,6 +46,61 @@ afterEach(() => {
 })
 
 describe('workspace shell terminal', () => {
+  test('fills the lowest available shell label after closing a middle shell', async () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-shell-terminal-gap-'))
+    tempDirs.push(workspacePath)
+    const server = await startTestServer()
+
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspaceResponse = await fetch(`${server.baseUrl}/api/workspaces`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({
+          autostart_orchestrator: false,
+          name: 'Shell Gap',
+          path: workspacePath,
+        }),
+      })
+      expect(workspaceResponse.status).toBe(201)
+      const workspace = (await workspaceResponse.json()) as { id: string }
+
+      const shells: Array<{ agent_name: string; run_id: string }> = []
+      for (let index = 0; index < 3; index += 1) {
+        const startResponse = await fetch(
+          `${server.baseUrl}/api/workspaces/${workspace.id}/shell/start`,
+          { method: 'POST', headers: { cookie } }
+        )
+        expect(startResponse.status).toBe(201)
+        shells.push((await startResponse.json()) as { agent_name: string; run_id: string })
+      }
+
+      expect(shells.map((shell) => shell.agent_name)).toEqual(['Shell 1', 'Shell 2', 'Shell 3'])
+      const closedShellRunId = shells[1].run_id
+
+      const closeResponse = await fetch(
+        `${server.baseUrl}/api/workspaces/${workspace.id}/shell/${closedShellRunId}`,
+        { method: 'DELETE', headers: { cookie } }
+      )
+      expect(closeResponse.status).toBe(204)
+
+      const replacementResponse = await fetch(
+        `${server.baseUrl}/api/workspaces/${workspace.id}/shell/start`,
+        { method: 'POST', headers: { cookie } }
+      )
+      expect(replacementResponse.status).toBe(201)
+      const replacementShell = (await replacementResponse.json()) as {
+        agent_name: string
+        run_id: string
+      }
+
+      expect(replacementShell.agent_name).toBe('Shell 2')
+      expect(replacementShell.run_id).not.toBe(closedShellRunId)
+    } finally {
+      await server.close()
+    }
+  }, 60000)
+
   test('starts one workspace shell and wires it through the terminal websocket', async () => {
     const workspacePath = mkdtempSync(join(tmpdir(), 'hive-shell-terminal-'))
     tempDirs.push(workspacePath)
