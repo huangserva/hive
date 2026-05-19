@@ -215,7 +215,7 @@ export const WorkspaceDetail = ({
           onPointerDown={split.beginDrag}
           onKeyDown={split.onKeyDown}
         />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <WorkersPane
             onAddWorkerClick={() => setComposerOpen(true)}
             onDeleteWorker={handleDeleteWorker}
@@ -230,6 +230,7 @@ export const WorkspaceDetail = ({
           <TerminalBottomPanel
             tabs={panelTabs.tabs}
             activeId={panelTabs.activeId}
+            scopeKey={workspace.id}
             onSelect={panelTabs.setActive}
             onClose={(tabId) => {
               if (tabId.startsWith('shell:')) {
@@ -252,18 +253,24 @@ export const WorkspaceDetail = ({
           commandPresets={composer.commandPresets}
           commandPresetId={composer.commandPresetId}
           creating={composer.creating}
+          customTemplates={composer.customTemplates}
           onClose={() => setComposerOpen(false)}
+          onDeleteTemplate={composer.deleteTemplate}
           onNameChange={composer.setWorkerName}
           onPresetChange={composer.setCommandPresetId}
           onRandomName={composer.randomizeWorkerName}
           onRoleDescriptionChange={composer.setRoleDescription}
           onRoleDescriptionReset={composer.resetRoleDescription}
           onRoleChange={composer.setWorkerRole}
+          onSaveAsTemplate={composer.saveAsTemplate}
           onSubmit={(event) => composer.submit(event, () => setComposerOpen(false))}
           onStartupCommandChange={composer.setStartupCommand}
+          onTemplateChange={composer.selectTemplate}
           roleDescription={composer.roleDescription}
           roleDescriptionDefault={composer.roleDescriptionDefault}
+          selectedTemplateId={composer.selectedTemplateId}
           startupCommand={composer.startupCommand}
+          templateBusy={composer.templateBusy}
           workerName={composer.workerName}
           workerRole={composer.workerRole}
         />

@@ -1,10 +1,11 @@
-import { Check, ChevronDown, RotateCcw } from 'lucide-react'
+import { Check, ChevronDown, RotateCcw, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 
 import type { WorkerRole } from '../../../src/shared/types.js'
-import type { CommandPreset } from '../api.js'
+import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { Confirm } from '../ui/Confirm.js'
 import { RoleAvatar } from './RoleAvatar.js'
 
 interface RoleCardSpec {
@@ -53,61 +54,183 @@ const RoleCard = ({
   )
 }
 
+const CustomTemplateCard = ({
+  active,
+  template,
+  onSelect,
+  onDelete,
+}: {
+  active: boolean
+  template: RoleTemplate
+  onSelect: () => void
+  onDelete: () => void
+}) => {
+  const { t } = useI18n()
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={active}
+        data-testid={`role-card-template-${template.id}`}
+        className="selectable-card flex w-full items-center gap-3 px-3 py-2 pr-9"
+      >
+        <RoleAvatar role={template.roleType} size={20} />
+        <span className="min-w-0 flex-1 truncate text-left text-base font-medium text-pri">
+          {template.name}
+        </span>
+        {active ? <Check size={14} className="shrink-0 text-accent" aria-hidden /> : null}
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onDelete()
+        }}
+        aria-label={t('addWorker.templateDeleteAria', { name: template.name })}
+        data-testid={`role-template-delete-${template.id}`}
+        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded text-ter transition-colors hover:bg-3 hover:text-pri"
+      >
+        <Trash2 size={14} aria-hidden />
+      </button>
+    </div>
+  )
+}
+
 export const RolePicker = ({
+  customTemplates,
+  onDeleteTemplate,
   onRoleChange,
+  onTemplateChange,
+  selectedTemplateId,
   workerRole,
 }: {
+  customTemplates: RoleTemplate[]
+  onDeleteTemplate: (templateId: string) => Promise<void> | void
   onRoleChange: (value: WorkerRole) => void
+  onTemplateChange: (templateId: string) => void
+  selectedTemplateId: string | null
   workerRole: WorkerRole
 }) => (
   <div className="flex flex-col gap-2">
-    <RolePickerInner workerRole={workerRole} onRoleChange={onRoleChange} />
+    <RolePickerInner
+      customTemplates={customTemplates}
+      onDeleteTemplate={onDeleteTemplate}
+      onRoleChange={onRoleChange}
+      onTemplateChange={onTemplateChange}
+      selectedTemplateId={selectedTemplateId}
+      workerRole={workerRole}
+    />
   </div>
 )
 
 const RolePickerInner = ({
+  customTemplates,
+  onDeleteTemplate,
   onRoleChange,
+  onTemplateChange,
+  selectedTemplateId,
   workerRole,
 }: {
+  customTemplates: RoleTemplate[]
+  onDeleteTemplate: (templateId: string) => Promise<void> | void
   onRoleChange: (value: WorkerRole) => void
+  onTemplateChange: (templateId: string) => void
+  selectedTemplateId: string | null
   workerRole: WorkerRole
 }) => {
   const { t } = useI18n()
+  const [deletingTemplate, setDeletingTemplate] = useState<RoleTemplate | null>(null)
+  // The Custom card is active only when no specific template is selected.
+  const customCardActive = workerRole === 'custom' && !selectedTemplateId
   return (
     <>
       <SectionLabel>{t('addWorker.role')}</SectionLabel>
       <div className="grid grid-cols-2 gap-2">
-        {ROLE_CARDS.map((spec) => (
-          <RoleCard
-            key={spec.value}
-            active={workerRole === spec.value}
-            spec={spec}
-            onSelect={() => onRoleChange(spec.value)}
+        {ROLE_CARDS.map((spec) =>
+          spec.value === 'custom' ? (
+            <RoleCard
+              key={spec.value}
+              active={customCardActive}
+              spec={spec}
+              onSelect={() => onRoleChange('custom')}
+            />
+          ) : (
+            <RoleCard
+              key={spec.value}
+              active={workerRole === spec.value && !selectedTemplateId}
+              spec={spec}
+              onSelect={() => onRoleChange(spec.value)}
+            />
+          )
+        )}
+        {customTemplates.map((template) => (
+          <CustomTemplateCard
+            key={template.id}
+            active={selectedTemplateId === template.id}
+            template={template}
+            onSelect={() => onTemplateChange(template.id)}
+            onDelete={() => setDeletingTemplate(template)}
           />
         ))}
       </div>
+      <Confirm
+        open={deletingTemplate !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingTemplate(null)
+        }}
+        title={t('addWorker.templateDeleteTitle')}
+        description={
+          deletingTemplate
+            ? t('addWorker.templateDeleteConfirm', { name: deletingTemplate.name })
+            : ''
+        }
+        confirmLabel={t('addWorker.templateDeleteConfirmLabel')}
+        confirmKind="danger"
+        onConfirm={() => {
+          if (!deletingTemplate) return
+          const id = deletingTemplate.id
+          setDeletingTemplate(null)
+          void onDeleteTemplate(id)
+        }}
+      />
     </>
   )
 }
 
 export const RoleInstructionsField = ({
+  canSaveAsTemplate,
   modified,
   onChange,
   onReset,
+  onSaveAsTemplate,
   roleDescription,
+  templateBusy,
   workerRole,
 }: {
+  canSaveAsTemplate: boolean
   modified: boolean
   onChange: (value: string) => void
   onReset: () => void
+  onSaveAsTemplate: (name: string) => Promise<void> | void
   roleDescription: string
+  templateBusy: boolean
   workerRole: WorkerRole
 }) => {
   const { t } = useI18n()
   const [instructionsOpen, setInstructionsOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [templateName, setTemplateName] = useState('')
   useEffect(() => {
     if (workerRole === 'custom' || modified) setInstructionsOpen(true)
   }, [modified, workerRole])
+  useEffect(() => {
+    if (!canSaveAsTemplate) {
+      setSaving(false)
+      setTemplateName('')
+    }
+  }, [canSaveAsTemplate])
 
   return (
     <details
@@ -156,6 +279,60 @@ export const RoleInstructionsField = ({
         style={{ minHeight: 150 }}
         data-testid="role-instructions-textarea"
       />
+      {canSaveAsTemplate && !saving ? (
+        <button
+          type="button"
+          data-testid="role-template-save"
+          onClick={() => setSaving(true)}
+          className="self-start rounded px-2 py-1 text-xs text-sec transition-colors hover:bg-3 hover:text-pri"
+        >
+          {t('addWorker.saveAsTemplate')}
+        </button>
+      ) : null}
+      {canSaveAsTemplate && saving ? (
+        <div className="flex items-center gap-2">
+          <input
+            // biome-ignore lint/a11y/noAutofocus: opt-in inline prompt; focus the new field so the user can type immediately
+            autoFocus
+            value={templateName}
+            onChange={(event) => setTemplateName(event.currentTarget.value)}
+            placeholder={t('addWorker.templateNamePlaceholder')}
+            data-testid="role-template-save-name"
+            className="input flex-1 text-sm"
+          />
+          <button
+            type="button"
+            disabled={templateBusy || !templateName.trim()}
+            data-testid="role-template-save-confirm"
+            onClick={async () => {
+              const name = templateName.trim()
+              if (!name) return
+              try {
+                await onSaveAsTemplate(name)
+                setSaving(false)
+                setTemplateName('')
+              } catch {
+                // Error is surfaced by the composer; leave the prompt open so
+                // the user can correct the name and retry.
+              }
+            }}
+            className="icon-btn icon-btn--primary text-xs"
+          >
+            {t('addWorker.templateSaveConfirm')}
+          </button>
+          <button
+            type="button"
+            data-testid="role-template-save-cancel"
+            onClick={() => {
+              setSaving(false)
+              setTemplateName('')
+            }}
+            className="icon-btn text-xs"
+          >
+            {t('common.cancel')}
+          </button>
+        </div>
+      ) : null}
     </details>
   )
 }

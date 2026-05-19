@@ -118,6 +118,13 @@ export interface CommandPreset {
 export interface RoleTemplate {
   description: string
   id: string
+  isBuiltin: boolean
+  name: string
+  roleType: WorkerRole | 'orchestrator'
+}
+
+export interface RoleTemplateInput {
+  description: string
   name: string
   roleType: WorkerRole | 'orchestrator'
 }
@@ -133,9 +140,27 @@ interface CommandPresetPayload {
 interface RoleTemplatePayload {
   description: string
   id: string
+  is_builtin: boolean
   name: string
   role_type: WorkerRole | 'orchestrator'
 }
+
+const fromRoleTemplatePayload = (payload: RoleTemplatePayload): RoleTemplate => ({
+  description: payload.description,
+  id: payload.id,
+  isBuiltin: payload.is_builtin,
+  name: payload.name,
+  roleType: payload.role_type,
+})
+
+const toRoleTemplateBody = (input: RoleTemplateInput) => ({
+  name: input.name,
+  role_type: input.roleType,
+  description: input.description,
+  default_command: '',
+  default_args: [],
+  default_env: {},
+})
 
 export interface AgentStartResult {
   error: string | null
@@ -321,12 +346,48 @@ export const listRoleTemplates = async (): Promise<RoleTemplate[]> => {
   }
 
   const payload = (await response.json()) as RoleTemplatePayload[]
-  return payload.map((template) => ({
-    description: template.description,
-    id: template.id,
-    name: template.name,
-    roleType: template.role_type,
-  }))
+  return payload.map(fromRoleTemplatePayload)
+}
+
+export const createRoleTemplate = async (input: RoleTemplateInput): Promise<RoleTemplate> => {
+  const response = await apiFetch('/api/settings/role-templates', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(toRoleTemplateBody(input)),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to create role template'))
+  }
+
+  return fromRoleTemplatePayload((await response.json()) as RoleTemplatePayload)
+}
+
+export const updateRoleTemplate = async (
+  templateId: string,
+  input: RoleTemplateInput
+): Promise<RoleTemplate> => {
+  const response = await apiFetch(`/api/settings/role-templates/${templateId}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(toRoleTemplateBody(input)),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to update role template'))
+  }
+
+  return fromRoleTemplatePayload((await response.json()) as RoleTemplatePayload)
+}
+
+export const deleteRoleTemplate = async (templateId: string): Promise<void> => {
+  const response = await apiFetch(`/api/settings/role-templates/${templateId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to delete role template'))
+  }
 }
 
 export const listTerminalRuns = async (workspaceId: string): Promise<TerminalRunSummary[]> => {

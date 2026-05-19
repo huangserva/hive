@@ -3,7 +3,7 @@ import { Dices } from 'lucide-react'
 import type { FormEvent } from 'react'
 
 import type { WorkerRole } from '../../../src/shared/types.js'
-import type { CommandPreset } from '../api.js'
+import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { useToast } from '../ui/useToast.js'
@@ -19,18 +19,24 @@ type AddWorkerDialogProps = {
   commandPresets: CommandPreset[]
   commandPresetId: string
   creating?: boolean
+  customTemplates: RoleTemplate[]
   onClose: () => void
+  onDeleteTemplate: (templateId: string) => Promise<void> | void
   onNameChange: (value: string) => void
   onPresetChange: (value: string) => void
   onRandomName: () => void
   onRoleDescriptionChange: (value: string) => void
   onRoleDescriptionReset: () => void
   onRoleChange: (value: WorkerRole) => void
+  onSaveAsTemplate: (name: string) => Promise<void> | void
   onStartupCommandChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onTemplateChange: (templateId: string) => void
   roleDescription: string
   roleDescriptionDefault: string
+  selectedTemplateId: string | null
   startupCommand: string
+  templateBusy: boolean
   workerName: string
   workerRole: WorkerRole
 }
@@ -39,18 +45,24 @@ export const AddWorkerDialog = ({
   commandPresets,
   commandPresetId,
   creating = false,
+  customTemplates,
   onClose,
+  onDeleteTemplate,
   onNameChange,
   onPresetChange,
   onRandomName,
   onRoleDescriptionChange,
   onRoleDescriptionReset,
   onRoleChange,
+  onSaveAsTemplate,
   onStartupCommandChange,
   onSubmit,
+  onTemplateChange,
   roleDescription,
   roleDescriptionDefault,
+  selectedTemplateId,
   startupCommand,
+  templateBusy,
   workerName,
   workerRole,
 }: AddWorkerDialogProps) => {
@@ -146,12 +158,26 @@ export const AddWorkerDialog = ({
                   />
                 </label>
 
-                <RolePicker workerRole={workerRole} onRoleChange={onRoleChange} />
+                <RolePicker
+                  customTemplates={customTemplates}
+                  onDeleteTemplate={onDeleteTemplate}
+                  onRoleChange={onRoleChange}
+                  onTemplateChange={onTemplateChange}
+                  selectedTemplateId={selectedTemplateId}
+                  workerRole={workerRole}
+                />
                 <RoleInstructionsField
+                  canSaveAsTemplate={
+                    workerRole === 'custom' &&
+                    !selectedTemplateId &&
+                    roleDescription.trim().length > 0
+                  }
                   modified={roleDescriptionModified}
                   onChange={onRoleDescriptionChange}
                   onReset={onRoleDescriptionReset}
+                  onSaveAsTemplate={onSaveAsTemplate}
                   roleDescription={roleDescription}
+                  templateBusy={templateBusy}
                   workerRole={workerRole}
                 />
                 <AgentCliPicker
