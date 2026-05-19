@@ -11,6 +11,7 @@ import { useI18n } from './i18n.js'
 import { WorkspaceNotifications } from './notifications/WorkspaceNotifications.js'
 import { TerminalBottomPanel } from './terminal/TerminalBottomPanel.js'
 import { useTerminalPanelTabs } from './terminal/useTerminalPanelTabs.js'
+import { findRunByAgentId } from './terminal/useTerminalRuns.js'
 import { useWorkspaceShellLauncher } from './terminal/useWorkspaceShellLauncher.js'
 import { useToast } from './ui/useToast.js'
 import { usePaneSplit } from './usePaneSplit.js'
@@ -20,6 +21,7 @@ import { useOrchestratorPaneState } from './worker/useOrchestratorPaneState.js'
 import type { WorkerActions } from './worker/useWorkerActions.js'
 import { useWorkerComposer } from './worker/useWorkerComposer.js'
 import { WelcomePane } from './worker/WelcomePane.js'
+import { WorkerModal } from './worker/WorkerModal.js'
 import { WorkersPane } from './worker/WorkersPane.js'
 
 type WorkspaceDetailProps = {
@@ -58,6 +60,7 @@ export const WorkspaceDetail = ({
   workspace,
 }: WorkspaceDetailProps) => {
   const { t } = useI18n()
+  const [activeWorkerId, setActiveWorkerId] = useState<string | null>(null)
   const [composerOpen, setComposerOpen] = useState(false)
   const [deleteWorkerError, setDeleteWorkerError] = useState<string | null>(null)
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null)
@@ -77,11 +80,17 @@ export const WorkspaceDetail = ({
     },
   })
   const split = usePaneSplit()
+  const activeWorker: TeamListItem | null =
+    workers.find((worker) => worker.id === activeWorkerId) ?? null
+  useEffect(() => {
+    if (activeWorkerId && !activeWorker) setActiveWorkerId(null)
+  }, [activeWorkerId, activeWorker])
   const panelTabs = useTerminalPanelTabs({
     workspaceId: workspace?.id ?? '',
     workers,
     terminalRuns,
   })
+  const shellPanelTabs = panelTabs.tabs.filter((tab) => tab.kind === 'shell')
   const shellRuns = workspace
     ? terminalRuns.filter((run) => isWorkspaceShellRun(run, workspace.id))
     : []
@@ -121,6 +130,7 @@ export const WorkspaceDetail = ({
   // surface a stale error from the previous workspace as a fresh toast.
   // biome-ignore lint/correctness/useExhaustiveDependencies: effect intentionally fires only on workspace switch
   useEffect(() => {
+    setActiveWorkerId(null)
     setDeleteWorkerError(null)
     setStartWorkerError(null)
     setStartingWorkerId(null)
@@ -137,11 +147,15 @@ export const WorkspaceDetail = ({
     return <WelcomePane {...welcomeProps} />
   }
 
+  const activeWorkerRun = activeWorker ? findRunByAgentId(terminalRuns, activeWorker.id) : undefined
+
   const handleDeleteWorker = (worker: TeamListItem) => {
     setDeleteWorkerError(null)
-    void onDeleteWorker(worker.id).catch((error) => {
-      setDeleteWorkerError(error instanceof Error ? error.message : String(error))
-    })
+    void onDeleteWorker(worker.id)
+      .then(() => setActiveWorkerId(null))
+      .catch((error) => {
+        setDeleteWorkerError(error instanceof Error ? error.message : String(error))
+      })
   }
 
   const handleStartWorker = (worker: TeamListItem) => {
@@ -220,7 +234,7 @@ export const WorkspaceDetail = ({
             onAddWorkerClick={() => setComposerOpen(true)}
             onDeleteWorker={handleDeleteWorker}
             onOpenShellTerminal={openShell}
-            onOpenWorker={(worker) => panelTabs.openWorkerTab(worker.id)}
+            onOpenWorker={(worker) => setActiveWorkerId(worker.id)}
             onRenameWorker={handleRenameWorker}
             onStartWorker={handleStartWorker}
             startingWorkerId={startingWorkerId}
@@ -228,7 +242,7 @@ export const WorkspaceDetail = ({
             workers={workers}
           />
           <TerminalBottomPanel
-            tabs={panelTabs.tabs}
+            tabs={shellPanelTabs}
             activeId={panelTabs.activeId}
             scopeKey={workspace.id}
             onSelect={panelTabs.setActive}
@@ -248,6 +262,16 @@ export const WorkspaceDetail = ({
           />
         </div>
       </div>
+      {activeWorker ? (
+        <WorkerModal
+          onClose={() => setActiveWorkerId(null)}
+          onStart={handleStartWorker}
+          runId={activeWorkerRun?.run_id ?? null}
+          startError={startWorkerError}
+          starting={startingWorkerId === activeWorker.id}
+          worker={activeWorker}
+        />
+      ) : null}
       {composerOpen ? (
         <AddWorkerDialog
           commandPresets={composer.commandPresets}

@@ -186,6 +186,7 @@ const enMessages = {
   'worker.deleteDescription':
     "This stops {name}'s terminal and removes it from the workspace. All queued dispatches are dropped.",
   'worker.deleteMember': 'Delete member',
+  'worker.detail': '{name} detail',
   'worker.emptyAdd': 'Add your first member',
   'worker.emptyDesc':
     'Add team members (Claude Code, Codex, Gemini, OpenCode) and the Orchestrator will route tasks to them.',
@@ -203,6 +204,7 @@ const enMessages = {
   'worker.teamMembers': 'Team members',
   'worker.terminalNotStarted': 'PTY not started yet — ',
   'worker.terminalStopped': 'PTY stopped — ',
+  'worker.widthResize': 'Resize worker detail width',
   'workerPane.resize': 'Resize Orchestrator and Team Members panes',
   // tasks.* — TaskGraphDrawer + TaskGraphRawEditor
   'tasks.action.addSubtask': 'Add subtask',
@@ -541,6 +543,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'worker.deleteConfirm': '删除 {name}？',
   'worker.deleteDescription': '这会停止 {name} 的终端，并从 workspace 中移除它。排队任务会被丢弃。',
   'worker.deleteMember': '删除成员',
+  'worker.detail': '{name} 详情',
   'worker.emptyAdd': '添加第一个成员',
   'worker.emptyDesc':
     '添加团队成员（Claude Code、Codex、Gemini、OpenCode），Orchestrator 会分派任务。',
@@ -558,6 +561,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'worker.teamMembers': '团队成员',
   'worker.terminalNotStarted': '终端未启动 — ',
   'worker.terminalStopped': '终端已停止 — ',
+  'worker.widthResize': '调整成员详情宽度',
   'workerPane.resize': '调整 Orchestrator 和团队成员面板宽度',
   // tasks.*
   'tasks.action.addSubtask': '添加子任务',

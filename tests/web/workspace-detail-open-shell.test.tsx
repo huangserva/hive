@@ -234,7 +234,10 @@ describe('WorkspaceDetail shell terminal button', () => {
 
     renderWorkspaceDetail({ terminalRuns: [workerRun(), shell] })
     const panel = await screen.findByTestId('terminal-bottom-panel')
-    expect(within(panel).getByTestId(`terminal-panel-slot-worker-${worker.id}`)).toBeInTheDocument()
+    expect(within(panel).queryByTestId(`terminal-panel-slot-worker-${worker.id}`)).toBeNull()
+    expect(
+      within(panel).getByTestId(`terminal-panel-slot-shell-${shell.run_id}`)
+    ).toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('open-workspace-shell'))
 
