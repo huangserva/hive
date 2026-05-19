@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../src/shared/types.js'
 import {
@@ -39,6 +39,8 @@ type WorkspaceDetailProps = {
   workspace: WorkspaceSummary | undefined
 }
 
+const REMEMBERED_SHELL_RUN_TTL_MS = 3000
+
 export const WorkspaceDetail = ({
   onCreateWorker,
   onDeleteWorker,
@@ -70,9 +72,32 @@ export const WorkspaceDetail = ({
   const shellStartInFlightByWorkspaceRef = useRef(new Map<string, number>())
   const shellStartRequestSeqRef = useRef(0)
   const shellStartRunByWorkspaceRef = useRef(new Map<string, TerminalRunSummary>())
+  const shellStartRunForgetTimersRef = useRef(new Map<string, number>())
   const selectedWorkspaceIdRef = useRef<string | null>(workspace?.id ?? null)
   const toast = useToast()
   const composer = useWorkerComposer({ createWorker: onCreateWorker, open: composerOpen })
+
+  const forgetRememberedShellRun = useCallback((workspaceId: string) => {
+    const timer = shellStartRunForgetTimersRef.current.get(workspaceId)
+    if (timer) window.clearTimeout(timer)
+    shellStartRunForgetTimersRef.current.delete(workspaceId)
+    shellStartRunByWorkspaceRef.current.delete(workspaceId)
+  }, [])
+
+  const rememberShellRun = useCallback(
+    (workspaceId: string, run: TerminalRunSummary) => {
+      forgetRememberedShellRun(workspaceId)
+      shellStartRunByWorkspaceRef.current.set(workspaceId, run)
+      const timer = window.setTimeout(() => {
+        if (shellStartRunByWorkspaceRef.current.get(workspaceId)?.run_id === run.run_id) {
+          shellStartRunByWorkspaceRef.current.delete(workspaceId)
+        }
+        shellStartRunForgetTimersRef.current.delete(workspaceId)
+      }, REMEMBERED_SHELL_RUN_TTL_MS)
+      shellStartRunForgetTimersRef.current.set(workspaceId, timer)
+    },
+    [forgetRememberedShellRun]
+  )
 
   // Surface composer / delete errors as toasts instead of inline alert bands.
   useEffect(() => {
@@ -98,6 +123,26 @@ export const WorkspaceDetail = ({
   useLayoutEffect(() => {
     selectedWorkspaceIdRef.current = workspace?.id ?? null
   }, [workspace?.id])
+
+  useEffect(
+    () => () => {
+      for (const timer of shellStartRunForgetTimersRef.current.values()) {
+        window.clearTimeout(timer)
+      }
+      shellStartRunForgetTimersRef.current.clear()
+      shellStartRunByWorkspaceRef.current.clear()
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!workspace) return
+    const rememberedRun = shellStartRunByWorkspaceRef.current.get(workspace.id)
+    if (!rememberedRun) return
+    if (terminalRuns.some((run) => run.run_id === rememberedRun.run_id)) {
+      forgetRememberedShellRun(workspace.id)
+    }
+  }, [forgetRememberedShellRun, terminalRuns, workspace])
 
   // B2: when the user switches workspace, clear local error state so we don't
   // surface a stale error from the previous workspace as a fresh toast.
@@ -195,7 +240,7 @@ export const WorkspaceDetail = ({
     setShellStarting(true)
     void startWorkspaceShell(requestWorkspaceId)
       .then((run) => {
-        shellStartRunByWorkspaceRef.current.set(requestWorkspaceId, run)
+        rememberShellRun(requestWorkspaceId, run)
         onShellRunStarted?.(requestWorkspaceId, run)
         if (!isSelectedWorkspace()) return
         setShellRunId(run.run_id)
@@ -233,7 +278,7 @@ export const WorkspaceDetail = ({
     const fallbackRun = shellRuns.find((run) => run.run_id !== runId) ?? null
     if (activeShellRunId === runId) setShellRunId(fallbackRun?.run_id ?? null)
     if (shellStartRunByWorkspaceRef.current.get(workspace.id)?.run_id === runId) {
-      shellStartRunByWorkspaceRef.current.delete(workspace.id)
+      forgetRememberedShellRun(workspace.id)
     }
     void closeWorkspaceShell(workspace.id, runId).catch((error) => {
       const message = error instanceof Error ? error.message : String(error)

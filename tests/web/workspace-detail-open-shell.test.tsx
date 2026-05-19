@@ -56,17 +56,21 @@ const workerRun = (): TerminalRunSummary => ({
 })
 
 const renderWorkspaceDetail = ({
+  onShellRunStarted,
   selectedWorkspace = workspace,
   terminalRuns = [],
 }: {
+  onShellRunStarted?: (workspaceId: string, run: TerminalRunSummary) => void
   selectedWorkspace?: WorkspaceSummary
   terminalRuns?: TerminalRunSummary[]
-} = {}) => renderWorkspaceDetailUi({ selectedWorkspace, terminalRuns })
+} = {}) => renderWorkspaceDetailUi({ onShellRunStarted, selectedWorkspace, terminalRuns })
 
 const renderWorkspaceDetailUi = ({
+  onShellRunStarted,
   selectedWorkspace,
   terminalRuns,
 }: {
+  onShellRunStarted?: (workspaceId: string, run: TerminalRunSummary) => void
   selectedWorkspace: WorkspaceSummary
   terminalRuns: TerminalRunSummary[]
 }) =>
@@ -80,6 +84,7 @@ const renderWorkspaceDetailUi = ({
           onStartWorker={vi.fn()}
           onOrchestratorResult={vi.fn()}
           onRequestAddWorkspace={vi.fn()}
+          onShellRunStarted={onShellRunStarted}
           orchestratorAutostartError={null}
           orchestratorAutostartRunId={null}
           terminalRuns={terminalRuns}
@@ -91,9 +96,11 @@ const renderWorkspaceDetailUi = ({
   )
 
 const workspaceDetailUi = ({
+  onShellRunStarted,
   selectedWorkspace,
   terminalRuns,
 }: {
+  onShellRunStarted?: (workspaceId: string, run: TerminalRunSummary) => void
   selectedWorkspace: WorkspaceSummary
   terminalRuns: TerminalRunSummary[]
 }) => (
@@ -106,6 +113,7 @@ const workspaceDetailUi = ({
         onStartWorker={vi.fn()}
         onOrchestratorResult={vi.fn()}
         onRequestAddWorkspace={vi.fn()}
+        onShellRunStarted={onShellRunStarted}
         orchestratorAutostartError={null}
         orchestratorAutostartRunId={null}
         terminalRuns={terminalRuns}
@@ -133,6 +141,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   window.localStorage.clear()
 })
@@ -140,13 +149,17 @@ afterEach(() => {
 describe('WorkspaceDetail shell terminal button', () => {
   test('starts a workspace shell when there is no shell tab or shell run', async () => {
     const run = shellRun()
+    const onShellRunStarted = vi.fn()
     vi.mocked(startWorkspaceShell).mockResolvedValue(run)
 
-    const view = renderWorkspaceDetail()
+    const view = renderWorkspaceDetail({ onShellRunStarted })
     fireEvent.click(screen.getByTestId('open-workspace-shell'))
 
     expect(startWorkspaceShell).toHaveBeenCalledTimes(1)
     expect(startWorkspaceShell).toHaveBeenCalledWith(workspace.id)
+    await waitFor(() => {
+      expect(onShellRunStarted).toHaveBeenCalledWith(workspace.id, run)
+    })
 
     view.rerender(workspaceDetailUi({ selectedWorkspace: workspace, terminalRuns: [run] }))
     const panel = await screen.findByTestId('terminal-bottom-panel')
@@ -270,5 +283,31 @@ describe('WorkspaceDetail shell terminal button', () => {
     fireEvent.click(screen.getByTestId('open-workspace-shell'))
 
     expect(startWorkspaceShell).toHaveBeenCalledTimes(1)
+  })
+
+  test('forgets a remembered shell run when polling never confirms it', async () => {
+    vi.useFakeTimers()
+    const start = deferred<TerminalRunSummary>()
+    const startedRun = shellRun('ws-1-started-but-never-polled', workspace.id)
+    vi.mocked(startWorkspaceShell)
+      .mockReturnValueOnce(start.promise)
+      .mockResolvedValueOnce(shellRun('ws-1-shell-run-2', workspace.id))
+
+    renderWorkspaceDetail()
+    fireEvent.click(screen.getByTestId('open-workspace-shell'))
+    await act(async () => {
+      start.resolve(startedRun)
+      await start.promise
+    })
+
+    fireEvent.click(screen.getByTestId('open-workspace-shell'))
+    expect(startWorkspaceShell).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.runOnlyPendingTimers()
+    })
+    fireEvent.click(screen.getByTestId('open-workspace-shell'))
+
+    expect(startWorkspaceShell).toHaveBeenCalledTimes(2)
   })
 })
