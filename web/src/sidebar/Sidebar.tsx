@@ -201,7 +201,6 @@ export const Sidebar = ({
                       isActive={isActive}
                       working={hasWorking}
                       workingCount={workingCount}
-                      size={22}
                     />
                     <span
                       className={`min-w-0 flex-1 truncate text-sm ${

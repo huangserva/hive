@@ -184,10 +184,19 @@ describe('Sidebar EmptyState CTA', () => {
     expect(avatarCell).toBeInTheDocument()
     // Each workspace now carries two avatars: one in the wide-mode row, one
     // in the compact-mode cell. Container-query toggles which is visible.
-    expect(within(avatarCell).getByTestId('workspace-avatar')).toHaveTextContent('M')
+    const compactAvatar = within(avatarCell).getByTestId('workspace-avatar')
+    expect(compactAvatar).toHaveTextContent('M')
     const rowButton = avatarCell.parentElement?.querySelector('.ws-row')
     expect(rowButton).not.toBeNull()
-    expect(within(rowButton as HTMLElement).getByTestId('workspace-avatar')).toHaveTextContent('M')
+    const wideAvatar = within(rowButton as HTMLElement).getByTestId('workspace-avatar')
+    expect(wideAvatar).toHaveTextContent('M')
+    // Regression guard: the bug we just fixed was wide=22px while compact=32px,
+    // making the avatar shrink when the user expanded the sidebar. Both must
+    // render at the same size now — the size is written as an inline px width
+    // by Avatar.tsx, so we compare directly.
+    expect((wideAvatar as HTMLElement).style.width).toBe(
+      (compactAvatar as HTMLElement).style.width
+    )
   })
 
   test('clicking the compact avatar cell selects the workspace', () => {

@@ -46,6 +46,10 @@ chrome.
   instead of the previous monochrome white treatment, and visually separates
   VS Code from VS Code Insiders so users can tell their installed targets
   apart at a glance.
+- Workspace avatars in the sidebar stay the same size when the user drags
+  the sidebar wider. Previously the wide layout used a 22px avatar while the
+  collapsed layout used 32px, so expanding the sidebar made the avatars
+  smaller; both modes now render at 32px.
 
 ## 1.2.0 - 2026-05-18
 

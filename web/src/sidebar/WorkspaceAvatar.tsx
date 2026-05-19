@@ -14,11 +14,12 @@ type WorkspaceAvatarProps = {
 }
 
 /**
- * Discord/Slack-style workspace avatar used by the sidebar in compact mode.
- * Pairs `pickWorkspaceColor` (deterministic from `workspace.id`) with a single
- * uppercased initial derived from `name`. Active state is expressed as a 2-px
- * accent ring; the working flag pins a `.status-dot--working` indicator at
- * the bottom-right corner.
+ * Discord/Slack-style workspace avatar used by the sidebar in both the
+ * compact (≤96px container) and wide layouts. Pairs `pickWorkspaceColor`
+ * (deterministic from `workspace.id`) with a single uppercased initial
+ * derived from `name`. Active state is expressed as a 2-px accent ring; the
+ * working flag pins a `.status-dot--working` indicator at the bottom-right
+ * corner.
  */
 export const WorkspaceAvatar = ({
   workspaceId,
