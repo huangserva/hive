@@ -66,6 +66,8 @@ hive update
 
 PWA 只是 UI 壳，Hive 后端仍需要在终端里跑着。如果启动 PWA 时后端没起，会看到 “Hive 后端未启动” 页面，等你跑起 `hive` 后会自动刷新。PWA 的 install scope 按 origin（含端口）划分，所以 `hive --port 4011` 跟 `hive --port 3000` 在浏览器看来是两个独立应用。卸载方法：浏览器地址栏访问 `chrome://apps`，右键 Hive 图标，选 **从 Chrome 中移除…**。
 
+关闭 PWA 窗口或 tab 时 Hive 会主动请求浏览器弹原生确认对话框，避免 Cmd+W 误关丢失会话。但现代浏览器要求你跟页面"交互过"（点击 / 滚动 / 输入）才会真的弹这个对话框——刚打开 PWA 立刻按 Cmd+W 仍会直接关闭，这是浏览器策略，不是 Hive 的 bug。
+
 首次使用流程：
 
 1. 选择一个项目目录作为 workspace。

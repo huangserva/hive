@@ -67,7 +67,10 @@ const AppInner = () => {
   const activeId = eff.effectiveActiveWorkspace?.id
   const activeWorkers = activeId ? (eff.effectiveWorkersByWorkspaceId[activeId] ?? []) : []
   const terms = useOptimisticTerminalRuns(eff.pollWorkspaceId, useTerminalRuns(eff.pollWorkspaceId))
-  useBeforeUnloadGuard(terms.terminalRuns.some((run) => run.status !== 'stopped'))
+  // Always confirm on close. Browsers gate beforeunload on prior page
+  // interaction so fresh tabs still close cleanly, but every closure that
+  // does fire the prompt now goes through it — including PWA Cmd-W.
+  useBeforeUnloadGuard(true)
   const taskGraphWorkspaceId =
     TASK_GRAPH_PRIMARY_ENTRY_ENABLED && !demoMode ? (activeWorkspaceId ?? null) : null
   const tasksFile = useTasksFile(

@@ -38,6 +38,10 @@ chrome.
   Chrome treats Hive as two distinct PWAs because the install scope is keyed
   by origin. To fully remove a PWA install, use
   `chrome://apps` → right-click the Hive tile → Remove.
+- Always asks the browser to confirm before closing the tab or PWA window so
+  Cmd-W on an installed app never closes silently. Modern browsers gate the
+  prompt on prior page interaction — opening the window and immediately
+  pressing Cmd-W still closes cleanly by browser policy.
 
 ## 1.2.0 - 2026-05-18
 

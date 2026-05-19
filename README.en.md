@@ -98,6 +98,12 @@ The PWA install scope is keyed by origin, so `hive --port 4011` installs as
 a separate app from `hive --port 3000`. To uninstall, visit `chrome://apps`,
 right-click the Hive tile, and choose **Remove from Chrome…**.
 
+Hive asks the browser to confirm before closing the tab or PWA window so an
+accidental Cmd-W doesn't drop your session. Modern browsers gate that prompt
+on prior page interaction — if you open the PWA and immediately press Cmd-W
+without clicking or typing anywhere first, it still closes cleanly. That's a
+browser policy, not a Hive bug.
+
 First-run flow:
 
 1. Create a workspace from a project folder.
