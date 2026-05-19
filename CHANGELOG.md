@@ -62,6 +62,16 @@ chrome.
   raster) so each entry reads as the real application rather than an
   abstract glyph. Ghostty's mark renders inside a generous safe-zone so its
   display size is bumped 20% via CSS scale to balance the row visually.
+- Replaces the Worker detail modal and Workspace shell dialog with a docked,
+  resizable, VSCode-style terminal panel inside the right column (under the
+  team members pane). Worker tabs and shell tabs share the strip; clicking a
+  member card opens that worker as a tab; the panel hides when no tabs are
+  open. Closing a worker tab keeps the underlying PTY running — worker
+  lifecycle is owned by the card hover cluster. Tab list, active tab, and
+  panel height all persist (height globally, tabs + active per-workspace).
+  Cmd-W (Ctrl-W on Windows / Linux) closes the active tab; a "+" button in
+  the tab strip starts a new shell. Start failures and shell-start failures
+  now surface as toasts instead of inline modal/dialog banners.
 
 ## 1.2.0 - 2026-05-18
 
