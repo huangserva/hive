@@ -29,6 +29,7 @@ type WorkspaceDetailProps = {
   onStartWorker: (workerId: string) => Promise<{ error: string | null; runId: string | null }>
   onOrchestratorResult: (workspaceId: string, result: OrchestratorStartResult) => void
   onRequestAddWorkspace: () => void
+  onShellRunStarted?: (workspaceId: string, run: TerminalRunSummary) => void
   onTryDemo?: () => void
   welcomeDisabledReason?: string
   orchestratorAutostartError: string | null
@@ -45,6 +46,7 @@ export const WorkspaceDetail = ({
   onStartWorker,
   onOrchestratorResult,
   onRequestAddWorkspace,
+  onShellRunStarted,
   onTryDemo,
   welcomeDisabledReason,
   orchestratorAutostartError,
@@ -67,6 +69,7 @@ export const WorkspaceDetail = ({
   // the user with shells named "Shell 1" / "Shell 3" / ... .
   const shellStartInFlightByWorkspaceRef = useRef(new Map<string, number>())
   const shellStartRequestSeqRef = useRef(0)
+  const shellStartRunByWorkspaceRef = useRef(new Map<string, TerminalRunSummary>())
   const selectedWorkspaceIdRef = useRef<string | null>(workspace?.id ?? null)
   const toast = useToast()
   const composer = useWorkerComposer({ createWorker: onCreateWorker, open: composerOpen })
@@ -192,6 +195,8 @@ export const WorkspaceDetail = ({
     setShellStarting(true)
     void startWorkspaceShell(requestWorkspaceId)
       .then((run) => {
+        shellStartRunByWorkspaceRef.current.set(requestWorkspaceId, run)
+        onShellRunStarted?.(requestWorkspaceId, run)
         if (!isSelectedWorkspace()) return
         setShellRunId(run.run_id)
         panelTabs.openShellTab(run.run_id)
@@ -201,7 +206,8 @@ export const WorkspaceDetail = ({
         setShellError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => {
-        if (ownsInFlightMarker()) shellStartInFlightByWorkspaceRef.current.delete(requestWorkspaceId)
+        if (ownsInFlightMarker())
+          shellStartInFlightByWorkspaceRef.current.delete(requestWorkspaceId)
         if (isSelectedWorkspace()) setShellStarting(false)
       })
   }
@@ -213,12 +219,22 @@ export const WorkspaceDetail = ({
       panelTabs.setActive(existingShellTab.id)
       return
     }
+    const rememberedShellRun = shellStartRunByWorkspaceRef.current.get(workspace.id)
+    if (rememberedShellRun) {
+      onShellRunStarted?.(workspace.id, rememberedShellRun)
+      setShellRunId(rememberedShellRun.run_id)
+      panelTabs.openShellTab(rememberedShellRun.run_id)
+      return
+    }
     startShell()
   }
 
   const closeShellTab = (runId: string) => {
     const fallbackRun = shellRuns.find((run) => run.run_id !== runId) ?? null
     if (activeShellRunId === runId) setShellRunId(fallbackRun?.run_id ?? null)
+    if (shellStartRunByWorkspaceRef.current.get(workspace.id)?.run_id === runId) {
+      shellStartRunByWorkspaceRef.current.delete(workspace.id)
+    }
     void closeWorkspaceShell(workspace.id, runId).catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
       toast.show({ kind: 'error', message: t('shellTerminal.closeFailed', { message }) })

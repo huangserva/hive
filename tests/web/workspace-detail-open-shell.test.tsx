@@ -258,6 +258,9 @@ describe('WorkspaceDetail shell terminal button', () => {
       await ws1Start.promise
     })
 
+    fireEvent.click(screen.getByTestId('open-workspace-shell'))
+    expect(startWorkspaceShell).toHaveBeenCalledTimes(1)
+
     view.rerender(workspaceDetailUi({ selectedWorkspace: workspace, terminalRuns: [lateWs1Run] }))
     const panel = await screen.findByTestId('terminal-bottom-panel')
     expect(

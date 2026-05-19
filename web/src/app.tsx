@@ -141,6 +141,15 @@ const AppInner = () => {
             onDeleteWorkspace={deleteWorkspace}
             onExitDemo={exitDemo}
             onRequestAddWorkspace={triggerAddDialog}
+            onShellRunStarted={(workspaceId, run) =>
+              terms.recordOptimisticRun({
+                agentId: run.agent_id,
+                agentName: run.agent_name,
+                runId: run.run_id,
+                status: run.status,
+                workspaceId,
+              })
+            }
             onTryDemo={enableDemo}
             optimisticRunsByWorkspaceId={terms.optimisticRunsByWorkspaceId}
             orchestratorAutostartErrors={wsCreate.orchestratorAutostartErrors}
