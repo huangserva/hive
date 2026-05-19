@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 
 import { cleanup, renderHook } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
-import { useBeforeUnloadGuard } from '../../web/src/useBeforeUnloadGuard.js'
+import {
+  __resetBeforeUnloadGuardForTests,
+  allowNextUnloadSilently,
+  useBeforeUnloadGuard,
+} from '../../web/src/useBeforeUnloadGuard.js'
 
 const dispatchBeforeUnload = () => {
   const event = new Event('beforeunload', { cancelable: true }) as BeforeUnloadEvent
@@ -15,6 +19,10 @@ const dispatchBeforeUnload = () => {
   const allowed = window.dispatchEvent(event)
   return { allowed, event }
 }
+
+beforeEach(() => {
+  __resetBeforeUnloadGuardForTests()
+})
 
 afterEach(() => {
   cleanup()
@@ -41,5 +49,20 @@ describe('useBeforeUnloadGuard', () => {
 
     expect(allowed).toBe(true)
     expect(event.defaultPrevented).toBe(false)
+  })
+
+  test('allowNextUnloadSilently lets a single beforeunload pass through and then re-arms', () => {
+    renderHook(() => useBeforeUnloadGuard(true))
+
+    allowNextUnloadSilently()
+
+    const first = dispatchBeforeUnload()
+    expect(first.allowed).toBe(true)
+    expect(first.event.defaultPrevented).toBe(false)
+
+    // The flag is one-shot: the next unload should go back to being blocked.
+    const second = dispatchBeforeUnload()
+    expect(second.allowed).toBe(false)
+    expect(second.event.defaultPrevented).toBe(true)
   })
 })
