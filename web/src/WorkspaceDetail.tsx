@@ -13,7 +13,6 @@ import { useI18n } from './i18n.js'
 import { WorkspaceNotifications } from './notifications/WorkspaceNotifications.js'
 import { TerminalBottomPanel } from './terminal/TerminalBottomPanel.js'
 import { useTerminalPanelTabs } from './terminal/useTerminalPanelTabs.js'
-import { WorkspaceShellDialog } from './terminal/WorkspaceShellDialog.js'
 import { useToast } from './ui/useToast.js'
 import { usePaneSplit } from './usePaneSplit.js'
 import { AddWorkerDialog } from './worker/AddWorkerDialog.js'
@@ -58,7 +57,6 @@ export const WorkspaceDetail = ({
   const [composerOpen, setComposerOpen] = useState(false)
   const [deleteWorkerError, setDeleteWorkerError] = useState<string | null>(null)
   const [shellError, setShellError] = useState<string | null>(null)
-  const [shellOpen, setShellOpen] = useState(false)
   const [shellRunId, setShellRunId] = useState<string | null>(null)
   const [shellStarting, setShellStarting] = useState(false)
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null)
@@ -82,13 +80,17 @@ export const WorkspaceDetail = ({
     if (startWorkerError) toast.show({ kind: 'error', message: startWorkerError })
   }, [startWorkerError, toast])
 
+  // Shell-start failures no longer have a dialog banner — surface via toast.
+  useEffect(() => {
+    if (shellError) toast.show({ kind: 'error', message: shellError })
+  }, [shellError, toast])
+
   // B2: when the user switches workspace, clear local error state so we don't
   // surface a stale error from the previous workspace as a fresh toast.
   // biome-ignore lint/correctness/useExhaustiveDependencies: effect intentionally fires only on workspace switch
   useEffect(() => {
     setDeleteWorkerError(null)
     setShellError(null)
-    setShellOpen(false)
     setShellRunId(null)
     setShellStarting(false)
     setStartWorkerError(null)
@@ -181,9 +183,7 @@ export const WorkspaceDetail = ({
   }
 
   const openShell = () => {
-    setShellOpen(true)
     if (shellRuns.length === 0 && !shellStarting) startShell()
-    else if (!activeShellRunId) setShellRunId(shellRuns[0]?.run_id ?? null)
   }
 
   const closeShellTab = (runId: string) => {
@@ -259,10 +259,7 @@ export const WorkspaceDetail = ({
               }
               panelTabs.closeTab(tabId)
             }}
-            onNewShell={() => {
-              startShell()
-              setShellOpen(false)
-            }}
+            onNewShell={startShell}
             newShellPending={shellStarting}
             onStartWorker={(workerId) => {
               const worker = workers.find((w) => w.id === workerId)
@@ -293,18 +290,6 @@ export const WorkspaceDetail = ({
           workerRole={composer.workerRole}
         />
       ) : null}
-      <WorkspaceShellDialog
-        activeRunId={activeShellRunId}
-        error={shellError}
-        onActiveRunChange={setShellRunId}
-        onClose={() => setShellOpen(false)}
-        onCloseTab={closeShellTab}
-        onNewTab={startShell}
-        open={shellOpen}
-        shellRuns={shellRuns}
-        starting={shellStarting}
-        workspace={workspace}
-      />
     </div>
   )
 }
