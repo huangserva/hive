@@ -382,7 +382,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'addWorker.genericCommand': '仅使用启动命令',
   'addWorker.loadingPresets': '正在加载预设…',
   'addWorker.name': '名称',
-  'addWorker.namePlaceholder': '例如 火锅判官-27',
+  'addWorker.namePlaceholder': '例如 鲁班',
   'addWorker.modifiedFrom': '已修改 {role} 默认说明',
   'addWorker.pickCliOrStartup': '请选择 CLI Agent，或填写启动命令',
   'addWorker.random': '随机',

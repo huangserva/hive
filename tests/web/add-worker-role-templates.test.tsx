@@ -39,6 +39,7 @@ const Harness = () => {
   const composer = useWorkerComposer({
     createWorker: async () => ({ error: null, runId: null }),
     open: true,
+    workers: [],
   })
   return (
     <ToastProvider>

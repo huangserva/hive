@@ -164,7 +164,7 @@ describe('worker flow with real server', () => {
     const dialog = await screen.findByRole('form', { name: 'Add team member' })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Generate random member name' }))
     const nameInput = within(dialog).getByPlaceholderText('e.g. Alice') as HTMLInputElement
-    expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[0-9]{2}$/)
+    expect(nameInput.value).toMatch(/^[a-z]+(?:-[a-z]+)*$/)
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
       target: { value: 'Alice' },
     })
@@ -295,10 +295,10 @@ describe('worker flow with real server', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /添加成员/ })[0] as HTMLElement)
 
     const dialog = await screen.findByRole('form', { name: '添加团队成员' })
-    const nameInput = within(dialog).getByPlaceholderText('例如 火锅判官-27') as HTMLInputElement
+    const nameInput = within(dialog).getByPlaceholderText('例如 鲁班') as HTMLInputElement
     fireEvent.click(within(dialog).getByRole('button', { name: '生成随机成员名' }))
 
-    expect(nameInput.value).toMatch(/^[\u4e00-\u9fff]+-[\u4e00-\u9fff]+-[0-9]{2}$/)
+    expect(nameInput.value).toMatch(/^[\u4e00-\u9fff]+$/)
   })
 
   test('Add Worker dialog can run a generic full startup command without preset semantics', async () => {

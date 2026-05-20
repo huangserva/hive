@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { WorkerRole } from '../../../src/shared/types.js'
+import type { TeamListItem, WorkerRole } from '../../../src/shared/types.js'
 import {
   type CommandPreset,
   createRoleTemplate,
@@ -17,6 +17,7 @@ import type { WorkerActions } from './useWorkerActions.js'
 interface UseWorkerComposerInput {
   createWorker: WorkerActions['createWorker']
   open: boolean
+  workers: TeamListItem[]
 }
 
 export interface WorkerComposerState {
@@ -131,6 +132,7 @@ const getDefaultDescription = (
 export const useWorkerComposer = ({
   createWorker,
   open,
+  workers,
 }: UseWorkerComposerInput): WorkerComposerState => {
   const { language } = useI18n()
   const [workerName, setWorkerName] = useState('')
@@ -220,16 +222,18 @@ export const useWorkerComposer = ({
     setWorkerName(value)
   }
 
+  const usedNames = useMemo(() => new Set(workers.map((w) => w.name)), [workers])
+
   const randomizeWorkerName = () => {
     workerNameGeneratedRef.current = true
-    setWorkerName(generateWorkerName(language))
+    setWorkerName(generateWorkerName({ language, role: workerRole, usedNames }))
   }
 
   useEffect(() => {
     if (workerNameGeneratedRef.current) {
-      setWorkerName(generateWorkerName(language))
+      setWorkerName(generateWorkerName({ language, role: workerRole, usedNames }))
     }
-  }, [language])
+  }, [language, workerRole, usedNames])
 
   const selectWorkerRole = (value: WorkerRole) => {
     setWorkerRole(value)

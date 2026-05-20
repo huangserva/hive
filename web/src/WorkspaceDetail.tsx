@@ -67,7 +67,11 @@ export const WorkspaceDetail = ({
   const [startingWorkerId, setStartingWorkerId] = useState<string | null>(null)
   const [terminalPanelHidden, setTerminalPanelHidden] = useState(false)
   const toast = useToast()
-  const composer = useWorkerComposer({ createWorker: onCreateWorker, open: composerOpen })
+  const composer = useWorkerComposer({
+    createWorker: onCreateWorker,
+    open: composerOpen,
+    workers,
+  })
   const orchestrator = useOrchestratorPaneState({
     workspaceId: workspace?.id ?? '',
     terminalRuns,
