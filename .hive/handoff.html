@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Hive-serva 自主交接 · 2026-05-20</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1c212c;
+    --line: #262c39;
+    --text: #d8dde7;
+    --muted: #8a93a5;
+    --accent: #4ea1ff;
+    --ok: #5fd6a3;
+    --warn: #e8b75a;
+    --danger: #ef6f6f;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); margin: 0; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; padding: 32px 28px 80px; max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: 0.2px; }
+  h2 { font-size: 17px; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); color: #fff; }
+  h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin-bottom: 24px; }
+  .banner { padding: 14px 16px; background: linear-gradient(180deg, #1d2532, #182030); border: 1px solid #2b3a55; border-radius: 8px; margin-bottom: 24px; }
+  .banner strong { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+  tr:last-child td { border-bottom: none; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  td code { background: #0c0f15; color: #cfd6e2; padding: 1px 6px; border-radius: 3px; border: 1px solid #1f2532; }
+  pre { background: #0c0f15; color: #cfd6e2; padding: 12px 14px; border-radius: 6px; border: 1px solid #1f2532; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .danger { color: var(--danger); }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; margin-right: 6px; }
+  .pill-ok { background: #133a2a; color: var(--ok); border: 1px solid #1d5a40; }
+  .pill-warn { background: #3a2e10; color: var(--warn); border: 1px solid #5a4818; }
+  .pill-danger { background: #3a1818; color: var(--danger); border: 1px solid #5a2424; }
+  .pill-muted { background: #1b1f29; color: var(--muted); border: 1px solid var(--line); }
+  .decision { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 6px; padding: 14px 16px; margin: 12px 0; }
+  .decision.danger { border-left-color: var(--danger); }
+  .decision h4 { margin: 0 0 6px; font-size: 15px; color: #fff; }
+  .decision .why { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .small { font-size: 12px; color: var(--muted); }
+  .hash { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Hive-serva 自主交接</h1>
+<div class="sub">2026-05-20 下午 · Orchestrator 在 user 出门期间独立完成的工作</div>
+
+<div class="banner">
+  <strong>一句话：</strong>P0 文件日志 + uncaught 钩子 + 5 处 event handler 防崩落地完成，3 个 commit 已入 main。
+  剩下两件破坏性操作（deploy 到 <code>~/development/hive</code> + 重启 4010）<span class="warn">没做</span>，等你决定。
+</div>
+
+<h2>已完成（已 commit 到 main）</h2>
+
+<table>
+  <thead><tr><th>Commit</th><th>说明</th><th>规模</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="hash">b9e5081</span></td>
+      <td>Guard terminal IO socket against dead-PTY writes<br>
+          <span class="small">即之前手动同步过来的那条 race fix。<code>terminal-stream-hub.ts</code> message handler 加 try/catch。</span></td>
+      <td class="mono">1 文件 +9 / −1</td>
+    </tr>
+    <tr>
+      <td><span class="hash">a98dad7</span></td>
+      <td>Add runtime file logger and guard event handlers against uncaught throws<br>
+          <span class="small">P0 logger 套件 + 5 个 event handler 防崩。详见下方拆分。</span></td>
+      <td class="mono">23 文件 +549 / −93</td>
+    </tr>
+    <tr>
+      <td><span class="hash">a607d77</span></td>
+      <td>Add Hive workspace tracking files<br>
+          <span class="small">.hive/PROTOCOL.md + tasks.md + HANDOFF.md（本 HTML 之前的 markdown 版本）。</span></td>
+      <td class="mono">3 文件 +145</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>a98dad7 内容拆解</h3>
+<table>
+  <thead><tr><th>类别</th><th>具体改动</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>新文件</td>
+      <td>
+        <code>src/server/logger.ts</code><br>
+        <code>src/server/sqlite-schema-v19.ts</code><br>
+        <code>tests/unit/logger.test.ts</code>
+      </td>
+    </tr>
+    <tr>
+      <td>全局兜底</td>
+      <td>
+        <code>src/cli/hive.ts</code> 注册 <code>uncaughtException</code> + <code>unhandledRejection</code>，记日志后<strong>保持原崩溃行为</strong>不吞错
+      </td>
+    </tr>
+    <tr>
+      <td>日志落点</td>
+      <td>
+        <code>~/.config/hive/logs/runtime-&lt;port&gt;.log</code>，每行 ISO 时间戳，append 模式；<code>HIVE_LOG=0</code> 可禁
+      </td>
+    </tr>
+    <tr>
+      <td>Schema v19</td>
+      <td>
+        <code>agent_runs.error_tail TEXT</code> 列；PTY 非零退出落最后 ~200 行 stdout/stderr 到 DB + logger
+      </td>
+    </tr>
+    <tr>
+      <td>5 个 handler 防崩</td>
+      <td>
+        <code>agent-manager-support.ts</code>：<code>pty.onData / onError / onExit</code>（分段 try/catch，cleanup 不会被一处抛中断）<br>
+        <code>terminal-ws-server.ts</code>、<code>tasks-websocket-server.ts</code>：<code>server.on('upgrade')</code> 顶层 catch（<code>wss.handleUpgrade</code> 之前在 try 外）<br>
+        catch 都带上下文标签：<code>pty.onExit cleanup</code> / <code>ws upgrade [terminal]</code> / 等等
+      </td>
+    </tr>
+    <tr>
+      <td>测试</td>
+      <td>
+        pnpm check ✅（Biome 339 文件 0 error）<br>
+        pnpm test ✅（115 files / 553 tests）<br>
+        含新增 pty.onExit cleanup throw 回归测试
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>你回来要做的事</h2>
+
+<div class="decision">
+  <h4><span class="pill pill-warn">DECISION</span>1. Deploy patch 到 user 实际跑的 hive 实例</h4>
+  <div class="why">当前 4010 端口 runtime 的 cwd 是 <code>~/development/hive</code>（非 hive-serva），<strong>只 deploy 到 hive 才会生效</strong>。patch 文件 1275 行，已用 <code>git apply --check</code> 验证可干净 apply。</div>
+<pre>git -C ~/development/hive apply /tmp/hive-serva-logger.patch
+git -C ~/development/hive status   # 确认变更</pre>
+</div>
+
+<div class="decision danger">
+  <h4><span class="pill pill-danger">DANGER</span>2. 重启 4010 runtime（破坏性）</h4>
+  <div class="why">
+    重启会<strong>杀掉所有 workspace 的 worker PTY</strong>，不只 hive-serva 这边。包括：
+    <ul>
+      <li>Orchestrator 自己（本会话）</li>
+      <li>关羽 PTY <code>cfeb01dd</code></li>
+      <li>典韦 PTY（idle）</li>
+      <li>HippoMind 等其他 workspace 的所有 worker</li>
+    </ul>
+    重启后这些 agent run 会被新 runtime sweep 成 error 状态（DB 再加几条 error 记录）。重启前确认所有活都干完。
+  </div>
+</div>
+
+<div class="decision">
+  <h4><span class="pill pill-muted">CHOICE</span>3. <code>hive-vs-hive-serva-report.html</code> 是否 commit</h4>
+  <div class="why">40KB 一次性调研产物，<strong>没 commit</strong>，留在 working tree。建议 <code>mv</code> 到 <code>.hive/reports/</code> 或者直接删。</div>
+<pre>mkdir -p .hive/reports && mv hive-vs-hive-serva-report.html .hive/reports/
+# 或者
+rm hive-vs-hive-serva-report.html</pre>
+</div>
+
+<div class="decision">
+  <h4><span class="pill pill-muted">CHOICE</span>4. 9 个 🟡 中风险 hit 是否补修</h4>
+  <div class="why">
+    典韦扫出的中风险（<code>socket.on('close')</code> 调 resumeTerminalRun、<code>setTimeout</code>/<code>setInterval</code> 回调等）<strong>没修</strong>，按你的指示只做高风险 + 顶层 upgrade handler。
+    建议等 deploy + 重启后，让 logger 抓到下次崩溃证据再针对性补，而不是猜着改。
+  </div>
+</div>
+
+<h2>Deploy 后怎么验证 logger 真的工作</h2>
+
+<pre>ls -la ~/.config/hive/logs/                    # 看 runtime-4010.log 是否生成
+tail -f ~/.config/hive/logs/runtime-4010.log   # 跟踪新日志
+
+sqlite3 ~/.config/hive/runtime.sqlite \
+  "SELECT substr(run_id,1,8), status, length(error_tail) as tail_len \
+   FROM agent_runs WHERE status='error' \
+   ORDER BY started_at DESC LIMIT 5;"
+# 新 error run 的 tail_len 应有数字而不是 NULL</pre>
+
+<h2>当前 DB 里的崩溃记录（静默丢失的）</h2>
+
+<p>关羽调查时一开始说"仅 1 条"是<strong>错的</strong>。实际 DB 里有 <strong>5 条</strong> error 状态的 agent run，全部 <code>error_tail = NULL</code>，因为 patch 还没 deploy。这些证据已经永久丢失。</p>
+
+<table>
+  <thead><tr><th>run</th><th>worker</th><th>workspace</th><th>起始时间</th><th>持续</th><th>error_tail</th></tr></thead>
+  <tbody>
+    <tr><td><code>74a81e52</code></td><td>典韦</td><td>hive-serva</td><td>14:40:38</td><td>19m</td><td class="muted">(空)</td></tr>
+    <tr><td><code>e879041c</code></td><td>关羽</td><td>hive-serva</td><td>12:44:09</td><td>1h54m</td><td class="muted">(空)</td></tr>
+    <tr><td><code>98b9c038</code></td><td>unknown</td><td>?</td><td>12:43:00</td><td>1h55m</td><td class="muted">(空)</td></tr>
+    <tr><td><code>ecdba108</code></td><td>Mike</td><td>HippoMind</td><td>12:37:24</td><td>3m37s</td><td class="muted">(空)</td></tr>
+    <tr><td><code>1a7427d9</code></td><td>unknown</td><td>?</td><td>12:29:55</td><td>2h08m</td><td class="muted">(空)</td></tr>
+  </tbody>
+</table>
+
+<p class="small">长持续时间（1-2h）说明是 runtime 重启时 sweep 出来的 ghost run —— 反过来是 <strong>runtime 进程崩过</strong>的间接证据。短时间（Mike 3m37s）才像真·worker 崩溃。</p>
+
+<h2>顺手提醒</h2>
+
+<ul>
+  <li><strong>team 命令在 PTY 里 not found</strong>：runtime 注入的 PATH (<code>hive/dist/bin</code>) 不存在，关羽/典韦都得用 <code>npx tsx src/cli/team.ts</code> 绕过。这是 bug，单独修。</li>
+  <li><strong>本会话所在 PTY</strong> 是 <code>c5638c71</code>（DB 里 running），重启 4010 后会被 sweep 成 error。</li>
+  <li><strong>worker name 孤儿</strong>：DB 里有 2 条 unknown agent_id 的 error run（workers 表里查不到），是被删 worker 的历史 run。优化项不紧急。</li>
+  <li><strong>偏好已记</strong>：以后给你的汇报默认 HTML，不再 markdown。</li>
+</ul>
+
+<h2>下一步执行清单（建议顺序）</h2>
+
+<ol>
+  <li>读完本 HTML（你正在做）</li>
+  <li><code>git -C ~/development/hive apply /tmp/hive-serva-logger.patch</code></li>
+  <li>确认 4010 是 idle 状态（没在跑长任务）</li>
+  <li>重启 hive runtime（杀 4010 → 重新 pnpm dev）</li>
+  <li>验证 <code>~/.config/hive/logs/runtime-4010.log</code> 出现</li>
+  <li>继续日常使用；下次崩溃 <code>tail</code> 那个 log 就有栈</li>
+  <li>等积累几条新 error 后再决定中风险 hit 是否补</li>
+</ol>
+
+</body>
+</html>
