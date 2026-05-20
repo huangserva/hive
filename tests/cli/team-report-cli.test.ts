@@ -15,7 +15,7 @@ const runTeamBinaryWithStdin = (
   stdinContent: string
 ): Promise<{ code: number | null; stderr: string; stdout: string }> =>
   new Promise((resolve, reject) => {
-    const child = spawn('node_modules/.bin/tsx', ['bin/team', ...args], {
+    const child = spawn('bash', ['bin/team', ...args], {
       env: { ...process.env, ...env },
       stdio: ['pipe', 'pipe', 'pipe'],
     })

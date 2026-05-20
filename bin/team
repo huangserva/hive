@@ -1,7 +1,46 @@
-#!/usr/bin/env node
-import { runTeamCommand } from '../src/cli/team.js'
+#!/usr/bin/env sh
+set -eu
 
-void runTeamCommand(process.argv.slice(2)).catch((error) => {
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+built_cli="$here/../src/cli/team.js"
+ts_cli="$here/../src/cli/team.ts"
+tsx_loader="$here/../node_modules/tsx/dist/esm/index.mjs"
+
+if [ -f "$built_cli" ]; then
+  exec node --input-type=module -e '
+import { pathToFileURL } from "node:url"
+const cliPath = process.argv[1]
+const shimPath = process.argv[2]
+const args = process.argv.slice(3)
+process.argv = [process.argv[0], shimPath, ...args]
+const { runTeamCommand } = await import(pathToFileURL(cliPath).href)
+try {
+  await runTeamCommand(args)
+  process.exit(0)
+} catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)
-})
+}
+' "$built_cli" "$here/team" "$@"
+fi
+
+if [ -f "$ts_cli" ]; then
+  exec node --import "$tsx_loader" --input-type=module -e '
+import { pathToFileURL } from "node:url"
+const cliPath = process.argv[1]
+const shimPath = process.argv[2]
+const args = process.argv.slice(3)
+process.argv = [process.argv[0], shimPath, ...args]
+const { runTeamCommand } = await import(pathToFileURL(cliPath).href)
+try {
+  await runTeamCommand(args)
+  process.exit(0)
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+}
+' "$ts_cli" "$here/team" "$@"
+fi
+
+echo "team CLI not found: $built_cli or $ts_cli" >&2
+exit 1

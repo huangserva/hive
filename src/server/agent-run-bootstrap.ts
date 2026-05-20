@@ -1,4 +1,4 @@
-import { delimiter, dirname, resolve, sep } from 'node:path'
+import { delimiter, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
@@ -20,9 +20,7 @@ import {
 const resolveHiveBinDir = () => {
   const moduleDir = dirname(fileURLToPath(import.meta.url))
   const packageRoot = resolve(moduleDir, '../..')
-  return moduleDir.includes(`${sep}dist${sep}src${sep}`)
-    ? resolve(packageRoot, 'bin')
-    : resolve(packageRoot, 'dist/bin')
+  return resolve(packageRoot, 'bin')
 }
 
 const HIVE_BIN_DIR = resolveHiveBinDir()
