@@ -1,4 +1,4 @@
-import { Check, ChevronDown, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { BookmarkPlus, Check, ChevronDown, RotateCcw, Search, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -323,20 +323,43 @@ export const RoleInstructionsField = ({
             </span>
           ) : null}
         </span>
-        {modified ? (
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-ter transition-colors hover:bg-3 hover:text-sec"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onReset()
-            }}
-          >
-            <RotateCcw size={12} aria-hidden />
-            {t('addWorker.reset')}
-          </button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          {canSaveAsTemplate && !saving ? (
+            <button
+              type="button"
+              data-testid="role-template-save"
+              disabled={Boolean(writeDisabledReason)}
+              title={writeDisabledReason ?? undefined}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setSaving(true)
+              }}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-colors hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{
+                color: 'var(--accent)',
+                background: 'color-mix(in oklab, var(--accent) 14%, transparent)',
+              }}
+            >
+              <BookmarkPlus size={12} aria-hidden />
+              {t('addWorker.saveAsTemplate')}
+            </button>
+          ) : null}
+          {modified ? (
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-ter transition-colors hover:bg-3 hover:text-sec"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onReset()
+              }}
+            >
+              <RotateCcw size={12} aria-hidden />
+              {t('addWorker.reset')}
+            </button>
+          ) : null}
+        </div>
       </summary>
       <textarea
         aria-label="Role instructions"
@@ -350,18 +373,6 @@ export const RoleInstructionsField = ({
         style={{ minHeight: 150 }}
         data-testid="role-instructions-textarea"
       />
-      {canSaveAsTemplate && !saving ? (
-        <button
-          type="button"
-          data-testid="role-template-save"
-          disabled={Boolean(writeDisabledReason)}
-          title={writeDisabledReason ?? undefined}
-          onClick={() => setSaving(true)}
-          className="self-start rounded px-2 py-1 text-xs text-sec transition-colors hover:bg-3 hover:text-pri"
-        >
-          {t('addWorker.saveAsTemplate')}
-        </button>
-      ) : null}
       {canSaveAsTemplate && saving ? (
         <div className="flex items-center gap-2">
           <input
