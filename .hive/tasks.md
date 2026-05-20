@@ -2,24 +2,23 @@
 
 ## In progress
 
-- [ ] **关羽**: 实现 multica 调研 #1 + #2 → 每个 worker 可选 thinking_level + Picker UI（条件显示 + 孤儿值清除）。后端 schema v20 + 启动参数注入（Claude effort / Codex reasoning effort）；UI Add Worker dialog 加 Picker。无新依赖、不动状态机 / logger / PATH。
+(空 — Orchestrator 自主推进到 multica 3 个 ⭐⭐⭐ 完成后停手，等 user 回来定 ⭐⭐ 中优先级)
 
 ## Done
 
-- [x] **关羽**: multica 二轮深度调研报告（8 条具体借鉴项 + 工作量估算 + 源/对接点 + 风险评级）→ `.hive/reports/multica-borrowing-2026-05-20.html`
-
-## Done
-
-- [x] **关羽**: 修 dev 模式 `team` 命令 PATH bug。bin/team 改 POSIX sh wrapper 双模式可用 + resolveHiveBinDir 简化。已 commit + push（`d848735`），4010 重启后 cwd 切到 hive-serva 直接生效。
+- [x] **关羽**: multica #3 — 后端错误消息透传 UI。12 个 endpoint 走 `readErrorMessage`。`c223f31` 已 push。116 files / 564 tests 全过。
+- [x] **关羽**: multica #1 + #2 — per-worker thinking_level 选择器 + Add Worker picker。Schema v20 + Claude `--effort` / Codex `-c model_reasoning_effort=...` 注入。`8a2295c` + `d4b64b5` 已 push。
+- [x] **关羽**: multica 二轮深度调研 → 8 条具体借鉴项报告
+- [x] **关羽**: 修 dev 模式 `team` 命令 PATH bug（POSIX sh wrapper 双模式 + bin dir resolve 简化）
+- [x] **关羽**: 修 worker stop/restart 卡 working 的 pending bug（方案 B + stopped-only guard）
 - [x] hive 旧仓库 archive 到 `~/development/hive.archived-2026-05-20`
-
-## Done
-
-- [x] **关羽**: 修 worker 派单后 status 卡 working 的 bug。方案 B + stopped-only guard，2 文件 +15/-19。已 commit + push（hive-serva `386fd05`），patch 已 apply 到 hive 仓库（`5b3f369`），4010 重启验证生效。
-- [x] hive-serva 4 commit 已 push 到 huangserva/hive（HTTPS 凭证改 SSH 后成功）
-- [x] hive 仓库本地 4 commit（不 push tt-a1i 上游）
-- [x] hive-serva 工作树清理 → comparison report 归档到 `.hive/reports/`
-- [x] 4010 runtime 两次重启验证 → logger 落地 + pending bug 修复生效
+- [x] hive-serva 全部改动 push 到 huangserva/hive（remote 改成 SSH）
 - [x] **关羽**: P0 logger + 5 个 event handler 防崩
 - [x] **典韦**: 全仓 event handler 未 catch 扫描 → 3 🔴 + 9 🟡
 - [x] **关羽**: 调研报告（日志、12 commit、hive vs hive-serva、npm 1.3.0）
+
+## Open（user 回来决定）
+
+- 重启 4010 让今天所有改动生效（破坏性，杀所有 worker）
+- multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强，应由 user 看 demo 决定）
+- 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）

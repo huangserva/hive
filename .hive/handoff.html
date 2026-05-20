@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8" />
-<title>Hive-serva 自主交接 · 2026-05-20</title>
+<title>Hive-serva 自主推进交接 · 2026-05-20 夜场</title>
 <style>
   :root {
     --bg: #0f1115;
@@ -46,184 +46,145 @@
   .pill-muted { background: #1b1f29; color: var(--muted); border: 1px solid var(--line); }
   .decision { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 6px; padding: 14px 16px; margin: 12px 0; }
   .decision.danger { border-left-color: var(--danger); }
+  .decision.ok { border-left-color: var(--ok); }
   .decision h4 { margin: 0 0 6px; font-size: 15px; color: #fff; }
   .decision .why { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
   .small { font-size: 12px; color: var(--muted); }
   .hash { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 
-<h1>Hive-serva 自主交接</h1>
-<div class="sub">2026-05-20 下午 · Orchestrator 在 user 出门期间独立完成的工作</div>
+<h1>Hive-serva 自主推进交接 · 夜场</h1>
+<div class="sub">2026-05-20 晚上 · user 出门期间 Orchestrator 独立推进的工作</div>
 
 <div class="banner">
-  <strong>一句话：</strong>P0 文件日志 + uncaught 钩子 + 5 处 event handler 防崩落地完成，3 个 commit 已入 main。
-  剩下两件破坏性操作（deploy 到 <code>~/development/hive</code> + 重启 4010）<span class="warn">没做</span>，等你决定。
+  <strong>一句话：</strong>multica 调研里 3 个 ⭐⭐⭐ 高优先级<span class="ok">全部完成并 push</span>。<span class="warn">4010 还没重启</span>，UI 上看到 thinking_level Picker 之前需要重启。
 </div>
 
-<h2>已完成（已 commit 到 main）</h2>
+<h2>这一轮做了什么</h2>
 
 <table>
-  <thead><tr><th>Commit</th><th>说明</th><th>规模</th></tr></thead>
+  <thead><tr><th>commit</th><th>内容</th><th>对应 multica 调研项</th></tr></thead>
   <tbody>
     <tr>
-      <td><span class="hash">b9e5081</span></td>
-      <td>Guard terminal IO socket against dead-PTY writes<br>
-          <span class="small">即之前手动同步过来的那条 race fix。<code>terminal-stream-hub.ts</code> message handler 加 try/catch。</span></td>
-      <td class="mono">1 文件 +9 / −1</td>
+      <td><span class="hash">8a2295c</span></td>
+      <td><strong>Add per-worker thinking_level selector</strong><br>
+        <span class="small">Schema v20 加 <code>agent_launch_configs.thinking_level</code> 列；Claude 用 <code>--effort &lt;value&gt;</code>，Codex 用 <code>-c model_reasoning_effort=&lt;value&gt;</code>；OpenCode/Gemini 不支持就隐藏 picker 也不注入。30 文件 +530/-10。</span></td>
+      <td>#1 ⭐⭐⭐ + #2 ⭐⭐⭐</td>
     </tr>
     <tr>
-      <td><span class="hash">a98dad7</span></td>
-      <td>Add runtime file logger and guard event handlers against uncaught throws<br>
-          <span class="small">P0 logger 套件 + 5 个 event handler 防崩。详见下方拆分。</span></td>
-      <td class="mono">23 文件 +549 / −93</td>
+      <td><span class="hash">d4b64b5</span></td>
+      <td><strong>Archive multica borrowing research</strong><br>
+        <span class="small">关羽这一轮产出的 8 条借鉴清单 HTML 报告归档进 <code>.hive/reports/multica-borrowing-2026-05-20.html</code>。</span></td>
+      <td>研究产物</td>
     </tr>
     <tr>
-      <td><span class="hash">a607d77</span></td>
-      <td>Add Hive workspace tracking files<br>
-          <span class="small">.hive/PROTOCOL.md + tasks.md + HANDOFF.md（本 HTML 之前的 markdown 版本）。</span></td>
-      <td class="mono">3 文件 +145</td>
+      <td><span class="hash">c223f31</span></td>
+      <td><strong>Pass backend error messages through to UI for read-only endpoints</strong><br>
+        <span class="small">12 个 endpoint 把 "Failed to ..." 固定文案改成 <code>readErrorMessage(response, fallback)</code>，后端 <code>{error: "..."}</code> 现在能透传到 UI。stopAgentRun 不再吞错。</span></td>
+      <td>#3 ⭐⭐⭐</td>
     </tr>
   </tbody>
 </table>
 
-<h3>a98dad7 内容拆解</h3>
+<p class="small">全部 push 到 <a href="https://github.com/huangserva/hive">github.com/huangserva/hive</a>，working tree 干净。</p>
+
+<h2>验证状态</h2>
+
 <table>
-  <thead><tr><th>类别</th><th>具体改动</th></tr></thead>
+  <thead><tr><th>项</th><th>磁盘</th><th>4010 进程</th><th>UI 可见</th></tr></thead>
   <tbody>
-    <tr>
-      <td>新文件</td>
-      <td>
-        <code>src/server/logger.ts</code><br>
-        <code>src/server/sqlite-schema-v19.ts</code><br>
-        <code>tests/unit/logger.test.ts</code>
-      </td>
-    </tr>
-    <tr>
-      <td>全局兜底</td>
-      <td>
-        <code>src/cli/hive.ts</code> 注册 <code>uncaughtException</code> + <code>unhandledRejection</code>，记日志后<strong>保持原崩溃行为</strong>不吞错
-      </td>
-    </tr>
-    <tr>
-      <td>日志落点</td>
-      <td>
-        <code>~/.config/hive/logs/runtime-&lt;port&gt;.log</code>，每行 ISO 时间戳，append 模式；<code>HIVE_LOG=0</code> 可禁
-      </td>
-    </tr>
-    <tr>
-      <td>Schema v19</td>
-      <td>
-        <code>agent_runs.error_tail TEXT</code> 列；PTY 非零退出落最后 ~200 行 stdout/stderr 到 DB + logger
-      </td>
-    </tr>
-    <tr>
-      <td>5 个 handler 防崩</td>
-      <td>
-        <code>agent-manager-support.ts</code>：<code>pty.onData / onError / onExit</code>（分段 try/catch，cleanup 不会被一处抛中断）<br>
-        <code>terminal-ws-server.ts</code>、<code>tasks-websocket-server.ts</code>：<code>server.on('upgrade')</code> 顶层 catch（<code>wss.handleUpgrade</code> 之前在 try 外）<br>
-        catch 都带上下文标签：<code>pty.onExit cleanup</code> / <code>ws upgrade [terminal]</code> / 等等
-      </td>
-    </tr>
-    <tr>
-      <td>测试</td>
-      <td>
-        pnpm check ✅（Biome 339 文件 0 error）<br>
-        pnpm test ✅（115 files / 553 tests）<br>
-        含新增 pty.onExit cleanup throw 回归测试
-      </td>
-    </tr>
+    <tr><td>thinking_level 选择器</td><td class="ok">✓</td><td class="warn">需重启</td><td class="warn">重启后 Add Worker dialog 出现 Picker</td></tr>
+    <tr><td>启动参数注入</td><td class="ok">✓</td><td class="warn">需重启</td><td>透明，新 worker 启动时生效</td></tr>
+    <tr><td>schema v20 migration</td><td class="ok">✓</td><td class="warn">需重启才会跑 ALTER TABLE</td><td>无需可见</td></tr>
+    <tr><td>error passthrough</td><td class="ok">✓</td><td class="warn">需重启（web bundle 重新加载）</td><td class="warn">重启后 stop run 等失败提示更准</td></tr>
   </tbody>
 </table>
+
+<p class="small">当前 4010 还是 11:27 那次启动的 PID 11187，跑的是这一轮改动**之前**的代码。要看到 UI 改进必须重启。</p>
 
 <h2>你回来要做的事</h2>
 
-<div class="decision">
-  <h4><span class="pill pill-warn">DECISION</span>1. Deploy patch 到 user 实际跑的 hive 实例</h4>
-  <div class="why">当前 4010 端口 runtime 的 cwd 是 <code>~/development/hive</code>（非 hive-serva），<strong>只 deploy 到 hive 才会生效</strong>。patch 文件 1275 行，已用 <code>git apply --check</code> 验证可干净 apply。</div>
-<pre>git -C ~/development/hive apply /tmp/hive-serva-logger.patch
-git -C ~/development/hive status   # 确认变更</pre>
-</div>
-
 <div class="decision danger">
-  <h4><span class="pill pill-danger">DANGER</span>2. 重启 4010 runtime（破坏性）</h4>
+  <h4><span class="pill pill-danger">DANGER</span>1. 重启 4010 让今天的所有改进生效</h4>
   <div class="why">
-    重启会<strong>杀掉所有 workspace 的 worker PTY</strong>，不只 hive-serva 这边。包括：
+    跟之前几次一样的破坏性操作：
     <ul>
-      <li>Orchestrator 自己（本会话）</li>
-      <li>关羽 PTY <code>cfeb01dd</code></li>
-      <li>典韦 PTY（idle）</li>
-      <li>HippoMind 等其他 workspace 的所有 worker</li>
+      <li>杀掉所有 worker PTY（关羽、典韦、Orchestrator）</li>
+      <li>新 runtime 启动时 schema v20 自动 ALTER TABLE</li>
+      <li>启动后 Add Worker dialog 出现 thinking_level Picker</li>
+      <li>启动后 stop/load 等失败提示更准确</li>
     </ul>
-    重启后这些 agent run 会被新 runtime sweep 成 error 状态（DB 再加几条 error 记录）。重启前确认所有活都干完。
+    操作：找跑着 <code>pnpm dev</code> 的终端 → Ctrl+C → <code>pnpm dev</code>。
   </div>
 </div>
 
 <div class="decision">
-  <h4><span class="pill pill-muted">CHOICE</span>3. <code>hive-vs-hive-serva-report.html</code> 是否 commit</h4>
-  <div class="why">40KB 一次性调研产物，<strong>没 commit</strong>，留在 working tree。建议 <code>mv</code> 到 <code>.hive/reports/</code> 或者直接删。</div>
-<pre>mkdir -p .hive/reports && mv hive-vs-hive-serva-report.html .hive/reports/
-# 或者
-rm hive-vs-hive-serva-report.html</pre>
+  <h4><span class="pill pill-muted">VERIFY</span>2. 重启后验证（一行命令）</h4>
+<pre>tail -5 ~/.config/hive/logs/runtime-4010.log
+# 应该看到新一行 "runtime started port=4010 pid=&lt;新pid&gt; ..."
+
+# 然后在浏览器 Add Worker dialog 里选 Claude/Codex preset，
+# 应该看到一个新的 thinking_level 下拉选框</pre>
 </div>
 
-<div class="decision">
-  <h4><span class="pill pill-muted">CHOICE</span>4. 9 个 🟡 中风险 hit 是否补修</h4>
-  <div class="why">
-    典韦扫出的中风险（<code>socket.on('close')</code> 调 resumeTerminalRun、<code>setTimeout</code>/<code>setInterval</code> 回调等）<strong>没修</strong>，按你的指示只做高风险 + 顶层 upgrade handler。
-    建议等 deploy + 重启后，让 logger 抓到下次崩溃证据再针对性补，而不是猜着改。
-  </div>
-</div>
-
-<h2>Deploy 后怎么验证 logger 真的工作</h2>
-
-<pre>ls -la ~/.config/hive/logs/                    # 看 runtime-4010.log 是否生成
-tail -f ~/.config/hive/logs/runtime-4010.log   # 跟踪新日志
-
-sqlite3 ~/.config/hive/runtime.sqlite \
-  "SELECT substr(run_id,1,8), status, length(error_tail) as tail_len \
-   FROM agent_runs WHERE status='error' \
-   ORDER BY started_at DESC LIMIT 5;"
-# 新 error run 的 tail_len 应有数字而不是 NULL</pre>
-
-<h2>当前 DB 里的崩溃记录（静默丢失的）</h2>
-
-<p>关羽调查时一开始说"仅 1 条"是<strong>错的</strong>。实际 DB 里有 <strong>5 条</strong> error 状态的 agent run，全部 <code>error_tail = NULL</code>，因为 patch 还没 deploy。这些证据已经永久丢失。</p>
+<h2>multica 调研里还没做的</h2>
 
 <table>
-  <thead><tr><th>run</th><th>worker</th><th>workspace</th><th>起始时间</th><th>持续</th><th>error_tail</th></tr></thead>
+  <thead><tr><th>#</th><th>项</th><th>评级</th><th>工作量</th><th>我的态度</th></tr></thead>
   <tbody>
-    <tr><td><code>74a81e52</code></td><td>典韦</td><td>hive-serva</td><td>14:40:38</td><td>19m</td><td class="muted">(空)</td></tr>
-    <tr><td><code>e879041c</code></td><td>关羽</td><td>hive-serva</td><td>12:44:09</td><td>1h54m</td><td class="muted">(空)</td></tr>
-    <tr><td><code>98b9c038</code></td><td>unknown</td><td>?</td><td>12:43:00</td><td>1h55m</td><td class="muted">(空)</td></tr>
-    <tr><td><code>ecdba108</code></td><td>Mike</td><td>HippoMind</td><td>12:37:24</td><td>3m37s</td><td class="muted">(空)</td></tr>
-    <tr><td><code>1a7427d9</code></td><td>unknown</td><td>?</td><td>12:29:55</td><td>2h08m</td><td class="muted">(空)</td></tr>
+    <tr><td>#4</td><td>Terminal 输出"最新优先"排序</td><td>⭐⭐ 中</td><td>S=半天</td><td>UX 偏好性强，hive 用户可能已经习惯旧到新，应你试 demo 后定</td></tr>
+    <tr><td>#5</td><td>CLI 官方图标 polish（Gemini spark 等）</td><td>⭐⭐ 中</td><td>S=半天</td><td>低风险，视觉提升不大；图标资源你应该挑过审美再做</td></tr>
+    <tr><td>#6</td><td>squad 复合选择器模式</td><td>⭐⭐ 中</td><td>M=1-2天</td><td><span class="danger">关羽明确点出最坑</span>。可借选择器模式，但不能照搬 squad 系统，否则范围爆炸。强烈建议你回来后亲自评估</td></tr>
+    <tr><td>#7</td><td>runtime 行"永远可见"状态条</td><td>⭐⭐ 中</td><td>S=半天</td><td>需要 UI 审美判断（放哪里、怎么显示），让你定</td></tr>
+    <tr><td>#8</td><td>（低优先级 1 条）</td><td>⭐ 低</td><td>S=半天</td><td>看心情</td></tr>
   </tbody>
 </table>
 
-<p class="small">长持续时间（1-2h）说明是 runtime 重启时 sweep 出来的 ghost run —— 反过来是 <strong>runtime 进程崩过</strong>的间接证据。短时间（Mike 3m37s）才像真·worker 崩溃。</p>
+<p class="small">完整报告：<code>.hive/reports/multica-borrowing-2026-05-20.html</code></p>
 
-<h2>顺手提醒</h2>
+<h2>累计今天 / 这条会话的工作量</h2>
 
+<p>从 hive-serva HEAD <code>9363632</code>（你跟我对话开始时）到现在 <code>c223f31</code>，hive-serva 共 <strong>11 个 commit</strong>，全部已 push 到 huangserva/hive：</p>
+
+<pre>c223f31  Pass backend error messages through to UI for read-only endpoints
+d4b64b5  Archive multica borrowing research
+8a2295c  Add per-worker thinking_level selector
+d848735  Make `team` CLI usable from worker PTYs in dev mode
+386fd05  Reset stale pendingTaskCount when restarting a stopped worker
+747f492  Archive hive vs hive-serva comparison report
+6062f10  Swap handoff to HTML per user preference
+a607d77  Add Hive workspace tracking files
+a98dad7  Add runtime file logger and guard event handlers against uncaught throws
+b9e5081  Guard terminal IO socket against dead-PTY writes
+─── 以下是会话开始时的基线 ───
+9363632  Refine workspace terminal chrome</pre>
+
+<p>主题：</p>
 <ul>
-  <li><strong>team 命令在 PTY 里 not found</strong>：runtime 注入的 PATH (<code>hive/dist/bin</code>) 不存在，关羽/典韦都得用 <code>npx tsx src/cli/team.ts</code> 绕过。这是 bug，单独修。</li>
-  <li><strong>本会话所在 PTY</strong> 是 <code>c5638c71</code>（DB 里 running），重启 4010 后会被 sweep 成 error。</li>
-  <li><strong>worker name 孤儿</strong>：DB 里有 2 条 unknown agent_id 的 error run（workers 表里查不到），是被删 worker 的历史 run。优化项不紧急。</li>
-  <li><strong>偏好已记</strong>：以后给你的汇报默认 HTML，不再 markdown。</li>
+  <li><strong>稳定性</strong>：logger + uncaught 钩子 + 5 个 event handler 防崩 + race fix</li>
+  <li><strong>正确性</strong>：worker stop/restart 不再卡 working（pending bug fix）</li>
+  <li><strong>开发体验</strong>：worker PTY 里直接敲 <code>team</code> 可用（PATH fix）</li>
+  <li><strong>功能</strong>：worker 可选 thinking_level（节省成本 / 控质量）</li>
+  <li><strong>错误可见性</strong>：UI 不再无脑显示 "Failed"，真实原因可看</li>
 </ul>
 
-<h2>下一步执行清单（建议顺序）</h2>
+<h2>已知小事（不急）</h2>
 
-<ol>
-  <li>读完本 HTML（你正在做）</li>
-  <li><code>git -C ~/development/hive apply /tmp/hive-serva-logger.patch</code></li>
-  <li>确认 4010 是 idle 状态（没在跑长任务）</li>
-  <li>重启 hive runtime（杀 4010 → 重新 pnpm dev）</li>
-  <li>验证 <code>~/.config/hive/logs/runtime-4010.log</code> 出现</li>
-  <li>继续日常使用；下次崩溃 <code>tail</code> 那个 log 就有栈</li>
-  <li>等积累几条新 error 后再决定中风险 hit 是否补</li>
-</ol>
+<ul>
+  <li>typescript 9 个 🟡 中风险 event handler（socket.on('close')、setTimeout 等）未修。等 logger 抓到下次崩溃证据再针对性补。</li>
+  <li>Sweep ghost run 不落 error_tail（logger gap）。runtime 重启时 sweep 出来的 ghost 仍然 <code>error_tail = null</code>，不紧急。</li>
+  <li><code>~/development/hive.archived-2026-05-20</code> 是之前那个旧仓库的备份，305MB，观察几天没问题可以删。</li>
+</ul>
+
+<h2>memory 里记的偏好</h2>
+
+<ul>
+  <li>汇报型产出默认 HTML（这份就是）。markdown 只用在内部 <code>.hive/tasks.md</code> 这种 agent 自用文件。</li>
+</ul>
 
 </body>
 </html>
