@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
+import type { HiveLogger } from './logger.js'
 import { matchRoute } from './routes.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { createTasksFileService, type TasksFileService } from './tasks-file.js'
@@ -18,6 +19,7 @@ interface CreateAppOptions {
   pickFolderService?: () => Promise<PickFolderResponse>
   tasksFileService?: TasksFileService
   versionService?: VersionService
+  logger?: HiveLogger
 }
 
 const getDefaultStaticDir = () => {
@@ -99,6 +101,7 @@ export const createApp = ({
   pickFolderService = pickFolder,
   tasksFileService = createTasksFileService(),
   versionService = createVersionService(),
+  logger,
 }: CreateAppOptions) => {
   const staticDir = process.env.HIVE_STATIC_DIR ?? getDefaultStaticDir()
   const staticAvailablePromise = canServeStatic(staticDir)
@@ -140,10 +143,14 @@ export const createApp = ({
         return
       }
       const message = error instanceof Error ? error.message : 'Unknown error'
+      logger?.error(`http request failed ${method} ${url.pathname}`, error)
       sendJson(response, 500, { error: message })
     }
   })
-  createTerminalWebSocketServer(server, store)
+  server.on('error', (error) => {
+    logger?.error('http server error', error)
+  })
+  createTerminalWebSocketServer(server, store, logger)
 
   return { server, store }
 }

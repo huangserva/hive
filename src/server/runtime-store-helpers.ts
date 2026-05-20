@@ -4,6 +4,7 @@ import { createAgentRuntime } from './agent-runtime.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
 import { createDispatchLedgerStore } from './dispatch-ledger-store.js'
+import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
@@ -38,6 +39,7 @@ export interface RuntimeStoreServices {
 interface CreateRuntimeStoreServicesOptions {
   agentManager?: AgentManager
   dataDir?: string
+  logger?: HiveLogger
 }
 
 interface CreateRuntimeStoreLifecycleOptions {
@@ -102,7 +104,8 @@ export const createRuntimeStoreServices = (
       workspaceStore.markAgentStopped(workspaceId, agentId)
     },
     restartPolicy,
-    (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId)
+    (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
+    options.logger
   )
   const teamOps = createTeamOperations({
     agentRuntime,

@@ -9,7 +9,8 @@ interface AgentRunSyncStore {
     runId: string,
     status: PersistedRunStatus,
     exitCode: number | null,
-    endedAt: number | null
+    endedAt: number | null,
+    errorTail?: string | null
   ) => void
 }
 
@@ -29,18 +30,25 @@ export const syncPersistedRun = (
 ) => {
   const nextStatus = toPersistedStatus(snapshot)
   const output = snapshot.output.slice(-MAX_RUN_OUTPUT_LENGTH)
-  if (run.status === nextStatus && run.exitCode === snapshot.exitCode && run.output === output) {
+  if (
+    run.status === nextStatus &&
+    run.exitCode === snapshot.exitCode &&
+    run.output === output &&
+    run.errorTail === (snapshot.errorTail ?? null)
+  ) {
     return run
   }
 
   run.status = nextStatus
   run.output = output
   run.exitCode = snapshot.exitCode
+  run.errorTail = snapshot.errorTail ?? null
   store.updatePersistedRun(
     run.runId,
     nextStatus,
     snapshot.exitCode,
-    nextStatus === 'exited' || nextStatus === 'error' ? Date.now() : null
+    nextStatus === 'exited' || nextStatus === 'error' ? Date.now() : null,
+    nextStatus === 'error' ? (snapshot.errorTail ?? null) : undefined
   )
   return run
 }
@@ -53,5 +61,5 @@ export const completeLiveRun = (
 ) => {
   run.status = exitCode === 0 ? 'exited' : 'error'
   run.exitCode = exitCode
-  store.updatePersistedRun(run.runId, run.status, exitCode, endedAt)
+  store.updatePersistedRun(run.runId, run.status, exitCode, endedAt, run.errorTail)
 }

@@ -2,6 +2,7 @@ import type { AgentRunExitContext } from './agent-run-start-context.js'
 import { completeLiveRun } from './agent-run-sync.js'
 
 interface HandleRunExitInput {
+  errorTail?: string | null
   exitCode: number | null
   endedAt: number
   runId: string
@@ -18,7 +19,7 @@ const clearResumedSessionOnFailure = (
 
 export const handleAgentRunExit = (
   context: AgentRunExitContext,
-  { exitCode, endedAt, runId }: HandleRunExitInput
+  { errorTail, exitCode, endedAt, runId }: HandleRunExitInput
 ) => {
   context.registry.setPendingExitCode(runId, exitCode)
   const liveRun = context.registry.get(runId)
@@ -31,6 +32,7 @@ export const handleAgentRunExit = (
     return false
   }
 
+  liveRun.errorTail = errorTail ?? null
   completeLiveRun(liveRun, exitCode, endedAt, context.store)
   clearResumedSessionOnFailure(context, exitCode)
   context.handledRunExits.add(runId)

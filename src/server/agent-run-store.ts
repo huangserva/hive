@@ -19,6 +19,7 @@ export interface PersistedAgentRun {
   agentId: string
   status: 'starting' | 'running' | 'exited' | 'error'
   exitCode: number | null
+  errorTail?: string | null
   pid: number | null
   startedAt: number
   endedAt: number | null
@@ -62,6 +63,7 @@ interface AgentRunRow {
   pid: number | null
   status: 'starting' | 'running' | 'exited' | 'error'
   exit_code: number | null
+  error_tail: string | null
   started_at: number
   ended_at: number | null
 }
@@ -182,14 +184,21 @@ export const createAgentRunStore = (db: Database) => {
     runId: string,
     status: PersistedAgentRun['status'],
     exitCode: number | null,
-    endedAt: number | null
+    endedAt: number | null,
+    errorTail?: string | null
   ) => {
     if (closed) {
       return
     }
+    if (errorTail === undefined) {
+      db.prepare(
+        'UPDATE agent_runs SET status = ?, exit_code = ?, ended_at = ?, updated_at = ? WHERE run_id = ?'
+      ).run(status, exitCode, endedAt, Date.now(), runId)
+      return
+    }
     db.prepare(
-      'UPDATE agent_runs SET status = ?, exit_code = ?, ended_at = ?, updated_at = ? WHERE run_id = ?'
-    ).run(status, exitCode, endedAt, Date.now(), runId)
+      'UPDATE agent_runs SET status = ?, exit_code = ?, ended_at = ?, error_tail = ?, updated_at = ? WHERE run_id = ?'
+    ).run(status, exitCode, endedAt, errorTail, Date.now(), runId)
   }
 
   const listAgentRuns = (agentId: string) => {
@@ -199,7 +208,7 @@ export const createAgentRunStore = (db: Database) => {
 
     return db
       .prepare(
-        'SELECT run_id, agent_id, pid, status, exit_code, started_at, ended_at FROM agent_runs WHERE agent_id = ? ORDER BY started_at DESC'
+        'SELECT run_id, agent_id, pid, status, exit_code, error_tail, started_at, ended_at FROM agent_runs WHERE agent_id = ? ORDER BY started_at DESC'
       )
       .all(agentId)
       .map((row: unknown) => {
@@ -210,6 +219,7 @@ export const createAgentRunStore = (db: Database) => {
           pid: typedRow.pid,
           status: typedRow.status,
           exitCode: typedRow.exit_code,
+          errorTail: typedRow.error_tail,
           startedAt: typedRow.started_at,
           endedAt: typedRow.ended_at,
         }

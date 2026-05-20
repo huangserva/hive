@@ -20,7 +20,8 @@ export interface AgentRunStarterStorePort {
     runId: string,
     status: PersistedRunStatus,
     exitCode: number | null,
-    endedAt: number | null
+    endedAt: number | null,
+    errorTail?: string | null
   ) => void
 }
 

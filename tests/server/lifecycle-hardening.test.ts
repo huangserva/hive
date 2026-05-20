@@ -247,6 +247,50 @@ describe('lifecycle hardening (R2.1 / R2.2 / R2.3) — real PTY', () => {
     }
   })
 
+  test('non-zero PTY exit persists the recent output tail to agent_runs.error_tail', async () => {
+    const { dataDir, workspacePath } = prepareWorkspace()
+    const script = join(workspacePath, 'error-tail.js')
+    writeFileSync(
+      script,
+      [
+        'for (let index = 0; index < 260; index += 1) {',
+        '  console.error("tail-line-" + index)',
+        '}',
+        'process.exit(2)',
+      ].join('\n')
+    )
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      command: process.execPath,
+      args: [script],
+    })
+
+    const run = await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+
+    await waitFor(() => {
+      const snapshot = store.getLiveRun(run.runId)
+      expect(snapshot.status).toBe('error')
+      expect(snapshot.exitCode).toBe(2)
+    })
+
+    await store.close()
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    const row = db
+      .prepare('SELECT status, exit_code, error_tail FROM agent_runs WHERE run_id = ?')
+      .get(run.runId) as { error_tail: string | null; exit_code: number | null; status: string }
+    db.close()
+
+    expect(row.status).toBe('error')
+    expect(row.exit_code).toBe(2)
+    expect(row.error_tail).toContain('tail-line-259')
+    expect(row.error_tail).toContain('tail-line-60')
+    expect(row.error_tail).not.toContain('tail-line-0')
+  })
+
   test('R2.2: double stop on a running process triggers onExit once and leaves worker stopped', async () => {
     const { dataDir, workspacePath } = prepareWorkspace()
     const script = join(workspacePath, 'long-running.js')

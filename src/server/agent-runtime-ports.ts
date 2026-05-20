@@ -26,7 +26,8 @@ export interface AgentRunStorePort {
     runId: string,
     status: PersistedRunStatus,
     exitCode: number | null,
-    endedAt: number | null
+    endedAt: number | null,
+    errorTail?: string | null
   ) => void
 }
 

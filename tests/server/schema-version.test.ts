@@ -105,6 +105,7 @@ describe('schema version', () => {
     expect(workerColumns.has('last_session_id')).toBe(true)
     expect(agentRunColumns.has('pid')).toBe(true)
     expect(agentRunColumns.has('ended_at')).toBe(true)
+    expect(agentRunColumns.has('error_tail')).toBe(true)
     expect(launchConfigColumns.has('command_preset_id')).toBe(true)
     expect(launchConfigColumns.has('interactive_command')).toBe(true)
     expect(launchConfigColumns.has('preset_augmentation_disabled')).toBe(true)
@@ -545,6 +546,9 @@ describe('schema version', () => {
     expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(18)).toEqual({
       version: 18,
     })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(19)).toEqual({
+      version: 19,
+    })
 
     db.close()
   })
@@ -927,6 +931,9 @@ describe('schema version', () => {
     })
     expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(18)).toEqual({
       version: 18,
+    })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(19)).toEqual({
+      version: 19,
     })
 
     db.close()

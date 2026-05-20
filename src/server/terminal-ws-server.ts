@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from 'node:http'
 
 import { WebSocketServer } from 'ws'
 import { getLocalRequestRejection } from './local-request-guard.js'
+import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { createTasksWebSocketServer } from './tasks-websocket-server.js'
 import type { TerminalMirrorSize } from './terminal-state-mirror.js'
@@ -39,10 +40,20 @@ const rejectUpgrade = (
   socket.destroy()
 }
 
-export const createTerminalWebSocketServer = (server: Server, store: RuntimeStore) => {
+const logUpgradeError = (logger: HiveLogger | undefined, error: unknown) => {
+  try {
+    logger?.error('ws upgrade [terminal]', error)
+  } catch {}
+}
+
+export const createTerminalWebSocketServer = (
+  server: Server,
+  store: RuntimeStore,
+  logger?: HiveLogger
+) => {
   const ioWss = new WebSocketServer({ noServer: true })
   const controlWss = new WebSocketServer({ noServer: true })
-  const tasksWss = createTasksWebSocketServer(server, store)
+  const tasksWss = createTasksWebSocketServer(server, store, logger)
   const hub = createTerminalStreamHub(store)
   const disposeTasksListener = store.registerTasksListener((workspaceId, content) => {
     tasksWss.publish(workspaceId, content)
@@ -57,38 +68,43 @@ export const createTerminalWebSocketServer = (server: Server, store: RuntimeStor
   }
 
   server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-    const pathname = url.pathname
-    const match = matchTerminalPath(pathname)
-    if (!match) {
-      if (/^\/ws\/tasks\/.+/.test(pathname)) {
+    try {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const pathname = url.pathname
+      const match = matchTerminalPath(pathname)
+      if (!match) {
+        if (/^\/ws\/tasks\/.+/.test(pathname)) {
+          return
+        }
+        rejectUpgrade(socket, '404 Not Found')
         return
       }
-      rejectUpgrade(socket, '404 Not Found')
-      return
-    }
-    if (getLocalRequestRejection(request)) {
-      rejectUpgrade(socket, '403 Forbidden')
-      return
-    }
-    if (!validateUpgradeSession(request)) {
-      rejectUpgrade(socket, '401 Unauthorized')
-      return
-    }
+      if (getLocalRequestRejection(request)) {
+        rejectUpgrade(socket, '403 Forbidden')
+        return
+      }
+      if (!validateUpgradeSession(request)) {
+        rejectUpgrade(socket, '401 Unauthorized')
+        return
+      }
 
-    try {
-      store.getLiveRun(match.runId)
-    } catch {
-      rejectUpgrade(socket, '404 Not Found')
-      return
-    }
+      try {
+        store.getLiveRun(match.runId)
+      } catch {
+        rejectUpgrade(socket, '404 Not Found')
+        return
+      }
 
-    const wss = match.channel === 'io' ? ioWss : controlWss
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      const clientId = getClientId(url)
-      if (match.channel === 'io') hub.attachIo(match.runId, clientId, ws, getInitialSize(url))
-      else hub.attachControl(match.runId, clientId, ws, getInitialSize(url))
-    })
+      const wss = match.channel === 'io' ? ioWss : controlWss
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        const clientId = getClientId(url)
+        if (match.channel === 'io') hub.attachIo(match.runId, clientId, ws, getInitialSize(url))
+        else hub.attachControl(match.runId, clientId, ws, getInitialSize(url))
+      })
+    } catch (error) {
+      logUpgradeError(logger, error)
+      socket.destroy()
+    }
   })
 
   server.on('close', () => {
@@ -97,6 +113,13 @@ export const createTerminalWebSocketServer = (server: Server, store: RuntimeStor
     ioWss.close()
     controlWss.close()
     tasksWss.close()
+  })
+
+  ioWss.on('error', (error) => {
+    logger?.error('terminal io websocket error', error)
+  })
+  controlWss.on('error', (error) => {
+    logger?.error('terminal control websocket error', error)
   })
 
   return { close: () => hub.close() }

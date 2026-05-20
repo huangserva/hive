@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { createAgentManager } from '../server/agent-manager.js'
 import { createApp } from '../server/app.js'
+import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
@@ -74,6 +75,28 @@ const parsePort = (argv: string[]) => {
 
 const resolveDataDir = () => process.env.HIVE_DATA_DIR || join(homedir(), '.config', 'hive')
 
+const registerFatalProcessLoggers = (logger: HiveLogger) => {
+  const handleFatal = (label: string, error: unknown) => {
+    logger.error(label, error)
+    console.error(error)
+    void logger.close().finally(() => {
+      process.exit(1)
+    })
+  }
+  const uncaughtException = (error: Error) => {
+    handleFatal('uncaughtException', error)
+  }
+  const unhandledRejection = (reason: unknown) => {
+    handleFatal('unhandledRejection', reason)
+  }
+  process.on('uncaughtException', uncaughtException)
+  process.on('unhandledRejection', unhandledRejection)
+  return () => {
+    process.off('uncaughtException', uncaughtException)
+    process.off('unhandledRejection', unhandledRejection)
+  }
+}
+
 const maybePrintUpdateHint = async (versionService: VersionService) => {
   const info = await versionService.getVersionInfo()
   if (!info.update_available) return
@@ -88,12 +111,17 @@ export const runHiveCommand = async (
 ): Promise<RunHiveCommandResult> => {
   const port = parsePort(argv)
   const dataDir = resolveDataDir()
+  const logger = createHiveLogger({ dataDir, port })
+  const unregisterFatalLoggers = registerFatalProcessLoggers(logger)
   const versionService = options.versionService ?? createVersionService()
+  const version = readPackageVersion()
   const app = createApp({
     store: createRuntimeStore({
       agentManager: createAgentManager(),
       dataDir,
+      logger,
     }),
+    logger,
     versionService,
   })
 
@@ -119,6 +147,7 @@ export const runHiveCommand = async (
     closePromise = (async () => {
       process.off('SIGTERM', gracefulShutdown)
       process.off('SIGINT', gracefulShutdown)
+      unregisterFatalLoggers()
       await new Promise<void>((resolve, reject) => {
         app.server.close((error) => {
           if (error) {
@@ -130,6 +159,7 @@ export const runHiveCommand = async (
         })
       })
       await app.store.close()
+      await logger.close()
     })()
 
     return closePromise
@@ -150,6 +180,9 @@ export const runHiveCommand = async (
   process.once('SIGINT', gracefulShutdown)
 
   console.log(`Hive running at http://127.0.0.1:${address.port}`)
+  logger.info(
+    `runtime started port=${address.port} pid=${process.pid} cwd=${process.cwd()} version=${version}`
+  )
   void maybePrintUpdateHint(versionService).catch(() => {})
 
   return {

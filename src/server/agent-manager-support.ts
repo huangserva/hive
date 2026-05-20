@@ -3,10 +3,32 @@ import { execFileSync } from 'node:child_process'
 import type { IPty } from 'node-pty'
 
 import type { AgentRunRecord, AgentRunSnapshot } from './agent-manager.js'
+import type { HiveLogger } from './logger.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 
 export const MAX_RUN_OUTPUT_LENGTH = 1_000_000
+const MAX_ERROR_TAIL_LINES = 200
 const FORCE_KILL_DELAY_MS = 750
+
+export const createOutputTailBuffer = (maxLines = MAX_ERROR_TAIL_LINES) => {
+  const lines: string[] = []
+  let pending = ''
+  return {
+    append(chunk: string) {
+      const parts = (pending + chunk).split(/\r?\n/)
+      pending = parts.pop() ?? ''
+      for (const line of parts) {
+        lines.push(line)
+        if (lines.length > maxLines) lines.shift()
+      }
+    },
+    read() {
+      const snapshot = pending ? [...lines, pending] : [...lines]
+      const tail = snapshot.slice(-maxLines).join('\n')
+      return tail || null
+    },
+  }
+}
 
 export const toAgentRunSnapshot = (run: AgentRunRecord): AgentRunSnapshot => ({
   runId: run.runId,
@@ -18,6 +40,7 @@ export const toAgentRunSnapshot = (run: AgentRunRecord): AgentRunSnapshot => ({
       : run.status,
   output: run.output,
   exitCode: run.exitCode,
+  errorTail: run.errorTail,
 })
 
 export const finishAgentRun = (
@@ -28,11 +51,23 @@ export const finishAgentRun = (
   if (run.status === 'exited' || run.status === 'error') return
   run.status = exitCode === 0 ? 'exited' : 'error'
   run.exitCode = exitCode
-  run.onExit?.({ runId: run.runId, exitCode })
+  run.errorTail = exitCode === 0 ? null : run.errorTailBuffer.read()
+  run.onExit?.({ runId: run.runId, exitCode, errorTail: run.errorTail })
   ptyOutputBus.clear(run.runId)
 }
 
-export const attachAgentPty = (run: AgentRunRecord, pty: IPty, ptyOutputBus: PtyOutputBus) => {
+const logHandlerError = (logger: HiveLogger | undefined, label: string, error: unknown) => {
+  try {
+    logger?.error(label, error)
+  } catch {}
+}
+
+export const attachAgentPty = (
+  run: AgentRunRecord,
+  pty: IPty,
+  ptyOutputBus: PtyOutputBus,
+  logger?: HiveLogger
+) => {
   let stdinClosed = false
   let forceKillTimer: ReturnType<typeof setTimeout> | undefined
   const resolveProcessGroupId = () => {
@@ -130,16 +165,51 @@ export const attachAgentPty = (run: AgentRunRecord, pty: IPty, ptyOutputBus: Pty
   }
 
   pty.onData((chunk) => {
-    if (run.status === 'starting') run.status = 'running'
-    run.output += chunk
-    if (run.output.length > MAX_RUN_OUTPUT_LENGTH)
-      run.output = run.output.slice(-MAX_RUN_OUTPUT_LENGTH)
-    ptyOutputBus.publish(run.runId, chunk)
+    try {
+      if (run.status === 'starting') run.status = 'running'
+      run.output += chunk
+      run.errorTailBuffer.append(chunk)
+      if (run.output.length > MAX_RUN_OUTPUT_LENGTH)
+        run.output = run.output.slice(-MAX_RUN_OUTPUT_LENGTH)
+      ptyOutputBus.publish(run.runId, chunk)
+    } catch (error) {
+      logHandlerError(logger, 'pty.onData', error)
+    }
+  })
+
+  const ptyWithError = pty as IPty & {
+    onError?: (handler: (error: Error) => void) => void
+  }
+  ptyWithError.onError?.((error) => {
+    stdinClosed = true
+    try {
+      cleanupProcessGroup()
+    } catch (cleanupError) {
+      logHandlerError(logger, 'pty.onError cleanup', cleanupError)
+    }
+    try {
+      run.errorTailBuffer.append(error.stack ?? error.message)
+    } catch (tailError) {
+      logHandlerError(logger, 'pty.onError errorTail', tailError)
+    }
+    try {
+      finishAgentRun(run, null, ptyOutputBus)
+    } catch (finishError) {
+      logHandlerError(logger, 'pty.onError finish', finishError)
+    }
   })
 
   pty.onExit((event) => {
     stdinClosed = true
-    cleanupProcessGroup()
-    finishAgentRun(run, event.exitCode, ptyOutputBus)
+    try {
+      cleanupProcessGroup()
+    } catch (cleanupError) {
+      logHandlerError(logger, 'pty.onExit cleanup', cleanupError)
+    }
+    try {
+      finishAgentRun(run, event.exitCode, ptyOutputBus)
+    } catch (finishError) {
+      logHandlerError(logger, 'pty.onExit finish', finishError)
+    }
   })
 }

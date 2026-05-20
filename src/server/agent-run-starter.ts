@@ -10,6 +10,7 @@ import { buildAgentStartupInstructions } from './agent-startup-instructions.js'
 import type { AgentTokenRegistry } from './agent-tokens.js'
 import type { CommandPresetRecord } from './command-preset-store.js'
 import type { LiveRunRegistry } from './live-run-registry.js'
+import type { HiveLogger } from './logger.js'
 import { createPostStartInputWriter, isInteractiveAgentCommand } from './post-start-input-writer.js'
 import type { RestartPolicy } from './restart-policy.js'
 
@@ -22,6 +23,7 @@ interface AgentRunStarterInput {
   tokenRegistry: AgentTokenRegistry
   getCommandPreset: (id: string) => CommandPresetRecord | undefined
   getAgent: ((workspaceId: string, agentId: string) => AgentSummary | undefined) | undefined
+  logger?: HiveLogger | undefined
   restartPolicy: RestartPolicy
 }
 
@@ -35,6 +37,7 @@ export const createAgentRunStarter =
     tokenRegistry,
     getCommandPreset,
     getAgent,
+    logger,
     restartPolicy,
   }: AgentRunStarterInput) =>
   async (
@@ -84,10 +87,29 @@ export const createAgentRunStarter =
         HIVE_PORT: hivePort,
         HIVE_AGENT_TOKEN: token,
       },
-      onExit: ({ runId, exitCode }: { runId: string; exitCode: number | null }) => {
+      onExit: ({
+        runId,
+        exitCode,
+        errorTail,
+      }: {
+        runId: string
+        exitCode: number | null
+        errorTail?: string | null
+      }) => {
         const endedAt = Date.now()
+        if (exitCode !== 0 && errorTail) {
+          logger?.error(
+            `agent run error workspace=${workspace.id} agent=${agentId} run=${runId} exit_code=${exitCode}`,
+            errorTail
+          )
+        }
         if (
-          !handleAgentRunExit(exitContext, { exitCode, endedAt, runId }) &&
+          !handleAgentRunExit(exitContext, {
+            errorTail: errorTail ?? null,
+            exitCode,
+            endedAt,
+            runId,
+          }) &&
           abortedRunIds.has(runId)
         ) {
           registry.clearPendingExitCode(runId)
@@ -124,7 +146,7 @@ export const createAgentRunStarter =
     registry.add(liveRun)
 
     if (run.status === 'error') {
-      store.updatePersistedRun(run.runId, 'error', run.exitCode, Date.now())
+      store.updatePersistedRun(run.runId, 'error', run.exitCode, Date.now(), run.errorTail)
       if (startConfig.resumedSessionId) {
         sessionStore.clearLastSessionId(workspace.id, agentId)
       }
@@ -166,7 +188,12 @@ export const createAgentRunStarter =
     if (registry.hasPendingExitCode(run.runId)) {
       const exitCode = registry.getPendingExitCode(run.runId) ?? null
       queueMicrotask(() => {
-        handleAgentRunExit(exitContext, { exitCode, endedAt: Date.now(), runId: run.runId })
+        handleAgentRunExit(exitContext, {
+          errorTail: run.errorTail ?? null,
+          exitCode,
+          endedAt: Date.now(),
+          runId: run.runId,
+        })
       })
     }
 

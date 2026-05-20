@@ -4,6 +4,7 @@ import type { WebSocket as WsSocket } from 'ws'
 import { WebSocketServer } from 'ws'
 
 import { getLocalRequestRejection } from './local-request-guard.js'
+import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { readCookie } from './ui-auth-helpers.js'
 
@@ -21,6 +22,12 @@ const rejectUpgrade = (
   socket.destroy()
 }
 
+const logUpgradeError = (logger: HiveLogger | undefined, error: unknown) => {
+  try {
+    logger?.error('ws upgrade [tasks]', error)
+  } catch {}
+}
+
 export interface TasksWebSocketServer {
   close: () => void
   publish: (workspaceId: string, content: string) => void
@@ -28,7 +35,8 @@ export interface TasksWebSocketServer {
 
 export const createTasksWebSocketServer = (
   server: Server,
-  store: RuntimeStore
+  store: RuntimeStore,
+  logger?: HiveLogger
 ): TasksWebSocketServer => {
   const wss = new WebSocketServer({ noServer: true })
   const socketsByWorkspaceId = new Map<string, Set<WsSocket>>()
@@ -42,34 +50,43 @@ export const createTasksWebSocketServer = (
   }
 
   server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-    const workspaceId = matchTasksPath(url.pathname)
-    if (!workspaceId) return
-    if (getLocalRequestRejection(request)) {
-      rejectUpgrade(socket, '403 Forbidden')
-      return
-    }
-    if (!validateUpgradeSession(request)) {
-      rejectUpgrade(socket, '401 Unauthorized')
-      return
-    }
     try {
-      store.getWorkspaceSnapshot(workspaceId)
-    } catch {
-      rejectUpgrade(socket, '404 Not Found')
-      return
-    }
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      const sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
-      sockets.add(ws)
-      socketsByWorkspaceId.set(workspaceId, sockets)
-      ws.on('close', () => {
-        sockets.delete(ws)
-        if (sockets.size === 0) {
-          socketsByWorkspaceId.delete(workspaceId)
-        }
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const workspaceId = matchTasksPath(url.pathname)
+      if (!workspaceId) return
+      if (getLocalRequestRejection(request)) {
+        rejectUpgrade(socket, '403 Forbidden')
+        return
+      }
+      if (!validateUpgradeSession(request)) {
+        rejectUpgrade(socket, '401 Unauthorized')
+        return
+      }
+      try {
+        store.getWorkspaceSnapshot(workspaceId)
+      } catch {
+        rejectUpgrade(socket, '404 Not Found')
+        return
+      }
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        const sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
+        sockets.add(ws)
+        socketsByWorkspaceId.set(workspaceId, sockets)
+        ws.on('close', () => {
+          sockets.delete(ws)
+          if (sockets.size === 0) {
+            socketsByWorkspaceId.delete(workspaceId)
+          }
+        })
       })
-    })
+    } catch (error) {
+      logUpgradeError(logger, error)
+      socket.destroy()
+    }
+  })
+
+  wss.on('error', (error) => {
+    logger?.error('tasks websocket error', error)
   })
 
   return {

@@ -13,12 +13,13 @@ export const listRunsWithFallback = (
   return registry
     .list()
     .filter((run) => run.agentId === agentId)
-    .map(({ runId, pid, status, exitCode, startedAt }) => ({
+    .map(({ runId, pid, status, exitCode, errorTail, startedAt }) => ({
       runId,
       agentId,
       pid,
       status,
       exitCode,
+      errorTail: errorTail ?? null,
       startedAt,
       endedAt: status === 'exited' || status === 'error' ? Date.now() : null,
     }))

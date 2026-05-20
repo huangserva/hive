@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node-pty'
 import { resolveSpawnCommand } from './agent-command-resolver.js'
-import { attachAgentPty, toAgentRunSnapshot } from './agent-manager-support.js'
+import {
+  attachAgentPty,
+  createOutputTailBuffer,
+  toAgentRunSnapshot,
+} from './agent-manager-support.js'
+import type { HiveLogger } from './logger.js'
 import { createPtyOutputBus, type PtyOutputBus } from './pty-output-bus.js'
 
 type RunStatus = 'starting' | 'running' | 'exited' | 'error'
+type RunExitEvent = { runId: string; exitCode: number | null; errorTail?: string | null }
 
 interface StartAgentInput {
   agentId: string
@@ -12,7 +18,7 @@ interface StartAgentInput {
   args?: string[]
   cwd: string
   env?: NodeJS.ProcessEnv
-  onExit?: (event: { runId: string; exitCode: number | null }) => void
+  onExit?: (event: RunExitEvent) => void
 }
 
 interface AgentRunSnapshot {
@@ -22,6 +28,7 @@ interface AgentRunSnapshot {
   status: RunStatus
   output: string
   exitCode: number | null
+  errorTail?: string | null
 }
 
 interface AgentRunRecord extends AgentRunSnapshot {
@@ -34,7 +41,12 @@ interface AgentRunRecord extends AgentRunSnapshot {
     stop: () => void
     write: (text: string) => void
   }
-  onExit?: (event: { runId: string; exitCode: number | null }) => void
+  onExit?: (event: RunExitEvent) => void
+  errorTail: string | null
+  errorTailBuffer: {
+    append: (chunk: string) => void
+    read: () => string | null
+  }
 }
 
 interface AgentManager {
@@ -60,8 +72,10 @@ const createSpawnEnv = (inputEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
 }
 
 export const createAgentManager = ({
+  logger,
   ptyOutputBus = createPtyOutputBus(),
 }: {
+  logger?: HiveLogger
   ptyOutputBus?: PtyOutputBus
 } = {}): AgentManager => {
   const runs = new Map<string, AgentRunRecord>()
@@ -92,6 +106,8 @@ export const createAgentManager = ({
         status: 'starting',
         output: '',
         exitCode: null,
+        errorTail: null,
+        errorTailBuffer: createOutputTailBuffer(),
         process: {
           isStopped() {
             return false
@@ -117,7 +133,8 @@ export const createAgentManager = ({
             env,
             name: 'xterm-256color',
           }),
-          ptyOutputBus
+          ptyOutputBus,
+          logger
         )
       } catch (error) {
         runs.delete(runId)

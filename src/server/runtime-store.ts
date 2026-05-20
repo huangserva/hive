@@ -3,6 +3,7 @@ import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput, PersistedAgentRun } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
+import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
@@ -97,6 +98,7 @@ interface RuntimeStore {
 interface RuntimeStoreOptions {
   dataDir?: string
   agentManager?: AgentManager
+  logger?: HiveLogger
 }
 
 interface StartAgentOptions {
