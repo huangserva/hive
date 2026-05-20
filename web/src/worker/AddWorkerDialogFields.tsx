@@ -238,6 +238,45 @@ const AgentCliPickerInner = ({
   )
 }
 
+export const ThinkingLevelPicker = ({
+  commandPresetId,
+  commandPresets,
+  onChange,
+  value,
+}: {
+  commandPresetId: string
+  commandPresets: CommandPreset[]
+  onChange: (value: string) => void
+  value: string
+}) => {
+  const { t } = useI18n()
+  const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
+  const levels = selectedPreset?.thinkingLevels ?? []
+  const selectedLevel = levels.find((level) => level.value === value)
+  if (levels.length === 0 && !value) return null
+
+  return (
+    <label className="flex flex-col gap-2">
+      <SectionLabel>{t('addWorker.thinkingLevel')}</SectionLabel>
+      <select
+        aria-label={t('addWorker.thinkingLevel')}
+        className="input text-sm"
+        value={selectedLevel ? value : ''}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        <option value="">
+          {selectedLevel || !value ? t('addWorker.thinkingDefault') : t('addWorker.thinkingUnset')}
+        </option>
+        {levels.map((level) => (
+          <option key={level.value} value={level.value}>
+            {level.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
 export const StartupCommandField = ({
   onChange,
   value,

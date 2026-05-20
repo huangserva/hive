@@ -8,6 +8,7 @@ export const serializeTeamListItem = ({
   pendingTaskCount,
   role,
   status,
+  thinkingLevel,
 }: TeamListItem): TeamListItemPayload => ({
   id,
   name,
@@ -16,4 +17,5 @@ export const serializeTeamListItem = ({
   pending_task_count: pendingTaskCount,
   last_pty_line: lastPtyLine ?? null,
   command_preset_id: commandPresetId ?? null,
+  thinking_level: thinkingLevel ?? null,
 })

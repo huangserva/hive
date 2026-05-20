@@ -25,11 +25,13 @@ export interface WorkerComposerState {
   roleDescription: string
   roleDescriptionDefault: string
   startupCommand: string
+  thinkingLevel: string
   workerName: string
   workerRole: WorkerRole
   setCommandPresetId: (value: string) => void
   setRoleDescription: (value: string) => void
   setStartupCommand: (value: string) => void
+  setThinkingLevel: (value: string) => void
   setWorkerName: (value: string) => void
   setWorkerRole: (value: WorkerRole) => void
   randomizeWorkerName: () => void
@@ -134,6 +136,7 @@ export const useWorkerComposer = ({
   const [commandPresetId, setCommandPresetId] = useState('claude')
   const [commandPresetTouched, setCommandPresetTouched] = useState(false)
   const [startupCommand, setStartupCommand] = useState('')
+  const [thinkingLevel, setThinkingLevel] = useState('')
   const [createWorkerError, setCreateWorkerError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const workerNameGeneratedRef = useRef(false)
@@ -242,6 +245,7 @@ export const useWorkerComposer = ({
       role: workerRole,
       roleDescription,
       startupCommand,
+      thinkingLevel: startupCommand.trim() ? '' : thinkingLevel,
     })
       .then(({ error }) => {
         setWorkerName('')
@@ -250,6 +254,7 @@ export const useWorkerComposer = ({
         setCommandPresetId('claude')
         setCommandPresetTouched(false)
         setStartupCommand('')
+        setThinkingLevel('')
         onSuccess()
         if (error) setCreateWorkerError(error)
       })
@@ -267,11 +272,13 @@ export const useWorkerComposer = ({
     roleDescription,
     roleDescriptionDefault,
     startupCommand,
+    thinkingLevel,
     workerName,
     workerRole,
     setCommandPresetId: selectCommandPresetId,
     setRoleDescription,
     setStartupCommand,
+    setThinkingLevel,
     setWorkerName: setWorkerNameFromUser,
     setWorkerRole: selectWorkerRole,
     randomizeWorkerName,

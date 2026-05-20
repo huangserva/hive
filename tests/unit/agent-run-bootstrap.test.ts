@@ -19,6 +19,36 @@ const codexPreset: CommandPresetRecord = {
   yoloArgsTemplate: null,
 }
 
+const claudePreset: CommandPresetRecord = {
+  args: [],
+  command: 'claude',
+  displayName: 'Claude Code (CC)',
+  env: {},
+  id: 'claude',
+  isBuiltin: true,
+  resumeArgsTemplate: '--resume {session_id}',
+  sessionIdCapture: {
+    pattern: '~/.claude/projects/{encoded_cwd}/*.jsonl',
+    source: 'claude_project_jsonl_dir',
+  },
+  yoloArgsTemplate: null,
+}
+
+const opencodePreset: CommandPresetRecord = {
+  args: [],
+  command: 'opencode',
+  displayName: 'OpenCode',
+  env: {},
+  id: 'opencode',
+  isBuiltin: true,
+  resumeArgsTemplate: '--session {session_id}',
+  sessionIdCapture: {
+    pattern: '~/.local/share/opencode/opencode.db',
+    source: 'opencode_session_db',
+  },
+  yoloArgsTemplate: null,
+}
+
 const createSessionStore = (sessionId: string): AgentSessionStore => ({
   clearLastSessionId: () => {},
   getLastSessionId: () => sessionId,
@@ -49,5 +79,61 @@ describe('agent run bootstrap', () => {
       resumedSessionId: sessionId,
     })
     expect(bootstrap.sessionCaptureSnapshot).toBeUndefined()
+  })
+
+  test('injects Claude thinking_level as --effort before launch args', () => {
+    const bootstrap = buildAgentRunBootstrap(
+      { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
+      'agent-1',
+      {
+        args: ['--model', 'sonnet'],
+        command: 'claude',
+        commandPresetId: 'claude',
+        thinkingLevel: 'high',
+      },
+      createSessionStore(''),
+      (id) => (id === 'claude' ? claudePreset : undefined)
+    )
+
+    expect(bootstrap.startConfig.args).toEqual(['--effort', 'high', '--model', 'sonnet'])
+  })
+
+  test('injects Codex thinking_level as global config before subcommands', () => {
+    const bootstrap = buildAgentRunBootstrap(
+      { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
+      'agent-1',
+      {
+        args: ['resume', 'session-1'],
+        command: 'codex',
+        commandPresetId: 'codex',
+        thinkingLevel: 'xhigh',
+      },
+      createSessionStore(''),
+      (id) => (id === 'codex' ? codexPreset : undefined)
+    )
+
+    expect(bootstrap.startConfig.args).toEqual([
+      '-c',
+      'model_reasoning_effort=xhigh',
+      'resume',
+      'session-1',
+    ])
+  })
+
+  test('does not inject thinking_level for unsupported presets', () => {
+    const bootstrap = buildAgentRunBootstrap(
+      { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
+      'agent-1',
+      {
+        args: ['--session', 'session-1'],
+        command: 'opencode',
+        commandPresetId: 'opencode',
+        thinkingLevel: 'high',
+      },
+      createSessionStore(''),
+      (id) => (id === 'opencode' ? opencodePreset : undefined)
+    )
+
+    expect(bootstrap.startConfig.args).toEqual(['--session', 'session-1'])
   })
 })

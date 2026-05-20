@@ -111,6 +111,7 @@ describe('schema version', () => {
     expect(launchConfigColumns.has('preset_augmentation_disabled')).toBe(true)
     expect(launchConfigColumns.has('resume_args_template')).toBe(true)
     expect(launchConfigColumns.has('session_id_capture_json')).toBe(true)
+    expect(launchConfigColumns.has('thinking_level')).toBe(true)
     expect(commandPresetColumns).toEqual(
       new Set([
         'id',
@@ -548,6 +549,9 @@ describe('schema version', () => {
     })
     expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(19)).toEqual({
       version: 19,
+    })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(20)).toEqual({
+      version: 20,
     })
 
     db.close()
@@ -1030,6 +1034,83 @@ describe('schema version', () => {
 
     expect(migratedColumns.has('kind')).toBe(false)
     expect(message).toEqual({ type: 'send', text: 'hello' })
+    db.close()
+  })
+
+  test('schema v20 adds nullable thinking_level to existing launch configs', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v20-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19);
+
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE workers (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        last_session_id TEXT,
+        role TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE agent_launch_configs (
+        workspace_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        command_preset_id TEXT,
+        interactive_command TEXT,
+        preset_augmentation_disabled INTEGER NOT NULL DEFAULT 0,
+        resume_args_template TEXT,
+        session_id_capture_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+
+      INSERT INTO agent_launch_configs (
+        workspace_id, agent_id, command, args_json, command_preset_id,
+        interactive_command, preset_augmentation_disabled, resume_args_template,
+        session_id_capture_json, created_at, updated_at
+      ) VALUES (
+        'ws-1', 'agent-1', 'claude', '[]', 'claude',
+        NULL, 0, NULL, NULL, 1, 1
+      );
+    `)
+
+    initializeRuntimeDatabase(db)
+
+    const columns = new Set(
+      (db.prepare('PRAGMA table_info(agent_launch_configs)').all() as Array<{ name: string }>).map(
+        (column) => column.name
+      )
+    )
+    const row = db
+      .prepare('SELECT thinking_level FROM agent_launch_configs WHERE agent_id = ?')
+      .get('agent-1') as { thinking_level: string | null } | undefined
+
+    expect(columns.has('thinking_level')).toBe(true)
+    expect(row).toEqual({ thinking_level: null })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(20)).toEqual({
+      version: 20,
+    })
     db.close()
   })
 })

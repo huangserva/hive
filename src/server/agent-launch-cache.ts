@@ -52,6 +52,7 @@ export const createAgentLaunchCache = (store: AgentLaunchCacheStore) => {
         presetAugmentationDisabled: input.presetAugmentationDisabled ?? false,
         resumeArgsTemplate: input.resumeArgsTemplate ?? null,
         sessionIdCapture: input.sessionIdCapture ?? null,
+        thinkingLevel: input.thinkingLevel ?? null,
       }
       store.saveLaunchConfig(workspaceId, agentId, normalized)
       launchConfigs.set(cacheKey(workspaceId, agentId), normalized)

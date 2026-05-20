@@ -100,6 +100,7 @@ describe('agent runtime stability (unit)', () => {
         command_preset_id TEXT,
         interactive_command TEXT,
         preset_augmentation_disabled INTEGER NOT NULL DEFAULT 0,
+        thinking_level TEXT,
         resume_args_template TEXT,
         session_id_capture_json TEXT,
         created_at INTEGER NOT NULL,
@@ -151,6 +152,7 @@ describe('agent runtime stability (unit)', () => {
           presetAugmentationDisabled: false,
           resumeArgsTemplate: null,
           sessionIdCapture: null,
+          thinkingLevel: null,
         },
       },
     ])

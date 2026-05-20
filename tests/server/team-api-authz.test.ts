@@ -207,6 +207,7 @@ describe('team API authz (R1.4)', () => {
           pending_task_count: 0,
           role: 'coder',
           status: 'idle',
+          thinking_level: null,
         },
       ])
     } finally {

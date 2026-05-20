@@ -271,9 +271,11 @@ export const WorkspaceDetail = ({
           onRoleChange={composer.setWorkerRole}
           onSubmit={(event) => composer.submit(event, () => setComposerOpen(false))}
           onStartupCommandChange={composer.setStartupCommand}
+          onThinkingLevelChange={composer.setThinkingLevel}
           roleDescription={composer.roleDescription}
           roleDescriptionDefault={composer.roleDescriptionDefault}
           startupCommand={composer.startupCommand}
+          thinkingLevel={composer.thinkingLevel}
           workerName={composer.workerName}
           workerRole={composer.workerRole}
         />

@@ -7,7 +7,8 @@ import {
 
 export const resolveCommandPresetLaunchConfig = (
   settings: SettingsStore,
-  commandPresetId: string
+  commandPresetId: string,
+  thinkingLevel: string | null = null
 ): AgentLaunchConfigInput | undefined => {
   const preset = settings.getCommandPreset(commandPresetId)
   if (!preset) return undefined
@@ -15,6 +16,7 @@ export const resolveCommandPresetLaunchConfig = (
     args: preset.args,
     command: preset.command,
     commandPresetId: preset.id,
+    thinkingLevel,
   }
 }
 

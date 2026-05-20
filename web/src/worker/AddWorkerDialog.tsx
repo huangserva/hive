@@ -13,6 +13,7 @@ import {
   RolePicker,
   SectionLabel,
   StartupCommandField,
+  ThinkingLevelPicker,
 } from './AddWorkerDialogFields.js'
 
 type AddWorkerDialogProps = {
@@ -27,10 +28,12 @@ type AddWorkerDialogProps = {
   onRoleDescriptionReset: () => void
   onRoleChange: (value: WorkerRole) => void
   onStartupCommandChange: (value: string) => void
+  onThinkingLevelChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   roleDescription: string
   roleDescriptionDefault: string
   startupCommand: string
+  thinkingLevel: string
   workerName: string
   workerRole: WorkerRole
 }
@@ -47,10 +50,12 @@ export const AddWorkerDialog = ({
   onRoleDescriptionReset,
   onRoleChange,
   onStartupCommandChange,
+  onThinkingLevelChange,
   onSubmit,
   roleDescription,
   roleDescriptionDefault,
   startupCommand,
+  thinkingLevel,
   workerName,
   workerRole,
 }: AddWorkerDialogProps) => {
@@ -158,6 +163,12 @@ export const AddWorkerDialog = ({
                   commandPresetId={commandPresetId}
                   commandPresets={commandPresets}
                   onPresetChange={onPresetChange}
+                />
+                <ThinkingLevelPicker
+                  commandPresetId={commandPresetId}
+                  commandPresets={commandPresets}
+                  onChange={onThinkingLevelChange}
+                  value={thinkingLevel}
                 />
                 <StartupCommandField value={startupCommand} onChange={onStartupCommandChange} />
               </div>

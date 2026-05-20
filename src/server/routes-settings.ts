@@ -1,3 +1,4 @@
+import { getThinkingLevelsForPreset } from '../shared/thinking-levels.js'
 import { resolveCommandPath } from './agent-command-resolver.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
@@ -54,6 +55,7 @@ const serializeCommandPreset = (preset: {
     session_id_capture: preset.sessionIdCapture,
     yolo_args_template: preset.yoloArgsTemplate,
     is_builtin: preset.isBuiltin,
+    thinking_levels: getThinkingLevelsForPreset(preset.id),
     available,
   }
 }

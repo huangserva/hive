@@ -30,6 +30,9 @@ const enMessages = {
   'addWorker.startupHelp':
     'Optional. Runs through your login shell in this Workspace. Use it for custom agents or native resume commands such as {example}.',
   'addWorker.startupOverrides': 'overrides CLI launch',
+  'addWorker.thinkingDefault': 'Default',
+  'addWorker.thinkingLevel': 'Thinking level',
+  'addWorker.thinkingUnset': 'unset',
   'addWorker.title': 'Add team member',
   'addWorker.unavailable': '{name} is not installed',
   'addWorker.emptyInstructions': 'Add role instructions',
@@ -340,6 +343,9 @@ const zhMessages: Record<TranslationKey, string> = {
   'addWorker.startupHelp':
     '可选。会在当前 Workspace 里通过登录 shell 运行。适合自定义 Agent 或原生命令恢复会话，例如 {example}。',
   'addWorker.startupOverrides': '覆盖 CLI 启动',
+  'addWorker.thinkingDefault': '默认',
+  'addWorker.thinkingLevel': '思考强度',
+  'addWorker.thinkingUnset': '未设置',
   'addWorker.title': '添加团队成员',
   'addWorker.unavailable': '{name} 未安装',
   'common.cancel': '取消',

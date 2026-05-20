@@ -44,6 +44,8 @@ export interface CreateWorkerBody {
   role: WorkerRole
   /** Optional full startup command. When set, this overrides command_preset_id. */
   startup_command?: string | null
+  /** Optional preset-native reasoning / effort override. */
+  thinking_level?: string | null
 }
 
 export interface UserInputBody {

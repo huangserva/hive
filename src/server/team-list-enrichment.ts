@@ -45,8 +45,10 @@ export const enrichTeamList = (
   workers.map((worker) => {
     const line = store.getLastPtyLineForAgent(workspaceId, worker.id)
     const presetId = resolveCommandPresetId(store, workspaceId, worker.id)
+    const thinkingLevel = store.peekAgentLaunchConfig(workspaceId, worker.id)?.thinkingLevel
     const next: TeamListItem = { ...worker }
     if (line !== null) next.lastPtyLine = line
     if (presetId !== null) next.commandPresetId = presetId
+    if (thinkingLevel) next.thinkingLevel = thinkingLevel
     return next
   })

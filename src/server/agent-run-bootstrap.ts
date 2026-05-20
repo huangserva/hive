@@ -1,6 +1,6 @@
 import { delimiter, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
+import { isThinkingLevelSupported } from '../shared/thinking-levels.js'
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { AgentSessionStorePort } from './agent-runtime-ports.js'
@@ -61,6 +61,32 @@ const createSessionCaptureDiscriminator = (
   }
 }
 
+const getThinkingLevelArgs = (presetId: string, thinkingLevel: string): string[] => {
+  if (presetId === 'claude') return ['--effort', thinkingLevel]
+  if (presetId === 'codex') return ['-c', `model_reasoning_effort=${thinkingLevel}`]
+  return []
+}
+
+const hasThinkingLevelArgs = (presetId: string, args: string[]) => {
+  if (presetId === 'claude') return args.includes('--effort')
+  if (presetId !== 'codex') return false
+  return args.some((arg, index) => {
+    if (arg.startsWith('model_reasoning_effort=')) return true
+    return arg === '-c' && args[index + 1]?.startsWith('model_reasoning_effort=')
+  })
+}
+
+const withThinkingLevelArgs = (config: AgentLaunchConfigInput): AgentLaunchConfigInput => {
+  if (config.presetAugmentationDisabled || !config.thinkingLevel) return config
+  const presetId = config.commandPresetId ?? config.command
+  if (!isThinkingLevelSupported(presetId, config.thinkingLevel)) return config
+  const args = config.args ?? []
+  if (hasThinkingLevelArgs(presetId, args)) return config
+  const thinkingArgs = getThinkingLevelArgs(presetId, config.thinkingLevel)
+  if (thinkingArgs.length === 0) return config
+  return { ...config, args: [...thinkingArgs, ...args] }
+}
+
 export const buildAgentRunBootstrap = (
   workspace: WorkspaceSummary,
   agentId: string,
@@ -79,12 +105,17 @@ export const buildAgentRunBootstrap = (
     discriminator,
     () => sessionStore.clearLastSessionId(workspace.id, agentId)
   )
+  const startConfigWithThinking = withThinkingLevelArgs(startConfig)
   const sessionCaptureSnapshot = startConfig.resumedSessionId
     ? undefined
-    : snapshotSessionIdsForCapture(workspace.path, startConfig.sessionIdCapture, discriminator)
+    : snapshotSessionIdsForCapture(
+        workspace.path,
+        startConfigWithThinking.sessionIdCapture,
+        discriminator
+      )
   return {
     sessionCaptureSnapshot,
-    startConfig,
+    startConfig: startConfigWithThinking,
     startEnv: {
       ...getSessionCaptureEnvironment(sessionCaptureSnapshot),
       HIVE_PORT: '',

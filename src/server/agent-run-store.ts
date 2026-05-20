@@ -12,6 +12,7 @@ export interface AgentLaunchConfigInput {
   resumedSessionId?: string | null
   resumeArgsTemplate?: string | null
   sessionIdCapture?: SessionIdCaptureConfig | null
+  thinkingLevel?: string | null
 }
 
 export interface PersistedAgentRun {
@@ -50,6 +51,7 @@ interface LaunchConfigRow {
   preset_augmentation_disabled: number | null
   resume_args_template: string | null
   session_id_capture_json: string | null
+  thinking_level: string | null
 }
 
 const parseSessionIdCaptureJson = (value: string | null) => {
@@ -82,7 +84,7 @@ export const createAgentRunStore = (db: Database) => {
 
     return db
       .prepare(
-        `SELECT workspace_id, agent_id, command, args_json, command_preset_id, interactive_command, preset_augmentation_disabled, resume_args_template, session_id_capture_json
+        `SELECT workspace_id, agent_id, command, args_json, command_preset_id, interactive_command, preset_augmentation_disabled, resume_args_template, session_id_capture_json, thinking_level
          FROM agent_launch_configs ORDER BY updated_at ASC`
       )
       .all()
@@ -98,6 +100,7 @@ export const createAgentRunStore = (db: Database) => {
             presetAugmentationDisabled: typedRow.preset_augmentation_disabled === 1,
             resumeArgsTemplate: typedRow.resume_args_template,
             sessionIdCapture: parseSessionIdCaptureJson(typedRow.session_id_capture_json),
+            thinkingLevel: typedRow.thinking_level,
           },
           workspaceId: typedRow.workspace_id,
         }
@@ -122,18 +125,20 @@ export const createAgentRunStore = (db: Database) => {
          command_preset_id,
          interactive_command,
          preset_augmentation_disabled,
+         thinking_level,
          resume_args_template,
          session_id_capture_json,
          created_at,
          updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
           command = excluded.command,
           args_json = excluded.args_json,
           command_preset_id = excluded.command_preset_id,
           interactive_command = excluded.interactive_command,
           preset_augmentation_disabled = excluded.preset_augmentation_disabled,
+          thinking_level = excluded.thinking_level,
           resume_args_template = excluded.resume_args_template,
           session_id_capture_json = excluded.session_id_capture_json,
           updated_at = excluded.updated_at`
@@ -145,6 +150,7 @@ export const createAgentRunStore = (db: Database) => {
       input.commandPresetId ?? null,
       input.interactiveCommand ?? null,
       input.presetAugmentationDisabled ? 1 : 0,
+      input.thinkingLevel || null,
       input.resumeArgsTemplate ?? null,
       input.sessionIdCapture ? JSON.stringify(input.sessionIdCapture) : null,
       createdAt,

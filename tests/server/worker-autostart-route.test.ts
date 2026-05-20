@@ -193,6 +193,64 @@ describe('POST /api/workspaces/:workspaceId/workers autostart', () => {
     if (body.agent_start.run_id) server.store.stopAgentRun(body.agent_start.run_id)
   })
 
+  test('passes thinking level through a supported command preset launch', async () => {
+    const binDir = mkdtempSync(join(tmpdir(), 'hive-worker-thinking-bin-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-worker-thinking-'))
+    tempDirs.push(binDir, dataDir)
+    const argsFile = join(dataDir, 'claude-args.txt')
+    const fakeClaude = join(binDir, 'claude')
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/bin/sh',
+        `printf '%s\\n' "$@" > "${argsFile}"`,
+        'echo thinking worker ready',
+        'sleep 60',
+      ].join('\n')
+    )
+    chmodSync(fakeClaude, 0o755)
+    setEnv('PATH', `${binDir}:${process.env.PATH ?? ''}`)
+
+    const server = await startTestServer({ dataDir })
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+
+    const response = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        autostart: true,
+        command_preset_id: 'claude',
+        hive_port: '4010',
+        name: 'Thinker',
+        role: 'coder',
+        thinking_level: 'high',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as {
+      agent_start: { ok: boolean; error: string | null; run_id: string | null }
+      id: string
+      thinking_level: string | null
+    }
+    expect(body.agent_start).toMatchObject({ error: null, ok: true })
+    expect(body.thinking_level).toBe('high')
+    expect(server.store.peekAgentLaunchConfig(workspace.id, body.id)).toMatchObject({
+      command: 'claude',
+      commandPresetId: 'claude',
+      thinkingLevel: 'high',
+    })
+    await waitFor(() => {
+      expect(readFileSync(argsFile, 'utf8').split('\n')).toEqual(
+        expect.arrayContaining(['--effort', 'high'])
+      )
+    })
+
+    if (body.agent_start.run_id) server.store.stopAgentRun(body.agent_start.run_id)
+  })
+
   test('custom worker startup command reports the missing executable, not the shell', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-worker-custom-start-missing-'))
     tempDirs.push(dataDir)

@@ -132,6 +132,7 @@ describe('team cli with real server', () => {
       pending_task_count: number
       role: string
       status: string
+      thinking_level: string | null
     }>
 
     expect(parsed).toEqual([
@@ -143,6 +144,7 @@ describe('team cli with real server', () => {
         pending_task_count: 0,
         role: 'coder',
         status: 'idle',
+        thinking_level: null,
       },
     ])
     logSpy.mockRestore()

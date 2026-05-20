@@ -14,6 +14,7 @@ const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   pendingTaskCount: payload.pending_task_count,
   ...(payload.last_pty_line ? { lastPtyLine: payload.last_pty_line } : {}),
   ...(payload.command_preset_id ? { commandPresetId: payload.command_preset_id } : {}),
+  ...(payload.thinking_level ? { thinkingLevel: payload.thinking_level } : {}),
 })
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -110,6 +111,12 @@ export interface CommandPreset {
   command: string
   displayName: string
   id: string
+  thinkingLevels?: ThinkingLevelOption[]
+}
+
+export interface ThinkingLevelOption {
+  label: string
+  value: string
 }
 
 export interface RoleTemplate {
@@ -125,6 +132,7 @@ interface CommandPresetPayload {
   command: string
   display_name: string
   id: string
+  thinking_levels?: ThinkingLevelOption[]
 }
 
 interface RoleTemplatePayload {
@@ -271,6 +279,7 @@ export const listCommandPresets = async (): Promise<CommandPreset[]> => {
     command: preset.command,
     displayName: preset.display_name,
     id: preset.id,
+    thinkingLevels: preset.thinking_levels ?? [],
   }))
 }
 
@@ -346,6 +355,7 @@ export const createWorker = async (
     description?: string
     role: WorkerRole
     startup_command?: string | null
+    thinking_level?: string | null
   }
 ): Promise<CreateWorkerResult> => {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/workers`, {

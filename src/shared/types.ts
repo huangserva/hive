@@ -4,6 +4,11 @@ export type AgentStatus = (typeof agentStatuses)[number]
 
 export type WorkerRole = 'coder' | 'reviewer' | 'tester' | 'custom'
 
+export interface ThinkingLevelOption {
+  label: string
+  value: string
+}
+
 export interface WorkspaceSummary {
   id: string
   name: string
@@ -39,6 +44,7 @@ export interface TeamListItem {
    * the role-letter avatar.
    */
   commandPresetId?: string
+  thinkingLevel?: string
 }
 
 /**
@@ -54,4 +60,5 @@ export interface TeamListItemPayload {
   pending_task_count: number
   last_pty_line: string | null
   command_preset_id: string | null
+  thinking_level: string | null
 }
