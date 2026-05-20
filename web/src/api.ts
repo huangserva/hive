@@ -40,7 +40,7 @@ const isStaleUiSession = async (response: Response): Promise<boolean> => {
 export const initializeUiSession = async (): Promise<void> => {
   const response = await fetch('/api/ui/session', { mode: 'same-origin' })
   if (!response.ok) {
-    throw new Error('Failed to initialize UI session')
+    throw new Error(await readErrorMessage(response, 'Failed to initialize UI session'))
   }
   await response.json()
 }
@@ -57,7 +57,7 @@ export const listWorkspaces = async (): Promise<WorkspaceSummary[]> => {
   const response = await apiFetch('/api/workspaces')
 
   if (!response.ok) {
-    throw new Error('Failed to load workspaces')
+    throw new Error(await readErrorMessage(response, 'Failed to load workspaces'))
   }
 
   return (await response.json()) as WorkspaceSummary[]
@@ -85,7 +85,7 @@ export const getVersionInfo = async (): Promise<VersionInfo> => {
   const response = await apiFetch('/api/version')
 
   if (!response.ok) {
-    throw new Error('Failed to load version info')
+    throw new Error(await readErrorMessage(response, 'Failed to load version info'))
   }
 
   const payload = (await response.json()) as VersionInfoPayload
@@ -212,7 +212,7 @@ export const stopAgentRun = async (runId: string): Promise<void> => {
     method: 'POST',
   })
   if (!response.ok) {
-    throw new Error('Failed to stop agent run')
+    throw new Error(await readErrorMessage(response, 'Failed to stop agent run'))
   }
 }
 
@@ -234,7 +234,7 @@ export const getActiveWorkspaceId = async (): Promise<string | null> => {
   const response = await apiFetch('/api/settings/app-state/active_workspace_id')
 
   if (!response.ok) {
-    throw new Error('Failed to load active workspace')
+    throw new Error(await readErrorMessage(response, 'Failed to load active workspace'))
   }
 
   const payload = (await response.json()) as { key: string; value: string | null }
@@ -249,7 +249,7 @@ export const saveActiveWorkspaceId = async (workspaceId: string | null): Promise
   })
 
   if (!response.ok) {
-    throw new Error('Failed to save active workspace')
+    throw new Error(await readErrorMessage(response, 'Failed to save active workspace'))
   }
 }
 
@@ -259,7 +259,7 @@ export const listWorkers = async (workspaceId: string): Promise<TeamListItem[]> 
   })
 
   if (!response.ok) {
-    throw new Error('Failed to load workers')
+    throw new Error(await readErrorMessage(response, 'Failed to load workers'))
   }
 
   const payload = (await response.json()) as TeamListItemPayload[]
@@ -270,7 +270,7 @@ export const listCommandPresets = async (): Promise<CommandPreset[]> => {
   const response = await apiFetch('/api/settings/command-presets')
 
   if (!response.ok) {
-    throw new Error('Failed to load command presets')
+    throw new Error(await readErrorMessage(response, 'Failed to load command presets'))
   }
 
   return ((await response.json()) as CommandPresetPayload[]).map((preset) => ({
@@ -323,7 +323,7 @@ export const listRoleTemplates = async (): Promise<RoleTemplate[]> => {
   })
 
   if (!response.ok) {
-    throw new Error('Failed to load role templates')
+    throw new Error(await readErrorMessage(response, 'Failed to load role templates'))
   }
 
   const payload = (await response.json()) as RoleTemplatePayload[]
@@ -341,7 +341,7 @@ export const listTerminalRuns = async (workspaceId: string): Promise<TerminalRun
   })
 
   if (!response.ok) {
-    throw new Error('Failed to load terminal runs')
+    throw new Error(await readErrorMessage(response, 'Failed to load terminal runs'))
   }
 
   return (await response.json()) as TerminalRunSummary[]
@@ -409,7 +409,7 @@ export const getWorkspaceTasks = async (workspaceId: string): Promise<{ content:
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tasks`)
 
   if (!response.ok) {
-    throw new Error('Failed to load tasks')
+    throw new Error(await readErrorMessage(response, 'Failed to load tasks'))
   }
 
   return (await response.json()) as { content: string }
@@ -426,7 +426,7 @@ export const saveWorkspaceTasks = async (
   })
 
   if (!response.ok) {
-    throw new Error('Failed to save tasks')
+    throw new Error(await readErrorMessage(response, 'Failed to save tasks'))
   }
 
   return (await response.json()) as { content: string }

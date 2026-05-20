@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { createWorkspace, startAgentRun } from '../../web/src/api.js'
+import {
+  createWorkspace,
+  getWorkspaceTasks,
+  listWorkers,
+  startAgentRun,
+  stopAgentRun,
+} from '../../web/src/api.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -39,6 +45,42 @@ describe('api error messages', () => {
     await expect(startAgentRun('workspace-1', 'workspace-1:orchestrator')).rejects.toThrow(
       'claude CLI not found in PATH'
     )
+  })
+
+  test('stopAgentRun preserves server JSON error detail', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'Run already exited' }), {
+            headers: { 'content-type': 'application/json' },
+            status: 409,
+          })
+      )
+    )
+
+    await expect(stopAgentRun('run-1')).rejects.toThrow('Run already exited')
+  })
+
+  test('read endpoints preserve server JSON error detail', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Workspace is locked' }), {
+          headers: { 'content-type': 'application/json' },
+          status: 423,
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'Tasks file is unavailable' }), {
+          headers: { 'content-type': 'application/json' },
+          status: 500,
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(listWorkers('workspace-1')).rejects.toThrow('Workspace is locked')
+    await expect(getWorkspaceTasks('workspace-1')).rejects.toThrow('Tasks file is unavailable')
   })
 
   test('startAgentRun refreshes stale UI session token and retries once', async () => {
