@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Multica 可借鉴功能二轮调研 - Hive</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f4;
+      --panel: #ffffff;
+      --ink: #1f2328;
+      --muted: #626a73;
+      --line: #d9ddd6;
+      --accent: #0f766e;
+      --accent-soft: #e0f2f1;
+      --warn: #9a6700;
+      --risk: #b42318;
+      --code: #f0f2ef;
+      --shadow: 0 8px 24px rgba(31, 35, 40, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+    header {
+      padding: 28px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 34px 0 14px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    p { margin: 8px 0; }
+    .lead {
+      margin: 0;
+      padding: 12px 14px;
+      background: var(--accent-soft);
+      border-left: 4px solid var(--accent);
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .meta {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+    .mini {
+      padding: 14px;
+      background: #fafbf9;
+      border: 1px solid var(--line);
+    }
+    .mini strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--accent);
+    }
+    .card {
+      margin: 14px 0;
+      padding: 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .card.high { border-left: 5px solid var(--accent); }
+    .card.medium { border-left: 5px solid #64748b; }
+    .card.low { border-left: 5px solid #a8a29e; }
+    .rank {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      background: #fafbf9;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .rating { color: var(--warn); font-weight: 700; }
+    .facts {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr);
+      gap: 8px 14px;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    .facts dt {
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .facts dd { margin: 0; min-width: 0; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12.5px;
+    }
+    code {
+      padding: 1px 4px;
+      background: var(--code);
+      border: 1px solid #e3e5e1;
+    }
+    pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      overflow: auto;
+      background: var(--code);
+      border: 1px solid #e3e5e1;
+      line-height: 1.45;
+    }
+    ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 4px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eef1ec; }
+    .note {
+      padding: 12px 14px;
+      background: #fff8e6;
+      border: 1px solid #f0d99a;
+      color: #5f4300;
+    }
+    .danger { color: var(--risk); font-weight: 700; }
+    @media (max-width: 820px) {
+      main { padding: 18px 14px 36px; }
+      header { padding: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      .facts { grid-template-columns: 1fr; }
+      .facts dt { margin-top: 8px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Multica 可借鉴到 Hive 的小颗粒功能二轮调研</h1>
+    <p class="lead">最强建议：先做“每个 worker 的 thinking_level 选择”，它和 Hive 已有的 Claude/Codex/OpenCode/Gemini preset 模型最贴合，用户马上能感知，且不需要把 Hive 改成 Multica 式平台。</p>
+    <p class="meta">调研日期：2026-05-20。范围：<code>~/development/multica</code> 最近 100 个 commit，重点 commit #2912/#2865/#2888/#2906/#2904，另看 <code>packages/core</code>、<code>packages/views</code>、<code>packages/ui</code>、<code>server/internal</code>、<code>docs/</code>。Hive 仓库只读分析，未修改 runtime 代码。</p>
+    <div class="grid">
+      <div class="mini"><strong>结论 1</strong>thinking_level 是高 ROI，建议作为下一批功能优先级第一。</div>
+      <div class="mini"><strong>结论 2</strong>squad 不应照搬，但“复合 assignee picker + leader 解析”这套 UX/state 设计可借。</div>
+      <div class="mini"><strong>结论 3</strong>runtime/icon polish 可以小步抄：官方 Gemini mark、稳定本机 runtime 行、日志/terminal 视图排序。</div>
+    </div>
+  </header>
+
+  <h2>按投资回报排序的 Top 8</h2>
+
+  <section class="card high">
+    <div class="rank">#1 <span class="rating">⭐⭐⭐ 高</span> <span class="badge">M=1-2天</span></div>
+    <h3>每个 worker 可选 thinking_level：Claude 用 effort，Codex 用 reasoning effort</h3>
+    <p>Multica 的实现重点不是“统一抽象”，而是保留每个 CLI 的原生命名并按本机 CLI 能力发现。Hive 已经有 command preset、启动参数增强和 worker 创建弹窗，适合做一个轻量版。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>server/pkg/agent/thinking.go:13-20</code> 明确不把 Claude/Codex 值拍平成统一 enum；<code>thinking.go:29-60</code> 用 provider/executable/cliVersion 做 10 分钟缓存；<code>thinking.go:71-85</code> 解析 <code>claude --help</code> 的 <code>--effort</code>；<code>thinking.go:282-316</code> 用 <code>codex debug models --bundled</code> 发现模型；<code>server/internal/daemon/daemon.go:2482-2524</code> 执行前验证并注入 <code>ExecOptions.ThinkingLevel</code>。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>src/server/command-preset-defaults.ts:17-62</code> 已有 Claude/Codex preset；<code>src/server/command-preset-store.ts:8-18</code> 可加 nullable <code>thinkingLevel</code> 或单独放 worker launch config；<code>src/server/agent-run-bootstrap.ts:72-95</code> 是启动增强点；<code>web/src/worker/AddWorkerDialogFields.tsx:194-239</code> 是 Add Worker preset UI。</dd>
+      <dt>伪代码</dt>
+      <dd>
+        <pre>type ThinkingLevel = string | null
+// create worker payload: thinking_level?: string | null
+if (preset.id === "claude" && thinkingLevel) args.push("--effort", thinkingLevel)
+if (preset.id === "codex" && thinkingLevel) args.push("-c", `model_reasoning_effort=${thinkingLevel}`)
+// 启动前仅验证“当前 preset 支持该字段”，不要阻塞 custom startup_command。</pre>
+      </dd>
+      <dt>价值</dt>
+      <dd>用户创建 coder/tester/reviewer 时能直接选择低/中/高推理强度；长任务给 high，简单任务给 low，成本和速度可控。</dd>
+      <dt>风险</dt>
+      <dd>需要 schema migration；Codex CLI 参数要先用本机版本验证。不能做心跳/超时，不触碰 Hive 三态。无新依赖。</dd>
+    </dl>
+  </section>
+
+  <section class="card high">
+    <div class="rank">#2 <span class="rating">⭐⭐⭐ 高</span> <span class="badge">S=半天</span></div>
+    <h3>thinking_level Picker 的“只在支持时显示，孤儿值仍可清除”UI 模式</h3>
+    <p>这是 #1 的前端关键细节：不要让不支持的 provider 出现空控件，也不要把已保存但当前不支持的值悄悄隐藏。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/views/agents/components/inspector/thinking-picker.tsx:12-23</code> 说明 empty string 代表默认；<code>thinking-picker.tsx:46-61</code> 对未知但已保存的 token 显示原值；<code>thinking-picker.tsx:94-127</code> 列出 level、标注 default、提供 clear；<code>thinking-prop-row.tsx:10-24</code> 说明“无 supported_levels 且无值时隐藏，有孤儿值时显示”。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>web/src/worker/AddWorkerDialogFields.tsx:221-235</code> 的 preset chip 下方加一个紧凑 picker；<code>web/src/api.ts:107-128</code> 扩展 <code>CommandPreset</code> payload，或新增 <code>ThinkingOption</code> endpoint。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>const levels = thinkingOptionsByPreset[commandPresetId] ?? []
+if (levels.length === 0 && !thinkingLevel) return null
+return &lt;ThinkingPicker value={thinkingLevel ?? ""} levels={levels} onChange={setThinkingLevel} /&gt;</pre></dd>
+      <dt>价值</dt>
+      <dd>用户不会被一堆高级项打扰；升级/切换 CLI 后，老值仍可见可清，避免“配置幽灵”。</dd>
+      <dt>风险</dt>
+      <dd>如果第一版不做动态发现，静态列表可能落后 CLI；可先只支持 Claude/Codex，custom startup_command 隐藏该控件。</dd>
+    </dl>
+  </section>
+
+  <section class="card high">
+    <div class="rank">#3 <span class="rating">⭐⭐⭐ 高</span> <span class="badge">S=半天</span></div>
+    <h3>后端错误消息透传到 UI：少说“Failed”，多给真实原因</h3>
+    <p>Hive 已有一部分 <code>readErrorMessage</code>，但还不均匀，例如 stop run 仍是固定文案。Multica 近期专门修了 mutation failure 的后端错误展示，这是稳定性体验的低成本补齐。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/core/api/schemas.ts:16-42</code> 采用 lenient schema，避免服务端字段演进导致白屏；<code>packages/views/autopilots/components/autopilot-dialog-toast.ts:3-20</code> 集中格式化 partial failure toast；commit <code>20c2f45b</code> 将 40 个视图调用点改为展示后端错误。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>web/src/api.ts:19-27</code> 已有 <code>readErrorMessage</code>；<code>web/src/api.ts:202-208</code> 的 <code>stopAgentRun</code> 仍丢失后端错误；<code>web/src/worker/useWorkerActions.ts:120-126</code> 会把错误返回给 UI。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>if (!response.ok) {
+  throw new Error(await readErrorMessage(response, "Failed to stop agent run"))
+}</pre></dd>
+      <dt>价值</dt>
+      <dd>启动/停止/删除 worker 失败时，用户能看到 “run already exited”“CLI not found”“token invalid” 等真实原因，减少误判为 UI 卡死。</dd>
+      <dt>风险</dt>
+      <dd>纯前端/路由细化，无 schema 风险；需要加 API unit test，避免回到泛化错误。</dd>
+    </dl>
+  </section>
+
+  <section class="card medium">
+    <div class="rank">#4 <span class="rating">⭐⭐ 中</span> <span class="badge">S=半天</span></div>
+    <h3>Terminal / run 输出视图加“最新优先”排序和复制顺序一致性</h3>
+    <p>Hive 的 xterm 适合实时交互，但历史 run/debug 视图可以借 Multica 的 transcript 排序：数据不改，只改展示顺序。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/core/agents/stores/transcript-view-store.ts:7-25</code> 持久化 <code>chronological/newest_first</code>；<code>agent-transcript-dialog.tsx:220-238</code> 用 <code>[...filteredItems].reverse()</code> 做纯展示反转并切换时滚回顶部；<code>agent-transcript-dialog.tsx:277-291</code> 复制文本使用当前显示顺序。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>web/src/terminal/useTerminalRuns.ts:9-36</code> 与 <code>web/src/WorkspaceTerminalPanels.tsx:22-33</code> 管 run 列表；<code>web/src/terminal/TerminalView.tsx:69-95</code> 是单 run 展示壳。若只做 run 列表排序，不碰 xterm 协议。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>const [sort, setSort] = useLocalStorage("hive_terminal_sort", "chronological")
+const displayRuns = sort === "newest_first" ? [...runs].reverse() : runs</pre></dd>
+      <dt>价值</dt>
+      <dd>崩溃排查时最新 run 更容易找；复制日志时顺序与用户看到的一致。</dd>
+      <dt>风险</dt>
+      <dd>不要反转 live xterm stream，只反转 run 列表或保存的文本片段；无新依赖。</dd>
+    </dl>
+  </section>
+
+  <section class="card medium">
+    <div class="rank">#5 <span class="rating">⭐⭐ 中</span> <span class="badge">S=半天</span></div>
+    <h3>CLI 官方图标 polish：Gemini spark 改官方 mark，unknown 保持 fallback</h3>
+    <p>这是最小的视觉质量提升。Hive 已有 CLI logo registry，只需要换更准确的 Gemini asset，并继续保留未知 preset 的角色字母 fallback。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/views/runtimes/components/provider-logo.tsx:129-138</code> 使用 Simple Icons 的 Google Gemini 官方 mark，注明 CC0 和品牌色 <code>#8E75B2</code>；<code>provider-logo.tsx:180-210</code> switch 到 provider logo。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>web/src/worker/CliAgentAvatar.tsx:30-35</code> 有 <code>LOGO_REGISTRY</code>；<code>CliAgentAvatar.tsx:73-88</code> unknown preset 已 fallback 到角色头像；测试在 <code>tests/web/cli-agent-avatar.test.tsx</code>。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>// 方案 A: 替换 public/cli-icons/gemini.png
+// 方案 B: 新增 inline GeminiLogo 组件，LOGO_REGISTRY 支持 component 或 src</pre></dd>
+      <dt>价值</dt>
+      <dd>worker card 的 CLI 识别更专业，尤其 Gemini 不再像泛用星星或低清图标。</dd>
+      <dt>风险</dt>
+      <dd>版权要保留来源注释；如果改 registry 类型，需要更新 avatar 测试。</dd>
+    </dl>
+  </section>
+
+  <section class="card medium">
+    <div class="rank">#6 <span class="rating">⭐⭐ 中</span> <span class="badge">M=1-2天</span></div>
+    <h3>借 squad assignment 的“复合选择器”模式，而不是做 squad 系统</h3>
+    <p>Multica 的 squad assignment 真正可借的是 UI/state shape：<code>{ type, id }</code>、同一个 picker 分 section、服务端把 group resolve 到实际执行者。Hive 不应引入 squad 概念，但未来可用于“派给单 worker / 派给角色组”。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/core/types/autopilot.ts:5-9</code> 定义 <code>AutopilotAssigneeType = "agent" | "squad"</code>；<code>pickers/agent-picker.tsx:19-22</code> 定义 <code>AssigneeSelection</code>；<code>agent-picker.tsx:41-65</code> 同时取 agents/squads 并返回复合选择；<code>agent-picker.tsx:100-134</code> 分 section 渲染；<code>server/internal/service/autopilot.go:593-631</code> 把 squad 解析到 leader agent。</dd>
+      <dt>hive 对接点</dt>
+      <dd>只建议用于未来 UI：<code>web/src/worker/WorkersPane.tsx</code> 或 Orchestrator 辅助派单面板；后端仍保持 <code>team send &lt;worker-name&gt;</code>，不要改 CLI 契约。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>type SendTarget = { type: "worker"; name: string } | { type: "role"; role: WorkerRole }
+// role 仅在 UI 展开为多个 team send，或提示 Orchestrator 逐个派单；协议仍按 worker name。</pre></dd>
+      <dt>价值</dt>
+      <dd>Orchestrator/用户在 UI 里批量派给 tester/reviewer 会更顺手，但不改变 Hive 的轻量单机本质。</dd>
+      <dt>风险</dt>
+      <dd class="danger">最容易踩坑：一旦把 role/group 做成持久调度系统，就会滑向 Multica 的协作平台范围，ROI 立刻变差。不要改 dispatch schema，不要引入 group lifecycle。</dd>
+    </dl>
+  </section>
+
+  <section class="card medium">
+    <div class="rank">#7 <span class="rating">⭐⭐ 中</span> <span class="badge">S=半天</span></div>
+    <h3>本机 runtime 行“永远可见”的状态模型，可转化为 Hive 的 runtime 状态条</h3>
+    <p>Multica desktop 修了 daemon 停止后本机行消失的问题。Hive 是单 runtime，本质不同，但可以借“即使离线也保留一个当前 runtime 占位”的 UI 心智，用来展示 port、pid、cwd、log path。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>packages/views/runtimes/components/runtime-machines.ts:33-47</code> 解释 <code>ensureLocalMachine</code>；<code>runtime-machines.ts:72-101</code> 无当前机器时 push placeholder；<code>runtime-machines.ts:103-126</code> placeholder health=offline 且 isCurrent=true。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>src/cli/hive.ts</code> 已能记录 runtime started；<code>src/server/logger.ts</code> 有 log path；前端可在 settings/about 或侧栏底部加 <code>RuntimeStatusStrip</code>，信息来自 <code>/api/version</code> 和新 <code>/api/runtime/status</code>。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>GET /api/runtime/status =&gt; { port, pid, cwd, log_path, db_path, version }
+// UI always renders "Local runtime"; disconnected 时显示 last known + 重连提示。</pre></dd>
+      <dt>价值</dt>
+      <dd>用户排查“我连的是哪个 Hive、日志在哪、是不是当前 repo 启动的”更直接，契合最近稳定性修复。</dd>
+      <dt>风险</dt>
+      <dd>不要做心跳/超时检测；状态条只展示当前 HTTP 响应和已有日志路径，不推断 worker 存活。</dd>
+    </dl>
+  </section>
+
+  <section class="card low">
+    <div class="rank">#8 <span class="rating">⭐ 低</span> <span class="badge">S=半天</span></div>
+    <h3>OpenCode/AGENTS.md 发现锚定到 workspace cwd 的防回归测试</h3>
+    <p>Hive PTY 已经以 workspace path 启动，风险小于 Multica daemon。但 Multica 的注释指出 OpenCode 会看 <code>PWD</code> 和 <code>--dir</code>，Hive 如果后续给 OpenCode 做专门启动增强，可以加防回归测试。</p>
+    <dl class="facts">
+      <dt>multica 源</dt>
+      <dd><code>server/internal/daemon/execenv/context.go:134-143</code> 解释 OpenCode 从 task workdir 发现 <code>.opencode/skills</code> 和 <code>AGENTS.md</code>；<code>server/pkg/agent/opencode.go:53-65</code> 注入 <code>--dir &lt;workDir&gt;</code>；<code>opencode.go:89-99</code> 同步覆盖 <code>PWD</code>。</dd>
+      <dt>hive 对接点</dt>
+      <dd><code>src/server/agent-run-bootstrap.ts:85-95</code> 注入 env；实际 spawn cwd 在 agent manager。对 OpenCode preset 可确保 <code>cwd=workspace.path</code> 且必要时 <code>PWD=workspace.path</code>。</dd>
+      <dt>伪代码</dt>
+      <dd><pre>if (commandPresetId === "opencode") {
+  env.PWD = workspace.path
+  // 如未来改成 non-PTY run，再补 --dir workspace.path
+}</pre></dd>
+      <dt>价值</dt>
+      <dd>避免 OpenCode worker 看不到项目 AGENTS.md，尤其从非 repo cwd 启动 Hive runtime 时。</dd>
+      <dt>风险</dt>
+      <dd>当前不是明显 bug；不要引入技能系统，不要改 workspace shell terminal。</dd>
+    </dl>
+  </section>
+
+  <h2>必须包含项的结论</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>项目</th>
+        <th>Multica 怎么做</th>
+        <th>Hive 能不能 port</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>thinking_level #2865/#2912</td>
+        <td>DB 加 nullable <code>thinking_level</code>；服务端验证 provider enum 和本机 model catalog；执行时注入 Claude <code>--effort</code> / Codex reasoning；UI 在 inspector 中按 runtime model catalog 显示 picker。</td>
+        <td><strong>能，且推荐。</strong>Hive 第一版可比 Multica 更小：只做 worker launch config + Add Worker picker + 启动参数注入；动态模型 catalog 可二阶段。</td>
+      </tr>
+      <tr>
+        <td>squad assignment #2888</td>
+        <td>把 assignee 从单一 agent id 扩成 <code>{assignee_type, assignee_id}</code>；UI picker 同列 agents/squads；服务端把 squad 解析到 leader，并留 squad attribution。</td>
+        <td><strong>只借模式，不借系统。</strong>Hive 可在 UI 上借复合 picker，但协议仍保持按 worker name 派单；不建议新增 squad schema。</td>
+      </tr>
+      <tr>
+        <td>runtime / desktop / icon #2906/#2904</td>
+        <td>daemon 停止时保留 local machine placeholder；provider logo 用官方 mark，Gemini 用 Simple Icons CC0；runtime machine 统一健康视觉。</td>
+        <td><strong>可小步 port。</strong>Hive 适合做 runtime 状态条和更准 CLI 图标；不要做 daemon 心跳或远端 runtime 管理。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>明确排除</h2>
+  <div class="note">
+    <ul>
+      <li>不建议照搬 task lifecycle / timeline / agent presence / skills / squad 作为粗粒度系统，它们服务于 Multica 的多用户平台，不符合 Hive 单人本机轻量定位。</li>
+      <li>不建议引入 Postgres、Redis、多用户权限、云端 daemon 管理。</li>
+      <li>不建议做 worker 心跳、超时、卡死检测；这会碰 Hive design spec §3.6 的三态边界。</li>
+      <li>不建议把 dispatch schema 扩成 cancelled/abandoned 或 group lifecycle；刚修好的 pending/status 路径应保持稳定。</li>
+    </ul>
+  </div>
+
+  <h2>建议落地顺序</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>顺序</th>
+        <th>建议</th>
+        <th>原因</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>thinking_level 后端 schema + 启动参数注入</td>
+        <td>功能价值最高，和 preset 架构天然贴合。</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>thinking_level Add Worker picker</td>
+        <td>前端成本小，直接让用户看到能力。</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>错误消息透传补齐</td>
+        <td>稳定性体验立刻提升，风险低。</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Gemini 官方图标 + runtime 状态条</td>
+        <td>小 polish，能减少“我现在跑的是哪个 runtime”的排查成本。</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>复合 picker / role 目标 UI</td>
+        <td>只有当 Hive 想做批量派单辅助 UI 时再做，避免 scope creep。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>最坑的一条</h2>
+  <p class="note"><strong>squad assignment 最坑。</strong>代码里可借的 picker/state 很漂亮，但如果把它理解成“Hive 也该有 squad”，会马上引出 group schema、leader 转移、dispatch attribution、任务取消、权限和 UI 生命周期，全部偏离当前轻量目标。正确做法是只借 <code>{type,id}</code> 选择器和“服务端最终解析到实际执行者”的思想。</p>
+</main>
+</body>
+</html>

@@ -2,7 +2,16 @@
 
 ## In progress
 
-- [ ] **关羽**: 修 `team` 命令 dev 模式 PATH bug。改 `agent-run-bootstrap.ts:resolveHiveBinDir` 让两种模式都解析到正确的 bin/；修 `bin/team` shim 让它 dev/prod 双模式可用（.js 存在 → import；否则 spawn tsx 跑 .ts）。新 patch `/tmp/hive-serva-team-path-fix.patch`，不叠加。
+- [ ] **关羽**: 实现 multica 调研 #1 + #2 → 每个 worker 可选 thinking_level + Picker UI（条件显示 + 孤儿值清除）。后端 schema v20 + 启动参数注入（Claude effort / Codex reasoning effort）；UI Add Worker dialog 加 Picker。无新依赖、不动状态机 / logger / PATH。
+
+## Done
+
+- [x] **关羽**: multica 二轮深度调研报告（8 条具体借鉴项 + 工作量估算 + 源/对接点 + 风险评级）→ `.hive/reports/multica-borrowing-2026-05-20.html`
+
+## Done
+
+- [x] **关羽**: 修 dev 模式 `team` 命令 PATH bug。bin/team 改 POSIX sh wrapper 双模式可用 + resolveHiveBinDir 简化。已 commit + push（`d848735`），4010 重启后 cwd 切到 hive-serva 直接生效。
+- [x] hive 旧仓库 archive 到 `~/development/hive.archived-2026-05-20`
 
 ## Done
 
