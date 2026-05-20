@@ -181,7 +181,15 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
         },
       })
       socket.on('message', (raw) => {
-        store.writeRunInput(runId, raw.toString())
+        try {
+          store.writeRunInput(runId, raw.toString())
+        } catch (error) {
+          viewer.controlSocket?.send(
+            serializeTerminalError(
+              error instanceof Error ? error.message : 'Failed to write terminal input'
+            )
+          )
+        }
       })
       socket.on('close', () => {
         if (viewer.ioSocket === socket) viewer.ioSocket = null
