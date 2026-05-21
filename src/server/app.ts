@@ -3,7 +3,7 @@ import { access, readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { FeishuTransport } from './feishu-transport.js'
+import type { FeishuOutboundTransport } from './feishu-transport.js'
 import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
@@ -16,7 +16,7 @@ import { createVersionService, type VersionService } from './version-service.js'
 
 interface CreateAppOptions {
   store: RuntimeStore
-  feishuTransport?: FeishuTransport | null
+  feishuTransport?: FeishuOutboundTransport | null
   pickFolderService?: () => Promise<PickFolderResponse>
   tasksFileService?: TasksFileService
   versionService?: VersionService

@@ -118,7 +118,7 @@ interface TeamReportResponse {
 const REPORT_USAGE =
   'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>]'
 const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifact <path>]'
-const FEISHU_REPLY_USAGE = 'Usage: team feishu reply [--chat <chat_id>] <text>'
+export const FEISHU_REPLY_USAGE = 'Usage: team feishu reply [--chat <chat_id>] <text>'
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
 
@@ -131,12 +131,12 @@ export interface ParsedReportArgs {
   useStdin: boolean
 }
 
-interface ParsedFeishuReplyArgs {
+export interface ParsedFeishuReplyArgs {
   chatId: string | undefined
   text: string
 }
 
-const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
+export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
   const positionals: string[] = []
   let chatId: string | undefined
 

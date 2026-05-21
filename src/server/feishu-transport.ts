@@ -5,6 +5,7 @@ import type { FeishuCredentials } from './feishu-credentials.js'
 import { type FeishuInboundChatEvent, handleFeishuInbound } from './feishu-inbound-handler.js'
 import { resolveRoute } from './feishu-route-resolver.js'
 import {
+  chunkFeishuText,
   getSenderUserId,
   parseTextContent,
   stripLeadingMentions,
@@ -13,7 +14,13 @@ import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0]
-type FeishuTransportState = 'connected' | 'disconnected' | 'error'
+export type FeishuTransportState = 'connected' | 'disconnected' | 'error'
+
+export interface FeishuOutboundTransport {
+  getLastChatForAgent(agentId: string): string | null
+  getStatus(): { appId: string; reconnectCount: number; state: FeishuTransportState }
+  sendMessage(chatId: string, text: string): Promise<void>
+}
 
 interface FeishuTransportOptions {
   credentials: FeishuCredentials
@@ -23,10 +30,8 @@ interface FeishuTransportOptions {
 }
 
 const MAX_RECONNECTS_BEFORE_ERROR = 10
-const FEISHU_TEXT_LIMIT_BYTES = 30 * 1024
-const FEISHU_TEXT_CHUNK_BYTES = 25 * 1024
 
-export class FeishuTransport {
+export class FeishuTransport implements FeishuOutboundTransport {
   private readonly credentials: FeishuCredentials
   private readonly logger: HiveLogger
   private readonly onInboundChat:
@@ -124,20 +129,16 @@ export class FeishuTransport {
   }
 
   async sendMessage(chatId: string, text: string): Promise<void> {
-    const chunks =
-      Buffer.byteLength(text, 'utf8') > FEISHU_TEXT_LIMIT_BYTES
-        ? splitTextByUtf8Bytes(text, FEISHU_TEXT_CHUNK_BYTES)
-        : [text]
+    const chunks = chunkFeishuText(text)
 
     if (chunks.length > 1) {
       this.logger.info(`feishu outbound chunked chat_id=${chatId} chunks=${chunks.length}`)
     }
 
-    for (const [index, chunk] of chunks.entries()) {
-      const body = chunks.length > 1 ? `(${index + 1}/${chunks.length}) ${chunk}` : chunk
+    for (const chunk of chunks) {
       await this.client.im.v1.message.create({
         data: {
-          content: JSON.stringify({ text: body }),
+          content: JSON.stringify({ text: chunk }),
           msg_type: 'text',
           receive_id: chatId,
         },
@@ -221,24 +222,4 @@ export class FeishuTransport {
 
     return text
   }
-}
-
-const splitTextByUtf8Bytes = (text: string, maxBytes: number) => {
-  const chunks: string[] = []
-  let current = ''
-  let currentBytes = 0
-
-  for (const char of text) {
-    const charBytes = Buffer.byteLength(char, 'utf8')
-    if (current && currentBytes + charBytes > maxBytes) {
-      chunks.push(current)
-      current = ''
-      currentBytes = 0
-    }
-    current += char
-    currentBytes += charBytes
-  }
-
-  if (current || text.length === 0) chunks.push(current)
-  return chunks
 }
