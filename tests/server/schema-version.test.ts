@@ -1113,4 +1113,77 @@ describe('schema version', () => {
     })
     db.close()
   })
+
+  test('migration v21 creates feishu_bindings on top of v20 database', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v21-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20);
+
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE workers (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        last_session_id TEXT,
+        role TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE agent_launch_configs (
+        workspace_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        command_preset_id TEXT,
+        interactive_command TEXT,
+        preset_augmentation_disabled INTEGER NOT NULL DEFAULT 0,
+        resume_args_template TEXT,
+        session_id_capture_json TEXT,
+        thinking_level TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+    `)
+
+    initializeRuntimeDatabase(db)
+
+    const columns = new Set(
+      (db.prepare('PRAGMA table_info(feishu_bindings)').all() as Array<{ name: string }>).map(
+        (col) => col.name
+      )
+    )
+    const indexes = new Set(
+      (db.prepare('PRAGMA index_list(feishu_bindings)').all() as Array<{ name: string }>).map(
+        (idx) => idx.name
+      )
+    )
+
+    expect(columns).toEqual(
+      new Set(['id', 'workspace_id', 'chat_id', 'chat_name', 'enabled', 'created_at'])
+    )
+    expect(indexes.has('idx_feishu_bindings_workspace')).toBe(true)
+    expect(
+      db.prepare('SELECT version FROM schema_version WHERE version = ?').get(21)
+    ).toEqual({ version: 21 })
+    db.close()
+  })
 })

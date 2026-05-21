@@ -3,6 +3,7 @@ import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput, PersistedAgentRun } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
+import type { FeishuBinding } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
@@ -93,6 +94,14 @@ interface RuntimeStore {
   stopAgentRun: (runId: string) => void
   validateAgentToken: (agentId: string, token: string | undefined) => boolean
   validateUiToken: (token: string | undefined) => boolean
+  bindFeishuChat: (input: {
+    workspaceId: string
+    chatId: string
+    chatName?: string | null
+  }) => FeishuBinding
+  unbindFeishuChat: (chatId: string) => boolean
+  findFeishuBindingByChatId: (chatId: string) => FeishuBinding | null
+  listFeishuBindings: (workspaceId?: string) => FeishuBinding[]
 }
 
 interface RuntimeStoreOptions {
@@ -138,6 +147,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       await services.tasksFileWatcher.stop(workspaceId)
       runDataMutation(() => {
         services.dispatchLedgerStore.deleteWorkspaceDispatches(workspaceId)
+        services.feishuBindingsStore.unbindByWorkspace(workspaceId)
         services.workspaceStore.deleteWorkspace(workspaceId)
       })
       if (services.settings.getAppState('active_workspace_id')?.value === workspaceId) {
@@ -196,5 +206,18 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     validateAgentToken: (agentId, token) =>
       services.agentRuntime.validateAgentToken(agentId, token),
     validateUiToken: (token) => services.uiAuth.validate(token),
+    bindFeishuChat: (input) => {
+      services.workspaceStore.getWorkspaceSnapshot(input.workspaceId)
+      return services.feishuBindingsStore.bind(input)
+    },
+    unbindFeishuChat: (chatId) => services.feishuBindingsStore.unbind(chatId),
+    findFeishuBindingByChatId: (chatId) => services.feishuBindingsStore.findByChatId(chatId),
+    listFeishuBindings: (workspaceId) => {
+      if (workspaceId) {
+        services.workspaceStore.getWorkspaceSnapshot(workspaceId)
+        return services.feishuBindingsStore.listByWorkspace(workspaceId)
+      }
+      return services.feishuBindingsStore.listAll()
+    },
   }
 }

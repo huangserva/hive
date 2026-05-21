@@ -4,6 +4,7 @@ import { createAgentRuntime } from './agent-runtime.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
 import { createDispatchLedgerStore } from './dispatch-ledger-store.js'
+import { createFeishuBindingsStore } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
@@ -24,6 +25,7 @@ export interface RuntimeStoreServices {
   agentRuntime: ReturnType<typeof createAgentRuntime>
   db: ReturnType<typeof openRuntimeDatabase>
   dispatchLedgerStore: ReturnType<typeof createDispatchLedgerStore>
+  feishuBindingsStore: ReturnType<typeof createFeishuBindingsStore>
   messageLogStore: ReturnType<typeof createMessageLogStore>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
@@ -63,6 +65,7 @@ export const createRuntimeStoreServices = (
   const db = openRuntimeDatabase(options.dataDir)
   const messageLogStore = createMessageLogStore(db)
   const dispatchLedgerStore = createDispatchLedgerStore(db)
+  const feishuBindingsStore = createFeishuBindingsStore(db)
   const agentRunStore = createAgentRunStore(db)
   const agentSessionStore = createAgentSessionStore(db)
   const settings = createSettingsStore(db)
@@ -125,6 +128,7 @@ export const createRuntimeStoreServices = (
     agentRuntime,
     db,
     dispatchLedgerStore,
+    feishuBindingsStore,
     messageLogStore,
     settings,
     shellRuntime,

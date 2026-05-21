@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { createAgentManager } from '../server/agent-manager.js'
 import { createApp } from '../server/app.js'
+import { FeishuCredentialsError, loadFeishuCredentials } from '../server/feishu-credentials.js'
 import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
@@ -113,6 +114,20 @@ export const runHiveCommand = async (
   const dataDir = resolveDataDir()
   const logger = createHiveLogger({ dataDir, port })
   const unregisterFatalLoggers = registerFatalProcessLoggers(logger)
+  try {
+    const credentials = loadFeishuCredentials({ dataDir })
+    if (credentials) {
+      logger.info(`feishu credentials loaded app_id=${credentials.appId}`)
+    } else {
+      logger.info('feishu credentials not configured, transport disabled')
+    }
+  } catch (error) {
+    if (error instanceof FeishuCredentialsError) {
+      logger.error('feishu credentials invalid, transport disabled', error)
+    } else {
+      throw error
+    }
+  }
   const versionService = options.versionService ?? createVersionService()
   const version = readPackageVersion()
   const app = createApp({
