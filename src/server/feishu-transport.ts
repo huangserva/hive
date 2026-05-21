@@ -13,6 +13,7 @@ import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0]
+type FeishuTransportState = 'connected' | 'disconnected' | 'error'
 
 interface FeishuTransportOptions {
   credentials: FeishuCredentials
@@ -35,6 +36,7 @@ export class FeishuTransport {
   private readonly client: lark.Client
   private readonly lastChatByAgent = new Map<string, string>()
   private reconnectCount = 0
+  private state: FeishuTransportState = 'disconnected'
   private wsClient: lark.WSClient | null = null
 
   constructor({ credentials, logger, onInboundChat, store }: FeishuTransportOptions) {
@@ -68,17 +70,21 @@ export class FeishuTransport {
       handshakeTimeoutMs: 10_000,
       loggerLevel: lark.LoggerLevel.error,
       onError: (error) => {
+        this.state = 'error'
         this.logger.error('feishu WSClient error', error)
       },
       onReady: () => {
+        this.state = 'connected'
         this.reconnectCount = 0
         this.logger.info('feishu WSClient connected')
       },
       onReconnected: () => {
+        this.state = 'connected'
         this.reconnectCount = 0
         this.logger.info('feishu WSClient connected')
       },
       onReconnecting: () => {
+        this.state = 'disconnected'
         this.reconnectCount += 1
         this.logger.warn(
           `feishu WSClient disconnected, retrying reconnect_count=${this.reconnectCount}`
@@ -91,12 +97,26 @@ export class FeishuTransport {
       },
     })
 
-    await this.wsClient.start({ eventDispatcher })
+    try {
+      await this.wsClient.start({ eventDispatcher })
+    } catch (error) {
+      this.state = 'error'
+      throw error
+    }
   }
 
   async stop(): Promise<void> {
     this.wsClient?.close()
+    this.state = 'disconnected'
     this.wsClient = null
+  }
+
+  getStatus(): { appId: string; reconnectCount: number; state: FeishuTransportState } {
+    return {
+      appId: this.credentials.appId,
+      reconnectCount: this.reconnectCount,
+      state: this.state,
+    }
   }
 
   getLastChatForAgent(agentId: string): string | null {

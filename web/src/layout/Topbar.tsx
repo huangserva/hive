@@ -1,6 +1,7 @@
 import { Hexagon, ListChecks } from 'lucide-react'
 
 import type { VersionInfo } from '../api.js'
+import { FeishuStatusIndicator } from '../feishu/FeishuStatusIndicator.js'
 import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
 import { Tooltip } from '../ui/Tooltip.js'
@@ -91,6 +92,7 @@ export const Topbar = ({
               <span>{t('topbar.todo')}</span>
             </button>
           </Tooltip>
+          <FeishuStatusIndicator />
           <LanguageToggle />
           <NotificationSettingsButton />
         </div>

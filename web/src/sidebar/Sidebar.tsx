@@ -1,4 +1,4 @@
-import { FolderPlus, Plus, Trash2, X } from 'lucide-react'
+import { FolderPlus, Plus, Settings, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../../src/shared/types.js'
@@ -14,6 +14,7 @@ type SidebarProps = {
   createDisabledReason?: string
   onCreateClick: () => void
   onDeleteWorkspace: (workspace: WorkspaceSummary) => void | Promise<void>
+  onOpenWorkspaceSettings: (workspace: WorkspaceSummary) => void
   onSelectWorkspace: (workspaceId: string) => void
   workersByWorkspaceId: Record<string, TeamListItem[]>
   workspaces: WorkspaceSummary[] | null
@@ -51,6 +52,7 @@ export const Sidebar = ({
   createDisabledReason,
   onCreateClick,
   onDeleteWorkspace,
+  onOpenWorkspaceSettings,
   onSelectWorkspace,
   workersByWorkspaceId,
   workspaces,
@@ -240,6 +242,18 @@ export const Sidebar = ({
                     />
                   </button>
                 </Tooltip>
+                {isActive ? (
+                  <Tooltip label="Workspace settings">
+                    <button
+                      type="button"
+                      aria-label="Workspace settings"
+                      onClick={() => onOpenWorkspaceSettings(workspace)}
+                      className="ws-row-settings absolute top-2 right-8 flex h-6 w-6 items-center justify-center rounded text-ter opacity-0 transition-colors hover:text-pri focus:opacity-100 group-hover:opacity-100"
+                    >
+                      <Settings size={14} aria-hidden />
+                    </button>
+                  </Tooltip>
+                ) : null}
                 <Tooltip label={t('sidebar.deleteAria', { name: workspace.name })}>
                   <button
                     type="button"

@@ -126,6 +126,23 @@ export interface RoleTemplate {
   roleType: WorkerRole | 'orchestrator'
 }
 
+export type FeishuTransportStatusValue = 'disabled' | 'connected' | 'disconnected' | 'error'
+
+export interface FeishuTransportStatus {
+  appId?: string
+  reconnectCount?: number
+  status: FeishuTransportStatusValue
+}
+
+export interface FeishuBinding {
+  chatId: string
+  chatName: string | null
+  createdAt: number
+  enabled: boolean
+  id: string
+  workspaceId: string
+}
+
 interface CommandPresetPayload {
   args: string[]
   available: boolean
@@ -264,6 +281,57 @@ export const listWorkers = async (workspaceId: string): Promise<TeamListItem[]> 
 
   const payload = (await response.json()) as TeamListItemPayload[]
   return payload.map(fromPayload)
+}
+
+export const fetchFeishuTransportStatus = async (): Promise<FeishuTransportStatus> => {
+  const response = await apiFetch('/api/feishu/transport-status', { mode: 'same-origin' })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load Feishu status'))
+  }
+
+  return (await response.json()) as FeishuTransportStatus
+}
+
+export const listFeishuBindings = async (workspaceId?: string): Promise<FeishuBinding[]> => {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''
+  const response = await apiFetch(`/api/feishu/bindings${query}`, { mode: 'same-origin' })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load Feishu bindings'))
+  }
+
+  return (await response.json()) as FeishuBinding[]
+}
+
+export const bindFeishuChat = async (input: {
+  chatId: string
+  chatName?: string | null
+  workspaceId: string
+}): Promise<FeishuBinding> => {
+  const response = await apiFetch('/api/feishu/bindings', {
+    body: JSON.stringify(input),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to bind Feishu chat'))
+  }
+
+  return (await response.json()) as FeishuBinding
+}
+
+export const unbindFeishuChat = async (chatId: string): Promise<{ deleted: boolean }> => {
+  const response = await apiFetch(`/api/feishu/bindings/${encodeURIComponent(chatId)}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to unbind Feishu chat'))
+  }
+
+  return (await response.json()) as { deleted: boolean }
 }
 
 export const listCommandPresets = async (): Promise<CommandPreset[]> => {

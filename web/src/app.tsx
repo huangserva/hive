@@ -23,6 +23,7 @@ import { useWorkspaceSelection } from './useWorkspaceSelection.js'
 import { useWorkspaceWorkers } from './useWorkspaceWorkers.js'
 import { useFirstRunWizard } from './wizard/useFirstRunWizard.js'
 import { useWorkerActions } from './worker/useWorkerActions.js'
+import { WorkspaceSettings } from './workspace/WorkspaceSettings.js'
 
 const AppInner = () => {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[] | null>(null)
@@ -32,6 +33,7 @@ const AppInner = () => {
   const [workersByWorkspaceId, setWorkersByWorkspaceId] = useWorkspaceWorkers(localPollIds)
   const [addDialogTrigger, setAddDialogTrigger] = useState(0)
   const [taskGraphOpen, setTaskGraphOpen] = useState(false)
+  const [settingsWorkspace, setSettingsWorkspace] = useState<WorkspaceSummary | null>(null)
   const toast = useToast()
   const { wizardOpen, closeWizard } = useFirstRunWizard(workspaces)
   const triggerAddDialog = useCallback(() => setAddDialogTrigger((v) => v + 1), [])
@@ -98,6 +100,7 @@ const AppInner = () => {
           createDisabledReason={bootstrapError ?? undefined}
           onCreateClick={triggerAddDialog}
           onDeleteWorkspace={deleteWorkspace}
+          onOpenWorkspaceSettings={setSettingsWorkspace}
           onSelectWorkspace={selectWorkspace}
           workersByWorkspaceId={eff.effectiveWorkersByWorkspaceId}
           workspaces={eff.effectiveWorkspaces}
@@ -135,6 +138,11 @@ const AppInner = () => {
         workspacePath={eff.effectiveActiveWorkspace?.path ?? null}
         workers={activeWorkers}
         onSelectOwner={handleSelectOwner}
+      />
+      <WorkspaceSettings
+        open={settingsWorkspace !== null}
+        workspace={settingsWorkspace}
+        onClose={() => setSettingsWorkspace(null)}
       />
     </MainLayout>
   )
