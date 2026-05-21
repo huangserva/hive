@@ -8,7 +8,12 @@ import { fileURLToPath } from 'node:url'
 
 import { createAgentManager } from '../server/agent-manager.js'
 import { createApp } from '../server/app.js'
-import { FeishuCredentialsError, loadFeishuCredentials } from '../server/feishu-credentials.js'
+import {
+  type FeishuCredentials,
+  FeishuCredentialsError,
+  loadFeishuCredentials,
+} from '../server/feishu-credentials.js'
+import { FeishuTransport } from '../server/feishu-transport.js'
 import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
@@ -114,10 +119,11 @@ export const runHiveCommand = async (
   const dataDir = resolveDataDir()
   const logger = createHiveLogger({ dataDir, port })
   const unregisterFatalLoggers = registerFatalProcessLoggers(logger)
+  let feishuCredentials: FeishuCredentials | null = null
   try {
-    const credentials = loadFeishuCredentials({ dataDir })
-    if (credentials) {
-      logger.info(`feishu credentials loaded app_id=${credentials.appId}`)
+    feishuCredentials = loadFeishuCredentials({ dataDir })
+    if (feishuCredentials) {
+      logger.info(`feishu credentials loaded app_id=${feishuCredentials.appId}`)
     } else {
       logger.info('feishu credentials not configured, transport disabled')
     }
@@ -153,6 +159,21 @@ export const runHiveCommand = async (
     throw new Error('Server did not bind to an inet port')
   }
 
+  let feishuTransport: FeishuTransport | null = null
+  if (feishuCredentials) {
+    feishuTransport = new FeishuTransport({
+      credentials: feishuCredentials,
+      logger,
+      store: app.store,
+    })
+    try {
+      await feishuTransport.start()
+    } catch (error) {
+      logger.error('feishu transport failed to start, transport disabled', error)
+      feishuTransport = null
+    }
+  }
+
   let closePromise: Promise<void> | null = null
   const close = async () => {
     if (closePromise) {
@@ -163,6 +184,7 @@ export const runHiveCommand = async (
       process.off('SIGTERM', gracefulShutdown)
       process.off('SIGINT', gracefulShutdown)
       unregisterFatalLoggers()
+      await feishuTransport?.stop()
       await new Promise<void>((resolve, reject) => {
         app.server.close((error) => {
           if (error) {

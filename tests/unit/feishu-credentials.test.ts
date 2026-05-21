@@ -80,18 +80,12 @@ describe('loadFeishuCredentials', () => {
   })
 
   test('throws FeishuCredentialsError when app_id is null', () => {
-    writeFileSync(
-      join(dataDir, 'feishu.json'),
-      JSON.stringify({ app_id: null, app_secret: 'shh' })
-    )
+    writeFileSync(join(dataDir, 'feishu.json'), JSON.stringify({ app_id: null, app_secret: 'shh' }))
     expect(() => loadFeishuCredentials({ dataDir })).toThrow(FeishuCredentialsError)
   })
 
   test('throws FeishuCredentialsError when app_id is a boolean', () => {
-    writeFileSync(
-      join(dataDir, 'feishu.json'),
-      JSON.stringify({ app_id: true, app_secret: 'shh' })
-    )
+    writeFileSync(join(dataDir, 'feishu.json'), JSON.stringify({ app_id: true, app_secret: 'shh' }))
     expect(() => loadFeishuCredentials({ dataDir })).toThrow(FeishuCredentialsError)
   })
 

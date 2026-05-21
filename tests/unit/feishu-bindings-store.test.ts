@@ -104,7 +104,7 @@ describe('createFeishuBindingsStore', () => {
   })
 
   test('bind() rejects chat_id exceeding 256 characters', () => {
-    const longChatId = 'oc_' + 'x'.repeat(254)
+    const longChatId = `oc_${'x'.repeat(254)}`
     expect(() => store.bind({ workspaceId: 'ws-1', chatId: longChatId })).toThrow(BadRequestError)
   })
 
@@ -117,9 +117,9 @@ describe('createFeishuBindingsStore', () => {
 
   test('bind() rejects chat_name exceeding 200 characters', () => {
     const longName = 'n'.repeat(201)
-    expect(() =>
-      store.bind({ workspaceId: 'ws-1', chatId: 'oc_x', chatName: longName })
-    ).toThrow(BadRequestError)
+    expect(() => store.bind({ workspaceId: 'ws-1', chatId: 'oc_x', chatName: longName })).toThrow(
+      BadRequestError
+    )
   })
 
   test('findByChatId() trims whitespace on lookup', () => {

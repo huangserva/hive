@@ -1181,9 +1181,9 @@ describe('schema version', () => {
       new Set(['id', 'workspace_id', 'chat_id', 'chat_name', 'enabled', 'created_at'])
     )
     expect(indexes.has('idx_feishu_bindings_workspace')).toBe(true)
-    expect(
-      db.prepare('SELECT version FROM schema_version WHERE version = ?').get(21)
-    ).toEqual({ version: 21 })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(21)).toEqual({
+      version: 21,
+    })
     db.close()
   })
 })

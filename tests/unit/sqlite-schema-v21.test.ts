@@ -21,11 +21,12 @@ describe('applySchemaVersion21', () => {
     expect(columns).toEqual(
       new Set(['id', 'workspace_id', 'chat_id', 'chat_name', 'enabled', 'created_at'])
     )
-    const tableSql = (
-      db
-        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='feishu_bindings'")
-        .get() as { sql: string } | undefined
-    )?.sql ?? ''
+    const tableSql =
+      (
+        db
+          .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='feishu_bindings'")
+          .get() as { sql: string } | undefined
+      )?.sql ?? ''
     expect(tableSql).toContain('chat_id TEXT NOT NULL UNIQUE')
   })
 
@@ -68,9 +69,9 @@ describe('applySchemaVersion21', () => {
     expect(columns.size).toBe(6)
     expect(columns.has('id')).toBe(true)
     expect(columns.has('chat_id')).toBe(true)
-    const version = db
-      .prepare('SELECT version FROM schema_version WHERE version = ?')
-      .get(21) as { version: number } | undefined
+    const version = db.prepare('SELECT version FROM schema_version WHERE version = ?').get(21) as
+      | { version: number }
+      | undefined
     expect(version).toEqual({ version: 21 })
   })
 })
