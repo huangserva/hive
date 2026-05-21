@@ -21,6 +21,7 @@ const TEAM_USAGE = [
   'Usage:',
   '  team list',
   '  team send <worker-name> "<task>"',
+  '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
   '  team feishu reply "<text>"',
   '  team feishu reply --chat <chat_id> "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
@@ -118,6 +119,8 @@ interface TeamReportResponse {
 const REPORT_USAGE =
   'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>]'
 const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifact <path>]'
+export const APPROVE_USAGE =
+  'Usage: team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]'
 export const FEISHU_REPLY_USAGE = 'Usage: team feishu reply [--chat <chat_id>] <text>'
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
@@ -134,6 +137,68 @@ export interface ParsedReportArgs {
 export interface ParsedFeishuReplyArgs {
   chatId: string | undefined
   text: string
+}
+
+export interface ParsedApproveArgs {
+  action: string
+  chatId: string | undefined
+  risk: 'high' | 'medium'
+  target: string | null
+}
+
+export const parseApproveArgs = (args: string[]): ParsedApproveArgs => {
+  const positionals: string[] = []
+  let chatId: string | undefined
+  let risk: 'high' | 'medium' = 'high'
+  let target: string | null = null
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+
+    if (arg === '--chat') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--chat requires a value\n\n${APPROVE_USAGE}`)
+      }
+      chatId = next
+      index += 1
+      continue
+    }
+
+    if (arg === '--risk') {
+      const next = args[index + 1]
+      if (next !== 'high' && next !== 'medium') {
+        throw new Error(`--risk must be high or medium\n\n${APPROVE_USAGE}`)
+      }
+      risk = next
+      index += 1
+      continue
+    }
+
+    if (arg === '--target') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--target requires a value\n\n${APPROVE_USAGE}`)
+      }
+      target = next
+      index += 1
+      continue
+    }
+
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${APPROVE_USAGE}`)
+    }
+
+    positionals.push(arg)
+  }
+
+  const action = positionals.join(' ').trim()
+  if (!action) {
+    throw new Error(`Missing <action>\n\n${APPROVE_USAGE}`)
+  }
+
+  return { action, chatId, risk, target }
 }
 
 export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
@@ -315,6 +380,37 @@ export const runTeamCommand = async (argv: string[]) => {
       text: task,
     })
     console.log(JSON.stringify(await response.json()))
+    return
+  }
+
+  if (command === 'approve') {
+    const approval = parseApproveArgs(args)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await fetchRuntime(baseUrl, '/internal/feishu/approval-request', {
+      body: JSON.stringify({
+        action: approval.action,
+        ...(approval.chatId ? { chatId: approval.chatId } : {}),
+        risk: approval.risk,
+        target: approval.target,
+        workspaceId: env.HIVE_PROJECT_ID,
+      }),
+      headers: {
+        authorization: `Bearer ${env.HIVE_AGENT_TOKEN}`,
+        'content-type': 'application/json',
+        'x-hive-agent-id': env.HIVE_AGENT_ID,
+      },
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      await throwHttpError(response)
+    }
+    const payload = (await response.json()) as { approval_id?: unknown }
+    if (typeof payload.approval_id !== 'string') {
+      throw new Error('approval response missing approval_id')
+    }
+    console.log(payload.approval_id)
     return
   }
 

@@ -8,6 +8,14 @@ interface FeishuOutboundBody {
   text?: unknown
 }
 
+interface FeishuApprovalRequestBody {
+  action?: unknown
+  chatId?: unknown
+  risk?: unknown
+  target?: unknown
+  workspaceId?: unknown
+}
+
 interface BindFeishuChatBody {
   chatId?: unknown
   chatName?: unknown
@@ -44,6 +52,23 @@ const optionalChatId = (value: unknown) => {
     throw new BadRequestError('chatId must be a non-empty string')
   }
   return value.trim()
+}
+
+const requireRisk = (value: unknown) => {
+  if (value === undefined || value === null) return 'high'
+  if (value !== 'high' && value !== 'medium') {
+    throw new BadRequestError('risk must be high or medium')
+  }
+  return value
+}
+
+const optionalTarget = (value: unknown) => {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') {
+    throw new BadRequestError('target must be a string')
+  }
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
 }
 
 export const feishuRoutes: RouteDefinition[] = [
@@ -105,6 +130,63 @@ export const feishuRoutes: RouteDefinition[] = [
 
       await feishuTransport.sendMessage(chatId, text)
       sendJson(response, 200, { ok: true })
+    }
+  ),
+  route(
+    'POST',
+    '/internal/feishu/approval-request',
+    async ({ feishuTransport, logger, request, response, store }) => {
+      const agentId = getAgentId(request.headers['x-hive-agent-id'])
+      const token = getBearerToken(request.headers.authorization)
+      if (!agentId) {
+        throw new UnauthorizedError('Missing agent identity')
+      }
+      if (!store.validateAgentToken(agentId, token)) {
+        throw new UnauthorizedError('Invalid or missing agent token')
+      }
+      if (!feishuTransport) {
+        throw new HttpError(503, 'feishu transport not configured')
+      }
+
+      const body = await readJsonBody<FeishuApprovalRequestBody>(request)
+      const action = requireString(body.action, 'action')
+      const workspaceId = requireString(body.workspaceId, 'workspaceId')
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      const risk = requireRisk(body.risk)
+      const target = optionalTarget(body.target)
+      const chatId = optionalChatId(body.chatId) ?? feishuTransport.getLastChatForAgent(agentId)
+      if (!chatId) {
+        throw new BadRequestError('no recent feishu chat for this agent')
+      }
+
+      const approval = store.approvalLedger.create({
+        action,
+        chatId,
+        messageId: '',
+        orchAgentId: agentId,
+        risk,
+        target,
+        workspaceId,
+      })
+      logger?.info(
+        `feishu approval created approval_id=${approval.approvalId} risk=${risk} action=${JSON.stringify(action)}`
+      )
+      const card = await feishuTransport.sendApprovalCard({
+        action,
+        approvalId: approval.approvalId,
+        chatId,
+        risk,
+        target,
+        workspaceName: workspace.summary.name,
+      })
+      approval.messageId = card.messageId
+      logger?.info(
+        `feishu approval card sent message_id=${card.messageId} chat_id=${chatId} approval_id=${approval.approvalId}`
+      )
+      sendJson(response, 200, {
+        approval_id: approval.approvalId,
+        message_id: card.messageId,
+      })
     }
   ),
 ]

@@ -3,6 +3,7 @@ import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput, PersistedAgentRun } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
+import type { ApprovalLedger } from './feishu-approval-ledger.js'
 import type { FeishuBinding } from './feishu-bindings-store.js'
 import { NotFoundError } from './http-errors.js'
 import type { HiveLogger } from './logger.js'
@@ -20,6 +21,7 @@ import type { WorkerInput, WorkspaceRecord } from './workspace-store.js'
 
 interface RuntimeStore {
   close: () => Promise<void>
+  approvalLedger: ApprovalLedger
   createWorkspace: (path: string, name: string) => WorkspaceSummary
   deleteWorkspace: (workspaceId: string) => Promise<void>
   listWorkspaces: () => WorkspaceSummary[]
@@ -130,6 +132,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     services.db.transaction(mutation)()
   }
   return {
+    approvalLedger: services.approvalLedger,
     close: lifecycle.close,
     createWorkspace: (path, name) => {
       const workspace = services.workspaceStore.createWorkspace(path, name)

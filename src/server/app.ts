@@ -121,6 +121,7 @@ export const createApp = ({
           response,
           store,
           feishuTransport,
+          logger,
           tasksFileService,
           pickFolderService,
           versionService,
