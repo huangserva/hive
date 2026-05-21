@@ -10,8 +10,13 @@ import type { FeishuCredentials } from './feishu-credentials.js'
 import { type FeishuInboundChatEvent, handleFeishuInbound } from './feishu-inbound-handler.js'
 import { resolveRoute } from './feishu-route-resolver.js'
 import {
+  buildApprovalCard,
+  buildResolvedApprovalCard,
   chunkFeishuText,
+  type FeishuCardActionTriggerEvent,
+  getCardActionOperator,
   getSenderUserId,
+  parseApprovalCardAction,
   parseTextContent,
   stripLeadingMentions,
 } from './feishu-transport-utils.js'
@@ -19,7 +24,6 @@ import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0]
-type CardActionTriggerEvent = lark.RawCardActionEvent
 export type FeishuTransportState = 'connected' | 'disconnected' | 'error'
 
 export interface FeishuOutboundTransport {
@@ -95,7 +99,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
           this.logger.error(`feishu inbound handler failed chat_id=${event.message.chat_id}`, error)
         }
       },
-      'card.action.trigger': async (event: CardActionTriggerEvent) => {
+      'card.action.trigger': async (event: FeishuCardActionTriggerEvent) => {
         try {
           return await this.handleCardAction(event)
         } catch (error) {
@@ -292,7 +296,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
     return text
   }
 
-  private async handleCardAction(event: CardActionTriggerEvent) {
+  private async handleCardAction(event: FeishuCardActionTriggerEvent) {
     const action = parseApprovalCardAction(event.action?.value)
     const operator = getCardActionOperator(event)
     if (!action || !operator) {
@@ -353,100 +357,6 @@ export class FeishuTransport implements FeishuOutboundTransport {
     this.cleanupInterval.unref?.()
   }
 }
-
-const approvalRiskLabel = (risk: FeishuApprovalRisk) =>
-  risk === 'medium' ? '中风险动作' : '高风险动作'
-
-const approvalRiskTemplate = (risk: FeishuApprovalRisk) => (risk === 'medium' ? 'orange' : 'red')
-
-const buildApprovalCard = (input: SendApprovalCardInput) => ({
-  config: { update_multi: true, wide_screen_mode: true },
-  header: {
-    template: approvalRiskTemplate(input.risk),
-    title: { content: `🤖 Hive 审批请求 · ${approvalRiskLabel(input.risk)}`, tag: 'plain_text' },
-  },
-  elements: [
-    {
-      fields: [
-        { is_short: false, text: { content: `**动作**\n${input.action}`, tag: 'lark_md' } },
-        {
-          is_short: true,
-          text: { content: `**派给**\n${input.target || 'orchestrator 自己'}`, tag: 'lark_md' },
-        },
-        {
-          is_short: true,
-          text: { content: `**Workspace**\n${input.workspaceName}`, tag: 'lark_md' },
-        },
-      ],
-      tag: 'div',
-    },
-    { tag: 'hr' },
-    {
-      actions: [
-        {
-          tag: 'button',
-          text: { content: '✅ 允许', tag: 'plain_text' },
-          type: 'primary',
-          value: { approval_id: input.approvalId, decision: 'allow' },
-        },
-        {
-          tag: 'button',
-          text: { content: '❌ 拒绝', tag: 'plain_text' },
-          type: 'danger',
-          value: { approval_id: input.approvalId, decision: 'deny' },
-        },
-      ],
-      tag: 'action',
-    },
-  ],
-})
-
-const buildResolvedApprovalCard = (input: UpdateApprovalCardInput) => ({
-  config: { update_multi: true, wide_screen_mode: true },
-  header: {
-    template: input.decision === 'allow' ? 'green' : 'grey',
-    title: {
-      content: input.decision === 'allow' ? '✅ 已允许' : '❌ 已拒绝',
-      tag: 'plain_text',
-    },
-  },
-  elements: [
-    {
-      fields: [
-        { is_short: false, text: { content: `**动作**\n${input.action}`, tag: 'lark_md' } },
-        {
-          is_short: false,
-          text: {
-            content: `**处理结果**\nby @${input.operator} at ${formatHourMinute(input.resolvedAt)}`,
-            tag: 'lark_md',
-          },
-        },
-      ],
-      tag: 'div',
-    },
-  ],
-})
-
-const parseApprovalCardAction = (
-  value: unknown
-): { approvalId: string; decision: FeishuApprovalDecision } | null => {
-  if (!value || typeof value !== 'object') return null
-  const payload = value as { approval_id?: unknown; decision?: unknown }
-  const { approval_id: approvalId, decision } = payload
-  if (typeof approvalId !== 'string') return null
-  if (decision !== 'allow' && decision !== 'deny') return null
-  return { approvalId, decision }
-}
-
-const getCardActionOperator = (event: CardActionTriggerEvent) =>
-  event.operator?.user_id ?? event.operator?.open_id ?? event.operator?.union_id ?? null
-
-const formatHourMinute = (timeMs: number) =>
-  new Date(timeMs).toLocaleTimeString('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
 
 const formatTime = (timeMs: number) =>
   new Date(timeMs).toLocaleTimeString('zh-CN', {

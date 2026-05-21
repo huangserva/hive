@@ -1,9 +1,32 @@
-import type { EventHandles } from '@larksuiteoapi/node-sdk'
+import type { EventHandles, RawCardActionEvent } from '@larksuiteoapi/node-sdk'
+
+import type { FeishuApprovalDecision, FeishuApprovalRisk } from './feishu-approval-ledger.js'
 
 type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0]
 
+export type FeishuCardActionTriggerEvent = RawCardActionEvent
 export type FeishuMessageSender = MessageReceiveEvent['sender']
 export type FeishuMention = NonNullable<MessageReceiveEvent['message']['mentions']>[number]
+
+export interface ApprovalCardInput {
+  action: string
+  approvalId: string
+  risk: FeishuApprovalRisk
+  target: string | null
+  workspaceName: string
+}
+
+export interface ResolvedApprovalCardInput {
+  action: string
+  decision: FeishuApprovalDecision
+  operator: string
+  resolvedAt: number
+}
+
+export interface ParsedApprovalCardAction {
+  approvalId: string
+  decision: FeishuApprovalDecision
+}
 
 interface TextContent {
   text?: unknown
@@ -84,3 +107,95 @@ export const chunkFeishuText = (text: string): string[] => {
     totalChunks = chunks.length
   }
 }
+
+const approvalRiskLabel = (risk: FeishuApprovalRisk) =>
+  risk === 'medium' ? '中风险动作' : '高风险动作'
+
+const approvalRiskTemplate = (risk: FeishuApprovalRisk) => (risk === 'medium' ? 'orange' : 'red')
+
+export const buildApprovalCard = (input: ApprovalCardInput) => ({
+  config: { update_multi: true, wide_screen_mode: true },
+  header: {
+    template: approvalRiskTemplate(input.risk),
+    title: { content: `🤖 Hive 审批请求 · ${approvalRiskLabel(input.risk)}`, tag: 'plain_text' },
+  },
+  elements: [
+    {
+      fields: [
+        { is_short: false, text: { content: `**动作**\n${input.action}`, tag: 'lark_md' } },
+        {
+          is_short: true,
+          text: { content: `**派给**\n${input.target || 'orchestrator 自己'}`, tag: 'lark_md' },
+        },
+        {
+          is_short: true,
+          text: { content: `**Workspace**\n${input.workspaceName}`, tag: 'lark_md' },
+        },
+      ],
+      tag: 'div',
+    },
+    { tag: 'hr' },
+    {
+      actions: [
+        {
+          tag: 'button',
+          text: { content: '✅ 允许', tag: 'plain_text' },
+          type: 'primary',
+          value: { approval_id: input.approvalId, decision: 'allow' },
+        },
+        {
+          tag: 'button',
+          text: { content: '❌ 拒绝', tag: 'plain_text' },
+          type: 'danger',
+          value: { approval_id: input.approvalId, decision: 'deny' },
+        },
+      ],
+      tag: 'action',
+    },
+  ],
+})
+
+export const buildResolvedApprovalCard = (input: ResolvedApprovalCardInput) => ({
+  config: { update_multi: true, wide_screen_mode: true },
+  header: {
+    template: input.decision === 'allow' ? 'green' : 'grey',
+    title: {
+      content: input.decision === 'allow' ? '✅ 已允许' : '❌ 已拒绝',
+      tag: 'plain_text',
+    },
+  },
+  elements: [
+    {
+      fields: [
+        { is_short: false, text: { content: `**动作**\n${input.action}`, tag: 'lark_md' } },
+        {
+          is_short: false,
+          text: {
+            content: `**处理结果**\nby @${input.operator} at ${formatHourMinute(input.resolvedAt)}`,
+            tag: 'lark_md',
+          },
+        },
+      ],
+      tag: 'div',
+    },
+  ],
+})
+
+export const parseApprovalCardAction = (value: unknown): ParsedApprovalCardAction | null => {
+  if (!value || typeof value !== 'object') return null
+  const payload = value as { approval_id?: unknown; decision?: unknown }
+  const { approval_id: approvalId, decision } = payload
+  if (typeof approvalId !== 'string') return null
+  if (decision !== 'allow' && decision !== 'deny') return null
+  return { approvalId, decision }
+}
+
+export const getCardActionOperator = (event: FeishuCardActionTriggerEvent) =>
+  event.operator?.user_id ?? event.operator?.open_id ?? event.operator?.union_id ?? null
+
+const formatHourMinute = (timeMs: number) =>
+  new Date(timeMs).toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
