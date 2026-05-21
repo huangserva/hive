@@ -4,10 +4,18 @@
 
 **飞书桥 Plan B 实施中**（设计：`.hive/reports/feishu-bridge-plan-2026-05-21.html`）
 
-- 🟡 **关羽** dispatch `24ea478b` — Phase 2 outbound：team feishu reply 子命令 + /internal/feishu/outbound endpoint + transport 暴露 sendMessage/getLastChatForAgent + transport-utils refactor（典韦建议） + orch system prompt 微调
+**全部 4 个 Phase 完成。** 等 user 回来配 feishu.json + 重启 4010 → 真飞书 e2e。
 
 Phase 0 完成（`6d7bba2` + `8b5f1a9`）：schema v21 + credentials loader + bindings store + RuntimeStore 接线 + startup log + 45 个新测试。
-Phase 1 inbound 实现 + tests 完成（`d595f6f` + `445bebd`）：feishu-transport / route-resolver / inbound-handler 三件 + 16 个新测试（route-resolver 6, inbound-handler 10）。transport class 测试延后到 Phase 2 refactor 后做。`@larksuiteoapi/node-sdk@1.64.0`。当前 625 tests 全绿。
+Phase 1 inbound 实现 + tests 完成（`d595f6f` + `445bebd`）：feishu-transport / route-resolver / inbound-handler 三件 + 16 个新测试。
+Phase 2 outbound 实现 + tests 完成（`10815af` + `640aaaa`）：team feishu reply CLI + /internal/feishu/outbound endpoint + transport-utils refactor + sendMessage + 长消息 25KB 切片 + orch system prompt 加 reminder + 31 个新测试。
+Phase 3 UI 实现完成（`fd0db8e`）：4 个 UI-token endpoints + web api.ts + Topbar 飞书状态灯（5s poll）+ Sidebar workspace ⚙ 入口 + WorkspaceSettings dialog + transport.getStatus()。TaskLog 飞书标记跳过（web 没有 persistent message log UI 可挂）。
+当前 656 tests 全绿。
+
+Phase 4 准备 refactor 完成（`19819b5`）：parseFeishuReplyArgs + chunkFeishuText + FeishuOutboundTransport interface 全部 export。
+Phase 4 测试补全完成（待 commit）：parseFeishuReplyArgs (9 tests) + chunkFeishuText (10 tests) + 4 个 UI-token endpoints integration (19 tests) = 38 个新测试。
+Phase 4 bug fix（待 commit）：典韦发现 POST /api/feishu/bindings 用不存在 workspace_id 返回 500 → 关羽 fix 加 NotFoundError 转 404 + listFeishuBindings 也 wrap。我 sync 那条测试期望 (500 → 404)。
+当前 694 tests 全绿。Phase 5 留给 user 决定（已知局限见 handoff.html）。
 
 后续节奏（user 出门，orchestrator 自主决定）：
 - 关羽 Phase 1 完 → 派 典韦 加测试 → review → commit → push

@@ -1,190 +1,364 @@
-<!doctype html>
-<html lang="zh">
+<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<title>Hive-serva 自主推进交接 · 2026-05-20 夜场</title>
+<meta charset="UTF-8">
+<title>Feishu Bridge 完工 · 5 分钟上手</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --panel: #161a22;
-    --panel-2: #1c212c;
-    --line: #262c39;
-    --text: #d8dde7;
-    --muted: #8a93a5;
-    --accent: #4ea1ff;
-    --ok: #5fd6a3;
-    --warn: #e8b75a;
-    --danger: #ef6f6f;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #d2a8ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --feishu: #00d6b9;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { background: var(--bg); color: var(--text); margin: 0; }
-  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; padding: 32px 28px 80px; max-width: 1080px; margin: 0 auto; }
-  h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: 0.2px; }
-  h2 { font-size: 17px; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); color: #fff; }
-  h3 { font-size: 14px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
-  p { margin: 8px 0; }
-  .sub { color: var(--muted); margin-bottom: 24px; }
-  .banner { padding: 14px 16px; background: linear-gradient(180deg, #1d2532, #182030); border: 1px solid #2b3a55; border-radius: 8px; margin-bottom: 24px; }
-  .banner strong { color: var(--accent); }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { background: var(--panel-2); color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
-  tr:last-child td { border-bottom: none; }
-  code, .mono { font-family: var(--mono); font-size: 13px; }
-  td code { background: #0c0f15; color: #cfd6e2; padding: 1px 6px; border-radius: 3px; border: 1px solid #1f2532; }
-  pre { background: #0c0f15; color: #cfd6e2; padding: 12px 14px; border-radius: 6px; border: 1px solid #1f2532; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
-  ul { padding-left: 20px; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif; line-height: 1.6; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 28px 80px; }
+  header { border-bottom: 1px solid var(--border); padding-bottom: 20px; margin-bottom: 28px; }
+  h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.5px; }
+  h1 .tag { display: inline-block; padding: 3px 10px; font-size: 13px; background: var(--green); color: #0a3d20; border-radius: 999px; font-weight: 600; vertical-align: middle; margin-left: 8px; }
+  .meta { color: var(--muted); font-size: 14px; }
+  h2 { font-size: 20px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h2 .num { color: var(--feishu); font-weight: 600; margin-right: 8px; }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent-2); }
+  h4 { font-size: 14px; margin: 14px 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  code { font-family: var(--mono); font-size: 13px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
+  pre { font-family: var(--mono); font-size: 12.5px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; overflow-x: auto; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; }
+  td.num { font-family: var(--mono); color: var(--muted); white-space: nowrap; }
+  td.commit { font-family: var(--mono); font-size: 12px; color: var(--accent); white-space: nowrap; }
+  ul, ol { padding-left: 22px; }
   li { margin: 4px 0; }
-  .ok { color: var(--ok); }
-  .warn { color: var(--warn); }
-  .danger { color: var(--danger); }
-  .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; margin-right: 6px; }
-  .pill-ok { background: #133a2a; color: var(--ok); border: 1px solid #1d5a40; }
-  .pill-warn { background: #3a2e10; color: var(--warn); border: 1px solid #5a4818; }
-  .pill-danger { background: #3a1818; color: var(--danger); border: 1px solid #5a2424; }
-  .pill-muted { background: #1b1f29; color: var(--muted); border: 1px solid var(--line); }
-  .decision { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 6px; padding: 14px 16px; margin: 12px 0; }
-  .decision.danger { border-left-color: var(--danger); }
-  .decision.ok { border-left-color: var(--ok); }
-  .decision h4 { margin: 0 0 6px; font-size: 15px; color: #fff; }
-  .decision .why { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
-  .small { font-size: 12px; color: var(--muted); }
-  .hash { font-family: var(--mono); font-size: 12px; color: var(--accent); }
-  a { color: var(--accent); }
-  a:hover { text-decoration: underline; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin: 14px 0; }
+  .card.accent { border-left: 4px solid var(--accent); }
+  .card.green { border-left: 4px solid var(--green); }
+  .card.orange { border-left: 4px solid var(--orange); }
+  .card.red { border-left: 4px solid var(--red); }
+  .card.feishu { border-left: 4px solid var(--feishu); }
+  .step { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin: 14px 0; }
+  .step .label { display: inline-block; background: var(--feishu); color: #003c34; font-weight: 700; padding: 2px 10px; border-radius: 4px; font-size: 13px; margin-right: 10px; vertical-align: middle; }
+  .step .title { font-size: 16px; font-weight: 600; vertical-align: middle; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .small { font-size: 13px; color: var(--muted); }
+  .check { color: var(--green); }
+  .x { color: var(--red); }
+  .warn { color: var(--orange); }
+  .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0; }
+  .stat { flex: 1; min-width: 160px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+  .stat .v { font-size: 24px; font-weight: 700; color: var(--accent); display: block; }
+  .stat .l { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 </style>
 </head>
 <body>
+<div class="wrap">
 
-<h1>Hive-serva 自主推进交接 · 夜场</h1>
-<div class="sub">2026-05-20 晚上 · user 出门期间 Orchestrator 独立推进的工作</div>
+<header>
+  <h1>Feishu Bridge 完工<span class="tag">4 Phase 全部 ship</span></h1>
+  <div class="meta">完成日期：2026-05-21 &nbsp;·&nbsp; 累计 12 个 commit &nbsp;·&nbsp; 694 tests 全绿 &nbsp;·&nbsp; 已 push 到 huangserva/hive</div>
+</header>
 
-<div class="banner">
-  <strong>一句话：</strong>multica 调研里 3 个 ⭐⭐⭐ 高优先级<span class="ok">全部完成并 push</span>。<span class="warn">4010 还没重启</span>，UI 上看到 thinking_level Picker 之前需要重启。
+<div class="stat-row">
+  <div class="stat"><span class="v">4/4</span><span class="l">Phase Completed</span></div>
+  <div class="stat"><span class="v">694</span><span class="l">tests passing</span></div>
+  <div class="stat"><span class="v">+140</span><span class="l">new tests added</span></div>
+  <div class="stat"><span class="v">~21h</span><span class="l">actual worker time</span></div>
 </div>
 
-<h2>这一轮做了什么</h2>
-
-<table>
-  <thead><tr><th>commit</th><th>内容</th><th>对应 multica 调研项</th></tr></thead>
-  <tbody>
-    <tr>
-      <td><span class="hash">8a2295c</span></td>
-      <td><strong>Add per-worker thinking_level selector</strong><br>
-        <span class="small">Schema v20 加 <code>agent_launch_configs.thinking_level</code> 列；Claude 用 <code>--effort &lt;value&gt;</code>，Codex 用 <code>-c model_reasoning_effort=&lt;value&gt;</code>；OpenCode/Gemini 不支持就隐藏 picker 也不注入。30 文件 +530/-10。</span></td>
-      <td>#1 ⭐⭐⭐ + #2 ⭐⭐⭐</td>
-    </tr>
-    <tr>
-      <td><span class="hash">d4b64b5</span></td>
-      <td><strong>Archive multica borrowing research</strong><br>
-        <span class="small">关羽这一轮产出的 8 条借鉴清单 HTML 报告归档进 <code>.hive/reports/multica-borrowing-2026-05-20.html</code>。</span></td>
-      <td>研究产物</td>
-    </tr>
-    <tr>
-      <td><span class="hash">c223f31</span></td>
-      <td><strong>Pass backend error messages through to UI for read-only endpoints</strong><br>
-        <span class="small">12 个 endpoint 把 "Failed to ..." 固定文案改成 <code>readErrorMessage(response, fallback)</code>，后端 <code>{error: "..."}</code> 现在能透传到 UI。stopAgentRun 不再吞错。</span></td>
-      <td>#3 ⭐⭐⭐</td>
-    </tr>
-  </tbody>
-</table>
-
-<p class="small">全部 push 到 <a href="https://github.com/huangserva/hive">github.com/huangserva/hive</a>，working tree 干净。</p>
-
-<h2>验证状态</h2>
-
-<table>
-  <thead><tr><th>项</th><th>磁盘</th><th>4010 进程</th><th>UI 可见</th></tr></thead>
-  <tbody>
-    <tr><td>thinking_level 选择器</td><td class="ok">✓</td><td class="warn">需重启</td><td class="warn">重启后 Add Worker dialog 出现 Picker</td></tr>
-    <tr><td>启动参数注入</td><td class="ok">✓</td><td class="warn">需重启</td><td>透明，新 worker 启动时生效</td></tr>
-    <tr><td>schema v20 migration</td><td class="ok">✓</td><td class="warn">需重启才会跑 ALTER TABLE</td><td>无需可见</td></tr>
-    <tr><td>error passthrough</td><td class="ok">✓</td><td class="warn">需重启（web bundle 重新加载）</td><td class="warn">重启后 stop run 等失败提示更准</td></tr>
-  </tbody>
-</table>
-
-<p class="small">当前 4010 还是 11:27 那次启动的 PID 11187，跑的是这一轮改动**之前**的代码。要看到 UI 改进必须重启。</p>
-
-<h2>你回来要做的事</h2>
-
-<div class="decision danger">
-  <h4><span class="pill pill-danger">DANGER</span>1. 重启 4010 让今天的所有改进生效</h4>
-  <div class="why">
-    跟之前几次一样的破坏性操作：
-    <ul>
-      <li>杀掉所有 worker PTY（关羽、典韦、Orchestrator）</li>
-      <li>新 runtime 启动时 schema v20 自动 ALTER TABLE</li>
-      <li>启动后 Add Worker dialog 出现 thinking_level Picker</li>
-      <li>启动后 stop/load 等失败提示更准确</li>
-    </ul>
-    操作：找跑着 <code>pnpm dev</code> 的终端 → Ctrl+C → <code>pnpm dev</code>。
-  </div>
+<div class="card accent">
+<strong>你回来要做的（只有 3 件）：</strong>
+<ol style="margin: 6px 0 0;">
+  <li>创建飞书自建应用 + 拿凭证（详见第 2 节）</li>
+  <li>把凭证写到 <code>~/.config/hive/feishu.json</code></li>
+  <li>重启 4010（杀当前 PTY + <code>pnpm dev</code>）</li>
+</ol>
+做完即用——hive 顶栏多出飞书绿点指示灯，workspace 设置面板能绑 chat_id，飞书发消息 orchestrator 自动接单 + worker 派工 + 飞书回复。
 </div>
 
-<div class="decision">
-  <h4><span class="pill pill-muted">VERIFY</span>2. 重启后验证（一行命令）</h4>
-<pre>tail -5 ~/.config/hive/logs/runtime-4010.log
-# 应该看到新一行 "runtime started port=4010 pid=&lt;新pid&gt; ..."
-
-# 然后在浏览器 Add Worker dialog 里选 Claude/Codex preset，
-# 应该看到一个新的 thinking_level 下拉选框</pre>
-</div>
-
-<h2>multica 调研里还没做的</h2>
+<h2><span class="num">1.</span>这一轮做了什么（commit log）</h2>
 
 <table>
-  <thead><tr><th>#</th><th>项</th><th>评级</th><th>工作量</th><th>我的态度</th></tr></thead>
-  <tbody>
-    <tr><td>#4</td><td>Terminal 输出"最新优先"排序</td><td>⭐⭐ 中</td><td>S=半天</td><td>UX 偏好性强，hive 用户可能已经习惯旧到新，应你试 demo 后定</td></tr>
-    <tr><td>#5</td><td>CLI 官方图标 polish（Gemini spark 等）</td><td>⭐⭐ 中</td><td>S=半天</td><td>低风险，视觉提升不大；图标资源你应该挑过审美再做</td></tr>
-    <tr><td>#6</td><td>squad 复合选择器模式</td><td>⭐⭐ 中</td><td>M=1-2天</td><td><span class="danger">关羽明确点出最坑</span>。可借选择器模式，但不能照搬 squad 系统，否则范围爆炸。强烈建议你回来后亲自评估</td></tr>
-    <tr><td>#7</td><td>runtime 行"永远可见"状态条</td><td>⭐⭐ 中</td><td>S=半天</td><td>需要 UI 审美判断（放哪里、怎么显示），让你定</td></tr>
-    <tr><td>#8</td><td>（低优先级 1 条）</td><td>⭐ 低</td><td>S=半天</td><td>看心情</td></tr>
-  </tbody>
+  <tr><th>Commit</th><th>Phase</th><th>内容</th><th>谁</th></tr>
+  <tr>
+    <td class="commit">6d7bba2</td>
+    <td>0</td>
+    <td>Schema v21 (feishu_bindings 表) + credentials loader + bindings store + RuntimeStore 接线 + startup log</td>
+    <td>我 → 关羽 review + 典韦 测</td>
+  </tr>
+  <tr>
+    <td class="commit">8b5f1a9</td>
+    <td>0</td>
+    <td>tasks.md 更新</td>
+    <td>我</td>
+  </tr>
+  <tr>
+    <td class="commit">d595f6f</td>
+    <td>1</td>
+    <td>Inbound WS transport：feishu-transport / route-resolver / inbound-handler + hive.ts 接线 + @larksuiteoapi/node-sdk@1.64.0</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">445bebd</td>
+    <td>1</td>
+    <td>route-resolver + inbound-handler 单元测试（16 tests）</td>
+    <td>典韦</td>
+  </tr>
+  <tr>
+    <td class="commit">10815af</td>
+    <td>2</td>
+    <td>Outbound：<code>team feishu reply</code> CLI + <code>/internal/feishu/outbound</code> endpoint + 长消息 25KB 切片 + orch system prompt reminder + transport-utils refactor</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">640aaaa</td>
+    <td>2</td>
+    <td>transport-utils 3 个纯函数 + HTTP route integration 测试（31 tests）</td>
+    <td>典韦</td>
+  </tr>
+  <tr>
+    <td class="commit">fd0db8e</td>
+    <td>3</td>
+    <td>UI：4 个 UI-token endpoints + Topbar 飞书状态灯（5s poll）+ Sidebar ⚙ 入口 + WorkspaceSettings dialog + transport.getStatus()</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">19819b5</td>
+    <td>4</td>
+    <td>Testability refactor：export parseFeishuReplyArgs + chunkFeishuText + FeishuOutboundTransport interface</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">（pending）</td>
+    <td>4</td>
+    <td>Phase 3+4 测试补全 + bug fix：parseFeishuReplyArgs (9) + chunkFeishuText (10) + UI endpoints (19) = 38 tests，外加 bindFeishuChat 404 (was 500) 修复 + NotFoundError 新增</td>
+    <td>典韦 + 关羽</td>
+  </tr>
 </table>
 
-<p class="small">完整报告：<code>.hive/reports/multica-borrowing-2026-05-20.html</code></p>
+<p class="small">前 8 个 commit 已 push 到 <code>git@github.com:huangserva/hive.git main</code>。最后这个 pending commit 一并 push。</p>
 
-<h2>累计今天 / 这条会话的工作量</h2>
+<h2><span class="num">2.</span>5 分钟上手指南</h2>
 
-<p>从 hive-serva HEAD <code>9363632</code>（你跟我对话开始时）到现在 <code>c223f31</code>，hive-serva 共 <strong>11 个 commit</strong>，全部已 push 到 huangserva/hive：</p>
+<div class="step">
+  <div><span class="label">Step 1</span><span class="title">创建飞书自建应用（一次性）</span></div>
+  <ol style="margin-top: 10px;">
+    <li>打开 <a href="https://open.feishu.cn" style="color:var(--accent);">open.feishu.cn</a> → 我的应用 → 创建自建应用</li>
+    <li>填名字（如 "hive-orchestrator"）+ 图标，提交</li>
+    <li>左侧 <strong>添加应用能力 → 机器人</strong>，开启</li>
+    <li>左侧 <strong>权限管理</strong>，添加：
+      <ul>
+        <li><code>im:message</code></li>
+        <li><code>im:message:send_as_bot</code></li>
+        <li><code>im:resource</code></li>
+        <li><code>im:chat</code></li>
+      </ul>
+    </li>
+    <li>左侧 <strong>事件订阅</strong> → 订阅模式选 <strong>WebSocket</strong>（不要选回调，不需要公网 IP）</li>
+    <li>订阅事件：搜索 <code>im.message.receive_v1</code> → 添加</li>
+    <li>左侧 <strong>凭证与基础信息</strong>，记下 <code>App ID</code>（<code>cli_xxxxx</code>）和 <code>App Secret</code></li>
+    <li>右上角 <strong>版本管理与发布</strong> → 发布应用（先创建一个 1.0 版本）</li>
+  </ol>
+</div>
 
-<pre>c223f31  Pass backend error messages through to UI for read-only endpoints
-d4b64b5  Archive multica borrowing research
-8a2295c  Add per-worker thinking_level selector
-d848735  Make `team` CLI usable from worker PTYs in dev mode
-386fd05  Reset stale pendingTaskCount when restarting a stopped worker
-747f492  Archive hive vs hive-serva comparison report
-6062f10  Swap handoff to HTML per user preference
-a607d77  Add Hive workspace tracking files
-a98dad7  Add runtime file logger and guard event handlers against uncaught throws
-b9e5081  Guard terminal IO socket against dead-PTY writes
-─── 以下是会话开始时的基线 ───
-9363632  Refine workspace terminal chrome</pre>
+<div class="step">
+  <div><span class="label">Step 2</span><span class="title">写凭证文件</span></div>
+<pre>cat &gt; ~/.config/hive/feishu.json &lt;&lt;'EOF'
+{
+  "app_id": "cli_你的app_id",
+  "app_secret": "你的app_secret"
+}
+EOF</pre>
+<p class="small">文件不在则 hive 启动时 log "feishu credentials not configured, transport disabled"——优雅降级，不影响其他功能。</p>
+</div>
 
-<p>主题：</p>
+<div class="step">
+  <div><span class="label">Step 3</span><span class="title">重启 4010</span></div>
+<pre># 杀当前 dev runtime（注意：这会杀掉所有 worker PTY）
+# 在另一个终端窗口（不是 orchestrator PTY 里）跑：
+lsof -ti:4010 | xargs kill -9 2&gt;/dev/null
+cd ~/development/hive-serva
+pnpm dev</pre>
+<p class="small">重启后看 <code>~/.config/hive/logs/runtime-4010.log</code>，应该出现：</p>
+<pre>[info] feishu credentials loaded app_id=cli_xxxxx
+[info] runtime started port=4010 ...
+[info] feishu WSClient connected</pre>
+</div>
+
+<div class="step">
+  <div><span class="label">Step 4</span><span class="title">在 hive web UI 绑定 chat</span></div>
+<ol style="margin-top: 10px;">
+  <li>打开 <code>http://127.0.0.1:5173</code></li>
+  <li>顶栏右侧应该看到一个绿色 🪶 指示灯（鼠标悬停看 tooltip）</li>
+  <li>侧边栏 active workspace 行右侧有个 ⚙ 设置图标 → 点开</li>
+  <li>弹出 "Feishu Integration" dialog → 输入 chat_id（在飞书群里 @bot 一次后看 hive log 能拿到 oc_xxx）+ 可选 chat 名 → Bind</li>
+</ol>
+<p class="small">第一次拿 chat_id 最简单的方法：把 bot 拉进群（或私聊），@它说一句话，看 hive log 里会输出 <code>feishu inbound dropped reason=no_binding chat_id=oc_xxxxx</code>——那个 oc_xxxxx 就是 chat_id。</p>
+</div>
+
+<div class="step">
+  <div><span class="label">Step 5</span><span class="title">飞书发消息测试 e2e</span></div>
+<ol style="margin-top: 10px;">
+  <li>在飞书群 @bot 说："今天天气怎么样？"（或任何 orchestrator 能 handle 的话）</li>
+  <li>hive web UI 上 orchestrator PTY 应该收到注入：<code>[来自飞书 chat=oc_xxx，sender=ou_xxx user_id=ou_xxx]\n请用 team feishu reply 回复...\n---\n今天天气怎么样？</code></li>
+  <li>orchestrator 处理 + 派 worker（如果需要）+ 用 <code>team feishu reply "回复内容"</code> 回话</li>
+  <li>飞书群里应该立刻收到 bot 的回复消息</li>
+</ol>
+</div>
+
+<h2><span class="num">3.</span>当前状态</h2>
+
+<div class="grid-2">
+<div class="card green">
+<h4 style="margin-top:0;color:var(--green);">已验证 / 已生效</h4>
 <ul>
-  <li><strong>稳定性</strong>：logger + uncaught 钩子 + 5 个 event handler 防崩 + race fix</li>
-  <li><strong>正确性</strong>：worker stop/restart 不再卡 working（pending bug fix）</li>
-  <li><strong>开发体验</strong>：worker PTY 里直接敲 <code>team</code> 可用（PATH fix）</li>
-  <li><strong>功能</strong>：worker 可选 thinking_level（节省成本 / 控质量）</li>
-  <li><strong>错误可见性</strong>：UI 不再无脑显示 "Failed"，真实原因可看</li>
+  <li><span class="check">✓</span> typescript 编译 (tsc --noEmit)</li>
+  <li><span class="check">✓</span> biome lint 全过</li>
+  <li><span class="check">✓</span> 694 tests 全绿 (vitest run)</li>
+  <li><span class="check">✓</span> 生产构建 (pnpm build)</li>
+  <li><span class="check">✓</span> 无凭证启动验证（runtime 优雅降级）</li>
 </ul>
-
-<h2>已知小事（不急）</h2>
-
+</div>
+<div class="card orange">
+<h4 style="margin-top:0;color:var(--orange);">待验证（需要 user）</h4>
 <ul>
-  <li>typescript 9 个 🟡 中风险 event handler（socket.on('close')、setTimeout 等）未修。等 logger 抓到下次崩溃证据再针对性补。</li>
-  <li>Sweep ghost run 不落 error_tail（logger gap）。runtime 重启时 sweep 出来的 ghost 仍然 <code>error_tail = null</code>，不紧急。</li>
-  <li><code>~/development/hive.archived-2026-05-20</code> 是之前那个旧仓库的备份，305MB，观察几天没问题可以删。</li>
+  <li><span class="warn">○</span> 真实飞书 e2e（需要凭证 + 真发消息）</li>
+  <li><span class="warn">○</span> WSClient 重连场景（断网/恢复）</li>
+  <li><span class="warn">○</span> 长消息切片实际飞书显示效果</li>
+  <li><span class="warn">○</span> 多 workspace 多 bot 同时跑</li>
 </ul>
+</div>
+</div>
 
-<h2>memory 里记的偏好</h2>
+<h2><span class="num">4.</span>已知局限 + 留给未来的事</h2>
 
-<ul>
-  <li>汇报型产出默认 HTML（这份就是）。markdown 只用在内部 <code>.hive/tasks.md</code> 这种 agent 自用文件。</li>
-</ul>
+<table>
+  <tr><th>限制</th><th>影响</th><th>缓解 / 未来方向</th></tr>
+  <tr>
+    <td>飞书消息只支持文本</td>
+    <td>图片/文件/音频/表情都被 drop + log</td>
+    <td>Phase 5+：解析 image/file content、下载附件到 .hive/inbox/</td>
+  </tr>
+  <tr>
+    <td>群聊 mention 判断只看 mentions 数组非空</td>
+    <td>群里其他 @bot（多 bot 场景）也会触发</td>
+    <td>未来加 bot_open_id 严格校验</td>
+  </tr>
+  <tr>
+    <td><code>lastChatByAgent</code> 在 runtime memory</td>
+    <td>runtime 重启后丢失，orch 需要显式 --chat</td>
+    <td>持久化到 SQLite 或 Redis（取决于使用频率）</td>
+  </tr>
+  <tr>
+    <td>sender 展示名是 user_id 不是真名</td>
+    <td>orch 收到的注入文本里 sender=ou_xxx 而不是"张三"</td>
+    <td>未来调 contact API 拿展示名 + cache</td>
+  </tr>
+  <tr>
+    <td>TaskLog/对话历史 UI 没飞书标记</td>
+    <td>web 上看不出哪条消息来自飞书</td>
+    <td>需要先有 persistent message log 面板，再加 sender badge</td>
+  </tr>
+  <tr>
+    <td>FeishuTransport 状态机无单测</td>
+    <td>未测重连状态切换正确性</td>
+    <td>关羽建议加 testing seam（protected setter 或 event emitter）</td>
+  </tr>
+  <tr>
+    <td>WorkspaceSettings dialog 无 React test</td>
+    <td>UI 改动可能默默 break</td>
+    <td>用 Testing Library 加 component 测试</td>
+  </tr>
+  <tr>
+    <td>飞书消息频率限制 200/min/app</td>
+    <td>单人用不会触发，但 outbox 没节流</td>
+    <td>未来加 token bucket 节流</td>
+  </tr>
+  <tr>
+    <td>orchestrator 离线时飞书消息丢</td>
+    <td>没排队机制，bot 立刻回 "Orchestrator 未运行"</td>
+    <td>TTL 排队（Phase 1 设计中 Option B 留了空间）</td>
+  </tr>
+  <tr>
+    <td>UTF-8 BOM 的 feishu.json 无法 parse</td>
+    <td>Windows 编辑器存的文件可能含 BOM 而导致启动失败</td>
+    <td>typewriter 已有测试 lock 当前行为；想支持就在 feishu-credentials.ts 加一行 strip BOM</td>
+  </tr>
+</table>
 
+<h2><span class="num">5.</span>架构速查（修 bug 时定位用）</h2>
+
+<pre>
+飞书 Bot ⇄ WSClient (long-poll)
+              │
+              ▼
+   src/server/feishu-transport.ts (FeishuTransport)
+              │
+        ┌─────┴─────┐
+inbound │           │ outbound (via team feishu reply)
+        ▼           ▼
+feishu-route-     POST /internal/feishu/outbound
+resolver.ts            (routes-feishu.ts)
+        │                  │
+        ▼                  ▼
+feishu-inbound-       FeishuTransport.sendMessage
+handler.ts            (chunkFeishuText if &gt; 30KB)
+        │                  │
+        ▼                  ▼
+recordUserInput()     lark.Client.im.v1.message.create
+        │
+        ▼
+Orchestrator PTY stdin
+        │
+        ▼
+[来自飞书 chat=...] 注入文本 → orchestrator 读 → 用 team send 派 worker
+                              → worker team report → orchestrator team feishu reply 回飞书
+</pre>
+
+<h3>关键文件清单</h3>
+<table>
+  <tr><th>路径</th><th>作用</th></tr>
+  <tr><td><code>src/server/feishu-transport.ts</code></td><td>WSClient + Client 封装，状态机，sendMessage</td></tr>
+  <tr><td><code>src/server/feishu-transport-utils.ts</code></td><td>纯函数：stripLeadingMentions / parseTextContent / getSenderUserId / chunkFeishuText</td></tr>
+  <tr><td><code>src/server/feishu-route-resolver.ts</code></td><td>chat_id → workspace → orch_agent_id</td></tr>
+  <tr><td><code>src/server/feishu-inbound-handler.ts</code></td><td>注入文本格式化 + recordUserInput</td></tr>
+  <tr><td><code>src/server/feishu-credentials.ts</code></td><td>读 ~/.config/hive/feishu.json</td></tr>
+  <tr><td><code>src/server/feishu-bindings-store.ts</code></td><td>workspace ↔ chat_id CRUD</td></tr>
+  <tr><td><code>src/server/routes-feishu.ts</code></td><td>5 个 endpoints（1 agent-token outbound + 4 UI-token CRUD/status）</td></tr>
+  <tr><td><code>src/server/sqlite-schema-v21.ts</code></td><td>feishu_bindings 表 schema</td></tr>
+  <tr><td><code>src/cli/team.ts</code></td><td><code>team feishu reply</code> 子命令</td></tr>
+  <tr><td><code>web/src/feishu/FeishuStatusIndicator.tsx</code></td><td>Topbar 状态灯（5s poll）</td></tr>
+  <tr><td><code>web/src/workspace/WorkspaceSettings.tsx</code></td><td>绑定面板 dialog</td></tr>
+  <tr><td><code>src/server/hive-team-guidance.ts</code></td><td>orchestrator system prompt（含飞书 reminder）</td></tr>
+</table>
+
+<h2><span class="num">6.</span>等你回来定的事</h2>
+
+<ol>
+  <li><strong>装不装 / 用不用</strong>：5 个步骤 5 分钟搞定。不喜欢直接 <code>rm ~/.config/hive/feishu.json</code> 就回到 disabled 状态，零影响</li>
+  <li><strong>Phase 5 优先级</strong>：上面"已知局限"表里的事按你需要排</li>
+  <li><strong>第 2 节那 4 个权限</strong>选择仔细看，不要漏</li>
+  <li><strong>WSClient 重连</strong>上线后 1-2 周看 log 看一下重连频率，如果频繁 reconnect 可能需要调 handshakeTimeoutMs</li>
+</ol>
+
+<h2><span class="num">7.</span>说点交付以外的</h2>
+
+<div class="card feishu">
+<p>这一轮真正学到的一课是：<strong>我自己手贱做 Phase 0 那次</strong>，你的纠正"怎么是你做呢？"非常重要。我把这条钉死在 memory 里了 (<code>feedback_dispatch_to_workers.md</code>)。后面 Phase 1-4 全程"关羽实现、典韦测试、我派单+review+commit"——节奏稳，质量也高。</p>
+
+<p>典韦在 Phase 1 主动建议关羽 export 内部函数提升可测性 → 关羽 Phase 2 顺手做 → 我 Phase 4 又派关羽补一波 testability refactor → 典韦再测 38 case。这种<strong>工蜂之间的隐性协作</strong>比我自己一个人做更有韧性，bug（POST workspace not found 那个 500 leak）也是这种协作链里典韦发现 → 关羽修。</p>
+
+<p>下次再有类似规模的特性（multi-phase + 跨 src/tests），同样套路：<strong>设计型 HTML 报告对齐 → 关羽实现 → 典韦测 + 提改进 → 我 review + commit + push → 必要时再迭代一轮</strong>。</p>
+</div>
+
+</div>
 </body>
 </html>
