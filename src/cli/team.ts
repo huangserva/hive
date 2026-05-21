@@ -21,6 +21,8 @@ const TEAM_USAGE = [
   'Usage:',
   '  team list',
   '  team send <worker-name> "<task>"',
+  '  team feishu reply "<text>"',
+  '  team feishu reply --chat <chat_id> "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team report --stdin [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team status "<current status>" [--artifact <path>]',
@@ -116,6 +118,7 @@ interface TeamReportResponse {
 const REPORT_USAGE =
   'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>]'
 const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifact <path>]'
+const FEISHU_REPLY_USAGE = 'Usage: team feishu reply [--chat <chat_id>] <text>'
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
 
@@ -126,6 +129,44 @@ export interface ParsedReportArgs {
   dispatchId: string | undefined
   result: string | null
   useStdin: boolean
+}
+
+interface ParsedFeishuReplyArgs {
+  chatId: string | undefined
+  text: string
+}
+
+const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
+  const positionals: string[] = []
+  let chatId: string | undefined
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+
+    if (arg === '--chat') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--chat requires a value\n\n${FEISHU_REPLY_USAGE}`)
+      }
+      chatId = next
+      index += 1
+      continue
+    }
+
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${FEISHU_REPLY_USAGE}`)
+    }
+
+    positionals.push(arg)
+  }
+
+  const text = positionals.join(' ').trim()
+  if (!text) {
+    throw new Error(`Missing <text>\n\n${FEISHU_REPLY_USAGE}`)
+  }
+
+  return { chatId, text }
 }
 
 export const parseReportArgs = (args: string[], command = 'report'): ParsedReportArgs => {
@@ -274,6 +315,34 @@ export const runTeamCommand = async (argv: string[]) => {
       text: task,
     })
     console.log(JSON.stringify(await response.json()))
+    return
+  }
+
+  if (command === 'feishu') {
+    const [subcommand, ...subcommandArgs] = args
+    if (subcommand !== 'reply') {
+      throw new Error(FEISHU_REPLY_USAGE)
+    }
+
+    const reply = parseFeishuReplyArgs(subcommandArgs)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await fetchRuntime(baseUrl, '/internal/feishu/outbound', {
+      body: JSON.stringify({
+        ...(reply.chatId ? { chatId: reply.chatId } : {}),
+        text: reply.text,
+      }),
+      headers: {
+        authorization: `Bearer ${env.HIVE_AGENT_TOKEN}`,
+        'content-type': 'application/json',
+        'x-hive-agent-id': env.HIVE_AGENT_ID,
+      },
+      method: 'POST',
+    })
+
+    if (!response.ok) {
+      await throwHttpError(response)
+    }
     return
   }
 

@@ -18,6 +18,7 @@ import type { AgentSummary } from '../shared/types.js'
 export const ORCHESTRATOR_REMINDER_TAIL =
   '<hive-system-reminder>\n' +
   'You are the Hive Orchestrator. Reply by either: (a) `team send "<worker-name>" "<task>"` to dispatch follow-up work to a Hive worker, or (b) plain text to the user. Never call your CLI\'s built-in subagent tools (Task / Explore / etc.) — they bypass Hive and will not appear in the UI.\n' +
+  'When a user message starts with `[来自飞书 chat=...]`, it came from Feishu. You must reply with `team feishu reply "<text>"`; otherwise the Feishu user will not see your response. For the most recent Feishu message, omit `--chat`; otherwise use `--chat <chat_id>` explicitly. Worker dispatch still uses `team send` as usual.\n' +
   '</hive-system-reminder>'
 
 /**
@@ -39,6 +40,7 @@ const ORCHESTRATOR_RULES = [
   '当 user 要你“让 worker ...”时，必须用 `team send <worker-name> "<task>"` 派给 Hive worker。',
   '不要使用你所在 CLI 的内置 subagent / 子代理工具（如 Task / Explore 等）来代替 Hive worker；它们不会出现在 Hive UI，也不会更新 Hive 调度状态。',
   '`team list` 返回的 `last_pty_line` 是该 worker PTY 终端的最后一行原始输出（含任意 stdout / help / 控制序列噪声），**不是** worker 的正式汇报。正式汇报只来自 stdin 注入的 `[Hive 系统消息：来自 @<name> 的汇报]` 或 `[Hive 系统消息：来自 @<name> 的状态更新]`——只把这两种来源当作 reply。',
+  '当 user 消息以 `[来自飞书 chat=...]` 开头时，说明这是从飞书远程过来的。回复必须用 `team feishu reply "<text>"`，否则飞书 user 看不到你的回应。如果是回复最近一条飞书消息，`--chat` 可省略；否则用 `--chat <chat_id>` 显式指定。worker 派单照常用 `team send`，不变。',
 ]
 
 const WORKER_RULES = [

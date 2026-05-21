@@ -136,12 +136,21 @@ export const runHiveCommand = async (
   }
   const versionService = options.versionService ?? createVersionService()
   const version = readPackageVersion()
+  const store = createRuntimeStore({
+    agentManager: createAgentManager(),
+    dataDir,
+    logger,
+  })
+  const feishuTransport = feishuCredentials
+    ? new FeishuTransport({
+        credentials: feishuCredentials,
+        logger,
+        store,
+      })
+    : null
   const app = createApp({
-    store: createRuntimeStore({
-      agentManager: createAgentManager(),
-      dataDir,
-      logger,
-    }),
+    feishuTransport,
+    store,
     logger,
     versionService,
   })
@@ -159,18 +168,11 @@ export const runHiveCommand = async (
     throw new Error('Server did not bind to an inet port')
   }
 
-  let feishuTransport: FeishuTransport | null = null
   if (feishuCredentials) {
-    feishuTransport = new FeishuTransport({
-      credentials: feishuCredentials,
-      logger,
-      store: app.store,
-    })
     try {
-      await feishuTransport.start()
+      await feishuTransport?.start()
     } catch (error) {
-      logger.error('feishu transport failed to start, transport disabled', error)
-      feishuTransport = null
+      logger.error('feishu transport failed to start, inbound disabled', error)
     }
   }
 

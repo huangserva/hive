@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
 import type { WorkerRole } from '../shared/types.js'
+import type { FeishuTransport } from './feishu-transport.js'
 import type { PickFolderResponse } from './fs-pick-folder.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { TasksFileService } from './tasks-file.js'
@@ -59,6 +60,7 @@ export interface ConfigureAgentLaunchBody {
 }
 
 export interface RouteContext {
+  feishuTransport?: FeishuTransport | null
   request: IncomingMessage
   response: ServerResponse
   store: RuntimeStore

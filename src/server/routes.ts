@@ -9,6 +9,7 @@ import type {
   WorkerRole,
 } from './route-types.js'
 import { dispatchRoutes } from './routes-dispatches.js'
+import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
@@ -27,6 +28,7 @@ const routes: RouteDefinition[] = [
   ...taskRoutes,
   ...runtimeRoutes,
   ...teamRoutes,
+  ...feishuRoutes,
   ...fsRoutes,
 ]
 

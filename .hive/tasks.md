@@ -4,17 +4,17 @@
 
 **飞书桥 Plan B 实施中**（设计：`.hive/reports/feishu-bridge-plan-2026-05-21.html`）
 
-- 🟡 **关羽** dispatch `989f943e` — Review Phase 0 src/server/ + src/cli/hive.ts，改进、修 bug，不动 tests/
-- 🟡 **典韦** dispatch `6adf6f13` — 扩 Phase 0 单元测试（schema v21 迁移幂等性 + bindings store edge cases + credentials BOM/权限/类型 + 可选 runtime-store 集成测试），不动 src/
+- 🟡 **关羽** dispatch `24ea478b` — Phase 2 outbound：team feishu reply 子命令 + /internal/feishu/outbound endpoint + transport 暴露 sendMessage/getLastChatForAgent + transport-utils refactor（典韦建议） + orch system prompt 微调
 
-Phase 0 我已写完一版基础代码（schema v21 / feishu-credentials / feishu-bindings-store / runtime-store 接线 / hive.ts startup log），18 tests 已绿 + typecheck 通过。两个 worker 并行做 review + 测试扩展。
+Phase 0 完成（`6d7bba2` + `8b5f1a9`）：schema v21 + credentials loader + bindings store + RuntimeStore 接线 + startup log + 45 个新测试。
+Phase 1 inbound 实现 + tests 完成（`d595f6f` + `445bebd`）：feishu-transport / route-resolver / inbound-handler 三件 + 16 个新测试（route-resolver 6, inbound-handler 10）。transport class 测试延后到 Phase 2 refactor 后做。`@larksuiteoapi/node-sdk@1.64.0`。当前 625 tests 全绿。
 
 后续节奏（user 出门，orchestrator 自主决定）：
-- worker report 后 → review → commit → push
-- Phase 1 派 关羽 实现 feishu-transport + route-resolver + inbound-handler
-- Phase 1 实现完 → 派 典韦 加测试
-- Phase 2 → Phase 3 → Phase 4 同样节奏
-- 阻塞点：Phase 0/1 实现可以无飞书凭证完成，但 e2e 验证需要 user 提供凭证
+- 关羽 Phase 1 完 → 派 典韦 加测试 → review → commit → push
+- Phase 2 派 关羽 outbound (team feishu reply + feishu-outbox)
+- Phase 3 派 关羽 UI 绑定 + 状态灯
+- Phase 4 派 典韦 e2e 测试 + 文档
+- 阻塞点：实现可以无飞书凭证完成，但 user 出门后 e2e 验证需要 user 回来配置 ~/.config/hive/feishu.json
 
 ## Done
 

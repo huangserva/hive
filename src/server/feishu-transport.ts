@@ -4,6 +4,11 @@ import * as lark from '@larksuiteoapi/node-sdk'
 import type { FeishuCredentials } from './feishu-credentials.js'
 import { type FeishuInboundChatEvent, handleFeishuInbound } from './feishu-inbound-handler.js'
 import { resolveRoute } from './feishu-route-resolver.js'
+import {
+  getSenderUserId,
+  parseTextContent,
+  stripLeadingMentions,
+} from './feishu-transport-utils.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 
@@ -16,47 +21,9 @@ interface FeishuTransportOptions {
   store: RuntimeStore
 }
 
-interface TextContent {
-  text?: unknown
-}
-
-const UNKNOWN_SENDER = 'unknown'
 const MAX_RECONNECTS_BEFORE_ERROR = 10
-
-const getSenderUserId = (event: MessageReceiveEvent) =>
-  event.sender.sender_id?.user_id ??
-  event.sender.sender_id?.open_id ??
-  event.sender.sender_id?.union_id ??
-  UNKNOWN_SENDER
-
-const parseTextContent = (content: string) => {
-  const parsed = JSON.parse(content) as TextContent
-  return typeof parsed.text === 'string' ? parsed.text : null
-}
-
-const stripLeadingMentions = (
-  text: string,
-  mentions: NonNullable<MessageReceiveEvent['message']['mentions']>
-) => {
-  let remaining = text.trimStart()
-  remaining = remaining.replace(/^(?:<at\s+[^>]*>.*?<\/at>\s*)+/i, '').trimStart()
-
-  let stripped = true
-  while (stripped) {
-    stripped = false
-    for (const mention of mentions) {
-      const candidates = [mention.key, `@${mention.name}`, mention.name].filter(Boolean)
-      const candidate = candidates.find((value) => remaining.startsWith(value))
-      if (candidate) {
-        remaining = remaining.slice(candidate.length).trimStart()
-        stripped = true
-        break
-      }
-    }
-  }
-
-  return remaining
-}
+const FEISHU_TEXT_LIMIT_BYTES = 30 * 1024
+const FEISHU_TEXT_CHUNK_BYTES = 25 * 1024
 
 export class FeishuTransport {
   private readonly credentials: FeishuCredentials
@@ -66,6 +33,7 @@ export class FeishuTransport {
     | undefined
   private readonly store: RuntimeStore
   private readonly client: lark.Client
+  private readonly lastChatByAgent = new Map<string, string>()
   private reconnectCount = 0
   private wsClient: lark.WSClient | null = null
 
@@ -131,9 +99,36 @@ export class FeishuTransport {
     this.wsClient = null
   }
 
+  getLastChatForAgent(agentId: string): string | null {
+    return this.lastChatByAgent.get(agentId) ?? null
+  }
+
+  async sendMessage(chatId: string, text: string): Promise<void> {
+    const chunks =
+      Buffer.byteLength(text, 'utf8') > FEISHU_TEXT_LIMIT_BYTES
+        ? splitTextByUtf8Bytes(text, FEISHU_TEXT_CHUNK_BYTES)
+        : [text]
+
+    if (chunks.length > 1) {
+      this.logger.info(`feishu outbound chunked chat_id=${chatId} chunks=${chunks.length}`)
+    }
+
+    for (const [index, chunk] of chunks.entries()) {
+      const body = chunks.length > 1 ? `(${index + 1}/${chunks.length}) ${chunk}` : chunk
+      await this.client.im.v1.message.create({
+        data: {
+          content: JSON.stringify({ text: body }),
+          msg_type: 'text',
+          receive_id: chatId,
+        },
+        params: { receive_id_type: 'chat_id' },
+      })
+    }
+  }
+
   private async handleMessageReceive(event: MessageReceiveEvent): Promise<void> {
     const chatId = event.message.chat_id
-    const senderUserId = getSenderUserId(event)
+    const senderUserId = getSenderUserId(event.sender)
     this.logger.info(`feishu inbound message chat_id=${chatId} sender=${senderUserId}`)
 
     const text = this.extractText(event)
@@ -156,12 +151,13 @@ export class FeishuTransport {
       this.logger.info(`feishu inbound dropped reason=${route.reason} chat_id=${chatId}`)
       return
     }
+    this.lastChatByAgent.set(route.orchestratorAgentId, chatId)
 
     await handleFeishuInbound({
       agentRuntime: this.store,
       event: inboundEvent,
       logger: this.logger,
-      replyText: (replyChatId, textToSend) => this.replyText(replyChatId, textToSend),
+      replyText: (replyChatId, textToSend) => this.sendMessage(replyChatId, textToSend),
       route,
       store: this.store,
     })
@@ -205,15 +201,24 @@ export class FeishuTransport {
 
     return text
   }
+}
 
-  private async replyText(chatId: string, text: string): Promise<void> {
-    await this.client.im.v1.message.create({
-      data: {
-        content: JSON.stringify({ text }),
-        msg_type: 'text',
-        receive_id: chatId,
-      },
-      params: { receive_id_type: 'chat_id' },
-    })
+const splitTextByUtf8Bytes = (text: string, maxBytes: number) => {
+  const chunks: string[] = []
+  let current = ''
+  let currentBytes = 0
+
+  for (const char of text) {
+    const charBytes = Buffer.byteLength(char, 'utf8')
+    if (current && currentBytes + charBytes > maxBytes) {
+      chunks.push(current)
+      current = ''
+      currentBytes = 0
+    }
+    current += char
+    currentBytes += charBytes
   }
+
+  if (current || text.length === 0) chunks.push(current)
+  return chunks
 }
