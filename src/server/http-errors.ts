@@ -36,6 +36,13 @@ export class BadRequestError extends HttpError {
   }
 }
 
+export class NotFoundError extends HttpError {
+  constructor(message: string) {
+    super(404, message)
+    this.name = 'NotFoundError'
+  }
+}
+
 export class PayloadTooLargeError extends HttpError {
   constructor(message: string) {
     super(413, message)

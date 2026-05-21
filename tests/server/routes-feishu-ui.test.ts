@@ -232,14 +232,16 @@ describe('POST /api/feishu/bindings', () => {
     expect(body).toHaveProperty('createdAt')
   })
 
-  test('returns 500 when workspace does not exist', async () => {
+  test('returns 404 when workspace does not exist', async () => {
     const { baseUrl, uiToken } = await setupServer(null)
-    const { status } = await fetchJson(`${baseUrl}/api/feishu/bindings`, {
+    const { body, status } = await fetchJson(`${baseUrl}/api/feishu/bindings`, {
       body: JSON.stringify({ chatId: 'oc_x', workspaceId: 'nonexistent-ws-id' }),
       headers: { 'content-type': 'application/json', ...uiHeaders(uiToken) },
       method: 'POST',
     })
-    expect(status).toBe(500)
+    expect(status).toBe(404)
+    expect(body).toHaveProperty('error')
+    expect((body as { error: string }).error).toContain('nonexistent-ws-id')
   })
 
   test('returns 409 on duplicate chatId bound to different workspace', async () => {

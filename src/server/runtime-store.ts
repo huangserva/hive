@@ -4,6 +4,7 @@ import type { AgentLaunchConfigInput, PersistedAgentRun } from './agent-run-stor
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
 import type { FeishuBinding } from './feishu-bindings-store.js'
+import { NotFoundError } from './http-errors.js'
 import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
@@ -207,14 +208,22 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       services.agentRuntime.validateAgentToken(agentId, token),
     validateUiToken: (token) => services.uiAuth.validate(token),
     bindFeishuChat: (input) => {
-      services.workspaceStore.getWorkspaceSnapshot(input.workspaceId)
+      try {
+        services.workspaceStore.getWorkspaceSnapshot(input.workspaceId)
+      } catch {
+        throw new NotFoundError(`Workspace not found: ${input.workspaceId}`)
+      }
       return services.feishuBindingsStore.bind(input)
     },
     unbindFeishuChat: (chatId) => services.feishuBindingsStore.unbind(chatId),
     findFeishuBindingByChatId: (chatId) => services.feishuBindingsStore.findByChatId(chatId),
     listFeishuBindings: (workspaceId) => {
       if (workspaceId) {
-        services.workspaceStore.getWorkspaceSnapshot(workspaceId)
+        try {
+          services.workspaceStore.getWorkspaceSnapshot(workspaceId)
+        } catch {
+          throw new NotFoundError(`Workspace not found: ${workspaceId}`)
+        }
         return services.feishuBindingsStore.listByWorkspace(workspaceId)
       }
       return services.feishuBindingsStore.listAll()
