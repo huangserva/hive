@@ -655,7 +655,8 @@ export const TaskGraphDrawer = ({
         background: 'var(--bg-1)',
         borderColor: 'var(--border)',
         maxWidth: 'calc(100vw - 3.5rem)',
-        width: 520,
+        minWidth: 360,
+        width: '40%',
       }}
     >
       <header className="task-drawer__header">

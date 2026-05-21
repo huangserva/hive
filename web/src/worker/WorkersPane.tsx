@@ -108,9 +108,11 @@ export const WorkersPane = ({
           boxShadow: 'inset 0 -1px 0 var(--border)',
         }}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-base font-semibold text-pri">{t('worker.teamMembers')}</span>
-          <span className="mono rounded bg-3 px-2 py-0.5 text-sm text-sec">{workers.length}</span>
+        <div className="flex items-center gap-2.5">
+          <span className="text-lg font-semibold text-pri">{t('worker.teamMembers')}</span>
+          <span className="mono inline-flex min-w-7 items-center justify-center rounded bg-3 px-2.5 py-1 text-base leading-none text-sec">
+            {workers.length}
+          </span>
           <div className="flex-1" />
           {shellTerminalAvailable ? (
             <button

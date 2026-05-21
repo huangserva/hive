@@ -2,6 +2,22 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.3.4 - 2026-05-21
+
+Terminal performance and Tasks panel polish.
+
+- Improves terminal responsiveness by keeping mounted terminal hosts stable,
+  lazy-loading heavier xterm addons, and reducing terminal-run polling churn.
+- Fixes OpenCode TUI wheel and mouse handling by preserving binary input for
+  normal terminals while translating OpenCode legacy mouse reports into the
+  SGR format it handles correctly.
+- Sends a current `.hive/tasks.md` snapshot when a Tasks websocket connects,
+  and guards that initial read so a missing or unreadable file does not break
+  the websocket session.
+- Renames the visible Todo entry to **Tasks** and widens the Tasks side panel
+  to match the default Team Members pane width.
+- Enlarges the Team Members header and count badge for better readability.
+
 ## 1.3.3 - 2026-05-21
 
 OpenCode terminal scrolling and small UI polish.
