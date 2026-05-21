@@ -10,7 +10,7 @@ afterEach(() => {
 })
 
 describe('Topbar version update hint', () => {
-  test('shows an update badge and install hint when a newer version is available', () => {
+  test('does not show upstream update badge when a newer version is available', () => {
     render(
       <Topbar
         hideActions
@@ -28,8 +28,8 @@ describe('Topbar version update hint', () => {
       />
     )
 
-    expect(screen.getByTestId('topbar-update-badge')).toHaveTextContent('Update available')
-    expect(screen.getByText('v0.6.0-alpha.3 → v0.6.0-alpha.4')).toBeInTheDocument()
-    expect(screen.getByText('npm update -g @tt-a1i/hive')).toBeInTheDocument()
+    expect(screen.queryByTestId('topbar-update-badge')).not.toBeInTheDocument()
+    expect(screen.queryByText('v0.6.0-alpha.3 → v0.6.0-alpha.4')).not.toBeInTheDocument()
+    expect(screen.queryByText('npm update -g @tt-a1i/hive')).not.toBeInTheDocument()
   })
 })

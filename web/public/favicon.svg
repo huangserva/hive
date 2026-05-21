@@ -1,28 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Hive">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="HippoTeam">
   <defs>
     <linearGradient id="bg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
       <stop stop-color="#1a1c24" />
       <stop offset="1" stop-color="#08090a" />
     </linearGradient>
-    <linearGradient id="ring" x1="14" y1="6" x2="50" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8d95ec" />
-      <stop offset="0.5" stop-color="#5e6ad2" />
-      <stop offset="1" stop-color="#3d48a8" />
-    </linearGradient>
-    <linearGradient id="cell-top" x1="32" y1="18" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#a3aaf0" />
-      <stop offset="1" stop-color="#7078e3" />
-    </linearGradient>
-    <linearGradient id="cell-l" x1="14" y1="32" x2="22" y2="46" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7078e3" />
+    <linearGradient id="mark" x1="16" y1="10" x2="48" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a8def8" />
+      <stop offset="0.52" stop-color="#6aa9f7" />
       <stop offset="1" stop-color="#5e6ad2" />
     </linearGradient>
-    <linearGradient id="cell-r" x1="42" y1="32" x2="50" y2="46" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5e6ad2" />
-      <stop offset="1" stop-color="#4954b8" />
-    </linearGradient>
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="0.9" result="b" />
+      <feGaussianBlur stdDeviation="1.2" result="b" />
       <feMerge>
         <feMergeNode in="b" />
         <feMergeNode in="SourceGraphic" />
@@ -31,28 +19,21 @@
   </defs>
 
   <rect width="64" height="64" rx="14" fill="url(#bg)" />
-  <rect width="64" height="64" rx="14" fill="none" stroke="rgba(255,255,255,0.04)" />
-
-  <!-- Outer hexagon shell -->
-  <path
-    d="M32 6 54.5 19v26L32 58 9.5 45V19L32 6Z"
-    fill="rgba(94,106,210,0.06)"
-    stroke="url(#ring)"
-    stroke-width="2.4"
-    stroke-linejoin="round"
+  <rect width="64" height="64" rx="14" fill="none" stroke="rgba(255,255,255,0.05)" />
+  <circle
+    cx="32"
+    cy="32"
+    r="22"
+    fill="rgba(94,106,210,0.08)"
+    stroke="url(#mark)"
+    stroke-width="4"
     filter="url(#glow)"
   />
-
-  <!-- Three honeycomb cells: top, bottom-left, bottom-right -->
-  <path d="M32 19 41 24v10l-9 5-9-5V24l9-5Z" fill="url(#cell-top)" />
-  <path d="M22 36 28 39.5v7L22 50l-6-3.5v-7L22 36Z" fill="url(#cell-l)" />
-  <path d="M42 36 48 39.5v7L42 50l-6-3.5v-7L42 36Z" fill="url(#cell-r)" />
-
-  <!-- Inner highlight on top cell -->
   <path
-    d="M32 19 41 24"
-    stroke="rgba(255,255,255,0.35)"
-    stroke-width="0.8"
+    d="M22 20V44M42 20V44M22 32H42"
+    stroke="url(#mark)"
+    stroke-width="6"
     stroke-linecap="round"
+    stroke-linejoin="round"
   />
 </svg>

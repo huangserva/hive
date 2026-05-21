@@ -1,7 +1,7 @@
 {
-  "name": "@tt-a1i/hive",
+  "name": "@huangserva/hippoteam",
   "version": "1.0.0",
-  "description": "Browser-native hive-mind for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.",
+  "description": "Browser-native team workspace for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.",
   "type": "module",
   "packageManager": "pnpm@10.30.3",
   "license": "BUSL-1.1",

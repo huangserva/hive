@@ -17,7 +17,7 @@ test('public package metadata is ready for external users', () => {
 
   expect(packageJson.license).toBe('BUSL-1.1')
   expect(packageJson.description).toBe(
-    'Browser-native hive-mind for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.'
+    'Browser-native team workspace for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.'
   )
   expect(packageJson.keywords).toEqual(
     expect.arrayContaining(['ai-agents', 'cli', 'collaboration', 'multi-agent', 'workspace'])

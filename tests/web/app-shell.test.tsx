@@ -63,7 +63,7 @@ describe('app shell with real server', () => {
 
     const banner = screen.getByRole('banner')
     expect(banner).toHaveClass('h-11')
-    expect(banner.textContent ?? '').toContain('Hive')
+    expect(banner.textContent ?? '').toContain('HippoTeam')
     // Empty state hides Topbar actions so first-run users only see the brand
     // and the central Welcome CTA. Notification + Blueprint actions reappear
     // once a workspace is active (covered in worker-flow / tasks-flow tests).

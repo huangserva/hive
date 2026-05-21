@@ -43,7 +43,7 @@ afterEach(() => cleanup())
 
 test('renders Slide 1 (Welcome) with Next button', () => {
   render(<FirstRunWizard open onClose={() => {}} onAddWorkspace={() => {}} onTryDemo={() => {}} />)
-  expect(screen.getByText(/welcome to hive/i)).toBeInTheDocument()
+  expect(screen.getByText(/welcome to hippoteam/i)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /^next$/i })).toBeInTheDocument()
 })
 
@@ -125,21 +125,23 @@ afterEach(async () => {
 test('wizard auto-opens when flag unset and workspaces empty', async () => {
   window.localStorage.clear()
   render(<App />)
-  expect(await screen.findByRole('dialog', { name: /welcome to hive/i })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: /welcome to hippoteam/i })).toBeInTheDocument()
 })
 
 test('wizard does not open when flag is set', async () => {
   window.localStorage.setItem('hive.first-run-seen', '1')
   render(<App />)
   await waitFor(() => expect(screen.getByTestId('welcome-pane')).toBeInTheDocument())
-  expect(screen.queryByRole('dialog', { name: /welcome to hive/i })).toBeNull()
+  expect(screen.queryByRole('dialog', { name: /welcome to hippoteam/i })).toBeNull()
 })
 
 test('clicking Skip persists the flag and closes the wizard', async () => {
   window.localStorage.clear()
   render(<App />)
-  await screen.findByRole('dialog', { name: /welcome to hive/i })
+  await screen.findByRole('dialog', { name: /welcome to hippoteam/i })
   fireEvent.click(screen.getByRole('button', { name: /^skip$/i }))
   expect(window.localStorage.getItem('hive.first-run-seen')).toBe('1')
-  await waitFor(() => expect(screen.queryByRole('dialog', { name: /welcome to hive/i })).toBeNull())
+  await waitFor(() =>
+    expect(screen.queryByRole('dialog', { name: /welcome to hippoteam/i })).toBeNull()
+  )
 })

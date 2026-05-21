@@ -72,7 +72,7 @@ try {
     stdio: 'inherit',
   })
 
-  const packageRoot = join(tempDir, 'node_modules', '@tt-a1i', 'hive')
+  const packageRoot = join(tempDir, 'node_modules', '@huangserva', 'hippoteam')
   const hiveBin = join(tempDir, 'node_modules', '.bin', binLinkName('hive'))
   const teamBin = join(tempDir, 'node_modules', '.bin', 'team')
   const teamCmdBin = join(tempDir, 'node_modules', '.bin', 'team.cmd')
