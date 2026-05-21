@@ -9,6 +9,38 @@ import {
   type TerminalWheelInputProfile,
 } from './wheelFallback.js'
 
+const LEGACY_MOUSE_REPORT_PATTERN = new RegExp(
+  `${String.fromCharCode(0x1b)}\\[M([\\s\\S])([\\s\\S])([\\s\\S])`,
+  'g'
+)
+
+const legacyMouseReportToSgr = (
+  report: string,
+  codeChar: string,
+  colChar: string,
+  rowChar: string
+) => {
+  const code = codeChar.charCodeAt(0) - 32
+  const col = colChar.charCodeAt(0) - 32
+  const row = rowChar.charCodeAt(0) - 32
+  if (code < 0 || col < 1 || row < 1) return report
+  const isRelease = (code & 3) === 3 && (code & 32) === 0 && (code & 64) === 0
+  const final = isRelease ? 'm' : 'M'
+  return `\x1b[<${code};${col};${row}${final}`
+}
+
+const normalizeBinaryTerminalInput = (
+  chunk: string,
+  inputProfile: TerminalWheelInputProfile
+): { binary: boolean; chunk: string } => {
+  if (inputProfile !== 'opencode') return { binary: true, chunk }
+  const normalized = chunk.replace(LEGACY_MOUSE_REPORT_PATTERN, legacyMouseReportToSgr)
+  return {
+    binary: normalized === chunk,
+    chunk: normalized,
+  }
+}
+
 export const useTerminalRun = (
   runId: string,
   inputProfile: TerminalWheelInputProfile = 'default'
@@ -208,9 +240,13 @@ export const useTerminalRun = (
         if (isComposingRef.current) return
         client?.sendInput(chunk)
       })
-      binaryInputSubscription = nextTerminal.onBinary((chunk) => {
-        client?.sendBinaryInput(chunk)
-      })
+      if (typeof nextTerminal.onBinary === 'function') {
+        binaryInputSubscription = nextTerminal.onBinary((chunk) => {
+          const normalized = normalizeBinaryTerminalInput(chunk, inputProfile)
+          if (normalized.binary) client?.sendBinaryInput(normalized.chunk)
+          else client?.sendInput(normalized.chunk)
+        })
+      }
       setStatus('running')
       resize()
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {

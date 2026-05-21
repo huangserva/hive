@@ -9,6 +9,7 @@ let latestCustomKeyHandler: ((event: KeyboardEvent) => boolean) | undefined
 let latestCustomWheelHandler: ((event: WheelEvent) => boolean) | undefined
 let latestOnBinaryHandler: ((chunk: string) => void) | undefined
 let latestOnDataHandler: ((chunk: string) => void) | undefined
+let terminalMouseReport = '\x1b[M !!'
 let terminalWrites: string[] = []
 let terminalLoadEvents: string[] = []
 let terminalBufferType: 'alternate' | 'normal' = 'normal'
@@ -104,7 +105,7 @@ vi.mock('@xterm/xterm', () => ({
         }
       })
       element.addEventListener('mousedown', () => {
-        latestOnBinaryHandler?.('\x1b[M !!')
+        latestOnBinaryHandler?.(terminalMouseReport)
       })
     }
     write(chunk?: string, callback?: () => void) {
@@ -159,6 +160,7 @@ afterEach(() => {
   latestCustomWheelHandler = undefined
   latestOnBinaryHandler = undefined
   latestOnDataHandler = undefined
+  terminalMouseReport = '\x1b[M !!'
   terminalWrites = []
   terminalLoadEvents = []
   terminalApplicationCursorKeysMode = false
@@ -581,10 +583,17 @@ describe('TerminalView', () => {
     expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', '\u001b[5~'])
   })
 
-  test('routes OpenCode wheel through xterm while leaving mouse clicks on the terminal', async () => {
+  test.each([
+    { legacy: '\x1b[M !!', sgr: '\x1b[<0;1;1M' },
+    { legacy: '\x1b[M#!!', sgr: '\x1b[<3;1;1m' },
+    { legacy: '\x1b[M@!!', sgr: '\x1b[<32;1;1M' },
+    { legacy: '\x1b[MC!!', sgr: '\x1b[<35;1;1M' },
+    { legacy: '\x1b[M`!!', sgr: '\x1b[<64;1;1M' },
+  ])('normalizes OpenCode legacy mouse input $sgr', async ({ legacy, sgr }) => {
     vi.stubGlobal('WebSocket', MockWebSocket as never)
     terminalBufferType = 'alternate'
     terminalMouseTrackingMode = 'any'
+    terminalMouseReport = legacy
     addPortalSlot('run-opencode-mouse-click')
 
     render(
@@ -606,7 +615,31 @@ describe('TerminalView', () => {
     fireEvent.wheel(terminal, { deltaY: 120 })
     fireEvent.mouseDown(terminal)
 
-    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', binaryInput('\x1b[M !!')])
+    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', sgr])
+  })
+
+  test('passes default terminal binary mouse input through unchanged', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    terminalBufferType = 'alternate'
+    terminalMouseTrackingMode = 'any'
+    addPortalSlot('run-default-mouse-click')
+
+    render(<TerminalView runId="run-default-mouse-click" title="Shell" />)
+
+    const terminal = await waitFor(() => {
+      const node = document.querySelector('[data-testid="terminal-run-default-mouse-click"]')
+      expect(MockWebSocket.instances[0]?.readyState).toBe(1)
+      expect(node).not.toBeNull()
+      return node as HTMLElement
+    })
+
+    await waitFor(() => {
+      expect(latestOnBinaryHandler).toBeDefined()
+    })
+
+    fireEvent.mouseDown(terminal)
+
+    expect(MockWebSocket.instances[0]?.sent).toEqual([binaryInput('\x1b[M !!')])
   })
 
   test('uses application cursor arrow sequences for alternate-screen wheel fallback', async () => {
