@@ -2,7 +2,19 @@
 
 ## In progress
 
-(空 — Orchestrator 自主推进到 multica 3 个 ⭐⭐⭐ 完成后停手，等 user 回来定 ⭐⭐ 中优先级)
+**飞书桥 Plan B 实施中**（设计：`.hive/reports/feishu-bridge-plan-2026-05-21.html`）
+
+- 🟡 **关羽** dispatch `989f943e` — Review Phase 0 src/server/ + src/cli/hive.ts，改进、修 bug，不动 tests/
+- 🟡 **典韦** dispatch `6adf6f13` — 扩 Phase 0 单元测试（schema v21 迁移幂等性 + bindings store edge cases + credentials BOM/权限/类型 + 可选 runtime-store 集成测试），不动 src/
+
+Phase 0 我已写完一版基础代码（schema v21 / feishu-credentials / feishu-bindings-store / runtime-store 接线 / hive.ts startup log），18 tests 已绿 + typecheck 通过。两个 worker 并行做 review + 测试扩展。
+
+后续节奏（user 出门，orchestrator 自主决定）：
+- worker report 后 → review → commit → push
+- Phase 1 派 关羽 实现 feishu-transport + route-resolver + inbound-handler
+- Phase 1 实现完 → 派 典韦 加测试
+- Phase 2 → Phase 3 → Phase 4 同样节奏
+- 阻塞点：Phase 0/1 实现可以无飞书凭证完成，但 e2e 验证需要 user 提供凭证
 
 ## Done
 
