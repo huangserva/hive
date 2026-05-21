@@ -4,7 +4,9 @@
 
 **飞书桥 Plan B 实施中**（设计：`.hive/reports/feishu-bridge-plan-2026-05-21.html`）
 
-**全部 4 个 Phase 完成。** 等 user 回来配 feishu.json + 重启 4010 → 真飞书 e2e。
+**全部 5 个 Phase 完成（含审批卡片）。** 等 user 回来配 feishu.json + 重启 4010 → 真飞书 e2e。
+
+15 个 commit + 757 tests + 132 个 feishu 测试。Phase 5 加了飞书审批卡片（Hermes 风格）：orchestrator 派高风险任务前必须 `team approve` → 飞书弹卡片 → user 手机点 ✅/❌ → 注入回 orch。
 
 Phase 0 完成（`6d7bba2` + `8b5f1a9`）：schema v21 + credentials loader + bindings store + RuntimeStore 接线 + startup log + 45 个新测试。
 Phase 1 inbound 实现 + tests 完成（`d595f6f` + `445bebd`）：feishu-transport / route-resolver / inbound-handler 三件 + 16 个新测试。

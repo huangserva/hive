@@ -63,15 +63,15 @@
 <div class="wrap">
 
 <header>
-  <h1>Feishu Bridge 完工<span class="tag">4 Phase 全部 ship</span></h1>
-  <div class="meta">完成日期：2026-05-21 &nbsp;·&nbsp; 累计 12 个 commit &nbsp;·&nbsp; 694 tests 全绿 &nbsp;·&nbsp; 已 push 到 huangserva/hive</div>
+  <h1>Feishu Bridge 完工<span class="tag">5 Phase 全部 ship · 含审批卡片</span></h1>
+  <div class="meta">完成日期：2026-05-21 &nbsp;·&nbsp; 累计 15 个 commit &nbsp;·&nbsp; 757 tests 全绿 &nbsp;·&nbsp; 已 push 到 huangserva/hive</div>
 </header>
 
 <div class="stat-row">
-  <div class="stat"><span class="v">4/4</span><span class="l">Phase Completed</span></div>
-  <div class="stat"><span class="v">694</span><span class="l">tests passing</span></div>
-  <div class="stat"><span class="v">+140</span><span class="l">new tests added</span></div>
-  <div class="stat"><span class="v">~21h</span><span class="l">actual worker time</span></div>
+  <div class="stat"><span class="v">5/5</span><span class="l">Phase Completed</span></div>
+  <div class="stat"><span class="v">757</span><span class="l">tests passing</span></div>
+  <div class="stat"><span class="v">+203</span><span class="l">new tests added</span></div>
+  <div class="stat"><span class="v">~26h</span><span class="l">actual worker time</span></div>
 </div>
 
 <div class="card accent">
@@ -81,7 +81,7 @@
   <li>把凭证写到 <code>~/.config/hive/feishu.json</code></li>
   <li>重启 4010（杀当前 PTY + <code>pnpm dev</code>）</li>
 </ol>
-做完即用——hive 顶栏多出飞书绿点指示灯，workspace 设置面板能绑 chat_id，飞书发消息 orchestrator 自动接单 + worker 派工 + 飞书回复。
+做完即用——hive 顶栏多出飞书绿点指示灯，workspace 设置面板能绑 chat_id，飞书发消息 orchestrator 自动接单 + worker 派工 + 飞书回复。<strong>高风险动作（rm / git push / drop 等）自动弹飞书审批卡片</strong>，手机上点 ✅/❌ 才执行——你提到的 Hermes 那种"放心"已经做了。
 </div>
 
 <h2><span class="num">1.</span>这一轮做了什么（commit log）</h2>
@@ -137,14 +137,50 @@
     <td>关羽</td>
   </tr>
   <tr>
-    <td class="commit">（pending）</td>
+    <td class="commit">553f896</td>
     <td>4</td>
-    <td>Phase 3+4 测试补全 + bug fix：parseFeishuReplyArgs (9) + chunkFeishuText (10) + UI endpoints (19) = 38 tests，外加 bindFeishuChat 404 (was 500) 修复 + NotFoundError 新增</td>
-    <td>典韦 + 关羽</td>
+    <td>Phase 3+4 测试补全：parseFeishuReplyArgs (9) + chunkFeishuText (10) + UI endpoints (19) = 38 tests</td>
+    <td>典韦</td>
+  </tr>
+  <tr>
+    <td class="commit">a879ca6</td>
+    <td>4</td>
+    <td>Bug fix：bindFeishuChat workspace not found 从 500 → 404 NotFoundError</td>
+    <td>关羽 + 我 sync test</td>
+  </tr>
+  <tr>
+    <td class="commit">7cf22bc</td>
+    <td>4</td>
+    <td>handoff.html v1（4 Phase 版本）</td>
+    <td>我</td>
+  </tr>
+  <tr>
+    <td class="commit">e601c38</td>
+    <td>5</td>
+    <td><strong>审批卡片实现</strong>：team approve CLI + ApprovalLedger + sendApprovalCard/updateApprovalCard + card.action.trigger 订阅 + 双语 system prompt + 5min cleanup</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">1198fe8</td>
+    <td>5</td>
+    <td>Phase 5 测试 v1：ApprovalLedger (11) + parseApproveArgs (10) + approval-request route (10) = 31 tests</td>
+    <td>典韦</td>
+  </tr>
+  <tr>
+    <td class="commit">4347c98</td>
+    <td>5</td>
+    <td>Refactor：export 4 个 card builder pure functions 到 feishu-transport-utils</td>
+    <td>关羽</td>
+  </tr>
+  <tr>
+    <td class="commit">6fb3d45</td>
+    <td>5</td>
+    <td>Phase 5 测试 v2：buildApprovalCard (11) + buildResolvedApprovalCard (6) + parseApprovalCardAction (10) + getCardActionOperator (5) = 32 tests</td>
+    <td>典韦</td>
   </tr>
 </table>
 
-<p class="small">前 8 个 commit 已 push 到 <code>git@github.com:huangserva/hive.git main</code>。最后这个 pending commit 一并 push。</p>
+<p class="small">15 个 commit 全部 push 到 <code>git@github.com:huangserva/hive.git main</code>。Feishu 相关测试 132 个分 9 个文件。</p>
 
 <h2><span class="num">2.</span>5 分钟上手指南</h2>
 
@@ -211,7 +247,40 @@ pnpm dev</pre>
   <li>hive web UI 上 orchestrator PTY 应该收到注入：<code>[来自飞书 chat=oc_xxx，sender=ou_xxx user_id=ou_xxx]\n请用 team feishu reply 回复...\n---\n今天天气怎么样？</code></li>
   <li>orchestrator 处理 + 派 worker（如果需要）+ 用 <code>team feishu reply "回复内容"</code> 回话</li>
   <li>飞书群里应该立刻收到 bot 的回复消息</li>
+  <li><strong>测审批：</strong>飞书 @bot 说"删除 ~/Downloads/old"——orchestrator 应该先调 <code>team approve</code>，飞书发审批卡片，你点 ❌ → 卡片变灰 + 飞书收到"已撤销"。再试一次点 ✅ → 卡片变绿 + worker 真去删</li>
 </ol>
+</div>
+
+<h2><span class="num">2.5.</span>审批卡片流程（Hermes 风格）</h2>
+
+<div class="card feishu">
+<p>触发时机：orchestrator 收到飞书消息 + 准备做高风险动作（<code>rm</code> / <code>git push</code> / <code>drop</code> / 删大量文件 / 写外部服务 / 任何不可逆操作），会自觉调 <code>team approve "动作描述" --risk high</code>。</p>
+
+<p>飞书侧收到的卡片：</p>
+
+<pre>
+┌──────────────────────────────────┐
+│ 🟥 🤖 Hive 审批请求 · 高风险动作   │
+├──────────────────────────────────┤
+│ 动作                              │
+│ 派关羽删除 ~/Downloads/old 目录    │
+│                                  │
+│ 派给           Workspace          │
+│ 关羽 (codex)    hive-serva        │
+├──────────────────────────────────┤
+│   [✅ 允许]    [❌ 拒绝]            │
+└──────────────────────────────────┘
+</pre>
+
+<p>点 <strong>✅</strong>：卡片变绿色只读「✅ 已允许 by @huangserva at 16:42」+ orchestrator stdin 收到 <code>[Hive 系统消息：approval_id=xxx ALLOWED by feishu user_id=ou_xxx at 16:42:08]</code> → 继续派单。</p>
+
+<p>点 <strong>❌</strong>：卡片变灰色「❌ 已拒绝」+ orchestrator 收到 DENIED → 自动 <code>team feishu reply "已撤销，请提供替代方案"</code>。</p>
+
+<p>medium 风险（如 git status / 改配置文件）：橙色 header「中风险动作」，按钮一样。</p>
+
+<p>低风险（查 log / 跑测试 / git status）：<strong>不弹卡片</strong>，直接派单（orchestrator 自行判断）。</p>
+
+<p class="small">No ACL：群里任何人点都算数（单人用场景）。Runtime 重启后未处理的 pending 卡片点击会显示「审批已处理 / 已过期」。判断动作风险等级 100% 靠 orchestrator system prompt 引导，<strong>不做关键词拦截</strong>——LLM 比 denylist 更鲁棒。</p>
 </div>
 
 <h2><span class="num">3.</span>当前状态</h2>
@@ -302,42 +371,49 @@ pnpm dev</pre>
               ▼
    src/server/feishu-transport.ts (FeishuTransport)
               │
-        ┌─────┴─────┐
-inbound │           │ outbound (via team feishu reply)
-        ▼           ▼
-feishu-route-     POST /internal/feishu/outbound
-resolver.ts            (routes-feishu.ts)
-        │                  │
-        ▼                  ▼
-feishu-inbound-       FeishuTransport.sendMessage
-handler.ts            (chunkFeishuText if &gt; 30KB)
-        │                  │
-        ▼                  ▼
-recordUserInput()     lark.Client.im.v1.message.create
-        │
-        ▼
-Orchestrator PTY stdin
-        │
-        ▼
-[来自飞书 chat=...] 注入文本 → orchestrator 读 → 用 team send 派 worker
-                              → worker team report → orchestrator team feishu reply 回飞书
+  ┌───────────┼────────────┬─────────────────┐
+  │ inbound   │ outbound   │ approval        │
+  ▼           ▼            ▼                 │
+route-      sendMessage   sendApprovalCard   │
+resolver    (chunked)     (interactive)     │
+  │                       │                 │
+  ▼                       ▼                 │
+inbound-handler           ApprovalLedger.    │
+  │                       create() pending  │
+  ▼                                          │
+recordUserInput()                            │
+  │                                          │
+  ▼                                          │
+Orchestrator PTY stdin                       │
+  │                                          │
+  ▼                                          │
+[来自飞书 chat=...]                            │
+  │                                          │
+  ▼   orchestrator 决定 → team approve  ─────┘
+  │   或 team send 派 worker / team feishu reply 直接回
+  │
+  ▼   工蜂干完 → team report → orch
+  ▼   user 点卡片 → card.action.trigger → ApprovalLedger.resolve
+                                          → 注入 [Hive 系统消息：ALLOWED/DENIED]
+                                          → updateApprovalCard (read-only patch)
 </pre>
 
 <h3>关键文件清单</h3>
 <table>
   <tr><th>路径</th><th>作用</th></tr>
-  <tr><td><code>src/server/feishu-transport.ts</code></td><td>WSClient + Client 封装，状态机，sendMessage</td></tr>
-  <tr><td><code>src/server/feishu-transport-utils.ts</code></td><td>纯函数：stripLeadingMentions / parseTextContent / getSenderUserId / chunkFeishuText</td></tr>
+  <tr><td><code>src/server/feishu-transport.ts</code></td><td>WSClient + Client 封装，状态机，sendMessage，sendApprovalCard，card.action.trigger handler</td></tr>
+  <tr><td><code>src/server/feishu-transport-utils.ts</code></td><td>纯函数：stripLeadingMentions / parseTextContent / getSenderUserId / chunkFeishuText / buildApprovalCard / buildResolvedApprovalCard / parseApprovalCardAction / getCardActionOperator</td></tr>
+  <tr><td><code>src/server/feishu-approval-ledger.ts</code></td><td>in-memory pending approvals (1h TTL cleanup)</td></tr>
   <tr><td><code>src/server/feishu-route-resolver.ts</code></td><td>chat_id → workspace → orch_agent_id</td></tr>
   <tr><td><code>src/server/feishu-inbound-handler.ts</code></td><td>注入文本格式化 + recordUserInput</td></tr>
   <tr><td><code>src/server/feishu-credentials.ts</code></td><td>读 ~/.config/hive/feishu.json</td></tr>
   <tr><td><code>src/server/feishu-bindings-store.ts</code></td><td>workspace ↔ chat_id CRUD</td></tr>
-  <tr><td><code>src/server/routes-feishu.ts</code></td><td>5 个 endpoints（1 agent-token outbound + 4 UI-token CRUD/status）</td></tr>
+  <tr><td><code>src/server/routes-feishu.ts</code></td><td>6 个 endpoints（1 agent-token outbound + 1 agent-token approval-request + 4 UI-token CRUD/status）</td></tr>
   <tr><td><code>src/server/sqlite-schema-v21.ts</code></td><td>feishu_bindings 表 schema</td></tr>
-  <tr><td><code>src/cli/team.ts</code></td><td><code>team feishu reply</code> 子命令</td></tr>
+  <tr><td><code>src/cli/team.ts</code></td><td><code>team feishu reply</code> + <code>team approve</code> 子命令</td></tr>
   <tr><td><code>web/src/feishu/FeishuStatusIndicator.tsx</code></td><td>Topbar 状态灯（5s poll）</td></tr>
   <tr><td><code>web/src/workspace/WorkspaceSettings.tsx</code></td><td>绑定面板 dialog</td></tr>
-  <tr><td><code>src/server/hive-team-guidance.ts</code></td><td>orchestrator system prompt（含飞书 reminder）</td></tr>
+  <tr><td><code>src/server/hive-team-guidance.ts</code></td><td>orchestrator system prompt（含飞书 reminder + 高风险审批引导，双语）</td></tr>
 </table>
 
 <h2><span class="num">6.</span>等你回来定的事</h2>
