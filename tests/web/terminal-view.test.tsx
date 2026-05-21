@@ -6,6 +6,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { TerminalView } from '../../web/src/terminal/TerminalView.js'
 
 let latestCustomKeyHandler: ((event: KeyboardEvent) => boolean) | undefined
+let latestCustomWheelHandler: ((event: WheelEvent) => boolean) | undefined
+let latestOnBinaryHandler: ((chunk: string) => void) | undefined
 let latestOnDataHandler: ((chunk: string) => void) | undefined
 let terminalWrites: string[] = []
 let terminalLoadEvents: string[] = []
@@ -23,7 +25,7 @@ class MockWebSocket {
   onmessage: ((event: { data: string }) => void) | null = null
   onopen: (() => void) | null = null
   readyState = 0
-  sent: string[] = []
+  sent: Array<string | Uint8Array> = []
 
   constructor(readonly url: string) {
     MockWebSocket.instances.push(this)
@@ -39,7 +41,7 @@ class MockWebSocket {
     websocketCloseCount += 1
   }
 
-  send(payload: string) {
+  send(payload: string | Uint8Array) {
     if (this.readyState !== this.OPEN) return
     this.sent.push(payload)
   }
@@ -63,6 +65,7 @@ vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     cols = 132
     rows = 43
+    private customWheelHandler: ((event: WheelEvent) => boolean) | undefined
     unicode = { activeVersion: '' }
     get buffer() {
       return { active: { type: terminalBufferType } }
@@ -76,16 +79,33 @@ vi.mock('@xterm/xterm', () => ({
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
       latestCustomKeyHandler = handler
     }
+    attachCustomWheelEventHandler(handler: (event: WheelEvent) => boolean) {
+      latestCustomWheelHandler = handler
+      this.customWheelHandler = handler
+    }
     loadAddon(addon: { addonName?: string }) {
       terminalLoadEvents.push(addon.addonName ?? 'unknown')
+    }
+    onBinary(handler: (chunk: string) => void) {
+      latestOnBinaryHandler = handler
+      return { dispose() {} }
     }
     onData(handler: (chunk: string) => void) {
       latestOnDataHandler = handler
       return { dispose() {} }
     }
-    open() {
+    open(element: HTMLElement) {
       terminalLoadEvents.push('open')
       terminalOpenCount += 1
+      element.addEventListener('wheel', (event) => {
+        if (this.customWheelHandler?.(event) === false) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      })
+      element.addEventListener('mousedown', () => {
+        latestOnBinaryHandler?.('\x1b[M !!')
+      })
     }
     write(chunk?: string, callback?: () => void) {
       if (chunk !== undefined) terminalWrites.push(chunk)
@@ -136,6 +156,8 @@ afterEach(() => {
   MockWebSocket.instances = []
   MockResizeObserver.instances = []
   latestCustomKeyHandler = undefined
+  latestCustomWheelHandler = undefined
+  latestOnBinaryHandler = undefined
   latestOnDataHandler = undefined
   terminalWrites = []
   terminalLoadEvents = []
@@ -169,6 +191,9 @@ const addShellPortalSlot = (runId: string) => {
   return slot
 }
 
+const binaryInput = (chunk: string) =>
+  Uint8Array.from(chunk, (character) => character.charCodeAt(0) & 0xff)
+
 describe('TerminalView', () => {
   test('opens io and control sockets for the provided run id', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket as never)
@@ -197,7 +222,7 @@ describe('TerminalView', () => {
 
     await waitFor(() => {
       const controlSocket = MockWebSocket.instances[1]
-      expect(controlSocket?.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+      expect(controlSocket?.sent.map((payload) => JSON.parse(String(payload)))).toContainEqual({
         type: 'resize',
         cols: 132,
         rows: 43,
@@ -375,7 +400,7 @@ describe('TerminalView', () => {
     expect(terminalWrites).toEqual(['restored-history', 'live-after-reattach'])
     const controlMessagesAfterReattach = controlSocket?.sent
       .slice(sentBeforeProtocolMessages)
-      .map((payload) => JSON.parse(payload))
+      .map((payload) => JSON.parse(String(payload)))
     expect(controlMessagesAfterReattach).toEqual([
       { type: 'restore_complete' },
       { type: 'output_ack', bytes: new TextEncoder().encode('live-after-reattach').byteLength },
@@ -461,10 +486,10 @@ describe('TerminalView', () => {
     })
 
     expect(terminalWrites).toEqual(['restored-history', 'live-after-attach'])
-    expect(controlSocket?.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+    expect(controlSocket?.sent.map((payload) => JSON.parse(String(payload)))).toContainEqual({
       type: 'restore_complete',
     })
-    expect(controlSocket?.sent.map((payload) => JSON.parse(payload))).toContainEqual({
+    expect(controlSocket?.sent.map((payload) => JSON.parse(String(payload)))).toContainEqual({
       type: 'output_ack',
       bytes: new TextEncoder().encode('live-after-attach').byteLength,
     })
@@ -554,6 +579,34 @@ describe('TerminalView', () => {
     fireEvent.wheel(terminal, { deltaY: -120 })
 
     expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', '\u001b[5~'])
+  })
+
+  test('routes OpenCode wheel through xterm while leaving mouse clicks on the terminal', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    terminalBufferType = 'alternate'
+    terminalMouseTrackingMode = 'any'
+    addPortalSlot('run-opencode-mouse-click')
+
+    render(
+      <TerminalView inputProfile="opencode" runId="run-opencode-mouse-click" title="OpenCode" />
+    )
+
+    const terminal = await waitFor(() => {
+      const node = document.querySelector('[data-testid="terminal-run-opencode-mouse-click"]')
+      expect(MockWebSocket.instances[0]?.readyState).toBe(1)
+      expect(node).not.toBeNull()
+      return node as HTMLElement
+    })
+
+    await waitFor(() => {
+      expect(latestCustomWheelHandler).toBeDefined()
+      expect(latestOnBinaryHandler).toBeDefined()
+    })
+
+    fireEvent.wheel(terminal, { deltaY: 120 })
+    fireEvent.mouseDown(terminal)
+
+    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', binaryInput('\x1b[M !!')])
   })
 
   test('uses application cursor arrow sequences for alternate-screen wheel fallback', async () => {

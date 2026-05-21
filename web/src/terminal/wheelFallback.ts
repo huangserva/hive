@@ -4,6 +4,7 @@ type TerminalLike = {
       type?: string
     }
   }
+  attachCustomWheelEventHandler?: (handler: (event: WheelEvent) => boolean) => void
   modes?: {
     applicationCursorKeysMode?: boolean
     mouseTrackingMode?: string
@@ -101,13 +102,23 @@ export const attachAlternateScreenWheelFallback = ({
 }): (() => void) => {
   const resolveWheelInput = createAlternateScreenWheelInputResolver(terminal, profile)
 
-  const onWheel = (event: WheelEvent) => {
+  const handleWheel = (event: WheelEvent): boolean => {
     const { handled, input } = resolveWheelInput(event)
-    if (!handled) return
+    if (!handled) return true
     event.preventDefault()
     event.stopPropagation()
-    event.stopImmediatePropagation()
     if (input) sendInput(input)
+    return false
+  }
+
+  if (typeof terminal.attachCustomWheelEventHandler === 'function') {
+    terminal.attachCustomWheelEventHandler(handleWheel)
+    return () => {}
+  }
+
+  const onWheel = (event: WheelEvent) => {
+    if (handleWheel(event)) return
+    event.stopImmediatePropagation()
   }
 
   element.addEventListener('wheel', onWheel, { capture: true, passive: false })

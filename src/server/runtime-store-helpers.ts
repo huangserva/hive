@@ -261,13 +261,13 @@ export const createRuntimeStoreLifecycle = ({
       const workspace = services.workspaceStore.getWorkspaceSnapshot(workspaceId)
       await services.tasksFileWatcher.start(workspaceId, workspace.summary.path)
     },
-    writeRunInput: (runId: string, text: string) => {
+    writeRunInput: (runId: string, input: Buffer | string) => {
       if (!agentManager) throw new Error('Agent manager is required for PTY stdin writes')
       if (services.shellRuntime.hasRun(runId)) {
-        services.shellRuntime.writeInput(runId, text)
+        services.shellRuntime.writeInput(runId, input)
         return
       }
-      agentManager.writeInput(runId, text)
+      agentManager.writeInput(runId, input)
     },
     pauseTerminalRun: (runId: string) => {
       if (services.shellRuntime.hasRun(runId)) services.shellRuntime.pauseRun(runId)

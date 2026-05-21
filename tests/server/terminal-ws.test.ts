@@ -225,6 +225,54 @@ describe('terminal websocket server', () => {
     }
   }, 60000)
 
+  test('forwards binary stdin from io socket into the PTY', async () => {
+    const workspacePath = join(tmpdir(), `hive-terminal-binary-stdin-${Date.now()}`)
+    mkdirSync(workspacePath, { recursive: true })
+    tempDirs.push(workspacePath)
+    const script = join(workspacePath, 'hex.js')
+    writeFileSync(
+      script,
+      [
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        'process.stdin.resume()',
+        "console.log('READY')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('HEX:' + chunk.toString('hex') + '\\n')",
+        '})',
+      ].join('\n')
+    )
+
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspace = await createWorkspace(server.baseUrl, cookie, workspacePath)
+      const worker = await createWorker(server.baseUrl, cookie, workspace.id)
+      await configureAgent(server.baseUrl, cookie, workspace.id, worker.id, process.execPath, [
+        script,
+      ])
+      const run = await startAgent(server.baseUrl, cookie, workspace.id, worker.id)
+      const io = await openSocket(toWsUrl(server.baseUrl, `/ws/terminal/${run.runId}/io`), cookie)
+      const received: string[] = []
+
+      io.on('message', (chunk) => {
+        received.push(chunk.toString())
+      })
+
+      await waitFor(() => {
+        expect(received.join('')).toContain('READY')
+      })
+      io.send(Buffer.from([0x1b, 0x5b, 0x4d, 0xc8, 0x21, 0x21]))
+
+      await waitFor(() => {
+        expect(received.join('')).toContain('HEX:1b5b4dc82121')
+      })
+
+      io.close()
+    } finally {
+      await server.close()
+    }
+  }, 60000)
+
   test('rejects websocket upgrades for a missing run id', async () => {
     const server = await startTestServer()
     try {

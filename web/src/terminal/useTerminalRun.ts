@@ -22,6 +22,7 @@ export const useTerminalRun = (
 
     let disposed = false
     let onWindowResize: (() => void) | undefined
+    let binaryInputSubscription: { dispose: () => void } | undefined
     let inputSubscription: { dispose: () => void } | undefined
     let client: ReturnType<typeof createTerminalClient> | undefined
     let terminal: XtermTerminal | undefined
@@ -207,6 +208,9 @@ export const useTerminalRun = (
         if (isComposingRef.current) return
         client?.sendInput(chunk)
       })
+      binaryInputSubscription = nextTerminal.onBinary((chunk) => {
+        client?.sendBinaryInput(chunk)
+      })
       setStatus('running')
       resize()
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
@@ -233,6 +237,7 @@ export const useTerminalRun = (
           capture: true,
         } as EventListenerOptions)
       }
+      binaryInputSubscription?.dispose()
       inputSubscription?.dispose()
       client?.dispose()
       terminal?.dispose()

@@ -85,7 +85,7 @@ interface RuntimeStore {
   resizeAgentRun: (runId: string, cols: number, rows: number) => void
   resumeTerminalRun: (runId: string) => void
   settings: SettingsStore
-  writeRunInput: (runId: string, text: string) => void
+  writeRunInput: (runId: string, input: Buffer | string) => void
   getUiToken: () => string
   stopAgentRun: (runId: string) => void
   validateAgentToken: (agentId: string, token: string | undefined) => boolean

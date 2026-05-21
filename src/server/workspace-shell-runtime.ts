@@ -206,8 +206,8 @@ export const createWorkspaceShellRuntime = (agentManager: AgentManager | undefin
     stopRun(runId: string) {
       if (hasRun(runId)) stopPtyRun(runId)
     },
-    writeInput(runId: string, text: string) {
-      if (hasRun(runId)) requireManager().writeInput(runId, text)
+    writeInput(runId: string, input: Buffer | string) {
+      if (hasRun(runId)) requireManager().writeInput(runId, input)
     },
   }
 }
