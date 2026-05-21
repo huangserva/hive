@@ -74,12 +74,18 @@ export const createTasksWebSocketServer = (
       })
       setImmediate(() => {
         if (ws.readyState !== ws.OPEN) return
-        ws.send(
-          JSON.stringify({
-            type: 'tasks-snapshot',
-            content: tasksFileService.readTasks(workspacePath),
-          })
-        )
+        try {
+          ws.send(
+            JSON.stringify({
+              type: 'tasks-snapshot',
+              content: tasksFileService.readTasks(workspacePath),
+            })
+          )
+        } catch {
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'tasks-snapshot', content: '' }))
+          }
+        }
       })
     })
   })
