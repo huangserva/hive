@@ -6,10 +6,15 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { TerminalView } from '../../web/src/terminal/TerminalView.js'
 
 let latestCustomKeyHandler: ((event: KeyboardEvent) => boolean) | undefined
+let latestOnDataHandler: ((chunk: string) => void) | undefined
 let terminalWrites: string[] = []
+let terminalLoadEvents: string[] = []
 let terminalBufferType: 'alternate' | 'normal' = 'normal'
 let terminalMouseTrackingMode: 'any' | 'drag' | 'none' | 'vt200' | 'x10' = 'none'
 let terminalApplicationCursorKeysMode = false
+let terminalDisposeCount = 0
+let terminalOpenCount = 0
+let websocketCloseCount = 0
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -22,14 +27,20 @@ class MockWebSocket {
 
   constructor(readonly url: string) {
     MockWebSocket.instances.push(this)
+    terminalLoadEvents.push('websocket')
     queueMicrotask(() => {
       this.readyState = this.OPEN
       this.onopen?.()
     })
   }
 
-  close() {}
+  close() {
+    this.readyState = 3
+    websocketCloseCount += 1
+  }
+
   send(payload: string) {
+    if (this.readyState !== this.OPEN) return
     this.sent.push(payload)
   }
 }
@@ -65,23 +76,58 @@ vi.mock('@xterm/xterm', () => ({
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
       latestCustomKeyHandler = handler
     }
-    loadAddon() {}
-    onData() {
+    loadAddon(addon: { addonName?: string }) {
+      terminalLoadEvents.push(addon.addonName ?? 'unknown')
+    }
+    onData(handler: (chunk: string) => void) {
+      latestOnDataHandler = handler
       return { dispose() {} }
     }
-    open() {}
+    open() {
+      terminalLoadEvents.push('open')
+      terminalOpenCount += 1
+    }
     write(chunk?: string, callback?: () => void) {
       if (chunk !== undefined) terminalWrites.push(chunk)
       callback?.()
     }
-    dispose() {}
+    dispose() {
+      terminalDisposeCount += 1
+    }
   },
 }))
 
 vi.mock('@xterm/addon-fit', () => ({
   FitAddon: class {
+    addonName = 'fit'
     fit() {}
     dispose() {}
+  },
+}))
+
+vi.mock('@xterm/addon-unicode11', () => ({
+  Unicode11Addon: class {
+    addonName = 'unicode11'
+  },
+}))
+
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    addonName = 'webgl'
+    onContextLoss() {}
+    dispose() {}
+  },
+}))
+
+vi.mock('@xterm/addon-clipboard', () => ({
+  ClipboardAddon: class {
+    addonName = 'clipboard'
+  },
+}))
+
+vi.mock('@xterm/addon-web-links', () => ({
+  WebLinksAddon: class {
+    addonName = 'webLinks'
   },
 }))
 
@@ -90,16 +136,35 @@ afterEach(() => {
   MockWebSocket.instances = []
   MockResizeObserver.instances = []
   latestCustomKeyHandler = undefined
+  latestOnDataHandler = undefined
   terminalWrites = []
+  terminalLoadEvents = []
   terminalApplicationCursorKeysMode = false
   terminalBufferType = 'normal'
+  terminalDisposeCount = 0
   terminalMouseTrackingMode = 'none'
+  terminalOpenCount = 0
+  websocketCloseCount = 0
   vi.unstubAllGlobals()
 })
 
 const addPortalSlot = (runId: string) => {
   const slot = document.createElement('div')
   slot.id = `orch-pty-${runId}`
+  document.body.appendChild(slot)
+  return slot
+}
+
+const addWorkerPortalSlot = (runId: string) => {
+  const slot = document.createElement('div')
+  slot.id = `worker-pty-${runId}`
+  document.body.appendChild(slot)
+  return slot
+}
+
+const addShellPortalSlot = (runId: string) => {
+  const slot = document.createElement('div')
+  slot.id = `shell-pty-${runId}`
   document.body.appendChild(slot)
   return slot
 }
@@ -140,6 +205,36 @@ describe('TerminalView', () => {
     })
   })
 
+  test('loads critical addons before connecting sockets and visual addons after open', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    addPortalSlot('run-staged-addons')
+
+    render(<TerminalView runId="run-staged-addons" title="Alice" />)
+
+    await waitFor(() => {
+      expect(terminalLoadEvents).toContain('open')
+    })
+    const openIndex = terminalLoadEvents.indexOf('open')
+    expect(terminalLoadEvents.indexOf('fit')).toBeGreaterThanOrEqual(0)
+    expect(terminalLoadEvents.indexOf('fit')).toBeLessThan(openIndex)
+    expect(terminalLoadEvents.indexOf('unicode11')).toBeGreaterThanOrEqual(0)
+    expect(terminalLoadEvents.indexOf('unicode11')).toBeLessThan(openIndex)
+    expect(terminalLoadEvents.indexOf('clipboard')).toBeGreaterThanOrEqual(0)
+    expect(terminalLoadEvents.indexOf('clipboard')).toBeLessThan(openIndex)
+
+    await waitFor(() => {
+      expect(terminalLoadEvents).toContain('websocket')
+    })
+    const websocketIndex = terminalLoadEvents.indexOf('websocket')
+    expect(terminalLoadEvents.indexOf('clipboard')).toBeLessThan(websocketIndex)
+
+    await waitFor(() => {
+      expect(terminalLoadEvents).toEqual(expect.arrayContaining(['webLinks', 'webgl']))
+    })
+    expect(terminalLoadEvents.indexOf('webLinks')).toBeGreaterThan(openIndex)
+    expect(terminalLoadEvents.indexOf('webgl')).toBeGreaterThan(openIndex)
+  })
+
   test('resizes again when the terminal container changes size', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket as never)
     vi.stubGlobal('ResizeObserver', MockResizeObserver as never)
@@ -177,6 +272,174 @@ describe('TerminalView', () => {
       '/ws/terminal/run-detached/io',
       '/ws/terminal/run-detached/control',
     ])
+  })
+
+  test('observes portal slots without a polling interval when MutationObserver is available', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    const setIntervalSpy = vi.spyOn(window, 'setInterval')
+
+    render(<TerminalView runId="run-observed-slot" title="Alice" />)
+
+    expect(setIntervalSpy).not.toHaveBeenCalled()
+    setIntervalSpy.mockRestore()
+    const slot = addPortalSlot('run-observed-slot')
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-observed-slot"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+  })
+
+  test('uses the last matching portal slot when duplicate slots exist', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    const firstSlot = addWorkerPortalSlot('run-duplicate-slot')
+    const secondSlot = addWorkerPortalSlot('run-duplicate-slot')
+
+    render(<TerminalView runId="run-duplicate-slot" title="Alice" />)
+
+    await waitFor(() => {
+      expect(firstSlot.querySelector('[data-testid="terminal-run-duplicate-slot"]')).toBeNull()
+      expect(secondSlot.querySelector('[data-testid="terminal-run-duplicate-slot"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+  })
+
+  test('attaches to shell terminal portal slots', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    const slot = addShellPortalSlot('run-shell')
+
+    render(<TerminalView runId="run-shell" title="Shell" />)
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-shell"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(new URL(MockWebSocket.instances[0]?.url ?? '').pathname).toBe(
+        '/ws/terminal/run-shell/io'
+      )
+      expect(new URL(MockWebSocket.instances[1]?.url ?? '').pathname).toBe(
+        '/ws/terminal/run-shell/control'
+      )
+    })
+  })
+
+  test('keeps the same xterm session alive when the portal slot is recreated', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    vi.stubGlobal('ResizeObserver', MockResizeObserver as never)
+    let slot = addPortalSlot('run-stable')
+
+    render(<TerminalView runId="run-stable" title="Alice" />)
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-stable"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(MockResizeObserver.instances).toHaveLength(1)
+    })
+    const [ioSocket, controlSocket] = MockWebSocket.instances
+    const sentBeforeVisibleResize = controlSocket?.sent.length ?? 0
+    MockResizeObserver.instances[0]?.trigger()
+    await waitFor(() => {
+      expect(controlSocket?.sent).toHaveLength(sentBeforeVisibleResize + 1)
+    })
+
+    slot.remove()
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-testid="terminal-run-stable"]')).not.toBeNull()
+    })
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(websocketCloseCount).toBe(0)
+    expect(terminalDisposeCount).toBe(0)
+    const sentBeforeHiddenResize = controlSocket?.sent.length ?? 0
+    window.dispatchEvent(new Event('resize'))
+    MockResizeObserver.instances[0]?.trigger()
+    await new Promise((resolve) => window.setTimeout(resolve, 75))
+    expect(controlSocket?.sent).toHaveLength(sentBeforeHiddenResize)
+
+    slot = addPortalSlot('run-stable')
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-stable"]')).not.toBeNull()
+    })
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(terminalOpenCount).toBe(1)
+    expect(terminalDisposeCount).toBe(0)
+    await waitFor(() => {
+      expect(controlSocket?.sent.length).toBeGreaterThan(sentBeforeHiddenResize)
+    })
+    const sentBeforeProtocolMessages = controlSocket?.sent.length ?? 0
+
+    controlSocket?.onmessage?.({
+      data: JSON.stringify({ type: 'restore', snapshot: 'restored-history' }),
+    })
+    ioSocket?.onmessage?.({ data: 'live-after-reattach' })
+    expect(terminalWrites).toEqual(['restored-history', 'live-after-reattach'])
+    const controlMessagesAfterReattach = controlSocket?.sent
+      .slice(sentBeforeProtocolMessages)
+      .map((payload) => JSON.parse(payload))
+    expect(controlMessagesAfterReattach).toEqual([
+      { type: 'restore_complete' },
+      { type: 'output_ack', bytes: new TextEncoder().encode('live-after-reattach').byteLength },
+    ])
+
+    latestOnDataHandler?.('typed-after-reattach')
+    expect(ioSocket?.sent).toContain('typed-after-reattach')
+    latestCustomKeyHandler?.(
+      new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, shiftKey: true })
+    )
+    expect(ioSocket?.sent).toContain('\u001b[13;2u')
+  })
+
+  test('disposes the terminal session when TerminalView unmounts', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    const slot = addPortalSlot('run-unmount')
+
+    const view = render(<TerminalView runId="run-unmount" title="Alice" />)
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-unmount"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    slot.remove()
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-terminal-host-run-id="run-unmount"]')).not.toBeNull()
+    })
+
+    view.unmount()
+
+    expect(document.querySelector('[data-terminal-host-run-id="run-unmount"]')).toBeNull()
+    expect(document.getElementById('hive-terminal-parking-lot')).toBeNull()
+    expect(websocketCloseCount).toBe(2)
+    expect(terminalDisposeCount).toBe(1)
+  })
+
+  test('disposes a parked terminal when no portal slot returns', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    const slot = addPortalSlot('run-abandoned')
+
+    render(<TerminalView runId="run-abandoned" title="Alice" />)
+
+    await waitFor(() => {
+      expect(slot.querySelector('[data-testid="terminal-run-abandoned"]')).not.toBeNull()
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    slot.remove()
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-terminal-host-run-id="run-abandoned"]')).not.toBeNull()
+    })
+
+    await waitFor(
+      () => {
+        expect(document.querySelector('[data-terminal-host-run-id="run-abandoned"]')).toBeNull()
+        expect(document.getElementById('hive-terminal-parking-lot')).toBeNull()
+        expect(websocketCloseCount).toBe(2)
+        expect(terminalDisposeCount).toBe(1)
+      },
+      { timeout: 1500 }
+    )
   })
 
   test('buffers live output until the restore snapshot is written', async () => {
@@ -267,7 +530,30 @@ describe('TerminalView', () => {
     fireEvent.wheel(terminal, { deltaY: 120 })
     fireEvent.wheel(terminal, { deltaY: -120 })
 
-    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u0004', '\u0015'])
+    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', '\u001b[5~'])
+  })
+
+  test('keeps OpenCode wheel fallback active when mouse tracking is reported', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    terminalBufferType = 'alternate'
+    terminalMouseTrackingMode = 'any'
+    addPortalSlot('run-wheel-opencode-mouse')
+
+    render(
+      <TerminalView inputProfile="opencode" runId="run-wheel-opencode-mouse" title="OpenCode" />
+    )
+
+    const terminal = await waitFor(() => {
+      const node = document.querySelector('[data-testid="terminal-run-wheel-opencode-mouse"]')
+      expect(MockWebSocket.instances[0]?.readyState).toBe(1)
+      expect(node).not.toBeNull()
+      return node as HTMLElement
+    })
+
+    fireEvent.wheel(terminal, { deltaY: 120 })
+    fireEvent.wheel(terminal, { deltaY: -120 })
+
+    expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[6~', '\u001b[5~'])
   })
 
   test('uses application cursor arrow sequences for alternate-screen wheel fallback', async () => {

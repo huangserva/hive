@@ -191,9 +191,6 @@ export const useWorkerComposer = ({
       .then((templates) => {
         if (cancelled) return
         setRoleTemplates(templates)
-        if (!roleDescriptionEditedRef.current) {
-          setRoleDescriptionState(getDefaultDescription(workerRole, templates, language))
-        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -203,7 +200,7 @@ export const useWorkerComposer = ({
     return () => {
       cancelled = true
     }
-  }, [open, workerRole, language])
+  }, [open])
 
   useEffect(() => {
     if (selectedTemplateId !== null) return

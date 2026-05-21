@@ -14,7 +14,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react'
-import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useI18n } from '../i18n.js'
 import { EmptyState } from '../ui/EmptyState.js'
@@ -562,6 +562,20 @@ const AddTaskInline = ({
 const flattenTasks = (tasks: ParsedTask[]): ParsedTask[] =>
   tasks.flatMap((task) => [task, ...flattenTasks(task.children)])
 
+const getTaskSummary = (tasks: ParsedTask[]) => {
+  const flatTasks = flattenTasks(tasks)
+  const totalTasks = flatTasks.length
+  const completedTasks = flatTasks.filter((task) => task.checked).length
+  const completionPercent = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100)
+  return {
+    completedTasks,
+    completionPercent,
+    doneRoots: tasks.filter((task) => task.checked),
+    openRoots: tasks.filter((task) => !task.checked),
+    totalTasks,
+  }
+}
+
 export const TaskGraphDrawer = ({
   content,
   hasConflict,
@@ -602,18 +616,14 @@ export const TaskGraphDrawer = ({
     ...(onSelectOwner ? { onSelectOwner } : {}),
     ...(connectionStale ? { writeDisabled: true } : {}),
   }
-  const parseOptions = knownWorkerNames ? { knownWorkerNames } : {}
-  const tasks = parseTaskMarkdown(content, parseOptions)
-  const flatTasks = flattenTasks(tasks)
-  const totalTasks = flatTasks.length
-  const completedTasks = flatTasks.filter((task) => task.checked).length
-  const completionPercent = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100)
-
-  // Partition top-level tasks: open vs done. Children stay nested under
-  // their parent regardless (a parent's checked flag doesn't hide its
-  // subtree).
-  const openRoots = tasks.filter((task) => !task.checked)
-  const doneRoots = tasks.filter((task) => task.checked)
+  const tasks = useMemo(
+    () => parseTaskMarkdown(content, knownWorkerNames ? { knownWorkerNames } : {}),
+    [content, knownWorkerNames]
+  )
+  const { completedTasks, completionPercent, doneRoots, openRoots, totalTasks } = useMemo(
+    () => getTaskSummary(tasks),
+    [tasks]
+  )
   // Default to expanded when the completed cohort is small enough that
   // hiding it feels like the UI "ate" the user's just-checked task.
   const [completedOpen, setCompletedOpen] = useState(doneRoots.length <= 3)

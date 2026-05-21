@@ -9,6 +9,32 @@ const MAX_REFRESH_INTERVAL_MS = 5000
 const getRefreshDelay = (failureCount: number) =>
   Math.min(REFRESH_INTERVAL_MS * 2 ** failureCount, MAX_REFRESH_INTERVAL_MS)
 
+const areWorkersEqual = (a: TeamListItem[], b: TeamListItem[]): boolean => {
+  if (a.length !== b.length) return false
+  return a.every((worker, index) => {
+    const other = b[index]
+    return (
+      other !== undefined &&
+      worker.id === other.id &&
+      worker.lastPtyLine === other.lastPtyLine &&
+      worker.name === other.name &&
+      worker.pendingTaskCount === other.pendingTaskCount &&
+      worker.role === other.role &&
+      worker.status === other.status
+    )
+  })
+}
+
+const areWorkerMapsEqual = (
+  a: Record<string, TeamListItem[]>,
+  b: Record<string, TeamListItem[]>
+): boolean => {
+  const aKeys = Object.keys(a)
+  const bKeys = Object.keys(b)
+  if (aKeys.length !== bKeys.length) return false
+  return bKeys.every((workspaceId) => areWorkersEqual(a[workspaceId] ?? [], b[workspaceId] ?? []))
+}
+
 export const useWorkspaceWorkers = (workspaceIds: readonly string[]) => {
   const workspaceKey = workspaceIds.join('\0')
   const [workersByWorkspaceId, setWorkersByWorkspaceId] = useState<Record<string, TeamListItem[]>>(
@@ -50,7 +76,7 @@ export const useWorkspaceWorkers = (workspaceIds: readonly string[]) => {
             for (const result of results) {
               if (result) next[result[0]] = result[1]
             }
-            return next
+            return areWorkerMapsEqual(current, next) ? current : next
           })
         })
         .finally(() => {

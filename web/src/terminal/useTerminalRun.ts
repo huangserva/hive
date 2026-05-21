@@ -38,168 +38,184 @@ export const useTerminalRun = (
       import('@xterm/xterm'),
       import('@xterm/addon-fit'),
       import('@xterm/addon-unicode11'),
-      import('@xterm/addon-webgl'),
       import('@xterm/addon-clipboard'),
-      import('@xterm/addon-web-links'),
-    ]).then(
-      ([xtermModule, fitModule, unicode11Module, webglModule, clipboardModule, webLinksModule]) => {
-        if (disposed || !containerRef.current) return
+    ]).then(([xtermModule, fitModule, unicode11Module, clipboardModule]) => {
+      if (disposed || !containerRef.current) return
 
-        // Read xterm background from CSS so it stays in sync if the palette
-        // shifts. Falls back to bg-crust's literal value if computed style is
-        // unavailable (jsdom). Without this, xterm's canvas sat at #0f0f11 and
-        // the wrapping container at #1b1b1b, so unfilled rows showed a seam.
-        const rootStyles =
-          typeof window !== 'undefined' ? getComputedStyle(document.documentElement) : null
-        const bgCrust = rootStyles?.getPropertyValue('--bg-crust').trim() || '#0e0e0e'
-        const textPrimary = rootStyles?.getPropertyValue('--text-primary').trim() || '#ebebeb'
-        const nextTerminal = new xtermModule.Terminal({
-          allowProposedApi: true,
-          convertEol: false,
-          fontFamily: "'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
-          fontSize: 13,
-          letterSpacing: 0,
-          lineHeight: 1,
-          scrollback: 10_000,
-          theme: {
-            background: bgCrust,
-            foreground: textPrimary,
-          },
+      // Read xterm background from CSS so it stays in sync if the palette
+      // shifts. Falls back to bg-crust's literal value if computed style is
+      // unavailable (jsdom). Without this, xterm's canvas sat at #0f0f11 and
+      // the wrapping container at #1b1b1b, so unfilled rows showed a seam.
+      const rootStyles =
+        typeof window !== 'undefined' ? getComputedStyle(document.documentElement) : null
+      const bgCrust = rootStyles?.getPropertyValue('--bg-crust').trim() || '#0e0e0e'
+      const textPrimary = rootStyles?.getPropertyValue('--text-primary').trim() || '#ebebeb'
+      const nextTerminal = new xtermModule.Terminal({
+        allowProposedApi: true,
+        convertEol: false,
+        fontFamily: "'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: 13,
+        letterSpacing: 0,
+        lineHeight: 1,
+        scrollback: 10_000,
+        theme: {
+          background: bgCrust,
+          foreground: textPrimary,
+        },
+      })
+      const nextFitAddon = new fitModule.FitAddon()
+      nextTerminal.loadAddon(nextFitAddon)
+      nextTerminal.loadAddon(new unicode11Module.Unicode11Addon())
+      nextTerminal.unicode.activeVersion = '11'
+      nextTerminal.loadAddon(new clipboardModule.ClipboardAddon())
+      nextTerminal.open(containerRef.current)
+      nextFitAddon.fit()
+      terminal = nextTerminal
+      fitAddon = nextFitAddon
+      wheelFallbackDispose = attachAlternateScreenWheelFallback({
+        element: containerRef.current,
+        profile: inputProfile,
+        sendInput: (chunk) => client?.sendInput(chunk),
+        terminal: nextTerminal,
+      })
+
+      void import('@xterm/addon-web-links')
+        .then((webLinksModule) => {
+          if (disposed || terminal !== nextTerminal) return
+          nextTerminal.loadAddon(new webLinksModule.WebLinksAddon())
         })
-        const nextFitAddon = new fitModule.FitAddon()
-        nextTerminal.loadAddon(nextFitAddon)
-        nextTerminal.loadAddon(new unicode11Module.Unicode11Addon())
-        nextTerminal.unicode.activeVersion = '11'
-        nextTerminal.loadAddon(new clipboardModule.ClipboardAddon())
-        nextTerminal.loadAddon(new webLinksModule.WebLinksAddon())
-        nextTerminal.open(containerRef.current)
-        nextFitAddon.fit()
-        terminal = nextTerminal
-        fitAddon = nextFitAddon
-        wheelFallbackDispose = attachAlternateScreenWheelFallback({
-          element: containerRef.current,
-          profile: inputProfile,
-          sendInput: (chunk) => client?.sendInput(chunk),
-          terminal: nextTerminal,
+        .catch(() => {
+          // Keep the core terminal usable when optional addons fail to load.
         })
 
-        try {
-          const webglAddon = new webglModule.WebglAddon()
-          webglAddon.onContextLoss(() => webglAddon.dispose())
-          nextTerminal.loadAddon(webglAddon)
-        } catch {
-          // Fall back to the default renderer when WebGL is unavailable.
-        }
-
-        // Take over IME composition so xterm's built-in CompositionHelper does
-        // not emit spurious DEL (0x7f) bytes after each commit. Without this,
-        // typing CJK in Claude Code's TUI prompt would commit the CJK chars
-        // and then send a growing run of DELs that erased surrounding text.
-        helperTextarea =
-          containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
-        if (helperTextarea) {
-          const localTextarea = helperTextarea
-          onCompositionStart = () => {
-            isComposingRef.current = true
+      void import('@xterm/addon-webgl')
+        .then((webglModule) => {
+          if (disposed || terminal !== nextTerminal) return
+          try {
+            const webglAddon = new webglModule.WebglAddon()
+            webglAddon.onContextLoss(() => webglAddon.dispose())
+            nextTerminal.loadAddon(webglAddon)
+          } catch {
+            // Fall back to the default renderer when WebGL is unavailable.
           }
-          onCompositionEnd = (event: Event) => {
-            const composed = (event as CompositionEvent).data
-            if (composed) client?.sendInput(composed)
-            // Clear the textarea so xterm's built-in helper has nothing to
-            // commit on its deferred setTimeout(0) read, and so its tracked
-            // value never accumulates across compositions.
-            localTextarea.value = ''
-            // Release the flag in a later macrotask so the built-in helper's
-            // own setTimeout(0) work fires while we are still filtering.
-            setTimeout(() => {
-              isComposingRef.current = false
-            }, 0)
-          }
-          helperTextarea.addEventListener('compositionstart', onCompositionStart, { capture: true })
-          helperTextarea.addEventListener('compositionend', onCompositionEnd, { capture: true })
-        }
-
-        if (typeof nextTerminal.attachCustomKeyEventHandler === 'function') {
-          nextTerminal.attachCustomKeyEventHandler((event) => {
-            const action = resolveTerminalShortcut(event)
-            switch (action.kind) {
-              case 'send':
-                event.preventDefault()
-                client?.sendInput(action.bytes)
-                return false
-              case 'clear':
-                event.preventDefault()
-                nextTerminal.clear()
-                return false
-              case 'block':
-                // Intentionally NOT calling preventDefault here. Shift+Enter
-                // depends on keydown → keypress chaining; if we preventDefault
-                // on keydown the browser cancels the corresponding keypress and
-                // the 'send' branch never gets to emit \x1b[13;2u.
-                return false
-              case 'passthrough':
-                return true
-            }
-          })
-        }
-
-        const getContainerPixels = (): { pixelHeight?: number; pixelWidth?: number } => {
-          if (!containerRef.current) return {}
-          const pixelWidth = containerRef.current.clientWidth
-          const pixelHeight = containerRef.current.clientHeight
-          const pixels: { pixelHeight?: number; pixelWidth?: number } = {}
-          if (pixelHeight > 0) pixels.pixelHeight = pixelHeight
-          if (pixelWidth > 0) pixels.pixelWidth = pixelWidth
-          return pixels
-        }
-        const resize = () => {
-          if (!containerRef.current) return
-          fitAddon?.fit()
-          const { pixelHeight, pixelWidth } = getContainerPixels()
-          client?.resize(terminal?.cols ?? 80, terminal?.rows ?? 24, pixelWidth, pixelHeight)
-        }
-        const scheduleResize = () => {
-          if (resizeTimer) window.clearTimeout(resizeTimer)
-          resizeTimer = window.setTimeout(() => {
-            resizeTimer = undefined
-            resize()
-          }, 50)
-        }
-
-        client = createTerminalClient({
-          initialSize: {
-            cols: nextTerminal.cols,
-            rows: nextTerminal.rows,
-            ...getContainerPixels(),
-          },
-          onError(message) {
-            setError(message)
-          },
-          onExit() {
-            setStatus('stopped')
-          },
-          onOutput(chunk, acknowledge) {
-            nextTerminal.write(chunk, () => acknowledge(new TextEncoder().encode(chunk).byteLength))
-          },
-          onRestore(snapshot) {
-            nextTerminal.write(snapshot)
-          },
-          runId,
         })
-        inputSubscription = nextTerminal.onData((chunk) => {
-          if (isComposingRef.current) return
-          client?.sendInput(chunk)
+        .catch(() => {
+          // Fall back to the default renderer when the WebGL chunk is unavailable.
         })
-        setStatus('running')
-        resize()
-        if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-          resizeObserver = new ResizeObserver(scheduleResize)
-          resizeObserver.observe(containerRef.current)
+
+      // Take over IME composition so xterm's built-in CompositionHelper does
+      // not emit spurious DEL (0x7f) bytes after each commit. Without this,
+      // typing CJK in Claude Code's TUI prompt would commit the CJK chars
+      // and then send a growing run of DELs that erased surrounding text.
+      helperTextarea =
+        containerRef.current.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+      if (helperTextarea) {
+        const localTextarea = helperTextarea
+        onCompositionStart = () => {
+          isComposingRef.current = true
         }
-        onWindowResize = () => resize()
-        window.addEventListener('resize', onWindowResize)
+        onCompositionEnd = (event: Event) => {
+          const composed = (event as CompositionEvent).data
+          if (composed) client?.sendInput(composed)
+          // Clear the textarea so xterm's built-in helper has nothing to
+          // commit on its deferred setTimeout(0) read, and so its tracked
+          // value never accumulates across compositions.
+          localTextarea.value = ''
+          // Release the flag in a later macrotask so the built-in helper's
+          // own setTimeout(0) work fires while we are still filtering.
+          setTimeout(() => {
+            isComposingRef.current = false
+          }, 0)
+        }
+        helperTextarea.addEventListener('compositionstart', onCompositionStart, { capture: true })
+        helperTextarea.addEventListener('compositionend', onCompositionEnd, { capture: true })
       }
-    )
+
+      if (typeof nextTerminal.attachCustomKeyEventHandler === 'function') {
+        nextTerminal.attachCustomKeyEventHandler((event) => {
+          const action = resolveTerminalShortcut(event)
+          switch (action.kind) {
+            case 'send':
+              event.preventDefault()
+              client?.sendInput(action.bytes)
+              return false
+            case 'clear':
+              event.preventDefault()
+              nextTerminal.clear()
+              return false
+            case 'block':
+              // Intentionally NOT calling preventDefault here. Shift+Enter
+              // depends on keydown → keypress chaining; if we preventDefault
+              // on keydown the browser cancels the corresponding keypress and
+              // the 'send' branch never gets to emit \x1b[13;2u.
+              return false
+            case 'passthrough':
+              return true
+          }
+        })
+      }
+
+      const isContainerResizable = (): boolean => {
+        const container = containerRef.current
+        if (!container?.isConnected) return false
+        return !container.closest('[data-terminal-host-parked="true"]')
+      }
+      const getContainerPixels = (): { pixelHeight?: number; pixelWidth?: number } => {
+        if (!containerRef.current) return {}
+        const pixelWidth = containerRef.current.clientWidth
+        const pixelHeight = containerRef.current.clientHeight
+        const pixels: { pixelHeight?: number; pixelWidth?: number } = {}
+        if (pixelHeight > 0) pixels.pixelHeight = pixelHeight
+        if (pixelWidth > 0) pixels.pixelWidth = pixelWidth
+        return pixels
+      }
+      const resize = () => {
+        if (!containerRef.current || !isContainerResizable()) return
+        fitAddon?.fit()
+        const { pixelHeight, pixelWidth } = getContainerPixels()
+        client?.resize(terminal?.cols ?? 80, terminal?.rows ?? 24, pixelWidth, pixelHeight)
+      }
+      const scheduleResize = () => {
+        if (resizeTimer) window.clearTimeout(resizeTimer)
+        resizeTimer = window.setTimeout(() => {
+          resizeTimer = undefined
+          resize()
+        }, 50)
+      }
+
+      client = createTerminalClient({
+        initialSize: {
+          cols: nextTerminal.cols,
+          rows: nextTerminal.rows,
+          ...getContainerPixels(),
+        },
+        onError(message) {
+          setError(message)
+        },
+        onExit() {
+          setStatus('stopped')
+        },
+        onOutput(chunk, acknowledge) {
+          nextTerminal.write(chunk, () => acknowledge(new TextEncoder().encode(chunk).byteLength))
+        },
+        onRestore(snapshot) {
+          nextTerminal.write(snapshot)
+        },
+        runId,
+      })
+      inputSubscription = nextTerminal.onData((chunk) => {
+        if (isComposingRef.current) return
+        client?.sendInput(chunk)
+      })
+      setStatus('running')
+      resize()
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        resizeObserver = new ResizeObserver(scheduleResize)
+        resizeObserver.observe(containerRef.current)
+      }
+      onWindowResize = () => resize()
+      window.addEventListener('resize', onWindowResize)
+    })
 
     return () => {
       disposed = true

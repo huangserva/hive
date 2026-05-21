@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../src/shared/types.js'
 import {
@@ -15,14 +15,19 @@ import { findRunByAgentId } from './terminal/useTerminalRuns.js'
 import { useWorkspaceShellLauncher } from './terminal/useWorkspaceShellLauncher.js'
 import { useToast } from './ui/useToast.js'
 import { usePaneSplit } from './usePaneSplit.js'
-import { AddWorkerDialog } from './worker/AddWorkerDialog.js'
 import { OrchestratorPane } from './worker/OrchestratorPane.js'
 import { useOrchestratorPaneState } from './worker/useOrchestratorPaneState.js'
 import type { WorkerActions } from './worker/useWorkerActions.js'
 import { useWorkerComposer } from './worker/useWorkerComposer.js'
 import { WelcomePane } from './worker/WelcomePane.js'
-import { WorkerModal } from './worker/WorkerModal.js'
 import { WorkersPane } from './worker/WorkersPane.js'
+
+const AddWorkerDialog = lazy(() =>
+  import('./worker/AddWorkerDialog.js').then((module) => ({ default: module.AddWorkerDialog }))
+)
+const WorkerModal = lazy(() =>
+  import('./worker/WorkerModal.js').then((module) => ({ default: module.WorkerModal }))
+)
 
 type WorkspaceDetailProps = {
   onCreateWorker: WorkerActions['createWorker']
@@ -280,41 +285,45 @@ export const WorkspaceDetail = ({
         </div>
       </div>
       {activeWorker ? (
-        <WorkerModal
-          onClose={() => setActiveWorkerId(null)}
-          onStart={handleStartWorker}
-          runId={activeWorkerRun?.run_id ?? null}
-          startError={startWorkerError}
-          starting={startingWorkerId === activeWorker.id}
-          worker={activeWorker}
-        />
+        <Suspense fallback={null}>
+          <WorkerModal
+            onClose={() => setActiveWorkerId(null)}
+            onStart={handleStartWorker}
+            runId={activeWorkerRun?.run_id ?? null}
+            startError={startWorkerError}
+            starting={startingWorkerId === activeWorker.id}
+            worker={activeWorker}
+          />
+        </Suspense>
       ) : null}
       {composerOpen ? (
-        <AddWorkerDialog
-          commandPresets={composer.commandPresets}
-          commandPresetId={composer.commandPresetId}
-          creating={composer.creating}
-          customTemplates={composer.customTemplates}
-          onClose={() => setComposerOpen(false)}
-          onDeleteTemplate={composer.deleteTemplate}
-          onNameChange={composer.setWorkerName}
-          onPresetChange={composer.setCommandPresetId}
-          onRandomName={composer.randomizeWorkerName}
-          onRoleDescriptionChange={composer.setRoleDescription}
-          onRoleDescriptionReset={composer.resetRoleDescription}
-          onRoleChange={composer.setWorkerRole}
-          onSaveAsTemplate={composer.saveAsTemplate}
-          onSubmit={(event) => composer.submit(event, () => setComposerOpen(false))}
-          onStartupCommandChange={composer.setStartupCommand}
-          onTemplateChange={composer.selectTemplate}
-          roleDescription={composer.roleDescription}
-          roleDescriptionDefault={composer.roleDescriptionDefault}
-          selectedTemplateId={composer.selectedTemplateId}
-          startupCommand={composer.startupCommand}
-          templateBusy={composer.templateBusy}
-          workerName={composer.workerName}
-          workerRole={composer.workerRole}
-        />
+        <Suspense fallback={null}>
+          <AddWorkerDialog
+            commandPresets={composer.commandPresets}
+            commandPresetId={composer.commandPresetId}
+            creating={composer.creating}
+            customTemplates={composer.customTemplates}
+            onClose={() => setComposerOpen(false)}
+            onDeleteTemplate={composer.deleteTemplate}
+            onNameChange={composer.setWorkerName}
+            onPresetChange={composer.setCommandPresetId}
+            onRandomName={composer.randomizeWorkerName}
+            onRoleDescriptionChange={composer.setRoleDescription}
+            onRoleDescriptionReset={composer.resetRoleDescription}
+            onRoleChange={composer.setWorkerRole}
+            onSaveAsTemplate={composer.saveAsTemplate}
+            onSubmit={(event) => composer.submit(event, () => setComposerOpen(false))}
+            onStartupCommandChange={composer.setStartupCommand}
+            onTemplateChange={composer.selectTemplate}
+            roleDescription={composer.roleDescription}
+            roleDescriptionDefault={composer.roleDescriptionDefault}
+            selectedTemplateId={composer.selectedTemplateId}
+            startupCommand={composer.startupCommand}
+            templateBusy={composer.templateBusy}
+            workerName={composer.workerName}
+            workerRole={composer.workerRole}
+          />
+        </Suspense>
       ) : null}
     </div>
   )

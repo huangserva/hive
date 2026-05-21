@@ -33,7 +33,9 @@ const profileSequence = (
   profile: TerminalWheelInputProfile,
   direction: 'down' | 'up'
 ) => {
-  if (profile === 'opencode') return direction === 'up' ? '\u0015' : '\u0004'
+  if (profile === 'opencode') {
+    return direction === 'up' ? '\u001b[5~' : '\u001b[6~'
+  }
   return arrowSequence(terminal.modes?.applicationCursorKeysMode, direction)
 }
 
@@ -48,7 +50,11 @@ export const createAlternateScreenWheelInputResolver = (
       partialLines = 0
       return { handled: false, input: null }
     }
-    if (terminal.modes?.mouseTrackingMode && terminal.modes.mouseTrackingMode !== 'none') {
+    if (
+      profile !== 'opencode' &&
+      terminal.modes?.mouseTrackingMode &&
+      terminal.modes.mouseTrackingMode !== 'none'
+    ) {
       partialLines = 0
       return { handled: false, input: null }
     }

@@ -113,6 +113,32 @@ describe('useWorkspaceWorkers', () => {
     })
   })
 
+  test('keeps the same workspace map reference when refreshed worker payloads are unchanged', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        json([{ id: 'wa', name: 'Alice', role: 'coder', status: 'idle', pending_task_count: 0 }])
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { result } = renderHook(() => useWorkspaceWorkers(['a']))
+
+    await act(async () => {
+      await flushPromises()
+    })
+    expect(result.current[0]).toHaveProperty('a')
+    const firstMap = result.current[0]
+
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+      await flushPromises()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.current[0]).toBe(firstMap)
+  })
+
   test('backs off failed refreshes and does not overlap in-flight worker requests', async () => {
     vi.useFakeTimers()
     let resolveFirstFetch: ((response: Response) => void) | undefined

@@ -94,19 +94,11 @@ export const useTasksFile = (workspaceId: string | null, demoContent?: string) =
     if (!workspaceId) return
     let closed = false
     const socket = new WebSocket(toTasksSocketUrl(workspaceId))
-    socket.onopen = () => {
-      void getWorkspaceTasks(workspaceId)
-        .then(({ content: nextContent }) => {
-          if (!closed) applyRemoteContent(nextContent, contentRef.current)
-        })
-        .catch((error: unknown) => {
-          console.error('[hive] swallowed:tasks.getOnReconnect', error)
-        })
-    }
     socket.onmessage = (event) => {
       if (closed) return
-      const payload = JSON.parse(event.data) as { content: string; type: string }
-      if (payload.type !== 'tasks-updated') return
+      const payload = JSON.parse(event.data) as { content?: string; type: string }
+      if (payload.type !== 'tasks-snapshot' && payload.type !== 'tasks-updated') return
+      if (typeof payload.content !== 'string') return
       applyRemoteContent(payload.content, contentRef.current)
     }
     return () => {

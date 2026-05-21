@@ -172,5 +172,7 @@ test('demo mode surfaces the Todo entry in the Topbar', async () => {
 
   expect(screen.getByTestId('topbar-blueprint')).toBeInTheDocument()
   fireEvent.click(screen.getByTestId('topbar-blueprint'))
-  expect(screen.getByTestId('task-graph-drawer')).toHaveAttribute('aria-hidden', 'false')
+  await waitFor(() => {
+    expect(screen.getByTestId('task-graph-drawer')).toHaveAttribute('aria-hidden', 'false')
+  })
 })

@@ -52,6 +52,7 @@ export const AppWorkspaceContent = ({
         <WorkspaceTerminalPanels
           key={`terminal-${activeId}`}
           optimisticRuns={optimisticRunsByWorkspaceId[activeId] ?? []}
+          terminalRuns={terminalRuns}
           workspaceId={activeId}
         />
       ) : null}

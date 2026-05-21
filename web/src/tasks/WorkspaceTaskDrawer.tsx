@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import type { TeamListItem } from '../../../src/shared/types.js'
 import { logSwallowed } from '../lib/log-swallowed.js'
 import { TaskGraphDrawer } from './TaskGraphDrawer.js'
@@ -49,7 +51,10 @@ export const WorkspaceTaskDrawer = ({
   // roster is collapsed to `undefined` so the parser falls back to permissive
   // mode (any `@token` chips). The "explicit empty = strict" branch stays
   // available for direct callers via `parseTaskMarkdown(content, { knownWorkerNames: [] })`.
-  const knownWorkerNames = workers?.length ? workers.map((w) => w.name) : undefined
+  const knownWorkerNames = useMemo(
+    () => (workers?.length ? workers.map((w) => w.name) : undefined),
+    [workers]
+  )
   return (
     <TaskGraphDrawer
       content={tasksFile.content}

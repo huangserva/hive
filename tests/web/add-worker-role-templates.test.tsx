@@ -133,6 +133,30 @@ describe('Add Worker dialog: custom role templates', () => {
     expect(screen.getByTestId('role-template-picker-trigger')).toBeInTheDocument()
   })
 
+  test('does not refetch role templates when switching role cards', async () => {
+    listRoleTemplates.mockResolvedValue([
+      {
+        id: 'tpl-doc',
+        name: 'Doc Writer',
+        roleType: 'custom',
+        description: 'Writes documentation.',
+        isBuiltin: false,
+      },
+    ])
+
+    render(<Harness />)
+
+    await waitFor(() => {
+      expect(listRoleTemplates).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(screen.getByTestId('role-card-custom'))
+    fireEvent.click(screen.getByTestId('role-card-reviewer'))
+    fireEvent.click(screen.getByTestId('role-card-custom'))
+
+    expect(listRoleTemplates).toHaveBeenCalledTimes(1)
+  })
+
   test('opening the picker reveals custom templates with search and delete controls', async () => {
     listRoleTemplates.mockResolvedValue([
       {

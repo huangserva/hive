@@ -15,8 +15,11 @@ interface AgentLaunchCacheStore {
 export const createAgentLaunchCache = (store: AgentLaunchCacheStore) => {
   const launchConfigs = new Map<string, AgentLaunchConfigInput>()
   const workspaceByAgentId = new Map<string, string>()
+  const missingLaunchConfigs = new Set<string>()
   const cacheKey = (workspaceId: string, agentId: string) => `${workspaceId}:${agentId}`
   const load = () => {
+    launchConfigs.clear()
+    workspaceByAgentId.clear()
     for (const row of store.listLaunchConfigs()) {
       launchConfigs.set(cacheKey(row.workspaceId, row.agentId), row.config)
       workspaceByAgentId.set(row.agentId, row.workspaceId)
@@ -27,18 +30,28 @@ export const createAgentLaunchCache = (store: AgentLaunchCacheStore) => {
 
   return {
     get(workspaceId: string, agentId: string) {
-      const config = launchConfigs.get(cacheKey(workspaceId, agentId))
+      const key = cacheKey(workspaceId, agentId)
+      const config = launchConfigs.get(key)
       if (config) return config
+      if (missingLaunchConfigs.has(key)) {
+        throw new Error(`Agent launch config not found: ${agentId}`)
+      }
       load()
-      const reloadedConfig = launchConfigs.get(cacheKey(workspaceId, agentId))
+      const reloadedConfig = launchConfigs.get(key)
       if (reloadedConfig) return reloadedConfig
+      missingLaunchConfigs.add(key)
       throw new Error(`Agent launch config not found: ${agentId}`)
     },
     peek(workspaceId: string, agentId: string) {
-      const config = launchConfigs.get(cacheKey(workspaceId, agentId))
+      const key = cacheKey(workspaceId, agentId)
+      const config = launchConfigs.get(key)
       if (config) return config
+      if (missingLaunchConfigs.has(key)) return undefined
       load()
-      return launchConfigs.get(cacheKey(workspaceId, agentId))
+      const reloadedConfig = launchConfigs.get(key)
+      if (reloadedConfig) return reloadedConfig
+      missingLaunchConfigs.add(key)
+      return undefined
     },
     getWorkspaceId(agentId: string) {
       return workspaceByAgentId.get(agentId)
@@ -54,12 +67,16 @@ export const createAgentLaunchCache = (store: AgentLaunchCacheStore) => {
         sessionIdCapture: input.sessionIdCapture ?? null,
       }
       store.saveLaunchConfig(workspaceId, agentId, normalized)
-      launchConfigs.set(cacheKey(workspaceId, agentId), normalized)
+      const key = cacheKey(workspaceId, agentId)
+      launchConfigs.set(key, normalized)
+      missingLaunchConfigs.delete(key)
       workspaceByAgentId.set(agentId, workspaceId)
     },
     remove(workspaceId: string, agentId: string) {
       store.deleteLaunchConfig(workspaceId, agentId)
-      launchConfigs.delete(cacheKey(workspaceId, agentId))
+      const key = cacheKey(workspaceId, agentId)
+      launchConfigs.delete(key)
+      missingLaunchConfigs.add(key)
       workspaceByAgentId.delete(agentId)
     },
     setWorkspaceId(agentId: string, workspaceId: string) {

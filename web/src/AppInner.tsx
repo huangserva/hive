@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import type { WorkspaceSummary } from '../../src/shared/types.js'
 import { AppOverlays } from './AppOverlays.js'
@@ -69,9 +69,13 @@ export const AppInner = () => {
     demoMode ? null : (activeWorkspaceId ?? null),
     demoMode ? DEMO_TASKS_MD : undefined
   )
-  const openTaskCount = eff.effectiveActiveWorkspace
-    ? parseTaskMarkdown(tasksFile.content).filter((task) => !task.checked).length
-    : 0
+  const openTaskCount = useMemo(
+    () =>
+      eff.effectiveActiveWorkspace
+        ? parseTaskMarkdown(tasksFile.content).filter((task) => !task.checked).length
+        : 0,
+    [eff.effectiveActiveWorkspace, tasksFile.content]
+  )
   const workerActions = useWorkerActions({
     activeWorkspaceId,
     onWorkerDeleted: terms.forgetOptimisticAgent,

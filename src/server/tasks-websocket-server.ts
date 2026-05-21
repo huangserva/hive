@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws'
 
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { RuntimeStore } from './runtime-store.js'
+import type { TasksFileService } from './tasks-file.js'
 import { readCookie } from './ui-auth-helpers.js'
 
 const matchTasksPath = (pathname: string) => {
@@ -28,7 +29,8 @@ export interface TasksWebSocketServer {
 
 export const createTasksWebSocketServer = (
   server: Server,
-  store: RuntimeStore
+  store: RuntimeStore,
+  tasksFileService: Pick<TasksFileService, 'readTasks'>
 ): TasksWebSocketServer => {
   const wss = new WebSocketServer({ noServer: true })
   const socketsByWorkspaceId = new Map<string, Set<WsSocket>>()
@@ -53,8 +55,9 @@ export const createTasksWebSocketServer = (
       rejectUpgrade(socket, '401 Unauthorized')
       return
     }
+    let workspacePath = ''
     try {
-      store.getWorkspaceSnapshot(workspaceId)
+      workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
     } catch {
       rejectUpgrade(socket, '404 Not Found')
       return
@@ -68,6 +71,15 @@ export const createTasksWebSocketServer = (
         if (sockets.size === 0) {
           socketsByWorkspaceId.delete(workspaceId)
         }
+      })
+      setImmediate(() => {
+        if (ws.readyState !== ws.OPEN) return
+        ws.send(
+          JSON.stringify({
+            type: 'tasks-snapshot',
+            content: tasksFileService.readTasks(workspacePath),
+          })
+        )
       })
     })
   })

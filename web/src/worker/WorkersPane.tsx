@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react'
 import type { TeamListItem } from '../../../src/shared/types.js'
 import type { TerminalRunSummary } from '../api.js'
 import { useI18n } from '../i18n.js'
-import { findRunByAgentId } from '../terminal/useTerminalRuns.js'
 import { Confirm } from '../ui/Confirm.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { RenameWorkerDialog } from './RenameWorkerDialog.js'
@@ -31,19 +30,24 @@ const statusKey = (status: WorkerStatusKind) => {
   return 'common.stopped'
 }
 
-const groupByWorkerStatus = (workers: TeamListItem[]) => {
+const summarizeWorkers = (workers: TeamListItem[]) => {
   const buckets: Record<WorkerStatusKind, TeamListItem[]> = {
     idle: [],
     working: [],
     stopped: [],
   }
-  for (const worker of workers) {
-    buckets[presentWorkerStatus(worker).kind].push(worker)
+  for (const worker of workers) buckets[presentWorkerStatus(worker).kind].push(worker)
+  return {
+    sections: SECTION_ORDER.filter((kind) => buckets[kind].length > 0).map((kind) => ({
+      kind,
+      workers: buckets[kind],
+    })),
+    summary: {
+      idle: buckets.idle.length,
+      stopped: buckets.stopped.length,
+      working: buckets.working.length,
+    },
   }
-  return SECTION_ORDER.filter((kind) => buckets[kind].length > 0).map((kind) => ({
-    kind,
-    workers: buckets[kind],
-  }))
 }
 
 export const WorkersPane = ({
@@ -59,18 +63,14 @@ export const WorkersPane = ({
   workers,
 }: WorkersPaneProps) => {
   const { t } = useI18n()
-  const sections = useMemo(() => groupByWorkerStatus(workers), [workers])
-  const summary = useMemo(() => {
-    const buckets = { idle: 0, working: 0, stopped: 0 }
-    for (const worker of workers) buckets[presentWorkerStatus(worker).kind]++
-    return buckets
-  }, [workers])
+  const { sections, summary } = useMemo(() => summarizeWorkers(workers), [workers])
+  const runIdsByAgentId = useMemo(
+    () => new Map(terminalRuns.map((run) => [run.agent_id, run.run_id] as const)),
+    [terminalRuns]
+  )
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
   const [renameBusy, setRenameBusy] = useState(false)
-
-  const runIdFor = (worker: TeamListItem): string | null =>
-    findRunByAgentId(terminalRuns, worker.id)?.run_id ?? null
 
   const handleAction = (kind: WorkerCardActionKind, worker: TeamListItem) => {
     if (kind === 'start') {
@@ -182,7 +182,7 @@ export const WorkersPane = ({
                   {section.workers.map((worker) => (
                     <li key={worker.id}>
                       <WorkerCard
-                        hasRun={!!runIdFor(worker)}
+                        hasRun={runIdsByAgentId.has(worker.id)}
                         isPending={startingWorkerId === worker.id}
                         onAction={handleAction}
                         onClick={onOpenWorker}

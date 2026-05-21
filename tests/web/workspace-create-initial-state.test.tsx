@@ -95,7 +95,7 @@ describe('workspace create initial state', () => {
     )
     expect(screen.queryByRole('contentinfo')).toBeNull()
 
-    const drawer = screen.getByTestId('task-graph-drawer')
+    const drawer = await screen.findByTestId('task-graph-drawer')
     expect(within(drawer).queryByTestId('task-graph-list')).toBeNull()
     expect(within(drawer).getByText(/No tasks yet/i)).toBeInTheDocument()
   }, 20000)

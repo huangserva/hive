@@ -69,4 +69,37 @@ describe('api error messages', () => {
       '/api/workspaces/workspace-1/agents/workspace-1:orchestrator/start',
     ])
   })
+
+  test('concurrent stale UI session retries share one refresh request', async () => {
+    let staleResponses = 0
+    let retryResponses = 0
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) => {
+      if (url === '/api/ui/session') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 })
+      }
+      if (staleResponses < 2) {
+        staleResponses += 1
+        return new Response(JSON.stringify({ error: 'UI endpoint requires valid UI token' }), {
+          headers: { 'content-type': 'application/json' },
+          status: 403,
+        })
+      }
+      retryResponses += 1
+      return new Response(JSON.stringify({ run_id: `run-${retryResponses}` }), {
+        headers: { 'content-type': 'application/json' },
+        status: 201,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      Promise.all([
+        startAgentRun('workspace-1', 'workspace-1:orchestrator'),
+        startAgentRun('workspace-1', 'worker-a'),
+      ])
+    ).resolves.toEqual([{ runId: 'run-1' }, { runId: 'run-2' }])
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/ui/session')).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(5)
+  })
 })

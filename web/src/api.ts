@@ -47,11 +47,20 @@ export const initializeUiSession = async (): Promise<void> => {
   await response.json()
 }
 
+let uiSessionRefreshPromise: Promise<void> | null = null
+
+const refreshUiSession = (): Promise<void> => {
+  uiSessionRefreshPromise ??= initializeUiSession().finally(() => {
+    uiSessionRefreshPromise = null
+  })
+  return uiSessionRefreshPromise
+}
+
 const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const response = await fetch(input, init)
   if (!(await isStaleUiSession(response))) return response
 
-  await initializeUiSession()
+  await refreshUiSession()
   return fetch(input, init)
 }
 

@@ -18,13 +18,15 @@ const shellRun = vi.hoisted<TerminalRunSummary>(() => ({
 vi.mock('../../web/src/WorkspaceTerminalPanels.js', () => ({
   WorkspaceTerminalPanels: ({
     optimisticRuns,
+    terminalRuns,
     workspaceId,
   }: {
     optimisticRuns?: TerminalRunSummary[]
+    terminalRuns: TerminalRunSummary[]
     workspaceId: string
   }) => (
     <div data-testid="terminal-panels" data-workspace-id={workspaceId}>
-      {(optimisticRuns ?? []).map((run) => run.run_id).join(',')}
+      {[...terminalRuns, ...(optimisticRuns ?? [])].map((run) => run.run_id).join(',')}
     </div>
   ),
 }))
@@ -71,6 +73,12 @@ describe('AppWorkspaceContent', () => {
       run_id: 'inactive-shell-run',
       status: 'running',
     }
+    const polledRun: TerminalRunSummary = {
+      agent_id: `${workspace.id}:orchestrator`,
+      agent_name: 'Orchestrator',
+      run_id: 'polled-run',
+      status: 'running',
+    }
 
     render(
       <AppWorkspaceContent
@@ -88,13 +96,14 @@ describe('AppWorkspaceContent', () => {
         orchestratorAutostartErrors={{}}
         orchestratorAutostartRunIds={{}}
         recordOrchestratorResult={vi.fn()}
-        terminalRuns={[]}
+        terminalRuns={[polledRun]}
         workerActions={workerActions}
         workers={[]}
       />
     )
 
     expect(screen.getByTestId('terminal-panels')).toHaveAttribute('data-workspace-id', workspace.id)
+    expect(screen.getByTestId('terminal-panels')).toHaveTextContent(polledRun.run_id)
     expect(screen.getByTestId('terminal-panels')).toHaveTextContent(shellRun.run_id)
     expect(screen.getByTestId('terminal-panels')).not.toHaveTextContent(inactiveRun.run_id)
 

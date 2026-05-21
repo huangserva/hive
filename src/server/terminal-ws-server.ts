@@ -3,6 +3,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { RuntimeStore } from './runtime-store.js'
+import type { TasksFileService } from './tasks-file.js'
 import { createTasksWebSocketServer } from './tasks-websocket-server.js'
 import type { TerminalMirrorSize } from './terminal-state-mirror.js'
 import { createTerminalStreamHub } from './terminal-stream-hub.js'
@@ -39,10 +40,14 @@ const rejectUpgrade = (
   socket.destroy()
 }
 
-export const createTerminalWebSocketServer = (server: Server, store: RuntimeStore) => {
+export const createTerminalWebSocketServer = (
+  server: Server,
+  store: RuntimeStore,
+  tasksFileService: Pick<TasksFileService, 'readTasks'>
+) => {
   const ioWss = new WebSocketServer({ noServer: true })
   const controlWss = new WebSocketServer({ noServer: true })
-  const tasksWss = createTasksWebSocketServer(server, store)
+  const tasksWss = createTasksWebSocketServer(server, store, tasksFileService)
   const hub = createTerminalStreamHub(store)
   const disposeTasksListener = store.registerTasksListener((workspaceId, content) => {
     tasksWss.publish(workspaceId, content)

@@ -159,7 +159,7 @@ export const createApp = ({
       sendJson(response, 500, { error: message })
     }
   })
-  createTerminalWebSocketServer(server, store)
+  createTerminalWebSocketServer(server, store, tasksFileService)
 
   return { server, store }
 }

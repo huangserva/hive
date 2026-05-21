@@ -1,46 +1,23 @@
-import { useEffect, useState } from 'react'
-
-import { listTerminalRuns, type TerminalRunSummary } from './api.js'
+import type { TerminalRunSummary } from './api.js'
 import { useI18n } from './i18n.js'
 import { TerminalView } from './terminal/TerminalView.js'
 import { mergeTerminalRuns } from './terminal/useOptimisticTerminalRuns.js'
 
-const REFRESH_INTERVAL_MS = 500
-
 type WorkspaceTerminalPanelsProps = {
   hidden?: boolean
   optimisticRuns?: TerminalRunSummary[]
+  terminalRuns: TerminalRunSummary[]
   workspaceId: string
 }
 
 export const WorkspaceTerminalPanels = ({
   hidden = false,
   optimisticRuns = [],
+  terminalRuns,
   workspaceId,
 }: WorkspaceTerminalPanelsProps) => {
   const { t } = useI18n()
-  const [terminalRuns, setTerminalRuns] = useState<TerminalRunSummary[]>([])
   const mergedRuns = mergeTerminalRuns(terminalRuns, optimisticRuns, workspaceId)
-
-  useEffect(() => {
-    let cancelled = false
-    const loadRuns = () => {
-      void listTerminalRuns(workspaceId)
-        .then((runs) => {
-          if (!cancelled) setTerminalRuns(runs)
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) setTerminalRuns([])
-          console.error('[hive] swallowed:terminalPanels.listRuns', error)
-        })
-    }
-    loadRuns()
-    const interval = window.setInterval(loadRuns, REFRESH_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [workspaceId])
 
   return (
     <section
