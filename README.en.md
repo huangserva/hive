@@ -326,16 +326,13 @@ gets prioritized next.
   </a>
 </p>
 
-Single agents already have memory of their own — Claude Code's
-[Auto Dream](https://claudefa.st/blog/guide/mechanics/auto-dream) quietly
-consolidates JSONL session logs into long-term memory between sessions;
-Hermes Agent ships with mem0 / supermemory / honcho and other memory
-providers; Codex / OpenCode / Gemini all have native session resume.
+Single-agent memory already exists, but the styles diverge:
 
-But those are **per-agent** memories. Hive coordinates *teams* of agents,
-so the next step is wiring them together: let the whole team
-**share one long-term memory store** — what Worker A learned today
-becomes context the Orchestrator can dispatch to Worker B tomorrow.
+- **Claude Code's [Auto Dream](https://claudefa.st/blog/guide/mechanics/auto-dream)** is **batch / offline** — invoked via `/dream` (or on a 24h timer), Claude consolidates JSONL session logs in the cloud, merges duplicates, extracts patterns, and proposes a new memory file for you to review and adopt. REM-sleep style, with a clean wake/sleep separation.
+- **Hermes Agent** runs the opposite playbook — **embedded and in-stride**. Every N turns it forks a background sub-agent to review the recent exchange and writes directly into a **multi-organ local store**: `MEMORY.md` (facts/rules) · `USER.md` (who-you-are) · SQLite + FTS5 (episodic search) · Honcho (third-person model) · `skills/` (procedural memory). The agent is allowed to edit its own skill files in stride — memory and capability are the same thing.
+- **Codex / OpenCode / Gemini** all have native `--resume` session recovery — the plain, reliable "pick up where you left off" path.
+
+But these are all **per-agent** memories. Hive coordinates *teams* of agents, so the next step is wiring them together: let the whole team **share one long-term memory store** — what Worker A learned today becomes context the Orchestrator can dispatch to Worker B tomorrow.
 
 We're planning to back this with **[EverOS](https://github.com/EverMind-AI/EverOS)**
 — an open-source long-term memory OS from [EverMind](https://evermind.ai/),
