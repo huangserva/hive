@@ -58,6 +58,13 @@ let uiCookie = ''
 
 const WORKER_FLOW_TIMEOUT_MS = 5000
 
+const openAddWorkerDialog = async (label = 'Add team member') => {
+  fireEvent.click(
+    await screen.findByTestId('add-worker-trigger', {}, { timeout: WORKER_FLOW_TIMEOUT_MS })
+  )
+  return screen.findByRole('form', { name: label }, { timeout: WORKER_FLOW_TIMEOUT_MS })
+}
+
 const fetchThroughServer = (input: RequestInfo | URL, init?: RequestInit) => {
   const value =
     typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -152,16 +159,10 @@ describe('worker flow with real server', () => {
   test('Add Worker dialog creates a card with role badge + status dot', async () => {
     render(<App />)
 
-    // Open the AddWorkerDialog via the Team Members pane "Add Member" header button
-    await waitFor(() => {
-      const buttons = screen.getAllByRole('button', { name: /Add Member/ })
-      expect(buttons.length).toBeGreaterThan(0)
-    })
-    expect(screen.getByText('Team members')).toBeInTheDocument()
-    const newWorkerButtons = screen.getAllByRole('button', { name: /Add Member/ })
-    fireEvent.click(newWorkerButtons[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    expect(
+      await screen.findByText('Team members', {}, { timeout: WORKER_FLOW_TIMEOUT_MS })
+    ).toBeInTheDocument()
+    const dialog = await openAddWorkerDialog()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Generate random member name' }))
     const nameInput = within(dialog).getByPlaceholderText('e.g. Alice') as HTMLInputElement
     expect(nameInput.value).toMatch(/^[a-z]+(?:-[a-z]+)*$/)
@@ -237,12 +238,7 @@ describe('worker flow with real server', () => {
   test('Add Worker dialog shows role instructions and saves an edited prompt', async () => {
     render(<App />)
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    const dialog = await openAddWorkerDialog()
     const instructions = await within(dialog).findByLabelText('Role instructions')
     expect((instructions as HTMLTextAreaElement).value).toContain('You are a Coder')
     expect((instructions as HTMLTextAreaElement).value).toContain('Report changed files')
@@ -285,16 +281,13 @@ describe('worker flow with real server', () => {
   test('Add Worker random name follows the selected Chinese language', async () => {
     render(<App />)
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
+    await screen.findByTestId('add-worker-trigger', {}, { timeout: WORKER_FLOW_TIMEOUT_MS })
     fireEvent.click(screen.getByRole('button', { name: 'Switch language to 中文' }))
     await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /添加成员/ }).length).toBeGreaterThan(0)
+      expect(screen.getByTestId('add-worker-trigger')).toHaveTextContent('添加成员')
     })
-    fireEvent.click(screen.getAllByRole('button', { name: /添加成员/ })[0] as HTMLElement)
 
-    const dialog = await screen.findByRole('form', { name: '添加团队成员' })
+    const dialog = await openAddWorkerDialog('添加团队成员')
     const nameInput = within(dialog).getByPlaceholderText('例如 鲁班') as HTMLInputElement
     fireEvent.click(within(dialog).getByRole('button', { name: '生成随机成员名' }))
 
@@ -304,12 +297,7 @@ describe('worker flow with real server', () => {
   test('Add Worker dialog can run a generic full startup command without preset semantics', async () => {
     render(<App />)
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    const dialog = await openAddWorkerDialog()
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
       target: { value: 'CustomAgent' },
     })
@@ -348,12 +336,7 @@ describe('worker flow with real server', () => {
   test('Add Worker dialog keeps selected CLI semantics for startup aliases', async () => {
     render(<App />)
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    const dialog = await openAddWorkerDialog()
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
       target: { value: 'ClaudeAlias' },
     })
@@ -393,12 +376,7 @@ describe('worker flow with real server', () => {
     stubFetchWithEmptyTerminalRuns()
     render(<App />)
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
+    const dialog = await openAddWorkerDialog()
     fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
       target: { value: 'Immediate' },
     })
