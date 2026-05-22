@@ -2,6 +2,25 @@
 
 All notable user-facing changes will be documented in this file.
 
+## 1.4.0 - 2026-05-22
+
+Template marketplace and agent picker polish.
+
+- Adds a bilingual template marketplace to the Add Member flow, with English
+  and Chinese agent libraries, category filters, search, and one-click import
+  into custom role instructions.
+- Ships the marketplace templates inside the npm package under
+  `dist/vendor/marketplace`, so the library works from packaged installs
+  without fetching remote content.
+- Polishes the marketplace drawer/card design for denser browsing, clearer
+  imported states, stronger search ergonomics, and better Chinese/English
+  category labels.
+- Keeps the Tasks side panel aligned with the Team Members panel width for a
+  more predictable two-panel layout.
+- Shows the selected CLI's brand mark in the Agent CLI picker, while keeping a
+  terminal glyph for generic custom commands.
+- Removes stale Biome suppression comments from marketplace-related UI code.
+
 ## 1.3.4 - 2026-05-21
 
 Terminal performance and Tasks panel polish.
