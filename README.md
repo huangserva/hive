@@ -241,6 +241,22 @@ pnpm release:dry
 
 Hive 目前处于 alpha 阶段，核心流程已可用。当前重点是继续打磨多 Agent 协作体验、Windows 支持和更清晰的调度可观测性。欢迎试用、提 issue——反馈会直接影响后续节奏。
 
+## 在路上：跨 Agent 的长时记忆
+
+<p align="center">
+  <a href="https://github.com/EverMind-AI/EverOS">
+    <img src="https://avatars.githubusercontent.com/EverMind-AI" width="72" alt="EverMind / EverOS" />
+  </a>
+</p>
+
+单个 agent 现在已经各有各的"记忆"了——Claude Code 的 [Auto Dream](https://claudefa.st/blog/guide/mechanics/auto-dream)（俗称"做梦"）会在会话间隙整理 JSONL 日志、把零散发现凝成长时记忆；Hermes Agent 自带 mem0 / supermemory / honcho 等多个 memory provider；Codex / OpenCode / Gemini 也都有自己的 session resume。
+
+但这些都是 **单 agent 内部的记忆**。Hive 是多 agent 协作工作台，下一步要做的事是把它们打通：让整支团队 **共享一座长时记忆库**——Worker A 今天踩的坑，明天 Orchestrator 派给 Worker B 时能自动调来当上下文。
+
+底层我们计划接 **[EverOS](https://github.com/EverMind-AI/EverOS)**（[EverMind](https://evermind.ai/) 出品的开源长时记忆 OS，目前在 LoCoMo / LongMemEval / HaluMem 三个记忆 benchmark 上 SOTA）当跨 agent 的记忆后端。它的四层架构（Agentic / Memory / Index / API+MCP）跟 Hive 的多 PTY 协作模型很搭：每个 agent 各跑各的 CLI session，团队级的事实和模式凝在 EverOS，Orchestrator 派单时一并喂给 worker。
+
+进度跟踪：[#6](https://github.com/tt-a1i/hive/issues/6)——想看进度或提建议，在 issue 留 +1。
+
 ## 另一种形态：squad
 
 如果你更喜欢 **纯 CLI、零后台进程、能直接在 SSH 进的远端服务器上跑** 的形态，[squad](https://github.com/mco-org/squad) 是同一个想法的另一条路线——SQLite 当通信层，每个 agent 各自开一个终端。两个项目互不替代，按工作流挑就行：

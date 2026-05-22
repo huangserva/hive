@@ -318,6 +318,36 @@ polishing the multi-agent collaboration workflow, Windows support, and clearer
 orchestration observability. Try it out and open issues — feedback shapes what
 gets prioritized next.
 
+## On the roadmap: cross-agent long-term memory
+
+<p align="center">
+  <a href="https://github.com/EverMind-AI/EverOS">
+    <img src="https://avatars.githubusercontent.com/EverMind-AI" width="72" alt="EverMind / EverOS" />
+  </a>
+</p>
+
+Single agents already have memory of their own — Claude Code's
+[Auto Dream](https://claudefa.st/blog/guide/mechanics/auto-dream) quietly
+consolidates JSONL session logs into long-term memory between sessions;
+Hermes Agent ships with mem0 / supermemory / honcho and other memory
+providers; Codex / OpenCode / Gemini all have native session resume.
+
+But those are **per-agent** memories. Hive coordinates *teams* of agents,
+so the next step is wiring them together: let the whole team
+**share one long-term memory store** — what Worker A learned today
+becomes context the Orchestrator can dispatch to Worker B tomorrow.
+
+We're planning to back this with **[EverOS](https://github.com/EverMind-AI/EverOS)**
+— an open-source long-term memory OS from [EverMind](https://evermind.ai/),
+currently SOTA on the LoCoMo / LongMemEval / HaluMem memory benchmarks.
+Its four-layer architecture (Agentic / Memory / Index / API+MCP) maps
+cleanly onto Hive's multi-PTY model: each agent keeps its in-CLI memory,
+team-level facts flow through EverOS, and the Orchestrator joins both
+when dispatching.
+
+Track progress at [#6](https://github.com/tt-a1i/hive/issues/6) — drop a
++1 or comment with your use case to influence priority.
+
 ## A different form factor: squad
 
 If you'd rather have **pure CLI, zero background process, and the ability to
