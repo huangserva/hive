@@ -10,6 +10,7 @@ import type {
 } from './route-types.js'
 import { dispatchRoutes } from './routes-dispatches.js'
 import { fsRoutes } from './routes-fs.js'
+import { marketplaceRoutes } from './routes-marketplace.js'
 import { openWorkspaceRoutes } from './routes-open-workspace.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
@@ -30,6 +31,7 @@ const routes: RouteDefinition[] = [
   ...runtimeRoutes,
   ...teamRoutes,
   ...fsRoutes,
+  ...marketplaceRoutes,
 ]
 
 export const matchRoute = (method: string, pathname: string) => {

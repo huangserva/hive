@@ -303,6 +303,7 @@ export const WorkspaceDetail = ({
             commandPresetId={composer.commandPresetId}
             creating={composer.creating}
             customTemplates={composer.customTemplates}
+            onApplyMarketplaceImport={composer.applyMarketplaceImport}
             onClose={() => setComposerOpen(false)}
             onDeleteTemplate={composer.deleteTemplate}
             onNameChange={composer.setWorkerName}

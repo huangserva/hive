@@ -45,6 +45,7 @@ export interface WorkerComposerState {
   randomizeWorkerName: () => void
   resetRoleDescription: () => void
   resetError: () => void
+  applyMarketplaceImport: (input: { name: string; description: string }) => void
   submit: (event: FormEvent<HTMLFormElement>, onSuccess: () => void) => void
 }
 
@@ -307,6 +308,20 @@ export const useWorkerComposer = ({
     setRoleDescriptionState(roleDescriptionDefault)
   }
 
+  // Apply an imported marketplace template. Atomic against the form-state
+  // racing surface — selectWorkerRole resets description + flips the edited
+  // ref, and the role-change useEffect would clobber description on commit.
+  // We sequence the raw setters and then forcibly mark the description as
+  // user-edited so neither overwrites the imported value.
+  const applyMarketplaceImport = ({ name, description }: { name: string; description: string }) => {
+    workerNameGeneratedRef.current = false
+    setWorkerName(name)
+    setSelectedTemplateId(null)
+    setWorkerRole('custom')
+    roleDescriptionEditedRef.current = true
+    setRoleDescriptionState(description)
+  }
+
   const selectCommandPresetId = (value: string) => {
     setCommandPresetId(value)
   }
@@ -363,6 +378,7 @@ export const useWorkerComposer = ({
     randomizeWorkerName,
     resetRoleDescription,
     resetError: () => setCreateWorkerError(null),
+    applyMarketplaceImport,
     submit,
   }
 }

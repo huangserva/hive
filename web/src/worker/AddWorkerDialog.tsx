@@ -1,10 +1,11 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { Dices } from 'lucide-react'
-import type { FormEvent } from 'react'
+import { Dices, Store } from 'lucide-react'
+import { type FormEvent, useState } from 'react'
 
 import type { WorkerRole } from '../../../src/shared/types.js'
 import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { MarketplaceDrawer } from '../marketplace/MarketplaceDrawer.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { useToast } from '../ui/useToast.js'
 import {
@@ -21,6 +22,7 @@ type AddWorkerDialogProps = {
   commandPresetId: string
   creating?: boolean
   customTemplates: RoleTemplate[]
+  onApplyMarketplaceImport: (input: { name: string; description: string }) => void
   onClose: () => void
   onDeleteTemplate: (templateId: string) => Promise<void> | void
   onNameChange: (value: string) => void
@@ -48,6 +50,7 @@ export const AddWorkerDialog = ({
   commandPresetId,
   creating = false,
   customTemplates,
+  onApplyMarketplaceImport,
   onClose,
   onDeleteTemplate,
   onNameChange,
@@ -71,6 +74,7 @@ export const AddWorkerDialog = ({
 }: AddWorkerDialogProps) => {
   const { t } = useI18n()
   const toast = useToast()
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false)
   const handleClose = (open: boolean) => {
     if (!open) onClose()
   }
@@ -163,6 +167,16 @@ export const AddWorkerDialog = ({
                 </label>
 
                 <RolePicker workerRole={workerRole} onRoleChange={onRoleChange} />
+                <button
+                  type="button"
+                  onClick={() => setMarketplaceOpen(true)}
+                  data-testid="open-marketplace"
+                  className="flex cursor-pointer items-center gap-2 self-start rounded-md border px-3 py-1.5 text-xs text-sec transition-colors hover:bg-3"
+                  style={{ borderColor: 'var(--border)' }}
+                >
+                  <Store size={14} aria-hidden />
+                  {t('marketplace.openFromAddWorker')}
+                </button>
                 {workerRole === 'custom' ? (
                   <RoleTemplatePicker
                     customTemplates={customTemplates}
@@ -221,6 +235,11 @@ export const AddWorkerDialog = ({
           </Dialog.Content>
         </div>
       </Dialog.Portal>
+      <MarketplaceDrawer
+        open={marketplaceOpen}
+        onClose={() => setMarketplaceOpen(false)}
+        onImport={onApplyMarketplaceImport}
+      />
     </Dialog.Root>
   )
 }

@@ -354,6 +354,15 @@ per agent. The two projects don't replace each other; pick by workflow:
 - **Hive** — visual workbench, one-click restart, workspace sidebar, easier to demo to a team
 - **squad** — lives in tmux, SSH remote dev, no extra background process, Windows servers
 
+## Acknowledgements
+
+The built-in template marketplace ships snapshots of two community-maintained prompt libraries, both distributed under their upstream MIT licenses:
+
+- English (used when the UI is set to EN): [`msitarzewski/agency-agents`](https://github.com/msitarzewski/agency-agents)
+- Chinese (used when the UI is set to 中文): [`jnMetaCode/agency-agents-zh`](https://github.com/jnMetaCode/agency-agents-zh)
+
+Upstream content is mirrored verbatim, license files are kept under `vendor/marketplace/<lang>/LICENSE`, and snapshots are refreshed by `pnpm sync:marketplace` before each Hive release.
+
 ## License
 
 Hive is open source under the Business Source License 1.1. Personal use, internal deployment, embedding, and forks are permitted — see [LICENSE.BSL](LICENSE.BSL) for the exact boundary.

@@ -402,6 +402,60 @@ export const deleteRoleTemplate = async (templateId: string): Promise<void> => {
   }
 }
 
+export type MarketplaceLanguage = 'en' | 'zh'
+
+export interface MarketplaceAgentEntry {
+  path: string
+  category: string
+  name: string
+  description: string
+  emoji: string | null
+  color: string | null
+}
+
+export interface MarketplaceManifest {
+  source: {
+    repo: string
+    commit: string
+    fetched_at: string
+  }
+  language: MarketplaceLanguage
+  categories: string[]
+  agents: MarketplaceAgentEntry[]
+}
+
+export interface MarketplaceAgentDetail {
+  path: string
+  frontmatter: Record<string, unknown>
+  body: string
+}
+
+export const fetchMarketplaceManifest = async (
+  lang: MarketplaceLanguage
+): Promise<MarketplaceManifest> => {
+  const response = await apiFetch(`/api/marketplace/manifest?lang=${lang}`, {
+    mode: 'same-origin',
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load marketplace manifest'))
+  }
+  return (await response.json()) as MarketplaceManifest
+}
+
+export const fetchMarketplaceAgent = async (
+  lang: MarketplaceLanguage,
+  path: string
+): Promise<MarketplaceAgentDetail> => {
+  const response = await apiFetch(
+    `/api/marketplace/agent?lang=${lang}&path=${encodeURIComponent(path)}`,
+    { mode: 'same-origin' }
+  )
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load marketplace agent'))
+  }
+  return (await response.json()) as MarketplaceAgentDetail
+}
+
 export const listTerminalRuns = async (workspaceId: string): Promise<TerminalRunSummary[]> => {
   const response = await apiFetch(`/api/ui/workspaces/${workspaceId}/runs`, {
     mode: 'same-origin',
