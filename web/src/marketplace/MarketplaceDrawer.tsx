@@ -190,7 +190,12 @@ export const MarketplaceDrawer = ({
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={t('marketplace.searchPlaceholder')}
                     data-testid="marketplace-search"
-                    className="input pl-9"
+                    className="input"
+                    // `.input` ships a `padding: 8px 12px` shorthand in
+                    // unlayered CSS that out-cascades a Tailwind `pl-9`
+                    // utility in v4. Inline style is the only reliable
+                    // override here without restructuring globals.css.
+                    style={{ paddingLeft: '36px' }}
                   />
                 </div>
                 <Dialog.Close asChild>
