@@ -35,4 +35,4 @@ paseo 调研暴露 governance failure：orchestrator 派 worker 产出多份 HTM
 
 ## 结果（后写）
 
-已实施 Layer 1、2、3、5，commit `4ffe027`。验证通过：`pnpm test`、`pnpm build`、`pnpm check`、`pnpm exec tsc -p tsconfig.build.json --noEmit`，并完成 dispatch payload / pre-commit hook / Cockpit orphan detector 手动 sanity。
+已实施 Layer 1、2、3、5，commit `7c95e2d`。验证通过：`pnpm test`、`pnpm build`、`pnpm check`、`pnpm exec tsc -p tsconfig.build.json --noEmit`，并完成 dispatch payload / pre-commit hook / Cockpit orphan detector 手动 sanity。
