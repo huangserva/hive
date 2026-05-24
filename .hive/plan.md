@@ -48,7 +48,31 @@ last_review: 2026-05-24
 - [x] workspace 第一次启动自动 seed `.hive/plan.md` + `.hive/templates/`
 - [x] ORCHESTRATOR_RULES 加 PM 段（中文）+ ORCHESTRATOR_REMINDER_TAIL 加一句（英文）
 - [x] PROTOCOL.md builder 加 `.hive/` 目录约定段
-- [x] 这个 plan.md 本身就是 PM 体系实样
+
+### M6.1 · PM 体系 Phase B（plan.md drawer UI）· shipped 2026-05-24
+- [x] plan-doc parser + chokidar watch + WebSocket 推送
+- [x] PlanDrawer 720px + 6 子组件（PlanHeader / MilestoneList / MilestoneCard / Goal / Scope / Risk）
+- [x] 50 个测试 (`588a9c9` + `9619d26`)
+
+### M6.2 · PM 体系 Phase C-1（4 个新文档类型）· shipped 2026-05-24
+- [x] 5 个新模板（OPEN_QUESTIONS / IDEAS_INBOX / 3 个 BASELINE）
+- [x] ensurePmDocs 扩展 seed 11 个新文件 + 3 个新模板
+- [x] ORCHESTRATOR_RULES 加 6 节（Open Questions / Ideas / Baseline / Decisions / Archive / Cross-workspace）
+- [x] PROTOCOL.md 目录约定扩展
+- [x] 24 个测试 + 修 plan WS race (`82fc5a2` + `64c7236`)
+
+### M6.3 · PM 体系 Phase C-3a（session-start review nudge）· shipped 2026-05-24
+- [x] runtime 一次性注入 system message （3 启动路径 fresh / Layer A resume / Layer B fallback）
+- [x] idempotent dedupe Set in closure
+- [x] 仅 orchestrator agent 生效，worker 不打扰
+- [x] 12 个测试 (`be1d633` + `9d1467b`)
+
+### M6.4 · PM 体系 Phase C-2（Cockpit UI dashboard）· shipped 2026-05-24
+- [x] 5 个新 parser (questions / ideas / baseline / decisions / archive) + cockpit-doc aggregate
+- [x] /ws/cockpit/:id + GET /api/workspaces/:id/cockpit endpoint
+- [x] CockpitDrawer 720px + 6 tabs + 底部 ActionBar (aiActions 渲染)
+- [x] Topbar 改造：取代独立 Plan / Todo 按钮，Todo 变浮动 mini
+- [x] 63 个测试 (`7d7ba26` + `b5898c6` + `34f7c0d`)
 
 ### M7 · 真飞书 e2e 验证 · blocked
 - [ ] 等 user 配 `~/.config/hive/feishu.json` + 重启 4010
@@ -56,20 +80,31 @@ last_review: 2026-05-24
 - [ ] 审批卡片真按一次 ✅/❌ 走通
 - 设计已就绪，仅需凭证
 
-### M8 · PM 体系 Phase B（UI 面板） · proposed
-- [ ] plan.md frontmatter + milestone 解析器
-- [ ] `GET /api/workspaces/:id/project-status` endpoint
-- [ ] Sidebar workspace 行下方"项目进度"条
-- 前提：Phase A 跑顺 1-2 周，约定真有人坚持
+### M8 · PM 体系 Phase C-3b（A4-A6 主动 trigger）· proposed
+- [ ] A4: milestone 完成时自动跑 baseline 体检（plan.md 文件 watch + change detector）
+- [ ] A5: 月度 archive audit cron / 文件大小 watcher
+- [ ] A6: cross-workspace drift 检测（每天 1 次扫描）
+- 前提：先观察 1-2 周 LLM 在 C-1 RULES 引导下 A2-A6 自觉性是否足够
 
-### M9 · PM 体系 Phase C（主动 review 闭环） · proposed
-- [ ] runtime 定时 / session-resume 时触发 orch 跑 plan reconciliation
-- [ ] drift 自动通过飞书审批卡片机制推送提醒
-- 前提：M8 稳了
+### M9 · PM 体系完整性补全 · in progress
+- [ ] Cockpit 加 Tasks tab（tasks.md ↔ 跟其他 PM doc 对称）
+- [ ] Cockpit 加 Research tab（.hive/research/ ↔ 跟 decisions/ 对称）
+- [ ] Cockpit drawer scroll fix（content overflow → scrollable）
+- [ ] baseline 5 个子文档 stub → 真填（cockpit aiActions audit 一直显示）
 
-### M10 · Upstream marketplace 评估 · open
+### M10 · PM 全套 i18n · proposed
+- [ ] Cockpit 8 tabs + ActionBar + drawer 中英双语
+- [ ] PlanDrawer / WorkspaceSettings 飞书段 中英双语
+- [ ] 检查所有 PM 新加 UI 文案，跟现有 i18n.tsx 风格一致
+- 等 M9 完事再做（避免改同组件撞文件）
+
+### M11 · Upstream marketplace 评估 · open
 - [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
 - [ ] 决定回灌 / 借鉴概念 / 跳过
+
+### M12 · Cockpit Reports tab · open (low)
+- [ ] `.hive/reports/*.html` 列表 + 一键打开
+- low priority, 备份选项
 
 ## Scope
 
