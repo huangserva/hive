@@ -6,7 +6,11 @@
 
 ### 🔴 high — 阻塞 ongoing 工作
 
-（暂无）
+- [ ] **Q4** mobile + voice 是否纳入 plan.md 作为未来 milestone？（paseo 调研 user 明示"未来方向是语音控制多 agent 开发"，但没具体怎么做）
+  - 候选 1：先放 ideas/inbox 观察，等 PM 体系稳定再 promote
+  - 候选 2：直接开 M14 mobile-voice spike（关羽出 spike POC：把 paseo expo-two-way-audio 模块抠出来试集成）
+  - 候选 3：分两步——先抠 paseo skills playbook（容易借鉴），mobile-voice 等 v2 hive 大版本
+  - 涉及决策性：要不要走自建 mobile / 借第三方框架 / 飞书 + voice plugin 第三路径
 
 ### 🟠 medium — 影响下一步规划
 

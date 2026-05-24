@@ -117,6 +117,12 @@ last_review: 2026-05-24
 - 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`
 - ADR：`.hive/decisions/2026-05-24-team-pm-co-maintenance.md`
 
+### M14 · mobile + voice 扩张方向（paseo 借鉴） · proposed (待 Q4)
+- [ ] Q4 答复方向：候选 1（先 ideas 观察）/ 2（mobile-voice spike POC）/ 3（先抠 skills playbook）
+- 触发：paseo 调研 user 明示"未来方向是语音控制多 agent 开发"
+- 候选 idea：ideas/inbox.md idea-1 (expo-two-way-audio) + idea-2 (skills playbook) + idea-3 (provider catalog) + idea-4 (timeline 模型)
+- 阻塞 Q4 user 答复才能拆 sub-task
+
 ## Scope
 
 **in（覆盖范围）**：
