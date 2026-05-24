@@ -1,0 +1,109 @@
+---
+title: HippoTeam
+started: 2026-05-20
+current_phase: maintenance + PM 体系 rollout
+status: active
+last_review: 2026-05-24
+---
+
+## 目标
+
+把 `tt-a1i/hive` fork 维护成 **huangserva 自用的 HippoTeam 多 agent 工作台**，重点能力：飞书远控（含审批卡片）、orchestrator 升级为项目主管（PM）、保持跟上游有价值改动同步。
+
+## 里程碑
+
+### M1 · 稳定性强化（基础设施） · shipped 2026-05-20
+- [x] P0 logger（`~/.config/hive/logs/runtime-<port>.log` + uncaught hooks）
+- [x] 5 个 event handler 防崩（PTY / WebSocket / upgrade try/catch）
+- [x] worker stop/restart 卡 working 的 pending bug fix（stopped-only guard）
+- [x] dev 模式 `team` PATH bug fix（POSIX sh wrapper）
+
+### M2 · multica 借鉴 · shipped 2026-05-20
+- [x] #1 + #2 per-worker thinking_level + Add Worker picker (`8a2295c`)
+- [x] #3 后端错误消息透传 UI (`c223f31`)
+- [x] 二轮深度调研 8 条具体借鉴项 HTML 报告
+- 余下 #4-#8 UX 偏好类，等 user 看 demo 决定
+
+### M3 · Rebrand → HippoTeam · shipped 2026-05-21~24
+- [x] Topbar 圆圈 H logo + favicon + HTML title (`539266f`)
+- [x] package.json `@huangserva/hippoteam` + README + i18n 16 处
+- [x] 移除 upstream npm update badge（fork 后比较无意义）
+
+### M4 · Feishu Bridge Plan B（远程飞书远控 + 审批卡片） · shipped 2026-05-21
+- [x] Phase 0 schema v21 + credentials loader + bindings store (`6d7bba2`)
+- [x] Phase 1 inbound WS transport + route resolver + handler (`d595f6f`)
+- [x] Phase 2 outbound `team feishu reply` + 长消息切片 (`10815af`)
+- [x] Phase 3 UI: Topbar 飞书状态灯 + WorkspaceSettings dialog (`fd0db8e`)
+- [x] Phase 4 testability refactor + bug fix (500→404)
+- [x] Phase 5 审批卡片（Hermes 风格）+ ApprovalLedger + sendApprovalCard (`e601c38`)
+- 16 个 commit / 132 个 feishu 测试，详见 `.hive/reports/feishu-bridge-plan-2026-05-21.html`
+
+### M5 · Upstream backports · shipped 2026-05-23~24
+- [x] Step 1 强相关：53e3645 tasks WS hardening + a2945fe team cancel (`473dc46` + `02abda0` + `24fc7d5`)
+- [x] Step 2 弱相关：71fdaaf port-in-use + b34cfe4 drawer width + e57c6be+7bda143 OpenCode mouse + 4c34bf6 部分 (`dbc7a1e`)
+- 详见 `.hive/reports/upstream-diff-2026-05-24.html`
+
+### M6 · PM 体系 Phase A · shipped 2026-05-24
+- [x] 5 个文档模板 (`pm-templates.ts`)
+- [x] workspace 第一次启动自动 seed `.hive/plan.md` + `.hive/templates/`
+- [x] ORCHESTRATOR_RULES 加 PM 段（中文）+ ORCHESTRATOR_REMINDER_TAIL 加一句（英文）
+- [x] PROTOCOL.md builder 加 `.hive/` 目录约定段
+- [x] 这个 plan.md 本身就是 PM 体系实样
+
+### M7 · 真飞书 e2e 验证 · blocked
+- [ ] 等 user 配 `~/.config/hive/feishu.json` + 重启 4010
+- [ ] 飞书 inbound → orch → worker 派单 → `team feishu reply` 闭环
+- [ ] 审批卡片真按一次 ✅/❌ 走通
+- 设计已就绪，仅需凭证
+
+### M8 · PM 体系 Phase B（UI 面板） · proposed
+- [ ] plan.md frontmatter + milestone 解析器
+- [ ] `GET /api/workspaces/:id/project-status` endpoint
+- [ ] Sidebar workspace 行下方"项目进度"条
+- 前提：Phase A 跑顺 1-2 周，约定真有人坚持
+
+### M9 · PM 体系 Phase C（主动 review 闭环） · proposed
+- [ ] runtime 定时 / session-resume 时触发 orch 跑 plan reconciliation
+- [ ] drift 自动通过飞书审批卡片机制推送提醒
+- 前提：M8 稳了
+
+### M10 · Upstream marketplace 评估 · open
+- [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
+- [ ] 决定回灌 / 借鉴概念 / 跳过
+
+## Scope
+
+**in（覆盖范围）**：
+- 多 agent 协作（orchestrator + worker，4 preset）
+- 飞书远控（文本消息 + 审批卡片）
+- PM 体系（plan / decisions / research / handoff）
+- 跟上游 bug fix / hardening 同步
+
+**out（明确不做）**：
+- 上游 marketplace 整包回灌（与 HippoTeam 方向分叉）
+- 凭据回传 / telemetry（保持本地）
+- npm 发布（fork 自用，不发包）
+- 多用户 ACL（单 user 场景，第一个点的算数）
+
+## 已知 risk
+
+| Risk | 影响 | 缓解 |
+|---|---|---|
+| lark SDK 重连稳定性 | 飞书 inbound 可能丢消息 | 生产观察 1-2 周看 reconnect 频率 |
+| upstream 持续分叉 | sync 成本上升 | 按问题域拆小任务回灌，不做 merge main |
+| typewriter 测试盲区（私有函数无法直测） | OpenCode mouse / port-in-use / WS binary 等 | 已记录为 Open task，看运行后真实问题再决定是否 export refactor |
+| `.hive/plan.md` 让 orch 写但 LLM 偷懒不维护 | PM 体系沦为空架子 | system prompt 加强引导 + 每轮 reminder + Phase B UI 反馈让"跑偏"可见 |
+| Marketplace 决策悬而未决 | 错过有价值的预制 worker 资产 | 派关羽深度调研出 HTML 报告 |
+
+## 当前 phase
+
+**maintenance + PM 体系 rollout**
+
+主要工作模式：
+1. orch 维护这份 plan.md，每完成一个 milestone 就 mark + 记 commit hash
+2. user 提需求 → orch 评估属于哪个 milestone（或开新 milestone）→ 派 worker → review → commit
+3. 决策性的事写到 `.hive/decisions/YYYY-MM-DD-slug.md`（参考 templates/adr.template.md）
+4. session 结束前更新 `.hive/handoff.html` 给下一个 session 接手
+5. 重大调研产物（如本次 upstream-diff、feishu plan、PM proposal）放 `.hive/reports/*.html`
+
+**当前阻塞**：M7（等 user 配凭证）+ M10（等 user 决定 marketplace 是否调研）
