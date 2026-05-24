@@ -25,6 +25,14 @@ export type {
   PMQuestion,
   PMQuestionPriority,
 } from '../../src/server/pm-questions-doc.js'
+export type { ParsedResearch, PMResearchEntry } from '../../src/server/pm-research-doc.js'
+export type {
+  ParsedTasks,
+  PMTaskItem,
+  PMTaskSection,
+  PMTaskSubsection,
+  PMTasksSectionKey,
+} from '../../src/server/pm-tasks-doc.js'
 
 import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
 

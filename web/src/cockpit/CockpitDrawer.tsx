@@ -13,6 +13,8 @@ import { DecisionsTab } from './tabs/DecisionsTab.js'
 import { IdeasTab } from './tabs/IdeasTab.js'
 import { PlanTab } from './tabs/PlanTab.js'
 import { QuestionsTab } from './tabs/QuestionsTab.js'
+import { ResearchTab } from './tabs/ResearchTab.js'
+import { TasksTab } from './tabs/TasksTab.js'
 
 type CockpitDrawerProps = {
   cockpit: ParsedCockpit | null
@@ -25,10 +27,12 @@ type CockpitDrawerProps = {
 
 const renderTab = (cockpit: ParsedCockpit, activeTab: CockpitTab) => {
   if (activeTab === 'plan') return <PlanTab plan={cockpit.plan} />
+  if (activeTab === 'tasks') return <TasksTab tasks={cockpit.tasks} />
   if (activeTab === 'questions') return <QuestionsTab questions={cockpit.questions} />
   if (activeTab === 'ideas') return <IdeasTab ideas={cockpit.ideas} />
-  if (activeTab === 'baseline') return <BaselineTab baseline={cockpit.baseline} />
   if (activeTab === 'decisions') return <DecisionsTab decisions={cockpit.decisions} />
+  if (activeTab === 'research') return <ResearchTab research={cockpit.research} />
+  if (activeTab === 'baseline') return <BaselineTab baseline={cockpit.baseline} />
   return <ArchiveTab archive={cockpit.archive} />
 }
 
@@ -88,7 +92,7 @@ export const CockpitDrawer = ({
             </Tooltip>
           </header>
           <CockpitTabs activeTab={activeTab} cockpit={cockpit} onChange={setActiveTab} />
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {error ? (
               <div className="p-5 text-sm text-warn">{error}</div>
             ) : !cockpit ? (

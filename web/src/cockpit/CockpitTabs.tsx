@@ -1,8 +1,25 @@
-import { Archive, CircleHelp, FileText, GitBranch, Lightbulb, Map as MapIcon } from 'lucide-react'
+import {
+  Archive,
+  BookOpen,
+  CheckSquare,
+  CircleHelp,
+  FileText,
+  GitBranch,
+  Lightbulb,
+  Map as MapIcon,
+} from 'lucide-react'
 
 import type { ParsedCockpit } from '../api.js'
 
-export type CockpitTab = 'plan' | 'questions' | 'ideas' | 'baseline' | 'decisions' | 'archive'
+export type CockpitTab =
+  | 'plan'
+  | 'tasks'
+  | 'questions'
+  | 'ideas'
+  | 'decisions'
+  | 'research'
+  | 'baseline'
+  | 'archive'
 
 const TABS: Array<{
   icon: typeof MapIcon
@@ -10,19 +27,23 @@ const TABS: Array<{
   label: string
 }> = [
   { icon: MapIcon, id: 'plan', label: 'Plan' },
+  { icon: CheckSquare, id: 'tasks', label: 'Tasks' },
   { icon: CircleHelp, id: 'questions', label: 'Questions' },
   { icon: Lightbulb, id: 'ideas', label: 'Ideas' },
-  { icon: FileText, id: 'baseline', label: 'Baseline' },
   { icon: GitBranch, id: 'decisions', label: 'Decisions' },
+  { icon: BookOpen, id: 'research', label: 'Research' },
+  { icon: FileText, id: 'baseline', label: 'Baseline' },
   { icon: Archive, id: 'archive', label: 'Archive' },
 ]
 
 const tabBadge = (cockpit: ParsedCockpit | null, tab: CockpitTab) => {
   if (!cockpit) return null
+  if (tab === 'tasks') return (cockpit.tasks?.totalOpen ?? 0) + (cockpit.tasks?.totalDone ?? 0)
   if (tab === 'questions') return cockpit.questions.high.length + cockpit.questions.medium.length
   if (tab === 'ideas') return cockpit.ideas.inbox.length
-  if (tab === 'baseline') return cockpit.baseline.staleHint ? 'stale' : null
   if (tab === 'decisions') return cockpit.decisions.drafts.length + cockpit.decisions.adopted.length
+  if (tab === 'research') return cockpit.research?.totalCount ?? 0
+  if (tab === 'baseline') return cockpit.baseline.staleHint ? 'stale' : null
   if (tab === 'archive') return cockpit.archive.months.length
   return null
 }

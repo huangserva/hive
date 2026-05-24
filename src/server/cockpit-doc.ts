@@ -12,6 +12,8 @@ import {
   type PMQuestionPriority,
   parseQuestionsDoc,
 } from './pm-questions-doc.js'
+import { type ParsedResearch, parseResearchDoc } from './pm-research-doc.js'
+import { type ParsedTasks, parseTasksDoc } from './pm-tasks-doc.js'
 import { ensurePmDocs, HIVE_DIR_NAME } from './tasks-file.js'
 
 export type AIActionType = 'question' | 'promote' | 'decision' | 'audit'
@@ -35,6 +37,8 @@ export interface ParsedCockpit {
   ideas: ParsedIdeas
   plan: ParsedPlan
   questions: ParsedQuestions
+  research: ParsedResearch
+  tasks: ParsedTasks
 }
 
 const readOptionalFile = (filePath: string) =>
@@ -111,9 +115,11 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
   const hiveDir = join(workspacePath, HIVE_DIR_NAME)
   const plan = parsePlanDoc(readOptionalFile(join(hiveDir, 'plan.md')))
   const questions = parseQuestionsDoc(readOptionalFile(join(hiveDir, 'open-questions.md')))
+  const tasks = parseTasksDoc(readOptionalFile(join(hiveDir, 'tasks.md')))
   const ideas = parseIdeasDoc(readOptionalFile(join(hiveDir, 'ideas', 'inbox.md')))
   const baseline = parseBaselineDoc(join(hiveDir, 'baseline'))
   const decisions = parseDecisionsDoc(join(hiveDir, 'decisions'))
+  const research = parseResearchDoc(join(hiveDir, 'research'))
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
   return {
     aiActions: buildAiActions(questions, ideas, baseline, decisions),
@@ -124,5 +130,7 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
     ideas,
     plan,
     questions,
+    research,
+    tasks,
   }
 }

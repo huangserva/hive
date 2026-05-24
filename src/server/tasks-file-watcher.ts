@@ -92,6 +92,7 @@ export const createTasksFileWatcher = ({
           planPath,
           `${hiveDir}/open-questions.md`,
           `${hiveDir}/ideas/**`,
+          `${hiveDir}/research/**`,
           `${hiveDir}/baseline/**`,
           `${hiveDir}/decisions/**`,
           `${hiveDir}/archive/**`,
