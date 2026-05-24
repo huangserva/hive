@@ -62,11 +62,11 @@ describe('parseTasksDoc', () => {
     const result = parseTasksDoc(FULL_TASKS)
     const inProgress = result.sections[0]
     expect(inProgress).toBeDefined()
-    expect(inProgress!.subsections).toHaveLength(1)
-    expect(inProgress!.subsections[0]?.title).toBe('2026-05-20')
-    expect(inProgress!.subsections[0]?.doneCount).toBe(1)
-    expect(inProgress!.subsections[0]?.openCount).toBe(1)
-    expect(inProgress!.subsections[0]?.totalCount).toBe(2)
+    expect(inProgress?.subsections).toHaveLength(1)
+    expect(inProgress?.subsections[0]?.title).toBe('2026-05-20')
+    expect(inProgress?.subsections[0]?.doneCount).toBe(1)
+    expect(inProgress?.subsections[0]?.openCount).toBe(1)
+    expect(inProgress?.subsections[0]?.totalCount).toBe(2)
   })
 
   test('single section works', () => {
@@ -114,10 +114,10 @@ describe('parseTasksDoc', () => {
     const result = parseTasksDoc(SUBSECTION_TASKS)
     const inProgress = result.sections[0]
     expect(inProgress).toBeDefined()
-    expect(inProgress!.doneCount).toBe(2)
-    expect(inProgress!.openCount).toBe(1)
-    expect(inProgress!.totalCount).toBe(3)
-    expect(inProgress!.subsections).toHaveLength(2)
+    expect(inProgress?.doneCount).toBe(2)
+    expect(inProgress?.openCount).toBe(1)
+    expect(inProgress?.totalCount).toBe(3)
+    expect(inProgress?.subsections).toHaveLength(2)
   })
 
   test('raw content is preserved', () => {
@@ -143,10 +143,10 @@ describe('parseTasksDoc', () => {
     const result = parseTasksDoc('- [x] My task\n')
     const section = result.sections[0]
     expect(section).toBeDefined()
-    const item = section!.items[0]
+    const item = section?.items[0]
     expect(item).toBeDefined()
-    expect(item!.done).toBe(true)
-    expect(item!.text).toBe('My task')
-    expect(item!.raw).toBe('- [x] My task')
+    expect(item?.done).toBe(true)
+    expect(item?.text).toBe('My task')
+    expect(item?.raw).toBe('- [x] My task')
   })
 })
