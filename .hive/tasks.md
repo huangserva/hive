@@ -5,7 +5,9 @@
 
 ## In progress
 
-（空 — 当前 sprint 全部完成，等 user 拍板 PM master plan 决策点）
+- [ ] **关羽** dispatch `0554d2e0` — PM C-1 之模板 + ensurePmDocs（pm-templates.ts 加 5 模板 + tasks-file.ts seed 11 个新文件/目录）
+- [ ] **赵云** dispatch `ef8de3b7` — PM C-1 之 ORCHESTRATOR_RULES 6 节扩展 + REMINDER_TAIL + buildProtocolDoc 目录约定 (并行)
+- [ ] **典韦** — PM C-1 测试补全（关羽 + 赵云 都报告完后我派）
 
 ## Open（user 回来决定）
 
