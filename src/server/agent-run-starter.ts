@@ -13,6 +13,10 @@ import type { LiveRunRegistry } from './live-run-registry.js'
 import type { HiveLogger } from './logger.js'
 import { createPostStartInputWriter, isInteractiveAgentCommand } from './post-start-input-writer.js'
 import type { RestartPolicy } from './restart-policy.js'
+import {
+  appendSessionStartReviewMessage,
+  SESSION_START_REVIEW_MESSAGE,
+} from './session-start-review-message.js'
 
 interface AgentRunStarterInput {
   agentManager: AgentManager | undefined
@@ -27,20 +31,27 @@ interface AgentRunStarterInput {
   restartPolicy: RestartPolicy
 }
 
-export const createAgentRunStarter =
-  ({
-    agentManager,
-    registry,
-    onAgentExit,
-    store,
-    sessionStore,
-    tokenRegistry,
-    getCommandPreset,
-    getAgent,
-    logger,
-    restartPolicy,
-  }: AgentRunStarterInput) =>
-  async (
+export const createAgentRunStarter = ({
+  agentManager,
+  registry,
+  onAgentExit,
+  store,
+  sessionStore,
+  tokenRegistry,
+  getCommandPreset,
+  getAgent,
+  logger,
+  restartPolicy,
+}: AgentRunStarterInput) => {
+  const agentsWithSessionStartReview = new Set<string>()
+  const takeSessionStartReviewMessage = (agentId: string) => {
+    if (!agentId.endsWith(':orchestrator')) return null
+    if (agentsWithSessionStartReview.has(agentId)) return null
+    agentsWithSessionStartReview.add(agentId)
+    return SESSION_START_REVIEW_MESSAGE
+  }
+
+  return async (
     workspace: WorkspaceSummary,
     agentId: string,
     config: AgentLaunchConfigInput,
@@ -165,20 +176,36 @@ export const createAgentRunStarter =
     )
     queueMicrotask(() => {
       try {
+        const sessionStartReviewMessage = takeSessionStartReviewMessage(agentId)
+        const writeWithSessionStartReview = (runId: string, text: string) => {
+          postStartWriter(
+            runId,
+            sessionStartReviewMessage ? appendSessionStartReviewMessage(text) : text
+          )
+        }
         const injectedRestartMessage = restartPolicy.injectPostStartMessage({
           agentId,
           runId: run.runId,
           startConfig,
           workspace,
-          writeToRun: postStartWriter,
+          writeToRun: writeWithSessionStartReview,
         })
+        if (startConfig.resumedSessionId && sessionStartReviewMessage) {
+          postStartWriter(run.runId, sessionStartReviewMessage)
+          return
+        }
         if (
           !startConfig.resumedSessionId &&
           !injectedRestartMessage &&
           agent &&
           isInteractiveAgentCommand(startConfig.interactiveCommand ?? startConfig.command)
         ) {
-          postStartWriter(run.runId, buildAgentStartupInstructions({ agent, workspace }))
+          postStartWriter(
+            run.runId,
+            sessionStartReviewMessage
+              ? appendSessionStartReviewMessage(buildAgentStartupInstructions({ agent, workspace }))
+              : buildAgentStartupInstructions({ agent, workspace })
+          )
         }
       } catch {
         // The agent may have exited before post-start guidance could be written.
@@ -199,3 +226,4 @@ export const createAgentRunStarter =
 
     return liveRun
   }
+}
