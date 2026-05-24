@@ -113,3 +113,97 @@ export const MILESTONE_REVIEW_TEMPLATE = `# Milestone Review · {{MILESTONE_NAME
 ## Next
 （review 后 user 需要拍板的事）
 `
+
+export const OPEN_QUESTIONS_TEMPLATE = `# Open Questions
+
+> AI 自动维护此文件。每条 Q 是 AI 遇到"自己办不了、必须问 user"的事。user 在 Cockpit Questions tab 答复。
+
+## 待 user 拍板（按优先级）
+
+### 🔴 high — 阻塞 ongoing 工作
+
+（暂无）
+
+### 🟠 medium — 影响下一步规划
+
+（暂无）
+
+### 🟢 low — 灰度区
+
+（暂无）
+
+## 已答（archive 留追溯）
+
+（暂无）
+`
+
+export const IDEAS_INBOX_TEMPLATE = `# Ideas Inbox
+
+> 低承诺想法收集。user 或 AI 都可以加。AI 每开 session 扫一遍找成熟的 promote 到 plan / ADR。
+
+## inbox（按加入时间倒序）
+
+（暂无）
+
+## promoted
+
+（暂无）
+`
+
+export const BASELINE_INDEX_TEMPLATE = `# Baseline · {{PROJECT_NAME}}
+
+> 项目稳定上下文。AI 启动 session 必读，代码大变动时同步更新。每个子文档限 200 行内，超了拆 + 归档。
+
+- [module-map.md](module-map.md) — 代码模块图
+- [runtime-flows.md](runtime-flows.md) — 主要数据流
+- [state-storage.md](state-storage.md) — SQLite schemas + 持久化边界
+- [test-gates.md](test-gates.md) — 测试要求 + 跑测命令
+- [risk-hotspots.md](risk-hotspots.md) — 已知 risk + workaround
+`
+
+export const BASELINE_MODULE_MAP_TEMPLATE = `# Module Map
+
+> 描述项目核心模块的职责边界。orch 派单时知道找哪个文件。
+
+## 后端 (src/server/)
+
+（待 AI 起草，从 ls src/server/ + 主要文件头注释提取）
+
+## 前端 (web/src/)
+
+（待 AI 起草）
+
+## CLI (src/cli/)
+
+（待 AI 起草）
+
+## Shared (src/shared/)
+
+（待 AI 起草）
+`
+
+export const BASELINE_RUNTIME_FLOWS_TEMPLATE = `# Runtime Flows
+
+> 主要的运行时数据流，让 orch 一眼看清"消息从哪来、经过谁、到哪去"。
+
+## Flow 1: User 在 web UI 派单
+
+\`\`\`
+（待 AI 起草数据流图，类似 feishu-bridge-plan-2026-05-21.html 的架构图风格）
+\`\`\`
+
+## Flow 2: Worker team report 回 orch
+
+（待 AI 起草）
+
+## Flow 3: 飞书 inbound → orch
+
+（待 AI 起草，可以参考 .hive/reports/feishu-bridge-plan-2026-05-21.html 的图）
+`
+
+export const BASELINE_PLACEHOLDER_TEMPLATE = `# {{TITLE}}
+
+> 待 AI 起草。保持 200 行以内；超出时拆分并把历史细节移到 .hive/archive/。
+
+（暂无）
+`

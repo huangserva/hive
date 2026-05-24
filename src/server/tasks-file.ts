@@ -4,8 +4,14 @@ import { basename, dirname, join } from 'node:path'
 import { buildProtocolDoc } from './hive-team-guidance.js'
 import {
   ADR_TEMPLATE,
+  BASELINE_INDEX_TEMPLATE,
+  BASELINE_MODULE_MAP_TEMPLATE,
+  BASELINE_PLACEHOLDER_TEMPLATE,
+  BASELINE_RUNTIME_FLOWS_TEMPLATE,
   HANDOFF_TEMPLATE,
+  IDEAS_INBOX_TEMPLATE,
   MILESTONE_REVIEW_TEMPLATE,
+  OPEN_QUESTIONS_TEMPLATE,
   PLAN_TEMPLATE,
   RESEARCH_TEMPLATE,
 } from './pm-templates.js'
@@ -48,6 +54,19 @@ const renderInitialPlan = (workspacePath: string) => {
   )
 }
 
+const renderProjectTemplate = (template: string, workspacePath: string) =>
+  template.replaceAll('{{PROJECT_NAME}}', basename(workspacePath) || 'Workspace')
+
+const renderBaselinePlaceholder = (title: string) =>
+  BASELINE_PLACEHOLDER_TEMPLATE.replaceAll('{{TITLE}}', title)
+
+const ensureFileIfMissing = (filePath: string, content: string) => {
+  mkdirSync(dirname(filePath), { recursive: true })
+  if (!existsSync(filePath)) {
+    writeFileSync(filePath, content, 'utf8')
+  }
+}
+
 export const ensureTasksFile = (workspacePath: string) => {
   ensureTasksDir(workspacePath)
   const tasksFilePath = getTasksFilePath(workspacePath)
@@ -84,6 +103,29 @@ export const ensurePmDocs = (workspacePath: string) => {
     writeFileSync(planFilePath, renderInitialPlan(workspacePath), 'utf8')
   }
 
+  const hiveDir = join(workspacePath, HIVE_DIR_NAME)
+  const baselineDir = join(hiveDir, 'baseline')
+  ensureFileIfMissing(join(hiveDir, 'open-questions.md'), OPEN_QUESTIONS_TEMPLATE)
+  ensureFileIfMissing(join(hiveDir, 'ideas', 'inbox.md'), IDEAS_INBOX_TEMPLATE)
+  ensureFileIfMissing(
+    join(baselineDir, 'README.md'),
+    renderProjectTemplate(BASELINE_INDEX_TEMPLATE, workspacePath)
+  )
+  ensureFileIfMissing(join(baselineDir, 'module-map.md'), BASELINE_MODULE_MAP_TEMPLATE)
+  ensureFileIfMissing(join(baselineDir, 'runtime-flows.md'), BASELINE_RUNTIME_FLOWS_TEMPLATE)
+  ensureFileIfMissing(
+    join(baselineDir, 'state-storage.md'),
+    renderBaselinePlaceholder('State Storage')
+  )
+  ensureFileIfMissing(join(baselineDir, 'test-gates.md'), renderBaselinePlaceholder('Test Gates'))
+  ensureFileIfMissing(
+    join(baselineDir, 'risk-hotspots.md'),
+    renderBaselinePlaceholder('Risk Hotspots')
+  )
+  ensureFileIfMissing(join(hiveDir, 'decisions', '.gitkeep'), '')
+  ensureFileIfMissing(join(hiveDir, 'research', '.gitkeep'), '')
+  ensureFileIfMissing(join(hiveDir, 'archive', '.gitkeep'), '')
+
   const templatesDir = join(workspacePath, HIVE_DIR_NAME, TEMPLATES_DIR_NAME)
   mkdirSync(templatesDir, { recursive: true })
   const templates = [
@@ -92,12 +134,12 @@ export const ensurePmDocs = (workspacePath: string) => {
     ['handoff.template.html', HANDOFF_TEMPLATE],
     ['research.template.md', RESEARCH_TEMPLATE],
     ['milestone-review.template.md', MILESTONE_REVIEW_TEMPLATE],
+    ['open-questions.template.md', OPEN_QUESTIONS_TEMPLATE],
+    ['ideas-inbox.template.md', IDEAS_INBOX_TEMPLATE],
+    ['baseline.template.md', BASELINE_PLACEHOLDER_TEMPLATE],
   ] as const
   for (const [fileName, content] of templates) {
-    const filePath = join(templatesDir, fileName)
-    if (!existsSync(filePath)) {
-      writeFileSync(filePath, content, 'utf8')
-    }
+    ensureFileIfMissing(join(templatesDir, fileName), content)
   }
 }
 
