@@ -74,11 +74,12 @@ last_review: 2026-05-24
 - [x] Topbar 改造：取代独立 Plan / Todo 按钮，Todo 变浮动 mini
 - [x] 63 个测试 (`7d7ba26` + `b5898c6` + `34f7c0d`)
 
-### M7 · 真飞书 e2e 验证 · blocked
-- [ ] 等 user 配 `~/.config/hive/feishu.json` + 重启 4010
-- [ ] 飞书 inbound → orch → worker 派单 → `team feishu reply` 闭环
-- [ ] 审批卡片真按一次 ✅/❌ 走通
-- 设计已就绪，仅需凭证
+### M7 · 真飞书 e2e 验证 · shipped (partial) 2026-05-24
+- [x] 凭证 `~/.config/hive/feishu.json` + chat 绑定 + 重启 4010
+- [x] 飞书 inbound → hive WSClient → route → orch stdin 注入（多次实测通）
+- [x] orch 派 worker（paseo 调研 3 轮 dispatch）+ `team feishu reply` outbound（10+ 次）
+- [x] reaction 两阶段反馈 GLANCE → OK（`63c4228` + `9498f96`，飞书肉眼验过）
+- [ ] 审批卡片 ✅/❌ 真按一次（未触发 high-risk action，待真实场景）
 
 ### M8 · PM 体系 Phase C-3b（A4-A6 主动 trigger）· proposed
 - [ ] A4: milestone 完成时自动跑 baseline 体检（plan.md 文件 watch + change detector）
@@ -107,13 +108,14 @@ last_review: 2026-05-24
 - [ ] `.hive/reports/*.html` 列表 + 一键打开
 - low priority, 备份选项
 
-### M13 · PM 体系团队共维护 5 层架构 · in progress (high)
-- [x] Layer 1 dispatch prompt 自动注入 PM_DISPATCH_REMINDER（commit hash: `7c95e2d`）
-- [x] Layer 2 WORKER_RULES + ORCHESTRATOR_RULES + CLAUDE.md + AGENTS.md 明确 PM 文档共维护（commit hash: `7c95e2d`）
-- [x] Layer 3 pre-commit hook 拦截 reports/*.html 缺同日 research/*.md（commit hash: `7c95e2d`）
-- [x] Layer 5 Cockpit orphan report detector → high priority aiAction（commit hash: `7c95e2d`）
+### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+5) 2026-05-24
+- [x] Layer 1 dispatch prompt 自动注入 PM_DISPATCH_REMINDER（`7c95e2d` + `2432b09`）
+- [x] Layer 2 WORKER_RULES + ORCHESTRATOR_RULES + CLAUDE.md + AGENTS.md 明确 PM 文档共维护（`7c95e2d`）
+- [x] Layer 3 pre-commit hook 拦截 reports/*.html 缺同日 research/*.md（`7c95e2d` + hook fix `afe9148` + harden `cc529b9`）
+- [x] Layer 5 Cockpit orphan report detector → high priority aiAction（`7c95e2d` + nested recursion fix `cc529b9`）
 - [ ] Layer 4 Cockpit snapshot 注入所有 PTY agent · proposed（下个 dispatch）
 - 触发：paseo 调研（5/24）暴露 orch 误读"偏交付 / 偏笔记"为 XOR 而非 AND，连续派 worker 出 3 份 HTML 报告都没补 research note。user 明确要求从 reactive audit 升级为整个团队共同维护 Cockpit / PM 文档。
+- 实战首秀：关羽 PTY stuck → orch rescue v3 HTML 时 hook 真拦截 → fix bug → harden audit 6 类 edge cases（10 new tests），1077 tests passing 全绿
 - 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`
 - ADR：`.hive/decisions/2026-05-24-team-pm-co-maintenance.md`
 
