@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>plan-tree 对 HippoTeam PM 体系的价值评估</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1f2630;
+    --text: #e6edf3;
+    --muted: #9aa7b4;
+    --line: #30363d;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 40px 28px 72px;
+  }
+  h1, h2, h3 { line-height: 1.25; margin: 0 0 14px; }
+  h1 { font-size: 32px; letter-spacing: 0; }
+  h2 { font-size: 22px; margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin-top: 22px; color: var(--accent); }
+  p { margin: 8px 0 12px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    background: rgba(110, 118, 129, 0.2);
+    border: 1px solid rgba(110, 118, 129, 0.22);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  .lead {
+    margin-top: 16px;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, rgba(88,166,255,.16), rgba(188,140,255,.08));
+    border: 1px solid rgba(88,166,255,.35);
+    border-radius: 10px;
+    font-size: 16px;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin: 20px 0 8px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .card strong { display: block; margin-bottom: 6px; }
+  .muted { color: var(--muted); }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 12px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .pill.green { color: var(--green); border-color: rgba(63,185,80,.45); }
+  .pill.yellow { color: var(--yellow); border-color: rgba(210,153,34,.45); }
+  .pill.red { color: var(--red); border-color: rgba(248,81,73,.45); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 22px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    vertical-align: top;
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  th {
+    background: var(--panel-2);
+    color: #c9d1d9;
+    font-weight: 650;
+  }
+  tr:last-child td { border-bottom: 0; }
+  ul { margin: 8px 0 16px 20px; padding: 0; }
+  li { margin: 4px 0; }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: rgba(88,166,255,.08);
+    padding: 12px 14px;
+    margin: 14px 0 20px;
+    border-radius: 0 8px 8px 0;
+  }
+  .two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .rating { font-size: 16px; white-space: nowrap; }
+  @media (max-width: 860px) {
+    main { padding: 28px 16px 56px; }
+    .cards, .two { grid-template-columns: 1fr; }
+    table { display: block; overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>plan-tree 对 HippoTeam PM 体系的价值评估</h1>
+  <p class="muted">调研对象：<code>/Users/huangzongning/development/plan-tree</code>；对照基线：HippoTeam PM Phase A <code>10322f9</code> + Phase B <code>588a9c9</code>。</p>
+  <div class="lead">
+    <strong>一句话结论：</strong>plan-tree 是一个“规划文档知识树治理 skill”，不适合整体搬进 HippoTeam；最值得借鉴的是轻量三件套：<code>.hive/open-questions.md</code>、<code>.hive/ideas/inbox.md</code> + promote 规则、<code>.hive/baseline/</code> 项目事实基线。
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <strong>Top 1：开放问题账本</strong>
+      <span class="pill green">强推荐 · S</span>
+      <p>把未决问题从 tasks 和报告里抽出来，避免 orch 把“待 user 拍板”误当成可执行任务。</p>
+    </div>
+    <div class="card">
+      <strong>Top 2：想法 inbox + promote</strong>
+      <span class="pill green">强推荐 · S</span>
+      <p>给“以后也许做”的需求一个低承诺入口，成熟后再提升为 plan milestone / ADR / research。</p>
+    </div>
+    <div class="card">
+      <strong>Top 3：baseline 事实基线</strong>
+      <span class="pill green">强推荐 · M</span>
+      <p>把模块图、运行流、状态边界、测试门禁、风险热点从 prompt 记忆中落到固定文件。</p>
+    </div>
+  </div>
+
+  <h2>plan-tree 完整 Inventory</h2>
+  <p>目录只有 4 个有效文件：<code>SKILL.md</code>、<code>agents/openai.yaml</code>、<code>references/legacy-migration.md</code>、<code>references/maintenance-patterns.md</code>。它不是应用代码，而是一套跨项目 Markdown 规划树维护规约。</p>
+
+  <h3>核心文件类型</h3>
+  <table>
+    <thead><tr><th>类型</th><th>plan-tree 定义</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td>root registry</td><td><code>docs/plantree/README.md</code></td><td>唯一入口、authority order、baseline 链接、active plans 表。</td></tr>
+      <tr><td>baseline</td><td><code>docs/plantree/baseline/</code></td><td>项目级事实：module map、runtime flows、storage/state、test/release gates、risk hotspots。</td></tr>
+      <tr><td>plan root</td><td><code>docs/plantree/plans/&lt;plan-name&gt;/</code></td><td>每个稳定 workstream 一个 root，包含 roadmap/status/topics/decisions/questions/history。</td></tr>
+      <tr><td>roadmap</td><td><code>roadmap.md</code></td><td>Durable state，默认 Done / In Progress / Next / Deferred。</td></tr>
+      <tr><td>implementation status</td><td><code>implementation-status.md</code></td><td>短 handoff：当前 phase、Active TODO、Blockers、Next Commit Target、Last Verified Commands。</td></tr>
+      <tr><td>topics</td><td><code>topics/</code></td><td>约束、选项、实现笔记、repo hygiene plan、长期上下文。</td></tr>
+      <tr><td>decisions</td><td><code>decisions/</code></td><td>稳定决策记录；多了以后维护 index。</td></tr>
+      <tr><td>open questions</td><td><code>open-questions.md</code></td><td>只放未解决问题；解决后移动到 decision 或 roadmap，不留在问题列表。</td></tr>
+      <tr><td>ideas</td><td><code>docs/plantree/ideas/inbox.md</code></td><td>低承诺想法池；被采纳时 promote 并回链。</td></tr>
+      <tr><td>history</td><td><code>history/</code></td><td>旧 checkpoint、review detail、superseded evidence，避免 active 文件膨胀。</td></tr>
+      <tr><td>repo hygiene plan</td><td><code>topics/repository-cleanup-and-filesystem-plan.md</code></td><td>文件结构治理：inventory、keep/move/archive/delete rules、safety checks、rollback。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Intent Routing</h3>
+  <p>plan-tree 先分类用户意图，再决定触碰哪些文档：</p>
+  <table>
+    <thead><tr><th>Intent</th><th>动作</th><th>对 HippoTeam 的含义</th></tr></thead>
+    <tbody>
+      <tr><td>idea</td><td>写入 ideas/inbox</td><td>低承诺捕获，不污染 plan。</td></tr>
+      <tr><td>promote</td><td>把 idea 提升为 roadmap/topic/question/decision</td><td>适合给 orch prompt 加“想法成熟再入计划”。</td></tr>
+      <tr><td>status</td><td>更新 roadmap 或 implementation-status</td><td>HippoTeam 已有 plan.md + tasks.md，可局部吸收。</td></tr>
+      <tr><td>question</td><td>新增、收窄、解决 open question</td><td>HippoTeam 缺这个独立账本。</td></tr>
+      <tr><td>decision</td><td>创建或更新 ADR</td><td>HippoTeam 已有简版 ADR 模板。</td></tr>
+      <tr><td>archive</td><td>把旧证据/状态细节移出 active 文件</td><td>很适合防止 .hive/plan.md 越写越长。</td></tr>
+      <tr><td>audit</td><td>只做一致性、检索、drift 检查</td><td>可作为 PM Phase C 的 plan-vs-actual 检查模式。</td></tr>
+      <tr><td>resume</td><td>读 registry/baseline/status/roadmap 后汇总当前状态</td><td>HippoTeam 可吸收为 session start checklist。</td></tr>
+      <tr><td>migrate</td><td>桥接/迁移旧 planning tree</td><td>对已有 `.hive/` 不应强迁移，只能作为桥接参考。</td></tr>
+      <tr><td>restructure / consistency repair</td><td>修目录、索引、链接、矛盾</td><td>适合后期文档多了再启用，不适合现在强制化。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Authority / Discovery Order</h3>
+  <ul>
+    <li>Discovery：显式用户路径优先；其次 <code>docs/plantree/README.md</code>；再保留已有成熟树；最后才 bootstrap。</li>
+    <li>Governance：项目只有一个 planning entrypoint；新增 plan root 必须注册；baseline 放项目级事实，具体 plan root 只链接。</li>
+    <li>Authority：root README 说明阅读路径和权威顺序；roadmap、status、decision、topic 发生矛盾时要有最近 index / authority map 裁决。</li>
+    <li>非项目特化设计：目录名、文件角色和 intent 是通用的；项目事实只进入 baseline/topic，不写进 skill 本身。</li>
+  </ul>
+
+  <h2>概念映射：plan-tree vs HippoTeam Phase A/B</h2>
+  <table>
+    <thead><tr><th>概念</th><th>plan-tree 有</th><th>HippoTeam Phase A/B 有</th><th>差异 / 借鉴价值</th></tr></thead>
+    <tbody>
+      <tr><td>唯一规划入口</td><td><code>docs/plantree/README.md</code></td><td><code>.hive/plan.md</code> + <code>.hive/PROTOCOL.md</code></td><td>HippoTeam 已有更轻入口；不需要再加 root registry，除非 `.hive/` 文档膨胀。</td></tr>
+      <tr><td>roadmap</td><td><code>plans/&lt;name&gt;/roadmap.md</code></td><td><code>.hive/plan.md</code>，Phase B 已有 PlanDrawer</td><td>HippoTeam 更适合单文件 plan，看板 UI 已围绕它构建。</td></tr>
+      <tr><td>status / handoff</td><td><code>implementation-status.md</code></td><td><code>.hive/tasks.md</code>、<code>.hive/handoff.html</code>、handoff template</td><td>功能有重叠；可借鉴“Next Commit Target / Last Verified Commands”字段，而不是新建完整 status 文件。</td></tr>
+      <tr><td>baseline 模块图</td><td><code>baseline/module-map.md</code></td><td>无固定文件；项目事实散在 CLAUDE/spec/report/prompt</td><td><span class="pill green">高价值</span> PM Phase C 可加 <code>.hive/baseline/</code> 模板和 session read rule。</td></tr>
+      <tr><td>runtime flows</td><td><code>baseline/runtime-flows.md</code></td><td>主要在 design spec、报告、代码里</td><td>适合记录 HippoTeam 关键流：PTY lifecycle、team send/report、Feishu inbound/outbound、approval。</td></tr>
+      <tr><td>storage/state boundaries</td><td><code>baseline/storage-and-state.md</code></td><td>无专门 PM 文档</td><td>对 SQLite/schema/RuntimeStore 频繁演进很有价值。</td></tr>
+      <tr><td>test/release gates</td><td><code>baseline/test-and-release-gates.md</code></td><td>AGENTS.md + 任务派单里口头强制</td><td>可固化 HippoTeam gate：tsc/biome/vitest/build/不碰 4010/不改 tests 等。</td></tr>
+      <tr><td>risk hotspots</td><td><code>baseline/risk-hotspots.md</code></td><td><code>.hive/plan.md</code> 有简表</td><td>可把大风险从 plan 主体拆出，PlanDrawer 仍展示摘要。</td></tr>
+      <tr><td>ADR</td><td><code>decisions/</code> + index 规则</td><td><code>.hive/decisions/</code> + ADR template</td><td>HippoTeam 已有基础；可借鉴“resolved question 必须迁入 decision”的维护规则。</td></tr>
+      <tr><td>open questions</td><td><code>open-questions.md</code></td><td>无</td><td><span class="pill green">高价值</span> 当前 blocked/proposed 往往混在 plan/tasks/report，容易丢 user 决策点。</td></tr>
+      <tr><td>ideas inbox</td><td><code>ideas/inbox.md</code></td><td>无</td><td><span class="pill green">高价值</span> 适合 HippoTeam fork 的长期小灵感，不污染 milestone。</td></tr>
+      <tr><td>promote</td><td>idea → roadmap/topic/question/decision</td><td>无明确规则</td><td>用 prompt 规则就能落地：不成熟写 inbox，成熟才升 plan/ADR。</td></tr>
+      <tr><td>topics</td><td><code>topics/</code></td><td><code>.hive/research/</code> + <code>.hive/reports/</code></td><td>HippoTeam 已有 reports/research 语义；不建议再加 topics，除非 baseline 不够用。</td></tr>
+      <tr><td>history/archive</td><td><code>history/</code> + archive intent</td><td>无固定 archive；reports 累积</td><td>中期有价值：把旧 review / verification detail 从 active plan 移出。</td></tr>
+      <tr><td>legacy migration</td><td>bridge/adopt/move/archive 四模式</td><td>无</td><td>只在导入旧项目 planning docs 时有价值；当前不需要。</td></tr>
+      <tr><td>retrieval headers / indexes</td><td>大树时使用</td><td>无</td><td>现在 overkill；等 `.hive/research` 或 `decisions` 超过十几个文件再考虑。</td></tr>
+      <tr><td>repo hygiene plan</td><td>专门 topic 模板</td><td>无</td><td>对上游回灌、重构、生成文件清理有用，但不是 PM Phase B 后的首要缺口。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>借鉴建议分档</h2>
+
+  <h3>🟢 强推荐借鉴（4 条）</h3>
+  <table>
+    <thead><tr><th>建议</th><th>落地形态</th><th>工程量</th><th>价值</th><th>风险</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>开放问题账本</td>
+        <td>新增 <code>.hive/open-questions.md</code> 模板；ORCHESTRATOR_RULES 加“未决 user 决策写这里，解决后迁入 plan/ADR 并删除”。Phase B UI 可先不显示。</td>
+        <td>S=半天</td>
+        <td>把 blocked 的真正原因结构化，防止 orch 把问题当任务派掉。</td>
+        <td>低。主要是 prompt 纪律，避免每个小疑问都文档化。</td>
+      </tr>
+      <tr>
+        <td>想法 inbox + promote</td>
+        <td>新增 <code>.hive/ideas/inbox.md</code>；prompt 规定“未承诺想法先入 inbox，promote 后链接到 plan/ADR/research”。</td>
+        <td>S=半天</td>
+        <td>适合单 user fork 的长期 backlog，降低 plan.md 膨胀和承诺错觉。</td>
+        <td>低。需要明确 ideas 不是 tasks，也不是 user 已拍板的 roadmap。</td>
+      </tr>
+      <tr>
+        <td>baseline 事实基线</td>
+        <td>新增 <code>.hive/baseline/{module-map,runtime-flows,storage-and-state,test-and-release-gates,risk-hotspots}.md</code> 模板；session start 只读 relevant baseline。</td>
+        <td>M=1-2天</td>
+        <td>减少 prompt 记忆漂移；Feishu、approval、RuntimeStore、terminal flow 都适合沉淀。</td>
+        <td>中。过细会变成写文档工程；建议先空模板 + “Unknown / needs inventory”。</td>
+      </tr>
+      <tr>
+        <td>Archive discipline</td>
+        <td>给 <code>.hive/reports/</code> 和未来 <code>.hive/history/</code> 定规则：active plan 只留当前摘要，旧验证/审计证据移出。</td>
+        <td>S=半天</td>
+        <td>防止 PlanDrawer 变成 changelog 墙，长期保持可读。</td>
+        <td>低。不要自动删除，只移动/链接。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>🟡 看情况借鉴（5 条）</h3>
+  <table>
+    <thead><tr><th>建议</th><th>落地形态</th><th>工程量</th><th>何时做</th><th>主要风险</th></tr></thead>
+    <tbody>
+      <tr><td>implementation-status 字段</td><td>不新建文件；把 Next Commit Target / Last Verified Commands 加进 <code>handoff.template.html</code> 或 <code>.hive/tasks.md</code> Done 汇总。</td><td>S</td><td>等 handoff 真被频繁使用。</td><td>和 tasks.md、handoff.html 重叠。</td></tr>
+      <tr><td>Plan audit / consistency repair</td><td>PM Phase C session start 增加“plan/tasks/decisions/questions 一致性检查”。</td><td>M</td><td>Phase A+B 跑 1-2 周后。</td><td>orch 可能花太多 token 做文档审计。</td></tr>
+      <tr><td>repo hygiene plan</td><td>新增 <code>.hive/research/repo-hygiene.md</code> 或 baseline topic，用于大清理/回灌/迁移。</td><td>S-M</td><td>上游 marketplace / 大文件整理前。</td><td>不应成为所有小改动前置流程。</td></tr>
+      <tr><td>decision index</td><td><code>.hive/decisions/README.md</code>，当 ADR 超过 8-10 个时自动维护。</td><td>S</td><td>ADR 变多后。</td><td>现在文件少，提前做是过度。</td></tr>
+      <tr><td>retrieval headers</td><td>给大 research/decision 加 Role/Status/Read when 头。</td><td>S</td><td>单文件超过约 300 行或 reports/research 激增后。</td><td>模板噪声。</td></tr>
+    </tbody>
+  </table>
+
+  <h3>🔴 跳过（3 条）</h3>
+  <table>
+    <thead><tr><th>跳过项</th><th>原因</th><th>替代</th></tr></thead>
+    <tbody>
+      <tr><td>整体迁移到 <code>docs/plantree/</code></td><td>HippoTeam 已有 `.hive/` 作为 runtime/PM 根；迁移会破坏现有 UI、watcher 和 orch prompt。</td><td>保留 `.hive/`，只借概念。</td></tr>
+      <tr><td>每个 workstream 一个 plan root</td><td>HippoTeam 是单 user 本地 fork，Phase B 看板围绕单 <code>plan.md</code>；多 root 会增加 UI 和维护复杂度。</td><td>用 milestone + ADR/research 链接表达子方向。</td></tr>
+      <tr><td>完整 large-tree governance / indexes</td><td>当前文档树还没大到需要 authority-map、phase-map、topics index。</td><td>等真实痛点出现再加，避免 PPT 工程。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>推荐的 HippoTeam Phase C 形态</h2>
+  <div class="callout">
+    <strong>最小可行扩展：</strong>不要导入 plan-tree 代码或目录名；在 `.hive/` 下新增 3 个轻量模板目录/文件，再加强 ORCHESTRATOR_RULES。
+  </div>
+  <table>
+    <thead><tr><th>新增/调整</th><th>具体内容</th><th>UI 是否需要</th></tr></thead>
+    <tbody>
+      <tr><td><code>.hive/open-questions.md</code></td><td>只放 unresolved user/product/architecture questions；字段：Question / Context / Needed decision / Linked plan item。</td><td>暂不需要；PlanDrawer 后续可显示 count。</td></tr>
+      <tr><td><code>.hive/ideas/inbox.md</code></td><td>低承诺想法池；promoted 后标记链接，不自动进入 roadmap。</td><td>不需要，纯 orch 维护。</td></tr>
+      <tr><td><code>.hive/baseline/</code></td><td>module-map、runtime-flows、storage-and-state、test-and-release-gates、risk-hotspots，初始可写 Unknown / needs inventory。</td><td>不需要；用于 session resume 和 agent context。</td></tr>
+      <tr><td>prompt 规则</td><td>“想法不等于任务；问题不等于任务；resolved question 必须迁入 decision/plan；active plan 不吸收历史证据”。</td><td>无。</td></tr>
+      <tr><td>PlanDrawer 小增强</td><td>可选：显示 open questions count、ideas count、baseline stale warning。</td><td>等 Phase B 稳定后再做。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>风险与边界</h2>
+  <ul>
+    <li><strong>最大风险是文档负担过重。</strong> HippoTeam 的优势是本地轻量、多 agent 实操快；plan-tree 的完整树适合长期大型规划，但不能强制每个小需求走十个文件。</li>
+    <li><strong>不要替换 `.hive/plan.md`。</strong> Phase B UI 已围绕它构建，plan-tree 的 roadmap 模型只能作为维护规则参考。</li>
+    <li><strong>不要让 orch 变成文档书记员。</strong> 推荐只把“未决问题、低承诺想法、项目事实基线”这三类从当前混杂状态中拆出。</li>
+    <li><strong>baseline 需要事实驱动。</strong> 模板中不知道的内容要写 Unknown / needs inventory，不能让 LLM 编造模块图。</li>
+  </ul>
+
+  <h2>最终判断</h2>
+  <p>plan-tree 对 HippoTeam 的价值是“治理原则和轻量模板”，不是“目录架构”。建议进入 Phase C 的只有 4 条强推荐，其中前三条可以不改 UI 先上线：<code>open-questions.md</code>、<code>ideas/inbox.md</code>、<code>baseline/</code>。其余内容等 Phase A/B 在真实使用中出现文档膨胀、决策丢失、resume 失真后再逐步吸收。</p>
+</main>
+</body>
+</html>
