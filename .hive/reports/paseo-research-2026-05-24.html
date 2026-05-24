@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paseo 开源项目调研 · 2026-05-24</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #111827;
+      --panel-2: #172033;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --line: #2a3548;
+      --accent: #67e8f9;
+      --green: #34d399;
+      --yellow: #fbbf24;
+      --red: #fb7185;
+      --blue: #60a5fa;
+      --purple: #a78bfa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 0%, rgba(103, 232, 249, 0.10), transparent 28%),
+        linear-gradient(180deg, #0b1020 0%, #0f172a 100%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+    main { max-width: 1180px; margin: 0 auto; padding: 40px 24px 64px; }
+    header { margin-bottom: 28px; }
+    h1 { margin: 0 0 10px; font-size: 32px; letter-spacing: 0; }
+    h2 { margin: 34px 0 14px; font-size: 22px; }
+    h3 { margin: 22px 0 10px; font-size: 17px; color: #dbeafe; }
+    p { margin: 8px 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 2px 6px;
+      border-radius: 5px;
+      background: rgba(148, 163, 184, 0.14);
+      color: #bfdbfe;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #080d19;
+      color: #cbd5e1;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { text-align: left; color: #c7d2fe; background: rgba(96, 165, 250, 0.08); }
+    ul { padding-left: 22px; }
+    li { margin: 6px 0; }
+    .summary {
+      padding: 18px 20px;
+      border: 1px solid rgba(103, 232, 249, 0.35);
+      border-radius: 10px;
+      background: rgba(103, 232, 249, 0.08);
+    }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .card {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(17, 24, 39, 0.88);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.14);
+      color: #d1d5db;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .strong { color: var(--green); }
+    .weak { color: var(--yellow); }
+    .none { color: var(--red); }
+    .muted { color: var(--muted); }
+    .callout {
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: rgba(96, 165, 250, 0.08);
+      border-radius: 8px;
+    }
+    .source { color: var(--muted); font-size: 13px; }
+    .rank { font-size: 20px; }
+    @media (max-width: 720px) {
+      main { padding: 28px 14px 48px; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Paseo 开源项目调研</h1>
+    <p class="muted">生成时间：2026-05-24 · 调研目录：<code>~/development/paseo</code> · 目标：判断 Paseo 对 HippoTeam PM 体系和多 agent 工作台的借鉴价值</p>
+    <div class="summary">
+      <strong>一句话结论：</strong>
+      这里的 paseo 基本可以确认是 <a href="https://github.com/getpaseo/paseo">getpaseo/paseo</a>：一个本地 daemon + 多端客户端 + 多 provider agent runtime。它和 HippoTeam 强相关，但不是 PM 系统；最值得借鉴的是 provider 抽象、agent timeline/权限流、Skills/Loop 编排模式，而不是整套移动端/relay 产品形态。
+    </div>
+  </header>
+
+  <section>
+    <h2>1. GitHub 候选定位</h2>
+    <p>由于本机 <code>gh</code> 未登录，使用 GitHub Search API 和网页搜索定位。按 stars 和 HippoTeam 相关性排序如下。</p>
+    <table>
+      <thead>
+        <tr>
+          <th>候选</th>
+          <th>Stars / 更新时间</th>
+          <th>语言</th>
+          <th>定位</th>
+          <th>相关性判断</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="https://github.com/getpaseo/paseo">getpaseo/paseo</a></td>
+          <td>6624 · 2026-05-24</td>
+          <td>TypeScript</td>
+          <td>Coding agents from phone, desktop and CLI</td>
+          <td><span class="strong">🟢 强</span>：多 agent、本地 daemon、Claude/Codex/OpenCode/Pi、CLI/web/mobile，和 HippoTeam 同赛道。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/zenghongtu/paseo-relay">zenghongtu/paseo-relay</a></td>
+          <td>88 · 2026-05-23</td>
+          <td>Go</td>
+          <td>Paseo relay 的自托管轻量实现</td>
+          <td><span class="weak">🟡 弱</span>：只和远程连接/relay 有关，非主项目。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/aidotse/PASEOS">aidotse/PASEOS</a></td>
+          <td>51 · 2026-05-23</td>
+          <td>Python</td>
+          <td>多 spacecraft 环境仿真</td>
+          <td><span class="none">🔴 无关</span>：名称相似，领域完全不同。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/paseo-network/runtimes">paseo-network/runtimes</a></td>
+          <td>39 · 2026-05-06</td>
+          <td>Rust</td>
+          <td>Polkadot community testnet runtimes</td>
+          <td><span class="none">🔴 无关</span>：区块链 testnet，不是 AI 工作台。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/google/paseos">google/paseos</a></td>
+          <td>15 · 2025-05-06</td>
+          <td>JavaScript</td>
+          <td>创建和分享 web journeys 的 web app</td>
+          <td><span class="none">🔴 无关</span>：旧项目，非 agent runtime。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/paseo-network/paseo-action-submission">paseo-network/paseo-action-submission</a></td>
+          <td>7 · 2026-05-22</td>
+          <td>Python</td>
+          <td>Paseo testnet RFC/action submission</td>
+          <td><span class="none">🔴 无关</span>。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/paseo-network/paseo-chain-specs">paseo-network/paseo-chain-specs</a></td>
+          <td>7 · 2026-05-11</td>
+          <td>n/a</td>
+          <td>Paseo Network chain specs</td>
+          <td><span class="none">🔴 无关</span>。</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/keepmind9/paseo-relay">keepmind9/paseo-relay</a></td>
+          <td>6 · 2026-05-23</td>
+          <td>Go</td>
+          <td>Paseo relay protocol 兼容实现</td>
+          <td><span class="weak">🟡 弱</span>：只可作为 relay 参考。</td>
+        </tr>
+      </tbody>
+    </table>
+    <p><strong>定位置信度：</strong>90%+。如果 user 说的 paseo 是"开源 agent 工作台"，就是 <code>getpaseo/paseo</code>；如果是 Polkadot 语境，则应校正到 <code>paseo-network/*</code>，但那条线对 HippoTeam 没价值。</p>
+  </section>
+
+  <section>
+    <h2>2. 被选仓库快照</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>仓库</h3>
+        <p><a href="https://github.com/getpaseo/paseo">github.com/getpaseo/paseo</a></p>
+        <p class="source">clone 到 <code>~/development/paseo</code></p>
+      </div>
+      <div class="card">
+        <h3>HEAD</h3>
+        <p><code>7fbbb44</code></p>
+        <p class="source">2026-05-24T06:16:43Z · <code>fix: update lockfile signatures and Nix hash</code></p>
+      </div>
+      <div class="card">
+        <h3>版本 / license</h3>
+        <p><code>0.1.81</code> · AGPL-3.0-or-later</p>
+        <p class="source">root <code>package.json</code></p>
+      </div>
+      <div class="card">
+        <h3>一句话定位</h3>
+        <p>一个本地优先的多端 AI coding agent 控制平面：同一 daemon 管 Claude Code、Codex、Copilot、OpenCode、Pi，并给手机、桌面、Web、CLI 使用。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. 技术栈</h2>
+    <table>
+      <thead>
+        <tr><th>层</th><th>技术</th><th>关键依赖 / 文件</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Monorepo</td>
+          <td>npm workspaces + TypeScript</td>
+          <td><code>packages/server</code>, <code>packages/app</code>, <code>packages/cli</code>, <code>packages/desktop</code>, <code>packages/relay</code>, <code>packages/website</code></td>
+        </tr>
+        <tr>
+          <td>Daemon</td>
+          <td>Node.js + Express + WebSocket + MCP</td>
+          <td><code>express</code>, <code>ws</code>, <code>@modelcontextprotocol/sdk</code>, <code>pino</code>, <code>node-pty</code></td>
+        </tr>
+        <tr>
+          <td>Agent providers</td>
+          <td>Direct adapter + ACP adapter</td>
+          <td>Claude Agent SDK, Codex AppServer, Copilot ACP, OpenCode SDK, Pi RPC, Generic ACP</td>
+        </tr>
+        <tr>
+          <td>Client UI</td>
+          <td>Expo / React Native / Web / Electron</td>
+          <td><code>react-native</code>, Expo Router, React Query, Reanimated, Unistyles</td>
+        </tr>
+        <tr>
+          <td>Persistence</td>
+          <td>文件型 JSON store</td>
+          <td><code>~/.paseo/agents</code>, <code>projects</code>, <code>chat</code>, <code>schedules</code>, <code>loops</code></td>
+        </tr>
+        <tr>
+          <td>Remote</td>
+          <td>Relay + E2E encryption</td>
+          <td><code>packages/relay</code>, QR pairing, daemon keypair</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>4. 架构概览</h2>
+    <pre>Mobile / Web / Desktop / CLI
+        │
+        │ WebSocket JSON + binary terminal/file frames
+        ▼
+Paseo daemon (packages/server)
+  ├─ bootstrap.ts              HTTP/WS/MCP/relay/service wiring
+  ├─ session.ts                per-client RPC and subscriptions
+  ├─ AgentManager              lifecycle + timeline + subscribers
+  ├─ AgentStorage              file-backed agent records
+  ├─ provider-registry         Claude / Codex / Copilot / OpenCode / Pi / ACP
+  ├─ mcp-server                agents can create/control other agents
+  ├─ loop-service              worker/verifier retry loops
+  ├─ schedule/service          cron/every scheduled agents
+  ├─ chat/service              rooms and @mentions
+  ├─ terminal-manager          terminal panes and binary stream routing
+  ├─ workspace/worktree/git    project registry, branches, PRs, archive
+  └─ relay-transport           encrypted remote access</pre>
+
+    <h3>核心数据流：创建并运行 agent</h3>
+    <pre>Client createAgent({ provider, cwd, model, mode, prompt, worktree? })
+  → Session validates RPC and workspace context
+  → AgentManager.create()
+  → Provider adapter creates native session
+  → Provider emits AgentStreamEvent
+  → AgentManager appends timeline row { seq, epoch, timestamp, item }
+  → WebSocket broadcasts agent_stream + agent_update
+  → App timeline reducer renders chat / tool calls / permission cards</pre>
+
+    <h3>和 HippoTeam 的根本差异</h3>
+    <ul>
+      <li><strong>Paseo 是 agent runtime 产品：</strong>关注多端控制、provider 兼容、移动端体验、worktree/git/PR/relay。</li>
+      <li><strong>HippoTeam 是 PM-driven 协作工作台：</strong>关注 orchestrator/worker 协议、tasks/plan/cockpit 文档体系、飞书远控、dispatch lifecycle。</li>
+      <li><strong>Paseo 的 agent 状态机更细：</strong><code>initializing / idle / running / error / closed</code>；HippoTeam spec 固定三态 <code>idle / working / stopped</code>，不能照搬。</li>
+      <li><strong>Paseo 用 JSON 文件持久化：</strong>无 schema migration；HippoTeam 已经 SQLite + schema_version，存储层不建议回退。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>5. 核心模块读码笔记</h2>
+    <table>
+      <thead>
+        <tr><th>模块</th><th>源码位置</th><th>读到的模式</th><th>对 HippoTeam 的意义</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Daemon bootstrap</td>
+          <td><code>packages/server/src/server/bootstrap.ts</code></td>
+          <td>单入口装配 HTTP、WS、AgentManager、storage、MCP、relay、schedule、workspace registry。</td>
+          <td>可借鉴服务组装和显式 dependency wiring；但 HippoTeam 现在 app/store 分层已更轻。</td>
+        </tr>
+        <tr>
+          <td>AgentManager</td>
+          <td><code>agent/agent-manager.ts</code></td>
+          <td>ManagedAgent discriminated union、subscriber bus、foreground turn waiters、timeline coalescer、attention callback。</td>
+          <td>timeline/attention 模式值得研究；状态机不能直接 port。</td>
+        </tr>
+        <tr>
+          <td>Provider registry</td>
+          <td><code>agent/provider-registry.ts</code>, <code>provider-manifest.ts</code></td>
+          <td>provider definition 声明 label、description、mode、icon、risk color、unattended mode；runtime settings 可 override command/env/tools。</td>
+          <td>强借鉴。HippoTeam 现有 preset/catalog 可升级为能力矩阵，而不是散落 if/else。</td>
+        </tr>
+        <tr>
+          <td>Timeline store</td>
+          <td><code>agent/agent-timeline-store.ts</code></td>
+          <td>append-only rows，带 <code>seq</code>、<code>epoch</code>、tail/after/before fetch、stale cursor/gap reset。</td>
+          <td>很适合 Cockpit/TaskLog/Terminal history 的可恢复 WS 模式。</td>
+        </tr>
+        <tr>
+          <td>MCP server</td>
+          <td><code>agent/mcp-server.ts</code></td>
+          <td>把 create_agent、send prompt、worktree、schedule、provider list 等暴露给 agent；跨 provider mode 映射。</td>
+          <td>可借鉴工具 schema 设计；HippoTeam 目前用 <code>team</code> CLI 更简单，MCP 不是短期必须。</td>
+        </tr>
+        <tr>
+          <td>Loop service</td>
+          <td><code>loop-service.ts</code></td>
+          <td>worker/verifier cycle，支持 verify shell check、verifier prompt、max iterations/time、archive。</td>
+          <td>和 HippoTeam 自评/review 循环强相关，但要做成显式用户触发，避免违反不做心跳/超时检测的约束。</td>
+        </tr>
+        <tr>
+          <td>CLI</td>
+          <td><code>packages/cli/src/commands/*</code></td>
+          <td>Docker-style command tree；<code>paseo run</code> 支持 provider/model、thinking、mode、worktree、image、env、label、output-schema。</td>
+          <td>可借鉴 CLI 输出 schema 和 structured output，但 HippoTeam 的 <code>team</code> CLI 应保持小而稳定。</td>
+        </tr>
+        <tr>
+          <td>Skills</td>
+          <td><code>skills/paseo-*.md</code></td>
+          <td><code>handoff</code>, <code>loop</code>, <code>advisor</code>, <code>committee</code>, <code>epic</code> 把操作规程包装成可复用 skill。</td>
+          <td>和 HippoTeam PM 文档体系高度互补，可转为 protocol/templates，而不是直接安装。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>6. 借鉴价值排序</h2>
+    <div class="card">
+      <h3><span class="rank">1</span> Provider catalog 能力矩阵 <span class="badge strong">🟢 强推荐</span></h3>
+      <p><strong>借鉴点：</strong>Paseo 把 provider 的 modes、visual risk tier、unattended mode、voice support、runtime command/env override 统一声明。HippoTeam 已有 command preset 和 thinking_level，可以继续抽象出 <code>supportsThinkingLevel</code>、<code>supportsMcp</code>、<code>riskMode</code>、<code>launchArgs</code> 这类能力。</p>
+      <p><strong>落地形态：</strong>扩展 <code>src/server/command-presets</code> / catalog 层，减少 agent-run-bootstrap 里 provider 特判。工作量 M，风险低。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">2</span> Timeline seq/epoch/gap 模型 <span class="badge strong">🟢 强推荐</span></h3>
+      <p><strong>借鉴点：</strong>Paseo timeline store 的 <code>seq + epoch + cursor</code> 能清楚处理 reconnect、历史分页、stale cursor、gap reset。HippoTeam 目前有 tasks/plan/cockpit WS 和 terminal stream，未来 TaskLog/Feishu log/agent run history 可以统一用这个协议思路。</p>
+      <p><strong>落地形态：</strong>先用于 Cockpit/TaskLog 的事件流，不碰 PTY 数据面。工作量 M，风险中等。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">3</span> Skills 作为 PM playbook <span class="badge strong">🟢 强推荐</span></h3>
+      <p><strong>借鉴点：</strong><code>paseo-handoff</code> 的自包含交接模板、<code>paseo-advisor</code> 的 no-edits review、<code>paseo-committee</code> 的对照模型评审、<code>paseo-epic</code> 的 plan-file source of truth，和 HippoTeam PM 体系天然契合。</p>
+      <p><strong>落地形态：</strong>不是直接引入 Paseo skill，而是把这些流程拆成 <code>.hive/templates</code>、<code>ORCHESTRATOR_RULES</code>、Cockpit ActionBar 建议。工作量 S-M，风险低。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">4</span> Loop worker/verifier 显式循环 <span class="badge weak">🟡 看情况</span></h3>
+      <p><strong>借鉴点：</strong>循环不是后台心跳，而是用户/PM 明确启动的"worker → verify → repeat"任务，适合 CI 修复、PR babysit、测试打绿。</p>
+      <p><strong>风险：</strong>HippoTeam design spec 禁止做状态超时/心跳检测；如果做，必须是显式 <code>team loop</code> 或 Cockpit action，且有 max iterations/time。工作量 L。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">5</span> Worktree + archive + PR merge 工作流 <span class="badge weak">🟡 看情况</span></h3>
+      <p>Paseo 对 worktree、PR、archive 有完整产品化。HippoTeam 当前更像单 workspace PM 控制台，短期只需要"按 dispatch 建 worktree"或"高风险 commit 前生成 review"的小功能，不应整套搬。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">6</span> Relay / mobile app / voice <span class="badge weak">🟡 到 🔴</span></h3>
+      <p>技术上很强，但 HippoTeam 已经用飞书桥解决手机入口，移动端原生 app 和 E2E relay 会显著扩大维护面。除非 user 明确要摆脱飞书，否则不推荐近期投入。</p>
+    </div>
+    <div class="card">
+      <h3><span class="rank">7</span> JSON 文件持久化 <span class="badge none">🔴 跳过</span></h3>
+      <p>Paseo 的文件型 store 对用户可读和原子写有好处，但 HippoTeam 已有 SQLite、schema_version、dispatch ledger、agent runs。回退到 JSON 会破坏现有迁移和查询能力。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>7. 和 HippoTeam 当前阶段的对照</h2>
+    <table>
+      <thead>
+        <tr><th>HippoTeam 当前能力</th><th>Paseo 对应能力</th><th>结论</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>飞书桥：手机远控 + approval + reaction</td>
+          <td>移动 app + relay + push + voice</td>
+          <td>目标相同但路线不同。短期继续强化飞书，别开移动 app 维护面。</td>
+        </tr>
+        <tr>
+          <td>PM 文档体系：plan/tasks/questions/ideas/baseline/cockpit</td>
+          <td>Skills + epic plan file + loop/advisor/committee</td>
+          <td>Paseo 的 playbook 更成熟，值得转译成 HippoTeam protocol/template。</td>
+        </tr>
+        <tr>
+          <td>orchestrator/worker 固定 team 协议</td>
+          <td>MCP tools 让 agent 创建/控制其他 agent</td>
+          <td>HippoTeam 可保留 CLI 协议；MCP 作为未来可选，不必现在改。</td>
+        </tr>
+        <tr>
+          <td>本地 Node runtime + React web</td>
+          <td>Node daemon + Expo app + Electron desktop</td>
+          <td>Paseo 更产品化、更重；HippoTeam 适合继续保持轻量浏览器 UI。</td>
+        </tr>
+        <tr>
+          <td>SQLite 持久化 + migration</td>
+          <td>JSON file stores + Zod parse</td>
+          <td>存储层不建议借鉴；可借鉴原子写和 Zod runtime validation 的局部模式。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>8. 推荐后续动作</h2>
+    <ol>
+      <li><strong>短期：</strong>把 Paseo provider manifest 的能力矩阵思想吸收到 HippoTeam command preset/catalog，清理启动参数特判。</li>
+      <li><strong>短期：</strong>把 <code>paseo-handoff</code>、<code>paseo-advisor</code>、<code>paseo-committee</code> 的结构转成 <code>.hive/templates</code> 或 Cockpit ActionBar 建议，不直接引入外部 skill。</li>
+      <li><strong>中期：</strong>设计 HippoTeam 的 append-only PM event timeline，借鉴 Paseo <code>seq/epoch/cursor</code>，先服务 Cockpit/TaskLog。</li>
+      <li><strong>中期：</strong>评估显式 <code>team loop</code>，但必须有硬上限，且不做后台心跳/自动超时检测。</li>
+      <li><strong>暂不做：</strong>移动 app、relay、voice、JSON persistence、大规模 git/PR 产品化。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>9. 限制与风险</h2>
+    <ul>
+      <li><strong>没有安装运行：</strong>按任务要求只读源码，没有 <code>npm install</code> 或启动 Paseo；报告基于 README、docs、package.json、核心源码。</li>
+      <li><strong>AGPL 许可：</strong>直接复制代码进 HippoTeam 要注意 AGPL 传染边界。建议只借鉴设计模式，必要时重写。</li>
+      <li><strong>状态机冲突：</strong>Paseo 的 lifecycle 比 HippoTeam 三态更复杂，不能照搬到 worker 状态。</li>
+      <li><strong>产品方向分叉：</strong>Paseo 是通用多端 agent 产品；HippoTeam 是 PM 管理和本地团队协作。过度照搬会稀释 HippoTeam 当前优势。</li>
+    </ul>
+  </section>
+
+  <footer class="source">
+    <p>主要本地来源：<code>~/development/paseo/README.md</code>, <code>docs/architecture.md</code>, <code>docs/data-model.md</code>, <code>docs/providers.md</code>, <code>packages/server/src/server/agent/*</code>, <code>packages/cli/src/commands/*</code>, <code>skills/paseo-*.md</code>。</p>
+    <p>远程来源：GitHub Search API 与 <a href="https://github.com/getpaseo/paseo">getpaseo/paseo</a> 仓库页面。</p>
+  </footer>
+</main>
+</body>
+</html>
