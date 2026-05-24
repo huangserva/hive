@@ -125,6 +125,12 @@ last_review: 2026-05-24
 - 候选 idea：ideas/inbox.md idea-1 (expo-two-way-audio) + idea-2 (skills playbook) + idea-3 (provider catalog) + idea-4 (timeline 模型)
 - 阻塞 Q4 user 答复才能拆 sub-task
 
+### M15 · Cockpit Questions answer flow · shipped 2026-05-24
+- [x] Questions tab Answer button opens a Radix dialog with Q text + textarea
+- [x] POST `/api/workspaces/:id/cockpit/questions/:qId/answer` moves open questions into `## 已答`
+- [x] questions parser exposes answered history with `answer` metadata
+- [x] tests: parser + routes-cockpit + Cockpit Questions UI (`738c657`)
+
 ## Scope
 
 **in（覆盖范围）**：
