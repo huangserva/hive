@@ -8,6 +8,9 @@ import { ResearchTab } from '../../web/src/cockpit/tabs/ResearchTab.js'
 
 afterEach(() => cleanup())
 
+const localIso = (year: number, monthIndex: number, day: number, hour: number, minute: number) =>
+  new Date(year, monthIndex, day, hour, minute).toISOString()
+
 const makeResearch = (overrides: Partial<ParsedResearch> = {}): ParsedResearch => ({
   entries: [],
   parseError: null,
@@ -29,6 +32,7 @@ describe('ResearchTab', () => {
             {
               date: '2026-05-20',
               filename: '2026-05-20-test.md',
+              mtime: localIso(2026, 4, 24, 9, 30),
               size: 5,
               title: 'Test Research',
               topic: 'test',
@@ -49,6 +53,7 @@ describe('ResearchTab', () => {
             {
               date: '2026-05-20',
               filename: '2026-05-20-api-design.md',
+              mtime: localIso(2026, 4, 24, 9, 30),
               size: 12,
               title: 'API Design Notes',
               topic: 'api design',
@@ -58,7 +63,8 @@ describe('ResearchTab', () => {
         })}
       />
     )
-    expect(screen.getByText('2026-05-20')).toBeInTheDocument()
+    expect(screen.getByText('2026-05-24 09:30')).toBeInTheDocument()
+    expect(screen.queryByText('2026-05-20')).not.toBeInTheDocument()
     expect(screen.getByText('2026-05-20-api-design.md')).toBeInTheDocument()
     expect(screen.getByText('12 lines')).toBeInTheDocument()
     expect(screen.getByText('API Design Notes')).toBeInTheDocument()
@@ -73,6 +79,7 @@ describe('ResearchTab', () => {
             {
               date: '2026-05-20',
               filename: 'a.md',
+              mtime: localIso(2026, 4, 24, 10, 0),
               size: 1,
               title: 'First',
               topic: 'first',
@@ -80,6 +87,7 @@ describe('ResearchTab', () => {
             {
               date: '2026-05-15',
               filename: 'b.md',
+              mtime: localIso(2026, 4, 24, 9, 0),
               size: 2,
               title: 'Second',
               topic: 'second',

@@ -1,12 +1,15 @@
 import type { ParsedResearch, PMResearchEntry } from '../../api.js'
 import { useI18n } from '../../i18n.js'
 
+const formatMtime = (mtime: string) =>
+  new Date(mtime).toLocaleString('sv-SE', { hour12: false }).slice(0, 16)
+
 const ResearchEntryCard = ({ entry }: { entry: PMResearchEntry }) => {
   const { t } = useI18n()
   return (
     <div className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>
       <div className="mb-1 flex items-center gap-2 text-ter text-xs">
-        {entry.date ? <span>{entry.date}</span> : null}
+        <span>{formatMtime(entry.mtime)}</span>
         <span className="mono truncate">{entry.filename}</span>
         <span className="tabular-nums">
           {t('cockpit.research.lineCount', { count: entry.size })}

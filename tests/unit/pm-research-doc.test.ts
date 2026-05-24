@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,6 +16,11 @@ const setupDir = () => {
   const dir = mkdtempSync(join(tmpdir(), 'hive-research-'))
   tempDirs.push(dir)
   return dir
+}
+
+const touch = (path: string, iso: string) => {
+  const date = new Date(iso)
+  utimesSync(path, date, date)
 }
 
 describe('parseResearchDoc', () => {
@@ -38,15 +43,29 @@ describe('parseResearchDoc', () => {
     expect(result.parseError).toBeNull()
   })
 
-  test('sorts entries newest-first by date', () => {
+  test('sorts entries newest-first by file mtime', () => {
     const dir = setupDir()
-    writeFileSync(join(dir, '2026-04-10-old.md'), '# Old\n', 'utf8')
-    writeFileSync(join(dir, '2026-05-20-new.md'), '# New\n', 'utf8')
-    writeFileSync(join(dir, '2026-05-15-mid.md'), '# Mid\n', 'utf8')
+    const oldPath = join(dir, '2026-05-24-old-name.md')
+    const newPath = join(dir, '2026-04-10-newer-mtime.md')
+    const midPath = join(dir, '2026-05-15-mid.md')
+    writeFileSync(oldPath, '# Old\n', 'utf8')
+    writeFileSync(newPath, '# New\n', 'utf8')
+    writeFileSync(midPath, '# Mid\n', 'utf8')
+    touch(oldPath, '2026-05-24T08:00:00.000Z')
+    touch(newPath, '2026-05-24T10:00:00.000Z')
+    touch(midPath, '2026-05-24T09:00:00.000Z')
 
     const result = parseResearchDoc(dir)
-    const dates = result.entries.map((e) => e.date)
-    expect(dates).toEqual(['2026-05-20', '2026-05-15', '2026-04-10'])
+    expect(result.entries.map((e) => e.filename)).toEqual([
+      '2026-04-10-newer-mtime.md',
+      '2026-05-15-mid.md',
+      '2026-05-24-old-name.md',
+    ])
+    expect(result.entries.map((e) => e.mtime)).toEqual([
+      '2026-05-24T10:00:00.000Z',
+      '2026-05-24T09:00:00.000Z',
+      '2026-05-24T08:00:00.000Z',
+    ])
   })
 
   test('extracts date from YYYY-MM-DD-slug filename', () => {
@@ -55,6 +74,16 @@ describe('parseResearchDoc', () => {
 
     const result = parseResearchDoc(dir)
     expect(result.entries[0]?.date).toBe('2026-05-20')
+  })
+
+  test('exposes file mtime as an ISO string', () => {
+    const dir = setupDir()
+    const filePath = join(dir, '2026-05-20-api-design.md')
+    writeFileSync(filePath, '# Title\n', 'utf8')
+    touch(filePath, '2026-05-24T12:34:56.000Z')
+
+    const result = parseResearchDoc(dir)
+    expect(result.entries[0]?.mtime).toBe('2026-05-24T12:34:56.000Z')
   })
 
   test('extracts topic from slug part of filename', () => {

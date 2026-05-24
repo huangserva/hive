@@ -1,9 +1,10 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 export interface PMResearchEntry {
   date: string
   filename: string
+  mtime: string
   size: number
   title: string
   topic: string
@@ -36,20 +37,20 @@ export const parseResearchDoc = (researchDir: string): ParsedResearch => {
     parsed.entries = readdirSync(researchDir)
       .filter((filename) => filename.endsWith('.md') && !filename.startsWith('.'))
       .map((filename) => {
-        const raw = readFileSync(join(researchDir, filename), 'utf8')
+        const filePath = join(researchDir, filename)
+        const raw = readFileSync(filePath, 'utf8')
+        const mtime = statSync(filePath).mtime.toISOString()
         const fileInfo = parseFilename(filename)
         return {
           date: fileInfo.date,
           filename,
+          mtime,
           size: lineCount(raw),
           title: titleFromMarkdown(raw, fileInfo.topic || filename.replace(/\.md$/, '')),
           topic: fileInfo.topic,
         }
       })
-      .sort((left, right) => {
-        const byDate = right.date.localeCompare(left.date)
-        return byDate === 0 ? right.filename.localeCompare(left.filename) : byDate
-      })
+      .sort((left, right) => right.mtime.localeCompare(left.mtime))
     parsed.totalCount = parsed.entries.length
   } catch (error) {
     parsed.parseError = error instanceof Error ? error.message : String(error)
