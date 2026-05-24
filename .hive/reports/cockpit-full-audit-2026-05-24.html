@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Cockpit Full Audit — 2026-05-24</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;color:#1a1a1a;line-height:1.6}
+h1{border-bottom:2px solid #333;padding-bottom:.5rem}
+h2{margin-top:2rem;color:#444}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #ddd;padding:.4rem .6rem;text-align:left;font-size:.9rem}
+th{background:#f5f5f5}
+.severity-high{color:#c00;font-weight:700}
+.severity-medium{color:#b8860b;font-weight:700}
+.severity-low{color:#666}
+code{background:#f0f0f0;padding:0 .3rem;border-radius:3px;font-size:.85rem}
+.summary-box{background:#f8f8f8;border:1px solid #ddd;padding:1rem;border-radius:6px;margin:1rem 0}
+.pass{color:#2a7f2a}.fail{color:#c00}.skip{color:#b8860b}
+</style>
+</head>
+<body>
+<h1>Cockpit Full Audit — 2026-05-24</h1>
+
+<div class="summary-box">
+<strong>Summary:</strong> 12 findings total — <span class="severity-high">🔴 3 HIGH</span> · <span class="severity-medium">🟠 5 MEDIUM</span> · <span class="severity-low">🟢 4 LOW</span><br>
+QuestionsTab answer 功能已由关羽修好（有真实 POST handler + Dialog）。剩余 3 个空 handler（Ideas promote, Decisions confirm, ActionBar action）是 Phase C-2.5 预留。
+</div>
+
+<h2>Part 1: Dead Handlers / TODOs</h2>
+<table>
+<tr><th>Severity</th><th>File:Line</th><th>Finding</th><th>Impact</th></tr>
+<tr><td class="severity-high">🔴 HIGH</td><td><code>ActionBar.tsx:75</code></td><td><code>onClick={() => { // TODO: wire POST actions in Phase C-2.5. }</code> — all 10 action buttons do nothing when clicked</td><td>User clicks "回答"/"查看"/"确认" → no-op. 10 actions visible, 0 functional.</td></tr>
+<tr><td class="severity-high">🔴 HIGH</td><td><code>IdeasTab.tsx:18</code></td><td><code>onClick={() => { // TODO: wire promote POST in Phase C-2.5. }</code> — Promote button does nothing</td><td>Every inbox idea shows "提升" button that's dead.</td></tr>
+<tr><td class="severity-high">🔴 HIGH</td><td><code>DecisionsTab.tsx:18</code></td><td><code>onClick={() => { // TODO: wire decision confirmation POST in Phase C-2.5. }</code> — Confirm button does nothing</td><td>Every draft decision shows "确认归档" button that's dead.</td></tr>
+<tr><td class="severity-low">🟢 LOW</td><td><code>QuestionsTab.tsx:23</code></td><td>Was empty handler in old version. <strong>Now fixed</strong> — has real <code>submitAnswer()</code> with Dialog + POST to <code>answerCockpitQuestion()</code></td><td>N/A — already wired.</td></tr>
+</table>
+
+<h2>Part 2: Tab Interaction Capability Matrix</h2>
+<table>
+<tr><th>Tab</th><th>Data Source</th><th>Interactive Buttons</th><th>Wired?</th><th>Empty/Error/Loading</th><th>Missing Features</th></tr>
+<tr><td><strong>Plan</strong></td><td>parsePlanDoc from plan.md</td><td>None (read-only display)</td><td>N/A</td><td>✅ parseError shows raw; ✅ loading</td><td>No milestone mark-done; no inline edit</td></tr>
+<tr><td><strong>Tasks</strong></td><td>parseTasksDoc from tasks.md</td><td>None (read-only)</td><td>N/A</td><td>✅ empty state; ✅ parseError warning</td><td>No checkbox toggle; no inline edit</td></tr>
+<tr><td><strong>Questions</strong></td><td>parseQuestionsDoc from open-questions.md</td><td>"Answer" button per Q → opens Dialog with textarea</td><td><span class="pass">✅ YES</span> — POST <code>/cockpit/questions/:id/answer</code></td><td>✅ empty per priority; ✅ parseError; ✅ answered section</td><td>—</td></tr>
+<tr><td><strong>Ideas</strong></td><td>parseIdeasDoc from ideas/inbox.md</td><td>"Promote" button per inbox idea</td><td><span class="fail">❌ NO</span> — empty onClick handler</td><td>✅ empty inbox/promoted</td><td>No promote POST endpoint exists in backend</td></tr>
+<tr><td><strong>Decisions</strong></td><td>parseDecisionsDoc from decisions/ dir</td><td>"Confirm archive" button per draft</td><td><span class="fail">❌ NO</span> — empty onClick handler</td><td>✅ empty drafts/adopted</td><td>No confirm POST endpoint exists in backend</td></tr>
+<tr><td><strong>Research</strong></td><td>parseResearchDoc from research/ dir</td><td>None (read-only cards)</td><td>N/A</td><td>✅ empty state; ✅ parseError</td><td>No way to open/edit a research note</td></tr>
+<tr><td><strong>Baseline</strong></td><td>parseBaselineDoc from baseline/ dir</td><td>None (read-only cards)</td><td>N/A</td><td>✅ staleHint warning; ✅ empty readme</td><td>No way to open/edit a baseline file</td></tr>
+<tr><td><strong>Archive</strong></td><td>parseArchiveDoc from archive/ dir</td><td>None (read-only)</td><td>N/A</td><td>✅ empty state</td><td>—</td></tr>
+<tr><td><strong>ActionBar</strong></td><td>buildAiActions from cockpit-doc.ts</td><td>"回答"/"查看"/"确认" per action</td><td><span class="fail">❌ NO</span> — empty onClick handler</td><td>✅ empty state (Chinese fallback for no-provider)</td><td>Action execution not wired</td></tr>
+</table>
+
+<h2>Part 3: Test Coverage Audit</h2>
+<table>
+<tr><th>Component</th><th>Test File(s)</th><th>Status</th></tr>
+<tr><td>PlanTab</td><td>tests/web/plan-drawer.test.tsx</td><td class="pass">✅ Covered (11 tests)</td></tr>
+<tr><td>TasksTab</td><td>tests/web/cockpit-tasks-tab.test.tsx</td><td class="pass">✅ Covered (7 tests)</td></tr>
+<tr><td>QuestionsTab</td><td>tests/web/cockpit-questions-tab.test.tsx</td><td class="pass">✅ Exists</td></tr>
+<tr><td>IdeasTab</td><td>—</td><td class="fail">❌ NO tests</td></tr>
+<tr><td>DecisionsTab</td><td>—</td><td class="fail">❌ NO tests</td></tr>
+<tr><td>ResearchTab</td><td>tests/web/cockpit-research-tab.test.tsx</td><td class="pass">✅ Covered (5 tests)</td></tr>
+<tr><td>BaselineTab</td><td>—</td><td class="fail">❌ NO tests</td></tr>
+<tr><td>ArchiveTab</td><td>—</td><td class="fail">❌ NO tests</td></tr>
+<tr><td>CockpitDrawer</td><td>tests/web/cockpit-drawer.test.tsx</td><td class="pass">✅ Covered (9 tests)</td></tr>
+<tr><td>ActionBar</td><td>tests/web/cockpit-action-bar.test.tsx + i18n</td><td class="pass">✅ Covered (10 tests)</td></tr>
+<tr><td>CockpitTabs</td><td>tests/web/cockpit-tabs-i18n.test.tsx</td><td class="pass">✅ Covered (3 tests)</td></tr>
+<tr><td>GET /cockpit route</td><td>tests/server/routes-cockpit.test.ts</td><td class="pass">✅ Covered (4 tests)</td></tr>
+<tr><td>POST /cockpit/answer route</td><td>—</td><td class="fail">❌ NO test</td></tr>
+<tr><td>WS /ws/cockpit/:id</td><td>tests/server/cockpit-websocket-server.test.ts</td><td class="pass">✅ Covered (4 tests)</td></tr>
+<tr><td>Tab switching in Drawer</td><td>—</td><td class="fail">❌ NO test for tab switch rendering</td></tr>
+</table>
+
+<h2>Part 4: API Endpoint Completeness</h2>
+<table>
+<tr><th>Endpoint</th><th>Status</th><th>Notes</th></tr>
+<tr><td><code>GET /api/workspaces/:id/cockpit</code></td><td class="pass">✅ Exists</td><td>Returns full ParsedCockpit with all fields</td></tr>
+<tr><td><code>POST /cockpit/questions/:qId/answer</code></td><td class="pass">✅ Exists</td><td>Wired to answerQuestionInFile, updates open-questions.md</td></tr>
+<tr><td><code>POST /cockpit/ideas/:id/promote</code></td><td class="fail">❌ MISSING</td><td>Needed by IdeasTab promote button</td></tr>
+<tr><td><code>POST /cockpit/decisions/:id/confirm</code></td><td class="fail">❌ MISSING</td><td>Needed by DecisionsTab confirm button</td></tr>
+<tr><td><code>POST /cockpit/actions/:id/execute</code></td><td class="fail">❌ MISSING</td><td>Needed by ActionBar action buttons</td></tr>
+<tr><td><code>WS /ws/cockpit/:id</code></td><td class="pass">✅ Exists</td><td>Sends cockpit-snapshot on connect, cockpit-update on file change</td></tr>
+</table>
+<p>ParsedCockpit type has <code>tasks</code>, <code>research</code>, <code>aiActions</code> — all present in GET response. WebSocket payload matches type. No stubs or placeholder returns in backend routes.</p>
+
+<h2>Part 5: aiActions Algorithm Audit</h2>
+<p><strong>Current triggers:</strong></p>
+<ul>
+<li>🔴 High-priority open questions → <code>question</code> action</li>
+<li>🟠 Medium-priority open questions → <code>question</code> action</li>
+<li>🔴 Orphan reports (report without research note) → <code>audit</code> action</li>
+<li>🟠 Recent ideas (≤7 days) → <code>promote</code> action (max 3)</li>
+<li>🔴 Draft decisions → <code>decision</code> action</li>
+<li>🟠 Baseline stale → <code>audit</code> action</li>
+</ul>
+<table>
+<tr><th>Severity</th><th>Finding</th><th>Suggestion</th></tr>
+<tr><td class="severity-medium">🟠 MED</td><td>No trigger for "old unanswered questions" (e.g. high Q open &gt;7 days)</td><td>Add time-based urgency: high Q open &gt;3 days → escalate</td></tr>
+<tr><td class="severity-medium">🟠 MED</td><td>No trigger for "stale tasks" (all in-progress &gt;7 days)</td><td>Add stale task audit action</td></tr>
+<tr><td class="severity-low">🟢 LOW</td><td>Cap at 10 may drop important items when many high-priority questions exist</td><td>Consider separate caps per type (e.g. max 5 questions, max 3 others)</td></tr>
+<tr><td class="severity-low">🟢 LOW</td><td>No trigger for "plan has no milestones" or "plan not reviewed recently"</td><td>Add plan health checks</td></tr>
+</ul>
+
+<h2>Part 6: i18n Completeness</h2>
+<table>
+<tr><th>Component</th><th>Uses t()?</th><th>Hardcoded strings?</th></tr>
+<tr><td>CockpitDrawer</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>CockpitTabs</td><td class="pass">✅ All labels via t()</td><td>None</td></tr>
+<tr><td>ActionBar</td><td class="pass">✅ i18n path for priority + title</td><td>Legacy Chinese path only when action.action contains CJK (backward compat)</td></tr>
+<tr><td>PlanTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>TasksTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>QuestionsTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>IdeasTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>DecisionsTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>ResearchTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+<tr><td>BaselineTab</td><td class="pass">✅ All text via t()</td><td><code>baseline.staleHint</code> is raw server-generated string (not i18n'd)</td></tr>
+<tr><td>ArchiveTab</td><td class="pass">✅ All text via t()</td><td>None</td></tr>
+</table>
+<p class="severity-medium">🟠 <strong>BaselineTab staleHint</strong>: The <code>staleHint</code> string is generated server-side in Chinese (e.g. "5 baseline files still need drafting") — not passed through i18n. For EN users, this text appears in Chinese.</p>
+
+<h2>Recommendations</h2>
+<ol>
+<li><strong>Wire 3 dead handlers</strong> (IdeasTab promote, DecisionsTab confirm, ActionBar action) — needs backend POST endpoints first</li>
+<li><strong>Add POST endpoint tests</strong> for <code>/cockpit/questions/:id/answer</code></li>
+<li><strong>Add missing tab tests</strong> for IdeasTab, DecisionsTab, BaselineTab, ArchiveTab</li>
+<li><strong>i18n staleHint</strong>: generate staleHint key on server, translate on client</li>
+<li><strong>Add time-based aiAction triggers</strong> for old questions and stale tasks</li>
+</ol>
+</body>
+</html>

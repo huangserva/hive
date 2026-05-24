@@ -11,10 +11,17 @@
 - [x] **关羽** dispatch `71d7fde1` — Debug：飞书 reaction API 调用失败
 - [x] **关羽** dispatch `b8562201` — 调研：GitHub 搜 paseo 开源项目，下载 + 出 HTML 报告
 - [x] **关羽** dispatch `64807571` — 重做 paseo 调研 v2（commit d3062e2 v1 报告 framing 错误，重做）
-- [ ] **关羽** dispatch `7ef6ff64` — v3 调研：Paseo / Multica / HippoTeam 三方横向对照报告（决策辅助型）
+- [~] **关羽** dispatch `7ef6ff64` — v3 调研：Paseo / Multica / HippoTeam 三方横向对照报告（决策辅助型） ⊘ 关羽 PTY stuck (last_pty_line='─' 空状态线，working 几小时不动)。v3 HTML 已写好 39K 在工作树，orch 接…
 - [x] **关羽** dispatch `9e05b245` — Fix：Cockpit Research tab 时间戳只到日期没分钟
 - [~] **赵云** dispatch `82aecc7c` — 实施：PM 体系 governance harden（reports/ ↔ research/ 双产出 enforcement，对应 plan.md M13） ⊘ scope 太小。重派整个团队 PM 共维护体系，含 worker 端 PM 维护 + dispatch prompt 自动注入 + commit hook …
 - [x] **赵云** dispatch `295b7861` — 重大设计 + 实施：**整个团队共同维护 Cockpit/PM 文档体系**（pre-emptive，不是 reactive audit）
+- [x] **赵云** dispatch `d9638cd3` — Follow-up：M13 governance hook 测试补全 + edge case audit
+- [x] **典韦** dispatch `1fddae81` — VERIFICATION TASK：不要做任何实际工作。请直接在 team report 里粘贴：
+- [x] **关羽** dispatch `160e5438` — Fix UI bug：Cockpit Questions tab 回答按钮无 handler
+- [x] **典韦** dispatch `d4d93723` — Cockpit 完整体检 audit（pre-emptive，不要等 user 发现）
+- [x] **赵云** dispatch `22e7791c` — Spike + 实施：给 codex worker 装 MCP browser server，开 UI E2E 能力
+- [x] **典韦** dispatch `5a19af15` — Audit 后续：补 4 个 Cockpit tab 组件测试 + POST answer route 测试
+- [x] **关羽** dispatch `551b829d` — Phase C-2.5 wave 2：ActionBar + IdeasTab + DecisionsTab dead handlers + 3 个 POST endpoint
 ## Open（user 回来决定）
 
 - [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e（M7 blocked）
