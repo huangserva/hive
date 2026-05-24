@@ -9,19 +9,21 @@
 
 ## Open（user 回来决定）
 
-- [ ] 重启 4010 让今天所有改动生效（破坏性，杀所有 worker）
-- [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e
-- [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后会自动 seed stub，需要 orch 填实际内容；hive-serva 的 plan.md 是示例）
-- [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）—— 典韦报告里点名要 export 才能直测
-- [ ] PM 体系 Phase B 提前做了（dispatch `e6702ba7`）→ M8 移动到 In progress，跳过"跑顺 1-2 周"等待期
-- [ ] PM 体系 Phase C（主动 review 闭环 + 飞书推送）— B 稳了再说
-- [ ] Marketplace 深度调研是否回灌（独立于 PM 体系决定）
+- [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e（M7 blocked）
+- [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
+- [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
+- [ ] PM 体系 Phase C-3b（A4-A6 主动 trigger：milestone 完成自动 baseline 体检 / 月度 archive cron / cross-workspace drift）— 观察 1 周 LLM 自觉性后再决定（M8）
+- [ ] Marketplace 深度调研是否回灌（M11，独立于 PM 体系决定）
+- [ ] Cockpit Reports tab 要不要做（M12, Q2 low priority）
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
 - [ ] multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强）
 
 ## Done
 
 ### 2026-05-23 ~ 24
+- [x] **Orchestrator** — 重启 4010 + 浏览器刷新 + 真用 Cockpit dashboard（user 自己做的）
+- [x] **关羽 + 典韦** — PM 体系 M10 全套 i18n：104 个新 i18n key (×2 locale) + 22 个组件 useI18n 化 + 17 个 i18n 测试 + CJK scan 0 命中 (`2b3e2ed` + `7be5d22`)
+- [x] **关羽 + 赵云 + 典韦** — PM 体系 M9 完整性补全：Cockpit 加 Tasks/Research tab + drawer scroll fix + baseline 5 子文档真填（172+77+60+46+73 行）+ 42 个新测试 (`8837995` + `973c4f6` + `a41ae22`)
 - [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-2 Cockpit UI：5 parser + cockpit-doc aggregate + WS + HTTP endpoint + 10 React 组件 + Topbar 改造（取代 Plan/Todo 独立按钮）+ 63 个新测试 (`7d7ba26` + `b5898c6` + `34f7c0d`)
 - [x] **赵云 + 典韦** — PM 体系 Phase C-3a：session-start review nudge（runtime 一次性注入 system message + 3 启动路径 + idempotent + 12 tests）(`be1d633` + `9d1467b`)
 - [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-1 文件层：4 个新文档（open-questions / ideas / baseline / archive）+ 6 节 ORCHESTRATOR_RULES + 24 个新测试 + 修 plan WS race (`82fc5a2` + `64c7236`)
