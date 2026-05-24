@@ -8,6 +8,7 @@ import type {
 } from './feishu-approval-ledger.js'
 import type { FeishuCredentials } from './feishu-credentials.js'
 import { type FeishuInboundChatEvent, handleFeishuInbound } from './feishu-inbound-handler.js'
+import { FeishuReactionStore } from './feishu-reaction-store.js'
 import { resolveRoute } from './feishu-route-resolver.js'
 import {
   buildApprovalCard,
@@ -27,8 +28,12 @@ type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.recei
 export type FeishuTransportState = 'connected' | 'disconnected' | 'error'
 
 export interface FeishuOutboundTransport {
+  addReaction(messageId: string, emoji: string): Promise<string>
+  getLatestMessageForChat(chatId: string): string | undefined
   getLastChatForAgent(agentId: string): string | null
   getStatus(): { appId: string; reconnectCount: number; state: FeishuTransportState }
+  markReplyDelivered(messageId: string): Promise<void>
+  removeReaction(messageId: string, reactionId: string): Promise<void>
   sendApprovalCard(input: SendApprovalCardInput): Promise<{ messageId: string }>
   sendMessage(chatId: string, text: string): Promise<void>
   updateApprovalCard(input: UpdateApprovalCardInput): Promise<void>
@@ -72,6 +77,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
   private readonly store: RuntimeStore
   private readonly client: lark.Client
   private readonly lastChatByAgent = new Map<string, string>()
+  private readonly reactionStore = new FeishuReactionStore()
   private reconnectCount = 0
   private state: FeishuTransportState = 'disconnected'
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
@@ -174,6 +180,54 @@ export class FeishuTransport implements FeishuOutboundTransport {
     return this.lastChatByAgent.get(agentId) ?? null
   }
 
+  getLatestMessageForChat(chatId: string): string | undefined {
+    return this.reactionStore.getLatestForChat(chatId)
+  }
+
+  async addReaction(messageId: string, emoji: string): Promise<string> {
+    const response = await this.client.im.v1.messageReaction.create({
+      data: {
+        reaction_type: {
+          emoji_type: emoji,
+        },
+      },
+      path: {
+        message_id: messageId,
+      },
+    })
+    const reactionId = response.data?.reaction_id
+    if (!reactionId) {
+      throw new Error('Feishu reaction response missing reaction_id')
+    }
+    return reactionId
+  }
+
+  async removeReaction(messageId: string, reactionId: string): Promise<void> {
+    await this.client.im.v1.messageReaction.delete({
+      path: {
+        message_id: messageId,
+        reaction_id: reactionId,
+      },
+    })
+  }
+
+  async markReplyDelivered(messageId: string): Promise<void> {
+    const oldReactionId = this.reactionStore.take(messageId)
+    if (oldReactionId) {
+      try {
+        await this.removeReaction(messageId, oldReactionId)
+      } catch (error) {
+        this.logger.warn(`feishu reaction remove failed message_id=${messageId}`, error)
+      }
+    }
+
+    try {
+      await this.addReaction(messageId, 'OK')
+    } catch (error) {
+      this.logger.warn(`feishu reaction add failed message_id=${messageId} emoji=OK`, error)
+    }
+  }
+
   async sendMessage(chatId: string, text: string): Promise<void> {
     const chunks = chunkFeishuText(text)
 
@@ -222,6 +276,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
 
   private async handleMessageReceive(event: MessageReceiveEvent): Promise<void> {
     const chatId = event.message.chat_id
+    const messageId = event.message.message_id
     const senderUserId = getSenderUserId(event.sender)
     this.logger.info(`feishu inbound message chat_id=${chatId} sender=${senderUserId}`)
 
@@ -230,6 +285,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
 
     const inboundEvent: FeishuInboundChatEvent = {
       chatId,
+      ...(messageId ? { messageId } : {}),
       senderName: senderUserId,
       text,
       userId: senderUserId,
@@ -246,6 +302,15 @@ export class FeishuTransport implements FeishuOutboundTransport {
       return
     }
     this.lastChatByAgent.set(route.orchestratorAgentId, chatId)
+    if (messageId) {
+      this.reactionStore.setLatestForChat(chatId, messageId)
+      try {
+        const reactionId = await this.addReaction(messageId, 'EYE')
+        this.reactionStore.set(messageId, reactionId)
+      } catch (error) {
+        this.logger.warn(`feishu reaction add failed message_id=${messageId} emoji=EYE`, error)
+      }
+    }
 
     await handleFeishuInbound({
       agentRuntime: this.store,

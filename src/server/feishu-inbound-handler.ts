@@ -3,6 +3,7 @@ import type { RuntimeStore } from './runtime-store.js'
 
 export interface FeishuInboundChatEvent {
   chatId: string
+  messageId?: string | undefined
   senderName: string
   text: string
   userId: string
@@ -30,7 +31,7 @@ export const FEISHU_ORCHESTRATOR_OFFLINE_TEXT =
 
 export const formatFeishuInboundPrompt = (event: FeishuInboundChatEvent) =>
   [
-    `[来自飞书 chat=${event.chatId}，sender=${event.senderName} user_id=${event.userId}]`,
+    `[来自飞书 chat=${event.chatId}，sender=${event.senderName} user_id=${event.userId}${event.messageId ? ` message_id=${event.messageId}` : ''}]`,
     '请用 team feishu reply 回复（Phase 2 接通后生效）。',
     '---',
     event.text,

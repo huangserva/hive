@@ -5,6 +5,7 @@ import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
 interface FeishuOutboundBody {
   chatId?: unknown
+  messageId?: unknown
   text?: unknown
 }
 
@@ -50,6 +51,14 @@ const optionalChatId = (value: unknown) => {
   if (value === undefined || value === null) return undefined
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new BadRequestError('chatId must be a non-empty string')
+  }
+  return value.trim()
+}
+
+const optionalMessageId = (value: unknown) => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new BadRequestError('messageId must be a non-empty string')
   }
   return value.trim()
 }
@@ -127,8 +136,13 @@ export const feishuRoutes: RouteDefinition[] = [
       if (!chatId) {
         throw new BadRequestError('no recent feishu chat for this agent')
       }
+      const messageId =
+        optionalMessageId(body.messageId) ?? feishuTransport.getLatestMessageForChat?.(chatId)
 
       await feishuTransport.sendMessage(chatId, text)
+      if (messageId) {
+        await feishuTransport.markReplyDelivered?.(messageId)
+      }
       sendJson(response, 200, { ok: true })
     }
   ),

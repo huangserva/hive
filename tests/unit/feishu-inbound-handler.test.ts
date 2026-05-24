@@ -26,12 +26,15 @@ describe('formatFeishuInboundPrompt', () => {
   test('formats a complete inbound prompt', () => {
     const event = makeEvent({
       chatId: 'oc_xxx',
+      messageId: 'om_xxx',
       senderName: 'ou_abc',
       text: '你好',
       userId: 'ou_abc',
     })
     const result = formatFeishuInboundPrompt(event)
-    expect(result).toContain('[来自飞书 chat=oc_xxx，sender=ou_abc user_id=ou_abc]')
+    expect(result).toContain(
+      '[来自飞书 chat=oc_xxx，sender=ou_abc user_id=ou_abc message_id=om_xxx]'
+    )
     expect(result).toContain('请用 team feishu reply 回复（Phase 2 接通后生效）。')
     expect(result).toContain('---')
     expect(result).toContain('你好')

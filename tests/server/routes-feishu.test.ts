@@ -228,4 +228,22 @@ describe('POST /internal/feishu/outbound', () => {
     expect(getLastChatForAgent).toHaveBeenCalledWith(agentId)
     expect(sendMessage).toHaveBeenCalledWith('oc_last', 'reply')
   })
+
+  test('marks the source message delivered after a successful reply', async () => {
+    const markReplyDelivered = vi.fn().mockResolvedValue(undefined)
+    const { agentId, baseUrl, sendMessage, token } = await setupWithTransport({
+      markReplyDelivered,
+    })
+
+    const { status, body } = await postOutbound(
+      baseUrl,
+      { text: 'reply', chatId: 'oc_target', messageId: 'om_source' },
+      authHeaders(agentId, token)
+    )
+
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(sendMessage).toHaveBeenCalledWith('oc_target', 'reply')
+    expect(markReplyDelivered).toHaveBeenCalledWith('om_source')
+  })
 })

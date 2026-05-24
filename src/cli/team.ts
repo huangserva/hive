@@ -24,7 +24,7 @@ const TEAM_USAGE = [
   '  team cancel --dispatch <dispatch-id> "<reason>"',
   '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
   '  team feishu reply "<text>"',
-  '  team feishu reply --chat <chat_id> "<text>"',
+  '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team report --stdin [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team status "<current status>" [--artifact <path>]',
@@ -123,7 +123,8 @@ const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifac
 export const APPROVE_USAGE =
   'Usage: team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]'
 export const CANCEL_USAGE = 'Usage: team cancel --dispatch <dispatch-id> <reason>'
-export const FEISHU_REPLY_USAGE = 'Usage: team feishu reply [--chat <chat_id>] <text>'
+export const FEISHU_REPLY_USAGE =
+  'Usage: team feishu reply [--chat <chat_id>] [--message-id <message_id>] <text>'
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
 
@@ -138,6 +139,7 @@ export interface ParsedReportArgs {
 
 export interface ParsedFeishuReplyArgs {
   chatId: string | undefined
+  messageId: string | undefined
   text: string
 }
 
@@ -248,6 +250,7 @@ export const parseCancelArgs = (args: string[]): ParsedCancelArgs => {
 export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
   const positionals: string[] = []
   let chatId: string | undefined
+  let messageId: string | undefined
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
@@ -259,6 +262,16 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
         throw new Error(`--chat requires a value\n\n${FEISHU_REPLY_USAGE}`)
       }
       chatId = next
+      index += 1
+      continue
+    }
+
+    if (arg === '--message-id') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--message-id requires a value\n\n${FEISHU_REPLY_USAGE}`)
+      }
+      messageId = next
       index += 1
       continue
     }
@@ -275,7 +288,7 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
     throw new Error(`Missing <text>\n\n${FEISHU_REPLY_USAGE}`)
   }
 
-  return { chatId, text }
+  return { chatId, messageId, text }
 }
 
 export const parseReportArgs = (args: string[], command = 'report'): ParsedReportArgs => {
@@ -484,6 +497,7 @@ export const runTeamCommand = async (argv: string[]) => {
     const response = await fetchRuntime(baseUrl, '/internal/feishu/outbound', {
       body: JSON.stringify({
         ...(reply.chatId ? { chatId: reply.chatId } : {}),
+        ...(reply.messageId ? { messageId: reply.messageId } : {}),
         text: reply.text,
       }),
       headers: {

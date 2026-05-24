@@ -13,6 +13,12 @@ describe('parseFeishuReplyArgs', () => {
     expect(result).toEqual({ text: 'hello', chatId: 'oc_x' })
   })
 
+  test('--message-id flag before text', () => {
+    const result = parseFeishuReplyArgs(['--message-id', 'om_x', 'hello'])
+    expect(result.messageId).toBe('om_x')
+    expect(result.text).toBe('hello')
+  })
+
   test('multiple positional args are joined with space', () => {
     const result = parseFeishuReplyArgs(['hello', 'world'])
     expect(result).toEqual({ text: 'hello world', chatId: undefined })
