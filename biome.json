@@ -8,7 +8,8 @@
       "!coverage",
       "!node_modules",
       "!docs/mockups",
-      "!**/*.css"
+      "!**/*.css",
+      "!.hive/reports/**"
     ],
     "ignoreUnknown": true
   },

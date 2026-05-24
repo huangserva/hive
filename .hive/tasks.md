@@ -1,46 +1,49 @@
 # Tasks
 
+> 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
+> 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
+
 ## In progress
 
-**飞书桥 Plan B 实施中**（设计：`.hive/reports/feishu-bridge-plan-2026-05-21.html`）
-
-**全部 5 个 Phase 完成（含审批卡片）。** 等 user 回来配 feishu.json + 重启 4010 → 真飞书 e2e。
-
-15 个 commit + 757 tests + 132 个 feishu 测试。Phase 5 加了飞书审批卡片（Hermes 风格）：orchestrator 派高风险任务前必须 `team approve` → 飞书弹卡片 → user 手机点 ✅/❌ → 注入回 orch。
-
-Phase 0 完成（`6d7bba2` + `8b5f1a9`）：schema v21 + credentials loader + bindings store + RuntimeStore 接线 + startup log + 45 个新测试。
-Phase 1 inbound 实现 + tests 完成（`d595f6f` + `445bebd`）：feishu-transport / route-resolver / inbound-handler 三件 + 16 个新测试。
-Phase 2 outbound 实现 + tests 完成（`10815af` + `640aaaa`）：team feishu reply CLI + /internal/feishu/outbound endpoint + transport-utils refactor + sendMessage + 长消息 25KB 切片 + orch system prompt 加 reminder + 31 个新测试。
-Phase 3 UI 实现完成（`fd0db8e`）：4 个 UI-token endpoints + web api.ts + Topbar 飞书状态灯（5s poll）+ Sidebar workspace ⚙ 入口 + WorkspaceSettings dialog + transport.getStatus()。TaskLog 飞书标记跳过（web 没有 persistent message log UI 可挂）。
-当前 656 tests 全绿。
-
-Phase 4 准备 refactor 完成（`19819b5`）：parseFeishuReplyArgs + chunkFeishuText + FeishuOutboundTransport interface 全部 export。
-Phase 4 测试补全完成（待 commit）：parseFeishuReplyArgs (9 tests) + chunkFeishuText (10 tests) + 4 个 UI-token endpoints integration (19 tests) = 38 个新测试。
-Phase 4 bug fix（待 commit）：典韦发现 POST /api/feishu/bindings 用不存在 workspace_id 返回 500 → 关羽 fix 加 NotFoundError 转 404 + listFeishuBindings 也 wrap。我 sync 那条测试期望 (500 → 404)。
-当前 694 tests 全绿。Phase 5 留给 user 决定（已知局限见 handoff.html）。
-
-后续节奏（user 出门，orchestrator 自主决定）：
-- 关羽 Phase 1 完 → 派 典韦 加测试 → review → commit → push
-- Phase 2 派 关羽 outbound (team feishu reply + feishu-outbox)
-- Phase 3 派 关羽 UI 绑定 + 状态灯
-- Phase 4 派 典韦 e2e 测试 + 文档
-- 阻塞点：实现可以无飞书凭证完成，但 user 出门后 e2e 验证需要 user 回来配置 ~/.config/hive/feishu.json
-
-## Done
-
-- [x] **关羽**: multica #3 — 后端错误消息透传 UI。12 个 endpoint 走 `readErrorMessage`。`c223f31` 已 push。116 files / 564 tests 全过。
-- [x] **关羽**: multica #1 + #2 — per-worker thinking_level 选择器 + Add Worker picker。Schema v20 + Claude `--effort` / Codex `-c model_reasoning_effort=...` 注入。`8a2295c` + `d4b64b5` 已 push。
-- [x] **关羽**: multica 二轮深度调研 → 8 条具体借鉴项报告
-- [x] **关羽**: 修 dev 模式 `team` 命令 PATH bug（POSIX sh wrapper 双模式 + bin dir resolve 简化）
-- [x] **关羽**: 修 worker stop/restart 卡 working 的 pending bug（方案 B + stopped-only guard）
-- [x] hive 旧仓库 archive 到 `~/development/hive.archived-2026-05-20`
-- [x] hive-serva 全部改动 push 到 huangserva/hive（remote 改成 SSH）
-- [x] **关羽**: P0 logger + 5 个 event handler 防崩
-- [x] **典韦**: 全仓 event handler 未 catch 扫描 → 3 🔴 + 9 🟡
-- [x] **关羽**: 调研报告（日志、12 commit、hive vs hive-serva、npm 1.3.0）
+- [ ] **关羽** dispatch `c02e72f6` — Step 2 上游回灌 4 组：71fdaaf (port-in-use) + b34cfe4 (drawer width) + e57c6be+7bda143 (OpenCode mouse) + 4c34bf6 (terminal perf, 拆开做)
+- [ ] **关羽** dispatch `e4080e44` — PM 体系 Phase A：5 个文档模板 + workspace 种子 + system prompt PM 段（排队中，关羽 Step 2 完后做）
+- [ ] **典韦** — Step 2 测试补全（关羽 Step 2 完后我派）
+- [ ] **典韦** — PM Phase A 测试补全（关羽 PM Phase A 完后我派）
+- [ ] **Orchestrator** — retrofit hive-serva + HippoMind 的 plan.md（PM Phase A 完后我做，让用户看到 PM 体系实样）
 
 ## Open（user 回来决定）
 
-- 重启 4010 让今天所有改动生效（破坏性，杀所有 worker）
-- multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强，应由 user 看 demo 决定）
-- 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
+- [ ] 重启 4010 让今天所有改动生效（破坏性，杀所有 worker）
+- [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e
+- [ ] PM 体系 Phase B（Plan-vs-Actual UI 面板）— Phase A 跑顺 1-2 周再说
+- [ ] PM 体系 Phase C（主动 review 闭环 + 飞书推送）— B 稳了再说
+- [ ] Marketplace 深度调研是否回灌（独立于 PM 体系决定）
+- [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
+- [ ] multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强）
+
+## Done
+
+### 2026-05-23 ~ 24
+- [x] **关羽** + **典韦** — Step 1 上游回灌：53e3645 tasks WS hardening (`473dc46`) + a2945fe team cancel (`02abda0`) + tests (`24fc7d5`)
+- [x] **关羽** — Upstream tt-a1i/hive 5/20 之后 31 个 commit 调研 + 🟢🟡🔴 分类报告
+- [x] **关羽** — Rebrand Hive → HippoTeam (`539266f`)：Topbar 圆圈 H logo + favicon + HTML title + package.json @huangserva/hippoteam + README + i18n 16 处 + 移除 upstream npm update badge
+
+### 2026-05-21（飞书桥 Plan B · 16 commit · 757 tests · 132 个 feishu 测试）
+- [x] **关羽** + **典韦** — Phase 0：schema v21 + credentials loader + bindings store + RuntimeStore 接线 (`6d7bba2` + `8b5f1a9`) + 45 tests
+- [x] **关羽** + **典韦** — Phase 1 inbound：feishu-transport + route-resolver + inbound-handler (`d595f6f` + `445bebd`) + 16 tests
+- [x] **关羽** + **典韦** — Phase 2 outbound：team feishu reply CLI + /internal/feishu/outbound + 长消息切片 (`10815af` + `640aaaa`) + 31 tests
+- [x] **关羽** — Phase 3 UI：4 个 UI-token endpoints + Topbar 飞书状态灯 + WorkspaceSettings dialog (`fd0db8e`)
+- [x] **关羽** + **典韦** — Phase 4 testability refactor + tests + bug fix：parseFeishuReplyArgs/chunkFeishuText/FeishuOutboundTransport export + 38 tests + NotFoundError 404 修复 (`19819b5` / `553f896` / `a879ca6`)
+- [x] **关羽** + **典韦** — Phase 5 审批卡片（Hermes 风格）：ApprovalLedger + sendApprovalCard + card.action.trigger + 双语 system prompt (`e601c38` + `1198fe8` + `4347c98` + `6fb3d45`)
+
+### 2026-05-20（多 worker 协作前期 + multica 借鉴）
+- [x] **关羽** — multica #3 后端错误消息透传 UI（12 endpoint readErrorMessage，`c223f31`）
+- [x] **关羽** — multica #1 + #2 per-worker thinking_level + Add Worker picker（schema v20，`8a2295c` + `d4b64b5`）
+- [x] **关羽** — multica 二轮深度调研 → 8 条具体借鉴项报告
+- [x] **关羽** — 修 dev 模式 `team` 命令 PATH bug（POSIX sh wrapper 双模式）
+- [x] **关羽** — 修 worker stop/restart 卡 working 的 pending bug（方案 B + stopped-only guard）
+- [x] hive 旧仓库 archive 到 `~/development/hive.archived-2026-05-20`
+- [x] hive-serva 全部改动 push 到 huangserva/hive（remote 改成 SSH）
+- [x] **关羽** — P0 logger + 5 个 event handler 防崩
+- [x] **典韦** — 全仓 event handler 未 catch 扫描 → 3 🔴 + 9 🟡
+- [x] **关羽** — 调研报告（日志、12 commit、hive vs hive-serva、npm 1.3.0）
