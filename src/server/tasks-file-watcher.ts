@@ -9,6 +9,7 @@ import {
   ensureTasksFile,
   getPlanFilePath,
   getTasksFilePath,
+  HIVE_DIR_NAME,
 } from './tasks-file.js'
 
 const DEBOUNCE_MS = 100
@@ -20,9 +21,11 @@ export interface TasksFileWatcher {
 }
 
 export const createTasksFileWatcher = ({
+  onCockpitUpdated,
   onPlanUpdated,
   onTasksUpdated,
 }: {
+  onCockpitUpdated?: (workspaceId: string) => void
   onPlanUpdated?: (workspaceId: string, content: string) => void
   onTasksUpdated: (workspaceId: string, content: string) => void
 }): TasksFileWatcher => {
@@ -30,7 +33,7 @@ export const createTasksFileWatcher = ({
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
   const clearTimer = (workspaceId: string) => {
-    for (const kind of ['plan', 'tasks'] as const) {
+    for (const kind of ['cockpit', 'plan', 'tasks'] as const) {
       const key = timerKey(workspaceId, kind)
       const timer = timers.get(key)
       if (!timer) continue
@@ -39,7 +42,8 @@ export const createTasksFileWatcher = ({
     }
   }
 
-  const timerKey = (workspaceId: string, kind: 'plan' | 'tasks') => `${workspaceId}:${kind}`
+  const timerKey = (workspaceId: string, kind: 'cockpit' | 'plan' | 'tasks') =>
+    `${workspaceId}:${kind}`
 
   const emitCurrentContent = async (workspaceId: string, workspacePath: string) => {
     const tasksPath = getTasksFilePath(workspacePath)
@@ -81,11 +85,22 @@ export const createTasksFileWatcher = ({
       ensureProtocolFile(workspacePath)
       const tasksPath = getTasksFilePath(workspacePath)
       const planPath = getPlanFilePath(workspacePath)
-      const watcher = chokidar.watch([tasksPath, planPath], {
-        ignoreInitial: true,
-      })
-      const scheduleEmit = (path: string) => {
-        const kind = path === planPath ? 'plan' : 'tasks'
+      const hiveDir = `${workspacePath}/${HIVE_DIR_NAME}`
+      const watcher = chokidar.watch(
+        [
+          tasksPath,
+          planPath,
+          `${hiveDir}/open-questions.md`,
+          `${hiveDir}/ideas/**`,
+          `${hiveDir}/baseline/**`,
+          `${hiveDir}/decisions/**`,
+          `${hiveDir}/archive/**`,
+        ],
+        {
+          ignoreInitial: true,
+        }
+      )
+      const scheduleKind = (kind: 'cockpit' | 'plan' | 'tasks') => {
         const key = timerKey(workspaceId, kind)
         const timer = timers.get(key)
         if (timer) clearTimeout(timer)
@@ -95,11 +110,18 @@ export const createTasksFileWatcher = ({
             timers.delete(key)
             if (kind === 'plan') {
               void emitCurrentPlan(workspaceId, workspacePath)
-            } else {
+            } else if (kind === 'tasks') {
               void emitCurrentContent(workspaceId, workspacePath)
+            } else {
+              onCockpitUpdated?.(workspaceId)
             }
           }, DEBOUNCE_MS)
         )
+      }
+      const scheduleEmit = (path: string) => {
+        if (path === planPath) scheduleKind('plan')
+        else if (path === tasksPath) scheduleKind('tasks')
+        scheduleKind('cockpit')
       }
       watcher.on('add', scheduleEmit)
       watcher.on('change', scheduleEmit)

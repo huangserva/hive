@@ -30,6 +30,7 @@ export interface RuntimeStoreServices {
   dispatchLedgerStore: ReturnType<typeof createDispatchLedgerStore>
   feishuBindingsStore: ReturnType<typeof createFeishuBindingsStore>
   messageLogStore: ReturnType<typeof createMessageLogStore>
+  cockpitFileWatchCallbacks: Set<(workspaceId: string) => void>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
   planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
@@ -75,9 +76,13 @@ export const createRuntimeStoreServices = (
   const agentSessionStore = createAgentSessionStore(db)
   const settings = createSettingsStore(db)
   const tasksFileService = createTasksFileService()
+  const cockpitFileWatchCallbacks = new Set<(workspaceId: string) => void>()
   const planFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
   const tasksFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
   const tasksFileWatcher = createTasksFileWatcher({
+    onCockpitUpdated: (workspaceId) => {
+      for (const callback of cockpitFileWatchCallbacks) callback(workspaceId)
+    },
     onPlanUpdated: (workspaceId, content) => {
       notifyTasksUpdated(planFileWatchCallbacks, workspaceId, content)
     },
@@ -142,6 +147,7 @@ export const createRuntimeStoreServices = (
     dispatchLedgerStore,
     feishuBindingsStore,
     messageLogStore,
+    cockpitFileWatchCallbacks,
     settings,
     shellRuntime,
     planFileWatchCallbacks,
@@ -278,6 +284,12 @@ export const createRuntimeStoreLifecycle = ({
       services.planFileWatchCallbacks.add(listener)
       return () => {
         services.planFileWatchCallbacks.delete(listener)
+      }
+    },
+    registerCockpitListener: (listener: (workspaceId: string) => void) => {
+      services.cockpitFileWatchCallbacks.add(listener)
+      return () => {
+        services.cockpitFileWatchCallbacks.delete(listener)
       }
     },
     startWorkspaceWatch: async (workspaceId: string) => {

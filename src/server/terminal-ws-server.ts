@@ -1,6 +1,7 @@
 import type { IncomingMessage, Server } from 'node:http'
 
 import { WebSocketServer } from 'ws'
+import { createCockpitWebSocketServer } from './cockpit-websocket-server.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import { createPlanWebSocketServer } from './plan-websocket-server.js'
@@ -56,9 +57,13 @@ export const createTerminalWebSocketServer = (
 ) => {
   const ioWss = new WebSocketServer({ noServer: true })
   const controlWss = new WebSocketServer({ noServer: true })
+  const cockpitWss = createCockpitWebSocketServer(server, store, logger)
   const planWss = createPlanWebSocketServer(server, store, tasksFileService, logger)
   const tasksWss = createTasksWebSocketServer(server, store, tasksFileService, logger)
   const hub = createTerminalStreamHub(store)
+  const disposeCockpitListener = store.registerCockpitListener((workspaceId) => {
+    cockpitWss.publish(workspaceId)
+  })
   const disposePlanListener = store.registerPlanListener((workspaceId, content) => {
     planWss.publish(workspaceId, content)
   })
@@ -80,7 +85,7 @@ export const createTerminalWebSocketServer = (
       const pathname = url.pathname
       const match = matchTerminalPath(pathname)
       if (!match) {
-        if (/^\/ws\/(plan|tasks)\/.+/.test(pathname)) {
+        if (/^\/ws\/(cockpit|plan|tasks)\/.+/.test(pathname)) {
           return
         }
         rejectUpgrade(socket, '404 Not Found')
@@ -115,11 +120,13 @@ export const createTerminalWebSocketServer = (
   })
 
   server.on('close', () => {
+    disposeCockpitListener()
     disposePlanListener()
     disposeTasksListener()
     hub.close()
     ioWss.close()
     controlWss.close()
+    cockpitWss.close()
     planWss.close()
     tasksWss.close()
   })

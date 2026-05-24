@@ -82,6 +82,7 @@ interface RuntimeStore {
   startWorkspaceWatch: (workspaceId: string) => Promise<void>
   getLiveRun: (runId: string) => LiveAgentRun
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => LiveAgentRun | undefined
+  registerCockpitListener: (listener: (workspaceId: string) => void) => () => void
   registerPlanListener: (listener: (workspaceId: string, content: string) => void) => () => void
   registerTasksListener: (listener: (workspaceId: string, content: string) => void) => () => void
   listAgentRuns: (agentId: string) => PersistedAgentRun[]
@@ -195,6 +196,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     getLiveRun: lifecycle.getLiveRun,
     getActiveRunByAgentId: (workspaceId, agentId) =>
       services.agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
+    registerCockpitListener: lifecycle.registerCockpitListener,
     registerPlanListener: lifecycle.registerPlanListener,
     registerTasksListener: lifecycle.registerTasksListener,
     listAgentRuns: (agentId) => services.agentRuntime.listAgentRuns(agentId),

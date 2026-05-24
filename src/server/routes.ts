@@ -8,6 +8,7 @@ import type {
   SendTaskBody,
   WorkerRole,
 } from './route-types.js'
+import { cockpitRoutes } from './routes-cockpit.js'
 import { dispatchRoutes } from './routes-dispatches.js'
 import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
@@ -28,6 +29,7 @@ const routes: RouteDefinition[] = [
   ...settingsRoutes,
   ...taskRoutes,
   ...planRoutes,
+  ...cockpitRoutes,
   ...runtimeRoutes,
   ...teamRoutes,
   ...feishuRoutes,
