@@ -210,7 +210,14 @@ export const useTerminalRun = (runId: string, inputProfile: TerminalInputProfile
           if (isComposingRef.current) return
           client?.sendInput(chunk)
         })
-        if (typeof nextTerminal.onBinary === 'function') {
+        // Only subscribe to onBinary for the opencode profile: opencode TUI
+        // emits raw mouse-report binary frames that need SGR normalization
+        // before being forwarded to the PTY. Other profiles (claude / codex /
+        // gemini default) leave onBinary unbound so xterm falls back to native
+        // scrollback for wheel events instead of round-tripping every wheel
+        // click through the PTY (which caused noticeable scroll lag in the
+        // orchestrator terminal post-Step 2 Group C backport).
+        if (typeof nextTerminal.onBinary === 'function' && inputProfile === 'opencode') {
           binaryInputSubscription = nextTerminal.onBinary((chunk) => {
             const normalized = normalizeBinaryTerminalInput(chunk, inputProfile)
             if (normalized.binary) client?.sendBinaryInput(normalized.chunk)
