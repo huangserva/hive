@@ -5,12 +5,7 @@
 
 ## In progress
 
-（空 — PM Phase C-1 + C-3a shipped + tests，899 tests 全绿）
-
-下一步选项（等 user 拍板）：
-- C-2 Cockpit UI（1.5 天）：6 tabs + 底部 AI 行动栏，把分散的 Plan/Todo/Questions/Ideas/Decisions/Baseline/Archive 合一
-- 跑 1 周看 PM 真用起来什么样，再决定 C-2 / C-3b
-- 其他方向（飞书 e2e / marketplace 调研 / etc）
+（空 — PM 体系 5 个 phase 全 shipped。等 user 重启 4010 看 Cockpit + 决定下一步）
 
 ## Open（user 回来决定）
 
@@ -27,6 +22,7 @@
 ## Done
 
 ### 2026-05-23 ~ 24
+- [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-2 Cockpit UI：5 parser + cockpit-doc aggregate + WS + HTTP endpoint + 10 React 组件 + Topbar 改造（取代 Plan/Todo 独立按钮）+ 63 个新测试 (`7d7ba26` + `b5898c6` + `34f7c0d`)
 - [x] **赵云 + 典韦** — PM 体系 Phase C-3a：session-start review nudge（runtime 一次性注入 system message + 3 启动路径 + idempotent + 12 tests）(`be1d633` + `9d1467b`)
 - [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-1 文件层：4 个新文档（open-questions / ideas / baseline / archive）+ 6 节 ORCHESTRATOR_RULES + 24 个新测试 + 修 plan WS race (`82fc5a2` + `64c7236`)
 - [x] **典韦** — PM 体系 Phase B 50 个新测试 (`9619d26`)
