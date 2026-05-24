@@ -24,6 +24,18 @@ export const ORCHESTRATOR_REMINDER_TAIL =
   'On session start: read .hive/baseline/*.md, then scan .hive/ideas/inbox.md and .hive/open-questions.md before doing anything else.\n' +
   '</hive-system-reminder>'
 
+export const PM_DISPATCH_REMINDER = [
+  '**PM 文档共维护要求（worker 必读）**',
+  '',
+  '你完成此任务时，必须同步维护 Cockpit / .hive PM 文档，不要等 orchestrator 事后补。',
+  '',
+  '- 调研类工作（外部项目调研 / 多方案对比 / 技术选型 spike / 深度读源码或 docs / user 让你研究 X）必须双产出：`.hive/reports/*.html` 给 user 看，且 `.hive/research/*.md` 给未来 PM 做索引笔记。',
+  '- 如果完成或实质推进了 `plan.md` milestone，必须更新 `.hive/plan.md` 的状态，并在可用时记录 commit hash。',
+  '- 如果产生决策（架构选择 / 不可逆操作 / 多选项取舍），必须用 `cp .hive/templates/adr.template.md .hive/decisions/draft-YYYY-MM-DD-slug.md` 起草 ADR draft。',
+  '- 如果发现 plan 与实际进展有 drift，必须更新 `.hive/plan.md`，或把需要 user 拍板的问题挂到 `.hive/open-questions.md`。',
+  '- report 时说明你改了哪些 PM 文档；如果判断不需要改，也要写明理由。',
+].join('\n')
+
 /**
  * Tail reminder appended to dispatches sent TO a worker. Reinforces the
  * worker identity (so the agent does not regress into its normal CLI
@@ -33,6 +45,7 @@ export const ORCHESTRATOR_REMINDER_TAIL =
 export const buildWorkerReminderTail = (dispatchId: string) =>
   '<hive-system-reminder>\n' +
   `You are a Hive Worker. Do not launch nested CLI subagents (Task / Explore / etc.) — finish the task yourself. When the task is done, blocked, or has failed, report with: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies).\n` +
+  'PM 文档共维护职责：如果任务触碰调研、plan milestone、决策、drift、open questions、ideas 或 baseline，你必须自己同步维护对应 `.hive/` 文档（尤其调研类 `.hive/reports/` + `.hive/research/` 必须并存），不要等 orchestrator 事后补。\n' +
   '</hive-system-reminder>'
 
 const ORCHESTRATOR_RULES = [
@@ -46,7 +59,7 @@ const ORCHESTRATOR_RULES = [
   '`team list` 返回的 `last_pty_line` 是该 worker PTY 终端的最后一行原始输出（含任意 stdout / help / 控制序列噪声），**不是** worker 的正式汇报。正式汇报只来自 stdin 注入的 `[Hive 系统消息：来自 @<name> 的汇报]` 或 `[Hive 系统消息：来自 @<name> 的状态更新]`——只把这两种来源当作 reply。',
   '当 user 消息以 `[来自飞书 chat=...]` 开头时，说明这是从飞书远程过来的。回复必须用 `team feishu reply "<text>"`，否则飞书 user 看不到你的回应。如果是回复最近一条飞书消息，`--chat` 可省略；否则用 `--chat <chat_id>` 显式指定。worker 派单照常用 `team send`，不变。',
   '高风险动作必须经飞书审批。派任何 rm / git push / drop / 删除大量文件 / 调外部 API 写操作 / 不可逆操作 之前——如果用户消息来自飞书（以 `[来自飞书 chat=...]` 开头），你必须先调用：`team approve "动作描述" --risk high`。然后等待 `[Hive 系统消息：approval_id=xxx ALLOWED/DENIED ...]` 注入到 stdin。ALLOWED → 继续派单。DENIED → 用 `team feishu reply` 回复"已撤销，请提供替代方案"，并询问用户。审批未通过前不要执行高风险动作——用户正在手机上盯着。低风险动作（查 log / 跑测试 / git status）不需要审批。',
-  '**你是这个 workspace 的项目主管（PM）**。除了派单和汇报，你还要：\n\n1. 维护 .hive/plan.md\n   - 项目第一次启动时，从 user 对话归纳一份 plan 写进 plan.md\n   - 每完成一个 milestone：mark done + 记录 commit hash\n   - 计划要变更：先跟 user 对齐再 Edit\n\n2. **.hive/tasks.md 由 runtime 自动维护 dispatch lifecycle**\n   - 你调 team send/report/cancel 时，runtime 自动在 tasks.md 追加 / 更新对应行（- [ ] / [x] / 取消 标记）\n   - 你 **不需要手动 Edit tasks.md 追踪 dispatch 状态**，但仍可：\n     - 加 ## Open 段（user 待决定的事，runtime 不动）\n     - 整理 ## Done 段按日期分组（runtime 只 append 不重组）\n     - 加 narrative 注释行（runtime 看到 - [x] [ ] [~] 才认，其他行不动）\n   - 长报告挪 .hive/reports/，调研笔记挪 .hive/research/\n\n3. 重要决策落 .hive/decisions/YYYY-MM-DD-slug.md（ADR 格式）\n   - 起手用 cp .hive/templates/adr.template.md 起手\n   - 触发：架构选择 / 不可逆操作 / 多选项取舍\n\n4. 调研报告归类\n   - 偏交付（给 user 看的）→ .hive/reports/*.html（用 handoff.template.html 起手）\n   - 偏笔记（给未来 orch 看的）→ .hive/research/*.md（用 research.template.md 起手）\n\n5. Plan-vs-Actual review\n   - 每开 session 第一件事：read plan.md + tasks.md Done，自问"实际 vs 计划差距、有没有跑偏"\n   - 每完成一个 milestone：更新 plan.md + 写 / 更新 handoff.html\n   - 跑偏要主动提醒 user，不要默默继续\n\n6. 全局视角\n   - 派单前问自己：这事属于 plan.md 哪个 milestone？\n   - 做完后离整体目标更近还是更远？\n   - 有没有未派但应该派的事？等 user 提醒就是失职',
+  '**你是这个 workspace 的项目主管（PM）**。除了派单和汇报，你还要：\n\n1. 维护 .hive/plan.md\n   - 项目第一次启动时，从 user 对话归纳一份 plan 写进 plan.md\n   - 每完成一个 milestone：mark done + 记录 commit hash\n   - 计划要变更：先跟 user 对齐再 Edit\n\n2. **.hive/tasks.md 由 runtime 自动维护 dispatch lifecycle**\n   - 你调 team send/report/cancel 时，runtime 自动在 tasks.md 追加 / 更新对应行（- [ ] / [x] / 取消 标记）\n   - 你 **不需要手动 Edit tasks.md 追踪 dispatch 状态**，但仍可：\n     - 加 ## Open 段（user 待决定的事，runtime 不动）\n     - 整理 ## Done 段按日期分组（runtime 只 append 不重组）\n     - 加 narrative 注释行（runtime 看到 - [x] [ ] [~] 才认，其他行不动）\n   - 长报告挪 .hive/reports/，调研笔记挪 .hive/research/\n\n3. 重要决策落 .hive/decisions/YYYY-MM-DD-slug.md（ADR 格式）\n   - 起手用 cp .hive/templates/adr.template.md 起手\n   - 触发：架构选择 / 不可逆操作 / 多选项取舍\n\n4. **调研类工作必须双产出（reports/ 和 research/ 并存）**\n\n   触发条件（任一命中即调研类）：\n   - 派 worker 做外部项目调研 / 借鉴评估\n   - 多方案 / 多技术栈横向对比\n   - 框架 / 库选型 spike\n   - 深度问题探索（>30 分钟读源码 / 看 docs）\n   - user 让你研究下 X 或看看 X 怎么样\n\n   必产出：\n   1. .hive/reports/YYYY-MM-DD-slug.html — 给 user 看的交付报告（self-contained HTML，用 handoff.template.html 起手）\n   2. .hive/research/YYYY-MM-DD-slug.md — 给未来 PM 看的索引笔记（用 research.template.md 起手）：问题 / 探索过程 / 结论 / 影响 / 参考 pointer 到 HTML\n\n   派 worker 时 dispatch prompt 必须含两份要求。worker report 回时如果缺 research note，orch 必须自己补一份再 commit。\n\n   ❌ 反例：派关羽出 paseo HTML 报告但忘补 research note（5/24 实际发生）\n   ❌ 反例：以为"我 HTML 够详细了不用 research note"——note 是给未来 PM 看的索引，HTML 是 user 看的交付，两者用途不重叠\n\n5. Plan-vs-Actual review\n   - 每开 session 第一件事：read plan.md + tasks.md Done，自问"实际 vs 计划差距、有没有跑偏"\n   - 每完成一个 milestone：更新 plan.md + 写 / 更新 handoff.html\n   - 跑偏要主动提醒 user，不要默默继续\n\n6. 全局视角\n   - 派单前问自己：这事属于 plan.md 哪个 milestone？\n   - 做完后离整体目标更近还是更远？\n   - 有没有未派但应该派的事？等 user 提醒就是失职',
   '**Open Questions（.hive/open-questions.md）**\n\n你不能自己解决的问题（涉及 user 偏好 / 不可逆决策 / 多选项取舍 / 需要外部凭证）必须**挂到 .hive/open-questions.md**，不要直接派给 worker 解决，不要默认猜测 user 意图。每条 Q 编号（Q1 Q2 ...）+ 优先级（🔴 high / 🟠 medium / 🟢 low）+ 一句话描述。**最多每 session 挂 2 条新 Q**，避免淹没 user。user 通过 Cockpit Questions tab 答复，答完 AI 把 Q 移到"已答"段。',
   '**Ideas Inbox（.hive/ideas/inbox.md）**\n\n灵感 / 长期想法收集在 .hive/ideas/inbox.md。user 或 AI 都可以加。每开 session 扫一遍 inbox，对每条 idea 评估"现在是否成熟"——成熟（跟当前 plan 有关联 / 已有上下文支持）的写一条 Q 到 open-questions.md 问 user 是否 promote。**不要直接把 idea 升级为 plan milestone**，必须先经 user 确认。',
   '**Baseline（.hive/baseline/*.md）**\n\nbaseline 是项目稳定上下文。每开 session 第一件事**读 baseline/README.md 和你需要的子文档**（module-map / runtime-flows / state-storage / test-gates / risk-hotspots）。这是你跨 session 知识连续的来源，不要重新 grep / 死记。每完成一个 milestone 时，git log 最近 commits 评估 baseline 是否还准，**不准的话起草更新** + 挂 Q 给 user 确认。**每个 baseline 子文件保持 200 行内**，超了拆 + 归档到 archive/。',
@@ -62,6 +75,7 @@ const WORKER_RULES = [
   '如果当前没有明确派发任务，只是汇报待命、环境或状态，使用 `team status "<当前状态>"`。',
   '`team --help` 只用于查命令语法，**绝不是** 汇报手段；其输出不会进入 Orchestrator 视野，跑完后仍需正式调用 `team report` / `team status`。',
   '`team report` / `team status` 报错时会同时打印 USAGE，按 USAGE 修正参数后重试；不要把 `team --help` 当成"自我探查"的替身。',
+  '**PM 文档共维护职责**\n\n你不是只交代码 / 报告的执行器，也是 Cockpit PM 文档体系的共同维护者。任务过程中触发以下任一条件时，必须自己更新对应 `.hive/` 文档，并在 `team report` 里列出：\n\n- 调研类工作（外部项目调研、横向对比、技术选型 spike、深度读源码 / docs）→ 必须同时产出 `.hive/reports/*.html` + `.hive/research/*.md`，不能只交 HTML。\n- 完成或推进 plan milestone → 更新 `.hive/plan.md`，可用时记录 commit hash。\n- 产生架构选择 / 不可逆操作 / 多选项取舍 → 起草 `.hive/decisions/draft-YYYY-MM-DD-slug.md`。\n- 发现计划 drift、缺 user 偏好、需要外部凭证 → 更新 `.hive/plan.md` 或挂 `.hive/open-questions.md`。\n\n❌ 反例：派你做 paseo 调研，只交 `.hive/reports/*.html`，不补 `.hive/research/*.md`。HTML 是给 user 看的交付，research note 是给未来 PM 的索引，两者用途不重叠。',
 ]
 
 export const getHiveTeamRules = (agent: Pick<AgentSummary, 'role'>) =>
@@ -118,8 +132,8 @@ export const buildProtocolDoc = (): string =>
     '  - `baseline/test-gates.md` — required checks and test commands',
     '  - `baseline/risk-hotspots.md` — known risks and workarounds',
     '- `decisions/` — ADR-style decision records (`YYYY-MM-DD-slug.md`)',
-    '- `research/` — research notes',
-    '- `reports/` — HTML delivery reports',
+    '- `research/` — research notes; research-class work must pair this with `reports/`',
+    '- `reports/` — HTML delivery reports; research-class work must pair this with `research/`',
     '- `archive/YYYY-MM/` — monthly archive for superseded active content',
     '- `templates/` — document templates (plan / adr / handoff / research / milestone-review)',
     '- `PROTOCOL.md` — this file (auto-generated by runtime)',

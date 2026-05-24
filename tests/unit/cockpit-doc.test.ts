@@ -22,6 +22,7 @@ const setupWorkspace = (overrides: Record<string, string> = {}) => {
   mkdirSync(join(hive, 'decisions'), { recursive: true })
   mkdirSync(join(hive, 'archive'), { recursive: true })
   mkdirSync(join(hive, 'research'), { recursive: true })
+  mkdirSync(join(hive, 'reports'), { recursive: true })
   mkdirSync(join(hive, 'templates'), { recursive: true })
 
   const defaults: Record<string, string> = {
@@ -111,6 +112,27 @@ describe('aiActions', () => {
     expect(auditActions).toHaveLength(1)
     expect(auditActions[0]?.targetTab).toBe('baseline')
     expect(auditActions[0]?.priority).toBe('medium')
+  })
+
+  test('orphan report produces high-priority research audit action', () => {
+    const dir = setupWorkspace()
+    writeFileSync(
+      join(dir, '.hive', 'reports', '2026-05-24-orphan-research.html'),
+      '<html><body>Report</body></html>',
+      'utf8'
+    )
+
+    const result = parseCockpit(dir)
+    const auditActions = result.aiActions.filter((a) => a.type === 'audit')
+
+    expect(auditActions).toContainEqual(
+      expect.objectContaining({
+        action: '补 note',
+        priority: 'high',
+        targetTab: 'research',
+        text: expect.stringContaining('reports/2026-05-24-orphan-research.html'),
+      })
+    )
   })
 
   test('actions sorted high before medium before low', () => {

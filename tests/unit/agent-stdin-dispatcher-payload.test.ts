@@ -10,6 +10,7 @@ import {
 import {
   buildWorkerReminderTail,
   ORCHESTRATOR_REMINDER_TAIL,
+  PM_DISPATCH_REMINDER,
 } from '../../src/server/hive-team-guidance.js'
 
 const lineIndexOf = (payload: string, needle: string): number =>
@@ -105,6 +106,26 @@ describe('buildWorkerDispatchPayload', () => {
     const reminderIdx = lineIndexOf(payload, '<hive-system-reminder>')
     expect(taskBodyIdx).toBeGreaterThanOrEqual(0)
     expect(reminderIdx).toBeGreaterThan(taskBodyIdx)
+  })
+
+  test('injects PM co-maintenance requirements into every worker dispatch', () => {
+    const payload = buildWorkerDispatchPayload(
+      'orchestrator-1',
+      'Coder',
+      'disp-pm',
+      'research paseo and write the report'
+    )
+    const taskBodyIdx = lineIndexOf(payload, 'research paseo and write the report')
+    const pmReminderIdx = lineIndexOf(payload, 'PM 文档共维护')
+    const reportRequirementIdx = lineIndexOf(payload, '.hive/reports/*.html')
+    const researchRequirementIdx = lineIndexOf(payload, '.hive/research/*.md')
+    const workerTailIdx = lineIndexOf(payload, '<hive-system-reminder>')
+
+    expect(payload).toContain(PM_DISPATCH_REMINDER)
+    expect(pmReminderIdx).toBeGreaterThan(taskBodyIdx)
+    expect(reportRequirementIdx).toBeGreaterThan(pmReminderIdx)
+    expect(researchRequirementIdx).toBeGreaterThan(pmReminderIdx)
+    expect(workerTailIdx).toBeGreaterThan(pmReminderIdx)
   })
 })
 

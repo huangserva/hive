@@ -4,6 +4,7 @@ import {
   buildProtocolDoc,
   buildWorkerReminderTail,
   ORCHESTRATOR_REMINDER_TAIL,
+  PM_DISPATCH_REMINDER,
 } from '../../src/server/hive-team-guidance.js'
 
 describe('ORCHESTRATOR_REMINDER_TAIL', () => {
@@ -62,6 +63,24 @@ describe('buildWorkerReminderTail', () => {
     const tail = buildWorkerReminderTail('disp-x')
     expect(tail).toContain('Hive Worker')
     expect(tail).toContain('Do not launch nested CLI subagents')
+  })
+
+  test('reminds workers that PM documents are a shared responsibility', () => {
+    const tail = buildWorkerReminderTail('disp-pm')
+    expect(tail).toContain('PM 文档共维护职责')
+    expect(tail).toContain('.hive/reports/')
+    expect(tail).toContain('.hive/research/')
+    expect(tail).toContain('不要等 orchestrator')
+  })
+})
+
+describe('PM_DISPATCH_REMINDER', () => {
+  test('requires research-class work to produce both report and research note', () => {
+    expect(PM_DISPATCH_REMINDER).toContain('PM 文档共维护')
+    expect(PM_DISPATCH_REMINDER).toContain('.hive/reports/*.html')
+    expect(PM_DISPATCH_REMINDER).toContain('.hive/research/*.md')
+    expect(PM_DISPATCH_REMINDER).toContain('plan.md')
+    expect(PM_DISPATCH_REMINDER).toContain('decisions/')
   })
 })
 

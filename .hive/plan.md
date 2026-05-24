@@ -107,6 +107,16 @@ last_review: 2026-05-24
 - [ ] `.hive/reports/*.html` 列表 + 一键打开
 - low priority, 备份选项
 
+### M13 · PM 体系团队共维护 5 层架构 · in progress (high)
+- [x] Layer 1 dispatch prompt 自动注入 PM_DISPATCH_REMINDER（commit hash: `4ffe027`）
+- [x] Layer 2 WORKER_RULES + ORCHESTRATOR_RULES + CLAUDE.md + AGENTS.md 明确 PM 文档共维护（commit hash: `4ffe027`）
+- [x] Layer 3 pre-commit hook 拦截 reports/*.html 缺同日 research/*.md（commit hash: `4ffe027`）
+- [x] Layer 5 Cockpit orphan report detector → high priority aiAction（commit hash: `4ffe027`）
+- [ ] Layer 4 Cockpit snapshot 注入所有 PTY agent · proposed（下个 dispatch）
+- 触发：paseo 调研（5/24）暴露 orch 误读"偏交付 / 偏笔记"为 XOR 而非 AND，连续派 worker 出 3 份 HTML 报告都没补 research note。user 明确要求从 reactive audit 升级为整个团队共同维护 Cockpit / PM 文档。
+- 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`
+- ADR：`.hive/decisions/2026-05-24-team-pm-co-maintenance.md`
+
 ## Scope
 
 **in（覆盖范围）**：

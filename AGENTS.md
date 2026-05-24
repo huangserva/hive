@@ -96,6 +96,15 @@ HTTP/JSON 层用 snake_case，TS 内部可驼峰，**序列化时要转换**。
 
 不许"MVP 阶段先不管"自行降级。
 
+### 14. 调研类工作必须 reports/ + research/ 双产出
+
+外部项目调研、借鉴评估、横向对比、技术选型 spike、深度读源码 / docs，都必须同时产出：
+
+- `.hive/reports/YYYY-MM-DD-slug.html`：给 user 看的自包含交付报告
+- `.hive/research/YYYY-MM-DD-slug.md`：给未来 PM / worker 的索引笔记，指向 HTML
+
+不许只交 HTML，不许说"HTML 已经很详细所以不用 research note"。worker 也要自己维护 PM 文档，不许等 orchestrator 事后补。
+
 ---
 
 ## 三、TDD 纪律（被反复破坏，单独列）

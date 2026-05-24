@@ -85,12 +85,14 @@ HippoTeam 是 `tt-a1i/hive` 的 fork，但**治理模式完全不同**：
 | `ideas/inbox.md` | user 或 PM | 灵感随时加 | PM 每开 session 扫一遍找成熟的 promote |
 | `baseline/*.md` | PM 起草，user 校对 | 代码大变动时同步（runtime 自动检测 staleness） | PM 每开 session 必读 baseline/README.md |
 | `decisions/*.md` | PM 起草 draft，user 确认归档 | 检测到决策语言时 | 未来 session 想"为啥当时选 X" |
-| `research/*.md` | PM 或 user | 调研笔记 | 留给未来自己看 |
-| `reports/*.html` | PM | 交付型报告（给 user 看的设计稿 / 调研报告 / handoff） | user |
+| `research/*.md` | PM / worker / user | 调研类工作必写的索引笔记；必须和同日 `reports/*.html` 并存 | 未来 PM / worker |
+| `reports/*.html` | PM / worker | 给 user 看的交付型报告；调研类工作必须同时补 `research/*.md` | user |
 | `archive/YYYY-MM/` | PM 周期 audit | active 文件膨胀时主动 archive | 极少读，git 历史已经记 |
 | `templates/*` | runtime 自动 seed | workspace 第一次启动 | PM 起手新文档 |
 
 完整目录当前结构见 `.hive/PROTOCOL.md` ".hive/ 目录约定" 段。
+
+> **调研类工作硬规则**：外部项目调研、横向对比、技术选型 spike、深度读源码 / docs，必须同时产出 `reports/*.html` + `research/*.md`。详细触发条件和反例见 `.hive/PROTOCOL.md` ORCHESTRATOR_RULES / WORKER_RULES；runtime 会在 worker dispatch prompt 和 pre-commit hook 中再次强制提醒。
 
 ---
 
@@ -234,7 +236,7 @@ HippoTeam 是 `tt-a1i/hive` 的 fork，但**治理模式完全不同**：
 **最容易踩的红线摘要**（PM 视角）：
 
 - 不用内置 subagent（Task / Explore 等）代替 hive worker — 它们不进 hive UI，user 看不见
-- 不在 tasks.md narrative 段塞长报告 — 长报告进 reports/，调研笔记进 research/
+- 不在 tasks.md narrative 段塞长报告 — 调研类长报告进 reports/，同时必须补 research/ 索引笔记
 - 不直接 commit worker 改动 — review 完再 commit / push
 - 飞书来的高风险动作（rm / git push / drop / 不可逆操作）必须先 `team approve` — user 在手机上盯着
 - 重启 4010 是破坏性动作，杀所有 worker — 提醒 user 后再做，不自作主张

@@ -57,6 +57,7 @@
     "format": "pnpm exec biome format --write .",
     "pack:check": "npm pack --dry-run --json",
     "pack:smoke": "node scripts/pack-smoke.mjs",
+    "prepare": "node scripts/install-git-hooks.mjs",
     "postinstall": "node scripts/fix-runtime-artifacts.mjs",
     "release:dry": "pnpm check && pnpm build && pnpm test && pnpm pack:check && pnpm pack:smoke",
     "test": "vitest run",

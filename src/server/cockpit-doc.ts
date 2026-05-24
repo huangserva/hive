@@ -12,12 +12,13 @@ import {
   type PMQuestionPriority,
   parseQuestionsDoc,
 } from './pm-questions-doc.js'
+import { detectOrphanReports, type OrphanReport } from './pm-reports-orphan-detector.js'
 import { type ParsedResearch, parseResearchDoc } from './pm-research-doc.js'
 import { type ParsedTasks, parseTasksDoc } from './pm-tasks-doc.js'
 import { ensurePmDocs, HIVE_DIR_NAME } from './tasks-file.js'
 
 export type AIActionType = 'question' | 'promote' | 'decision' | 'audit'
-export type CockpitTargetTab = 'questions' | 'ideas' | 'decisions' | 'baseline'
+export type CockpitTargetTab = 'questions' | 'ideas' | 'decisions' | 'baseline' | 'research'
 
 export interface AIAction {
   action: string
@@ -70,11 +71,25 @@ const buildAiActions = (
   questions: ParsedQuestions,
   ideas: ParsedIdeas,
   baseline: ParsedBaseline,
-  decisions: ParsedDecisions
+  decisions: ParsedDecisions,
+  orphanReports: OrphanReport[] = []
 ): AIAction[] => {
   const actions: AIAction[] = [
     ...questions.high.map(questionAction),
     ...questions.medium.map(questionAction),
+    ...orphanReports.map((orphan) => {
+      const reportFilename = orphan.reportPath.split('/').pop() ?? orphan.reportPath
+      const researchFilename =
+        orphan.suggestedResearchPath.split('/').pop() ?? orphan.suggestedResearchPath
+      return {
+        action: '补 note',
+        id: `orphan-report:${reportFilename}`,
+        priority: 'high' as const,
+        targetTab: 'research' as const,
+        text: `reports/${reportFilename} 缺对应 research/note。PM 规则要求调研类工作 reports/ + research/ 必须并存；用 templates/research.template.md 起手补 research/${researchFilename}`,
+        type: 'audit' as const,
+      }
+    }),
     ...ideas.inbox
       .filter((idea) => isRecentIdea(idea))
       .slice(0, 3)
@@ -120,9 +135,10 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
   const baseline = parseBaselineDoc(join(hiveDir, 'baseline'))
   const decisions = parseDecisionsDoc(join(hiveDir, 'decisions'))
   const research = parseResearchDoc(join(hiveDir, 'research'))
+  const orphanReports = detectOrphanReports(hiveDir)
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
   return {
-    aiActions: buildAiActions(questions, ideas, baseline, decisions),
+    aiActions: buildAiActions(questions, ideas, baseline, decisions, orphanReports),
     archive,
     baseline,
     decisions,

@@ -1,7 +1,11 @@
 import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
-import { buildWorkerReminderTail, ORCHESTRATOR_REMINDER_TAIL } from './hive-team-guidance.js'
+import {
+  buildWorkerReminderTail,
+  ORCHESTRATOR_REMINDER_TAIL,
+  PM_DISPATCH_REMINDER,
+} from './hive-team-guidance.js'
 import { PtyInactiveError } from './http-errors.js'
 import type { LiveRunRegistry } from './live-run-registry.js'
 import { createPostStartInputWriter } from './post-start-input-writer.js'
@@ -58,6 +62,8 @@ export const buildWorkerDispatchPayload = (
     '',
     '任务内容：',
     text,
+    '',
+    PM_DISPATCH_REMINDER,
     '',
     buildWorkerReminderTail(dispatchId),
     '',
