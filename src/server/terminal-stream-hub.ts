@@ -26,6 +26,18 @@ interface RunState {
   viewers: Map<string, ViewerState>
 }
 
+const normalizeTerminalInput = (
+  raw: ArrayBuffer | Buffer | Buffer[],
+  isBinary: boolean
+): Buffer | string => {
+  const bytes = Buffer.isBuffer(raw)
+    ? raw
+    : Array.isArray(raw)
+      ? Buffer.concat(raw)
+      : Buffer.from(raw)
+  return isBinary ? Buffer.from(bytes) : bytes.toString()
+}
+
 export interface TerminalStreamHub {
   attachControl: (
     runId: string,
@@ -180,9 +192,9 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
           maybeResumeRun(runId, state, clientId)
         },
       })
-      socket.on('message', (raw) => {
+      socket.on('message', (raw, isBinary) => {
         try {
-          store.writeRunInput(runId, raw.toString())
+          store.writeRunInput(runId, normalizeTerminalInput(raw, isBinary))
         } catch (error) {
           viewer.controlSocket?.send(
             serializeTerminalError(

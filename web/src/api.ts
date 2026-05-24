@@ -356,7 +356,10 @@ export interface TerminalRunSummary {
   agent_name: string
   run_id: string
   status: string
+  terminal_input_profile: TerminalInputProfile
 }
+
+export type TerminalInputProfile = 'default' | 'opencode'
 
 export const workspaceShellAgentId = (workspaceId: string): string => `${workspaceId}:shell`
 

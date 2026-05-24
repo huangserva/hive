@@ -4,6 +4,7 @@ const STORAGE_KEY = 'hive.split.orch-pct'
 const MIN_PCT = 0.3
 const MAX_PCT = 0.78
 const DEFAULT_PCT = 0.6
+export const DEFAULT_WORKERS_PANE_WIDTH = `${Math.round((1 - DEFAULT_PCT) * 100)}%`
 const KEY_STEP = 0.02
 
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n))

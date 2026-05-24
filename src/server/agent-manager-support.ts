@@ -156,11 +156,11 @@ export const attachAgentPty = (
       stdinClosed = true
       scheduleForceKill()
     },
-    write(text) {
+    write(input) {
       if (stdinClosed || run.status === 'exited' || run.status === 'error') {
         throw new Error(`PTY is not active for run: ${run.runId}`)
       }
-      pty.write(text)
+      pty.write(input)
     },
   }
 

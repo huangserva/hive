@@ -39,7 +39,7 @@ interface AgentRunRecord extends AgentRunSnapshot {
     resize: (cols: number, rows: number) => void
     resume: () => void
     stop: () => void
-    write: (text: string) => void
+    write: (input: Buffer | string) => void
   }
   onExit?: (event: RunExitEvent) => void
   errorTail: string | null
@@ -55,7 +55,7 @@ interface AgentManager {
   resizeRun: (runId: string, cols: number, rows: number) => void
   resumeRun: (runId: string) => void
   startAgent: (input: StartAgentInput) => Promise<AgentRunSnapshot>
-  writeInput: (runId: string, text: string) => void
+  writeInput: (runId: string, input: Buffer | string) => void
   getRun: (runId: string) => AgentRunSnapshot
   removeRun: (runId: string) => void
   stopRun: (runId: string) => void

@@ -50,6 +50,7 @@ export const WorkspaceTerminalPanels = ({
     >
       {mergedRuns.map((run) => (
         <TerminalView
+          inputProfile={run.terminal_input_profile ?? 'default'}
           key={run.run_id}
           runId={run.run_id}
           title={`${run.agent_name} (${run.status})`}

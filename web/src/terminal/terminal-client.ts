@@ -20,6 +20,7 @@ interface TerminalClientOptions {
 export interface TerminalClient {
   dispose: () => void
   resize: (cols: number, rows: number, pixelWidth?: number, pixelHeight?: number) => void
+  sendBinaryInput: (chunk: string) => void
   sendInput: (chunk: string) => void
 }
 
@@ -102,6 +103,14 @@ export const createTerminalClient = ({
       if (pixelWidth !== undefined) pendingResize.pixelWidth = pixelWidth
       if (pixelHeight !== undefined) pendingResize.pixelHeight = pixelHeight
       sendResize()
+    },
+    sendBinaryInput(chunk) {
+      if (ioSocket.readyState !== ioSocket.OPEN) return
+      const bytes = new Uint8Array(chunk.length)
+      for (let index = 0; index < chunk.length; index += 1) {
+        bytes[index] = chunk.charCodeAt(index) & 0xff
+      }
+      ioSocket.send(bytes)
     },
     sendInput(chunk) {
       if (ioSocket.readyState !== ioSocket.OPEN) return

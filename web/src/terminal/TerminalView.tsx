@@ -2,6 +2,7 @@ import '@xterm/xterm/css/xterm.css'
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { TerminalInputProfile } from '../api.js'
 import type { TranslationKey } from '../i18n.js'
 import { useI18n } from '../i18n.js'
 import { useTerminalRun } from './useTerminalRun.js'
@@ -13,6 +14,7 @@ const STATUS_KEYS: Record<string, TranslationKey> = {
 }
 
 interface TerminalViewProps {
+  inputProfile?: TerminalInputProfile
   runId: string
   title: string
 }
@@ -51,14 +53,16 @@ const usePortalTarget = (runId: string): HTMLElement | null => {
   return target
 }
 
-export const TerminalView = ({ runId, title }: TerminalViewProps) => {
+export const TerminalView = ({ inputProfile = 'default', runId, title }: TerminalViewProps) => {
   const portalTarget = usePortalTarget(runId)
   // Re-mount the inner pty view whenever the portal target changes so xterm's
   // imperative DOM follows. The server-side terminal mirror replays its
   // snapshot via the `restore` control message on reconnect, so scrollback is
   // not lost across the move.
   const mountKey = portalTarget ? portalTarget.id : 'inline'
-  const body = <TerminalPtyView key={mountKey} runId={runId} title={title} />
+  const body = (
+    <TerminalPtyView key={mountKey} inputProfile={inputProfile} runId={runId} title={title} />
+  )
 
   if (portalTarget) {
     return createPortal(body, portalTarget)
@@ -66,9 +70,9 @@ export const TerminalView = ({ runId, title }: TerminalViewProps) => {
   return null
 }
 
-const TerminalPtyView = ({ runId, title: _title }: TerminalViewProps) => {
+const TerminalPtyView = ({ inputProfile = 'default', runId, title: _title }: TerminalViewProps) => {
   const { t } = useI18n()
-  const { containerRef, error, status } = useTerminalRun(runId)
+  const { containerRef, error, status } = useTerminalRun(runId, inputProfile)
   const statusKey = STATUS_KEYS[status]
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">

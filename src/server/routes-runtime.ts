@@ -44,6 +44,7 @@ export const runtimeRoutes: RouteDefinition[] = [
         agent_name: summary?.agent_name ?? 'Shell',
         run_id: run.runId,
         status: run.status,
+        terminal_input_profile: summary?.terminal_input_profile ?? 'default',
       })
     }
   ),

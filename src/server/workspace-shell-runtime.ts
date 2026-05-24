@@ -145,6 +145,7 @@ export const createWorkspaceShellRuntime = (agentManager: AgentManager | undefin
               agent_name: labelsByRunId.get(runId) ?? 'Shell',
               run_id: run.runId,
               status: run.status,
+              terminal_input_profile: 'default' as const,
             },
           ]
         } catch {
@@ -183,8 +184,8 @@ export const createWorkspaceShellRuntime = (agentManager: AgentManager | undefin
     stopRun(runId: string) {
       if (hasRun(runId)) stopPtyRun(runId)
     },
-    writeInput(runId: string, text: string) {
-      if (hasRun(runId)) requireManager().writeInput(runId, text)
+    writeInput(runId: string, input: Buffer | string) {
+      if (hasRun(runId)) requireManager().writeInput(runId, input)
     },
   }
 }

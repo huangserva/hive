@@ -29,6 +29,12 @@ type RunHiveCommandOptions = {
   versionService?: VersionService
 }
 
+type ListenError = Error & {
+  address?: string
+  code?: string
+  port?: number
+}
+
 export const HIVE_USAGE = [
   'Usage:',
   '  hive [--port <port>]',
@@ -111,6 +117,31 @@ const maybePrintUpdateHint = async (versionService: VersionService) => {
   )
 }
 
+const isListenError = (error: unknown): error is ListenError =>
+  error instanceof Error && typeof (error as ListenError).code === 'string'
+
+const formatPortInUseMessage = (port: number) =>
+  [
+    `Hive could not start because port ${port} is already in use.`,
+    '',
+    'Another Hive instance may already be running:',
+    `  http://127.0.0.1:${port}`,
+    '',
+    'Options:',
+    '  - Open the existing Hive window.',
+    '  - Stop the process using that port:',
+    `      lsof -tiTCP:${port} -sTCP:LISTEN | xargs kill`,
+    '  - Start Hive on another port:',
+    `      hive --port ${port + 1}`,
+  ].join('\n')
+
+const formatListenError = (error: unknown, requestedPort: number) => {
+  if (isListenError(error) && error.code === 'EADDRINUSE') {
+    return new Error(formatPortInUseMessage(error.port ?? requestedPort))
+  }
+  return error
+}
+
 export const runHiveCommand = async (
   argv: string[],
   options: RunHiveCommandOptions = {}
@@ -155,13 +186,21 @@ export const runHiveCommand = async (
     versionService,
   })
 
-  app.server.listen(port, '127.0.0.1')
-  await Promise.race([
-    once(app.server, 'listening'),
-    once(app.server, 'error').then(([error]) => {
-      throw error
-    }),
-  ])
+  try {
+    app.server.listen(port, '127.0.0.1')
+    await Promise.race([
+      once(app.server, 'listening'),
+      once(app.server, 'error').then(([error]) => {
+        throw error
+      }),
+    ])
+  } catch (error) {
+    await feishuTransport?.stop()
+    await app.store.close()
+    await logger.close()
+    unregisterFatalLoggers()
+    throw formatListenError(error, port)
+  }
 
   const address = app.server.address()
   if (!address || typeof address === 'string') {
@@ -241,7 +280,7 @@ if (isMainModule) {
   const argv = process.argv.slice(2)
   if (handleHiveInfoCommand(argv)) process.exit(0)
   runHiveCommand(argv).catch((error) => {
-    console.error(error)
+    console.error(error instanceof Error ? error.message : error)
     process.exit(1)
   })
 }

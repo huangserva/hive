@@ -16,6 +16,7 @@ interface UseWorkerActionsInput {
     agentId: string
     agentName: string
     runId: string
+    terminalInputProfile?: 'default' | 'opencode'
     workspaceId: string
   }) => void
   setWorkersByWorkspaceId: React.Dispatch<React.SetStateAction<Record<string, TeamListItem[]>>>
@@ -68,6 +69,7 @@ export const useWorkerActions = ({
           agentId: result.worker.id,
           agentName: result.worker.name,
           runId: result.agentStart.runId,
+          terminalInputProfile: commandPresetId === 'opencode' ? 'opencode' : 'default',
           workspaceId: activeWorkspaceId,
         })
       }
