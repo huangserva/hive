@@ -86,17 +86,18 @@ last_review: 2026-05-24
 - [ ] A6: cross-workspace drift 检测（每天 1 次扫描）
 - 前提：先观察 1-2 周 LLM 在 C-1 RULES 引导下 A2-A6 自觉性是否足够
 
-### M9 · PM 体系完整性补全 · in progress
-- [ ] Cockpit 加 Tasks tab（tasks.md ↔ 跟其他 PM doc 对称）
-- [ ] Cockpit 加 Research tab（.hive/research/ ↔ 跟 decisions/ 对称）
-- [ ] Cockpit drawer scroll fix（content overflow → scrollable）
-- [ ] baseline 5 个子文档 stub → 真填（cockpit aiActions audit 一直显示）
+### M9 · PM 体系完整性补全 · shipped 2026-05-24
+- [x] Cockpit 加 Tasks tab + Research tab（8 tabs 总计）(`973c4f6`)
+- [x] Cockpit drawer scroll fix（overflow-y-auto）(`973c4f6`)
+- [x] baseline 5 个子文档 stub → 真填 (`8837995`)
+- [x] 42 个新测试 (`a41ae22`)
 
-### M10 · PM 全套 i18n · proposed
-- [ ] Cockpit 8 tabs + ActionBar + drawer 中英双语
-- [ ] PlanDrawer / WorkspaceSettings 飞书段 中英双语
-- [ ] 检查所有 PM 新加 UI 文案，跟现有 i18n.tsx 风格一致
-- 等 M9 完事再做（避免改同组件撞文件）
+### M10 · PM 全套 i18n · shipped 2026-05-24
+- [x] 104 个新 i18n key（中英文各）
+- [x] 22 个组件 useI18n 化（Cockpit 8 tabs + ActionBar + drawer + PlanDrawer 7 子组件 + Feishu indicator + WorkspaceSettings 飞书段 + Topbar Cockpit 按钮）
+- [x] CJK 扫描 0 命中（PM 范围内无硬编码中文）
+- [x] 17 个 i18n 测试（完整性 + 切换 + 组件级）
+- 详见 `2b3e2ed` + `7be5d22`
 
 ### M11 · Upstream marketplace 评估 · open
 - [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
