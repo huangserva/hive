@@ -67,6 +67,55 @@ interface FeishuTransportOptions {
 const MAX_RECONNECTS_BEFORE_ERROR = 10
 const APPROVAL_LEDGER_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const APPROVAL_LEDGER_TTL_MS = 60 * 60 * 1000
+const FEISHU_REACTION_RECEIVED_EMOJI = 'GLANCE'
+const FEISHU_REACTION_DONE_EMOJI = 'OK'
+
+const stringifyFeishuError = (error: unknown) => {
+  const response =
+    error &&
+    typeof error === 'object' &&
+    'response' in error &&
+    error.response &&
+    typeof error.response === 'object'
+      ? (error.response as { body?: unknown; code?: unknown; msg?: unknown })
+      : null
+
+  const details: Record<string, unknown> = {}
+  if (error instanceof Error) {
+    details.name = error.name
+    details.message = error.message
+    details.stack = error.stack
+  }
+  if (response) {
+    details.response = {
+      body: response.body,
+      code: response.code,
+      msg: response.msg,
+    }
+  }
+
+  const ownPropertyNames =
+    error && (typeof error === 'object' || typeof error === 'function')
+      ? Object.getOwnPropertyNames(error)
+      : []
+
+  try {
+    return JSON.stringify(Object.keys(details).length > 0 ? details : error, [
+      ...new Set([
+        ...ownPropertyNames,
+        'body',
+        'code',
+        'message',
+        'msg',
+        'name',
+        'response',
+        'stack',
+      ]),
+    ])
+  } catch {
+    return String(error)
+  }
+}
 
 export class FeishuTransport implements FeishuOutboundTransport {
   private readonly credentials: FeishuCredentials
@@ -217,14 +266,20 @@ export class FeishuTransport implements FeishuOutboundTransport {
       try {
         await this.removeReaction(messageId, oldReactionId)
       } catch (error) {
-        this.logger.warn(`feishu reaction remove failed message_id=${messageId}`, error)
+        this.logger.warn(
+          `feishu reaction remove failed message_id=${messageId}`,
+          stringifyFeishuError(error)
+        )
       }
     }
 
     try {
-      await this.addReaction(messageId, 'OK')
+      await this.addReaction(messageId, FEISHU_REACTION_DONE_EMOJI)
     } catch (error) {
-      this.logger.warn(`feishu reaction add failed message_id=${messageId} emoji=OK`, error)
+      this.logger.warn(
+        `feishu reaction add failed message_id=${messageId} emoji=${FEISHU_REACTION_DONE_EMOJI}`,
+        stringifyFeishuError(error)
+      )
     }
   }
 
@@ -305,10 +360,13 @@ export class FeishuTransport implements FeishuOutboundTransport {
     if (messageId) {
       this.reactionStore.setLatestForChat(chatId, messageId)
       try {
-        const reactionId = await this.addReaction(messageId, 'EYE')
+        const reactionId = await this.addReaction(messageId, FEISHU_REACTION_RECEIVED_EMOJI)
         this.reactionStore.set(messageId, reactionId)
       } catch (error) {
-        this.logger.warn(`feishu reaction add failed message_id=${messageId} emoji=EYE`, error)
+        this.logger.warn(
+          `feishu reaction add failed message_id=${messageId} emoji=${FEISHU_REACTION_RECEIVED_EMOJI}`,
+          stringifyFeishuError(error)
+        )
       }
     }
 

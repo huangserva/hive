@@ -45,7 +45,7 @@ const makeMessageEvent = () => ({
 })
 
 describe('FeishuTransport reactions', () => {
-  test('adds EYE reaction for routed inbound text messages and injects message_id', async () => {
+  test('adds GLANCE reaction for routed inbound text messages and injects message_id', async () => {
     const logger = makeLogger()
     const store = makeStore()
     const transport = new FeishuTransport({
@@ -67,13 +67,50 @@ describe('FeishuTransport reactions', () => {
     ).handleMessageReceive(makeMessageEvent())
 
     expect(createReaction).toHaveBeenCalledWith({
-      data: { reaction_type: { emoji_type: 'EYE' } },
+      data: { reaction_type: { emoji_type: 'GLANCE' } },
       path: { message_id: 'om_1' },
     })
     expect(store.recordUserInput).toHaveBeenCalledWith(
       'ws-1',
       'ws-1:orchestrator',
       expect.stringContaining('message_id=om_1')
+    )
+  })
+
+  test('logs Feishu reaction response details when SDK create fails', async () => {
+    const logger = makeLogger()
+    const store = makeStore()
+    const transport = new FeishuTransport({
+      credentials: { appId: 'app_1', appSecret: 'secret_1' },
+      logger,
+      store,
+    })
+    const createReaction = vi.fn().mockRejectedValue({
+      response: {
+        body: { code: 231001, msg: 'reaction type is invalid' },
+        code: 231001,
+        msg: 'reaction type is invalid',
+      },
+    })
+    ;(
+      transport as unknown as {
+        client: { im: { v1: { messageReaction: { create: typeof createReaction } } } }
+      }
+    ).client.im.v1.messageReaction.create = createReaction
+
+    await (
+      transport as unknown as {
+        handleMessageReceive: (event: ReturnType<typeof makeMessageEvent>) => Promise<void>
+      }
+    ).handleMessageReceive(makeMessageEvent())
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('emoji=GLANCE'),
+      expect.stringContaining('"code":231001')
+    )
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('emoji=GLANCE'),
+      expect.stringContaining('reaction type is invalid')
     )
   })
 })
