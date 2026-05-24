@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Upstream tt-a1i/hive diff · 2026-05-24</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #17202a;
+        --muted: #5f6b7a;
+        --line: #d8dee8;
+        --green: #137333;
+        --yellow: #8a5a00;
+        --red: #b3261e;
+        --blue: #2457c5;
+        --code: #f0f3f8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 32px 24px 56px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.2;
+      }
+
+      h1 {
+        font-size: 30px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin-top: 28px;
+        font-size: 20px;
+      }
+
+      h3 {
+        margin-top: 18px;
+        font-size: 16px;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: var(--code);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .hero,
+      section {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 22px;
+        margin-top: 18px;
+      }
+
+      .hero {
+        margin-top: 0;
+      }
+
+      .lede {
+        margin-top: 14px;
+        font-size: 17px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        background: #fbfcfe;
+      }
+
+      .metric strong {
+        display: block;
+        font-size: 22px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--line);
+        padding: 9px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 650;
+        background: #fbfcfe;
+      }
+
+      .hash {
+        white-space: nowrap;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      .green {
+        color: var(--green);
+        font-weight: 700;
+      }
+
+      .yellow {
+        color: var(--yellow);
+        font-weight: 700;
+      }
+
+      .red {
+        color: var(--red);
+        font-weight: 700;
+      }
+
+      .blue {
+        color: var(--blue);
+        font-weight: 700;
+      }
+
+      ul,
+      ol {
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .note {
+        border-left: 4px solid var(--blue);
+        padding: 10px 12px;
+        background: #f3f6ff;
+        color: #20345f;
+        margin-top: 12px;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          padding: 20px 14px 40px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        table {
+          display: block;
+          overflow-x: auto;
+          white-space: nowrap;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <h1>tt-a1i/hive upstream diff 调研</h1>
+        <p class="lede">
+          最强建议：优先手工回灌 <code>71fdaaf</code>、<code>53e3645</code> 和
+          OpenCode 鼠标输入修复组；不要直接 merge 上游 main，因为 marketplace/PWA/Topbar/package/schema
+          与 HippoTeam 的 rebrand、Feishu、logger、schema v21 已明显分叉。
+        </p>
+        <div class="grid">
+          <div class="metric">
+            <strong>9075611</strong>
+            <span>upstream HEAD · 2026-05-22 21:44</span>
+          </div>
+          <div class="metric">
+            <strong>40</strong>
+            <span>2026-05-20 00:00 起 upstream commit</span>
+          </div>
+          <div class="metric">
+            <strong>31</strong>
+            <span>fork 基线时间点 21:27 之后 commit</span>
+          </div>
+          <div class="metric">
+            <strong>8 / 18 / 14</strong>
+            <span>🟢 / 🟡 / 🔴 分类统计</span>
+          </div>
+        </div>
+        <p class="muted">
+          获取方式：在 hive-serva 加 <code>upstream-tta1i</code> remote 并 fetch 成功；本报告没有
+          cherry-pick、merge 或修改生产代码。
+        </p>
+      </div>
+
+      <section>
+        <h2>基线与范围</h2>
+        <ul>
+          <li>HippoTeam 侧给定基线：<code>53e6324</code>，2026-05-20 21:27，最后一个非本会话 commit。</li>
+          <li>upstream HEAD：<code>9075611cf3aeea099c377d0246821fb612220034</code>，2026-05-22 21:44，<em>Fix marketplace import test casing</em>。</li>
+          <li>注意：本地历史不是线性 fork，<code>53e6324..upstream-tta1i/main</code> 会把 5/17-5/19 的旧上游改动也算进去。因此本报告按任务要求用 2026-05-20 起的 upstream commit 列表做主表，并单独标出基线时间点之后的 31 个 commit。</li>
+          <li>本地 <code>~/development/hive.archived-2026-05-20</code> 当前 HEAD 是 <code>055656e</code>，包含 huangserva 的 dev-mode team CLI patch，不是纯 upstream HEAD，因此只作为背景，不作为 diff 基线。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>Commit 判断表</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>hash</th>
+              <th>日期</th>
+              <th>作者</th>
+              <th>subject</th>
+              <th>判断</th>
+              <th>理由</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="hash">ed042e2</td><td>2026-05-20</td><td>tt-a1i</td><td>Unify auto-reload through a silent helper and cover RuntimeOfflinePage</td><td class="yellow">🟡 看情况</td><td>PWA/offline 体验有价值，但 HippoTeam 已移除 upstream update badge，需拆出纯 offline helper，避免带回上游更新链路。</td></tr>
+            <tr><td class="hash">eaa8116</td><td>2026-05-20</td><td>tt-a1i</td><td>Move Save-as-template into the Role instructions toolbar</td><td class="yellow">🟡 看情况</td><td>Add Worker 表单 UX polish，可借交互位置；会碰 worker dialog 和 i18n，需要手工 port。</td></tr>
+            <tr><td class="hash">cbeb98d</td><td>2026-05-20</td><td>tt-a1i</td><td>Update 1.3.0 release notes</td><td class="red">🔴 跳过</td><td>上游 release notes，对 huangserva fork 没有产品价值。</td></tr>
+            <tr><td class="hash">d897986</td><td>2026-05-20</td><td>tt-a1i</td><td>Use npm trusted publishing for releases</td><td class="red">🔴 跳过</td><td>发布流水线改动，HippoTeam package 已改为本地 fork 名，不计划按上游 npm 发布。</td></tr>
+            <tr><td class="hash">8c3184b</td><td>2026-05-20</td><td>tt-a1i</td><td>Use Node 24 for trusted publishing</td><td class="red">🔴 跳过</td><td>仅 CI 发布环境；本地 runtime 目标仍按当前项目约束，不应为发布链路改 Node 要求。</td></tr>
+            <tr><td class="hash">b6b4e1d</td><td>2026-05-20</td><td>tt-a1i</td><td>Clarify public source release line</td><td class="red">🔴 跳过</td><td>上游公开源码说明，与 HippoTeam fork 定位不同。</td></tr>
+            <tr><td class="hash">60a2e68</td><td>2026-05-20</td><td>tt-a1i</td><td>Restore task graph topbar entry</td><td class="yellow">🟡 看情况</td><td>任务图入口可能有用，但会碰 Topbar/MainLayout；HippoTeam 已 rebrand 且移除 update badge，不能直接套。</td></tr>
+            <tr><td class="hash">a2945fe</td><td>2026-05-20</td><td>tt-a1i</td><td>Add explicit dispatch cancellation</td><td class="green">🟢 应该回灌</td><td>补齐 dispatch lifecycle 的取消路径，能减少 stale dispatch/pending 语义债；但触及 team CLI、authz、store、spec，应单独手工 port。</td></tr>
+            <tr><td class="hash">2300d83</td><td>2026-05-20</td><td>tt-a1i</td><td>Merge private release line into public main</td><td class="yellow">🟡 看情况</td><td>超大合并，包含 PWA、Open Workspace、bottom terminal panel、update CLI 等；不应整包回灌，只拆子功能。</td></tr>
+            <tr><td class="hash">0f229f4</td><td>2026-05-20</td><td>tt-a1i</td><td>Name workers after historical figures, scoped per role</td><td class="yellow">🟡 看情况</td><td>默认命名体验有趣，但不是 bugfix；会碰 i18n 和 worker composer，属于产品口味选择。</td></tr>
+            <tr><td class="hash">9ae0702</td><td>2026-05-21</td><td>tt-a1i</td><td>Release 1.3.1</td><td class="red">🔴 跳过</td><td>版本 bump。</td></tr>
+            <tr><td class="hash">028fd2d</td><td>2026-05-21</td><td>tt-a1i</td><td>Release 1.3.2</td><td class="red">🔴 跳过</td><td>版本 bump。</td></tr>
+            <tr><td class="hash">68531ef</td><td>2026-05-21</td><td>tt-a1i</td><td>Release 1.3.3</td><td class="red">🔴 跳过</td><td>版本 bump。</td></tr>
+            <tr><td class="hash">4c34bf6</td><td>2026-05-21</td><td>tt-a1i</td><td>Improve terminal performance and scrolling</td><td class="green">🟢 应该回灌</td><td>终端性能和滚动是核心体验；改动较大，建议先 port server 侧 backpressure/stream guard，再 port UI。</td></tr>
+            <tr><td class="hash">e57c6be</td><td>2026-05-21</td><td>tt-a1i</td><td>Fix OpenCode terminal mouse input</td><td class="green">🟢 应该回灌</td><td>明确 bugfix，涉及 terminal input profile、mouse report；对 OpenCode preset 直接有价值。</td></tr>
+            <tr><td class="hash">7bda143</td><td>2026-05-21</td><td>tt-a1i</td><td>Normalize OpenCode mouse reports</td><td class="green">🟢 应该回灌</td><td>跟 e57c6be 是一组，修正前端发送的 mouse sequence 规范化，建议相邻回灌。</td></tr>
+            <tr><td class="hash">53e3645</td><td>2026-05-21</td><td>tt-a1i</td><td>Guard task snapshot websocket reads</td><td class="green">🟢 应该回灌</td><td>WebSocket 读 tasks 快照的防护型 bugfix，改动集中在 <code>tasks-websocket-server.ts</code>，风险小。</td></tr>
+            <tr><td class="hash">55a9b52</td><td>2026-05-21</td><td>tt-a1i</td><td>Add team-view screenshot to README</td><td class="red">🔴 跳过</td><td>README 资产/截图，且重复出现；HippoTeam 已 rebrand，直接采纳会污染品牌。</td></tr>
+            <tr><td class="hash">c53d77e</td><td>2026-05-21</td><td>tt-a1i</td><td>Add team-view screenshot to README</td><td class="red">🔴 跳过</td><td>同上一条，文档资产不建议直接 cherry-pick。</td></tr>
+            <tr><td class="hash">30ea1e5</td><td>2026-05-21</td><td>tt-a1i</td><td>Merge terminal performance improvements</td><td class="yellow">🟡 看情况</td><td>合并型 commit；不要 cherry-pick merge，本报告推荐拆 <code>4c34bf6/e57c6be/7bda143</code>。</td></tr>
+            <tr><td class="hash">fdbb695</td><td>2026-05-21</td><td>tt-a1i</td><td>Release 1.3.4</td><td class="red">🔴 跳过</td><td>版本 bump。</td></tr>
+            <tr><td class="hash">71fdaaf</td><td>2026-05-21</td><td>tt-a1i</td><td>Improve port-in-use CLI error</td><td class="green">🟢 应该回灌</td><td>低风险 CLI UX bugfix，能把端口占用从 generic crash 变成可读错误；与 HippoTeam logger/Feishu 启动有冲突但可手工插入。</td></tr>
+            <tr><td class="hash">535cfca</td><td>2026-05-21</td><td>tt-a1i</td><td>Reset worker status to idle when starting agent</td><td class="green">🟢 已覆盖</td><td>命中我们之前修过的 pendingTaskCount 残留问题；不必 cherry-pick，但建议对比确认语义一致。</td></tr>
+            <tr><td class="hash">eb9e5c1</td><td>2026-05-22</td><td>tt-a1i</td><td>Add EverOS partnership + cross-agent memory roadmap to README</td><td class="red">🔴 跳过</td><td>上游路线叙事，和 HippoTeam 当前本机轻量/Feishu 桥路线无直接关系。</td></tr>
+            <tr><td class="hash">d5c5c6c</td><td>2026-05-22</td><td>tt-a1i</td><td>Sharpen Hermes vs Auto Dream contrast in memory roadmap</td><td class="red">🔴 跳过</td><td>README roadmap 文案，不建议回灌。</td></tr>
+            <tr><td class="hash">b9466f1</td><td>2026-05-22</td><td>tt-a1i</td><td>Drop Codex/OpenCode/Gemini resume bullet from memory roadmap</td><td class="red">🔴 跳过</td><td>README roadmap 文案，不建议回灌。</td></tr>
+            <tr><td class="hash">99d3821</td><td>2026-05-22</td><td>tt-a1i</td><td>Add template marketplace with EN/ZH agent libraries</td><td class="yellow">🟡 看情况</td><td>大功能：新增 marketplace store/routes/UI/vendor prompts。价值高但体积巨大，会碰 package、i18n、worker dialog 和品牌；建议另开设计任务。</td></tr>
+            <tr><td class="hash">d23c820</td><td>2026-05-22</td><td>tt-a1i</td><td>Polish marketplace UI and bilingual category labels</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义。</td></tr>
+            <tr><td class="hash">33b2087</td><td>2026-05-22</td><td>tt-a1i</td><td>Marketplace round 2 polish — figure/ground, default filter, vibe</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义。</td></tr>
+            <tr><td class="hash">04255d5</td><td>2026-05-22</td><td>tt-a1i</td><td>Marketplace round 3 polish — ZH vibe, density, bugs, ergonomics</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义；中文文案需重过 HippoTeam i18n。</td></tr>
+            <tr><td class="hash">47225ba</td><td>2026-05-22</td><td>tt-a1i</td><td>Marketplace round 4 — fix dead hover, contrast, ergonomics</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义。</td></tr>
+            <tr><td class="hash">744a12f</td><td>2026-05-22</td><td>tt-a1i</td><td>Marketplace round 5 — copy/typography/edge cases</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义。</td></tr>
+            <tr><td class="hash">352dc52</td><td>2026-05-22</td><td>tt-a1i</td><td>Marketplace round 6 — family consistency, sync quality, vendor refresh</td><td class="yellow">🟡 看情况</td><td>只在采纳 marketplace 时有意义；还涉及 vendor 同步脚本和大量 prompt 内容。</td></tr>
+            <tr><td class="hash">091fc8c</td><td>2026-05-22</td><td>tt-a1i</td><td>Fix search input placeholder overlapping the Search icon</td><td class="yellow">🟡 看情况</td><td>marketplace drawer 内的小 bugfix；不采纳 marketplace 就不用。</td></tr>
+            <tr><td class="hash">b34cfe4</td><td>2026-05-22</td><td>tt-a1i</td><td>Match tasks drawer width to member pane</td><td class="green">🟢 应该回灌</td><td>小 UI polish，改动窄，能改善任务抽屉和成员 pane 的视觉一致性。</td></tr>
+            <tr><td class="hash">c920110</td><td>2026-05-22</td><td>tt-a1i</td><td>Show CLI logos in agent picker</td><td class="yellow">🟡 看情况</td><td>agent picker polish 有价值，但会碰 AddWorkerDialog/CLI avatar，需确认不破坏 thinking_level Picker 和 HippoTeam 视觉。</td></tr>
+            <tr><td class="hash">1910d81</td><td>2026-05-22</td><td>tt-a1i</td><td>Remove stale Biome suppressions</td><td class="yellow">🟡 看情况</td><td>清理型提交，只有在相同文件上下文回灌后才顺手做；不单独 cherry-pick。</td></tr>
+            <tr><td class="hash">9887637</td><td>2026-05-22</td><td>tt-a1i</td><td>Release 1.4.0</td><td class="red">🔴 跳过</td><td>版本 bump 和 changelog；HippoTeam package/version 语义已分叉。</td></tr>
+            <tr><td class="hash">6883a0d</td><td>2026-05-22</td><td>tt-a1i</td><td>Stabilize worker dialog flow test</td><td class="yellow">🟡 看情况</td><td>测试稳定性提交；如果回灌 worker dialog 改动，可参考测试等待策略，不作为产品 patch。</td></tr>
+            <tr><td class="hash">9075611</td><td>2026-05-22</td><td>tt-a1i</td><td>Fix marketplace import test casing</td><td class="yellow">🟡 看情况</td><td>marketplace 测试修复；只在采纳 marketplace 时有意义。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>核心模块变化</h2>
+        <ul>
+          <li><strong>终端链路：</strong><code>4c34bf6/e57c6be/7bda143</code> 修改 <code>src/server/terminal-*</code>、<code>terminal-stream-hub.ts</code>、<code>web/src/terminal/useTerminalRun.ts</code>、<code>wheelFallback.ts</code>，重点是滚动性能和 OpenCode mouse reports。</li>
+          <li><strong>dispatch 协议：</strong><code>a2945fe</code> 新增 explicit cancellation，触及 <code>team.ts</code>、<code>routes-team.ts</code>、<code>dispatch-ledger-store.ts</code>、<code>agent-stdin-dispatcher.ts</code> 和 spec。</li>
+          <li><strong>worker 状态：</strong><code>535cfca</code> 与我们已修的 restart 后 pending 残留问题同源，改 <code>workspace-store-mutations.ts</code>。</li>
+          <li><strong>task websocket：</strong><code>53e3645</code> 给 tasks snapshot 读取加 guard，属于 server hardening。</li>
+          <li><strong>marketplace：</strong><code>99d3821</code> 起新增 <code>src/server/marketplace-store.ts</code>、<code>routes-marketplace.ts</code>、<code>web/src/marketplace/*</code>、<code>vendor/marketplace/*</code>，后续 6 轮 polish。</li>
+          <li><strong>PWA/Open Workspace/Bottom terminal：</strong><code>2300d83</code> 是私有 release line 大合并，包含 <code>src/cli/hive-update.ts</code>、<code>routes-open-workspace.ts</code>、<code>web/src/pwa/*</code>、<code>web/src/workspace/OpenWorkspaceButton.tsx</code>、<code>web/src/terminal/TerminalBottomPanel.tsx</code>。</li>
+          <li><strong>schema：</strong>upstream main 当前只保留到 <code>sqlite-schema-v18.ts</code>；HippoTeam 当前已有 <code>v20 thinking_level</code> 和 <code>v21 feishu_bindings</code>。schema 不能直接拿 upstream 文件覆盖。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>冲突分析</h2>
+        <ul>
+          <li><strong>Rebrand 冲突：</strong>上游改动会触碰 <code>README.md</code>、<code>package.json</code>、<code>web/src/i18n.tsx</code>、<code>web/src/layout/Topbar.tsx</code>、<code>web/public/favicon.svg</code>。HippoTeam 已把品牌、favicon、Topbar、update badge 改掉，任何上游 UI/README commit 都需要手工保留 HippoTeam 名称。</li>
+          <li><strong>Feishu 冲突：</strong>HippoTeam 新增 <code>src/server/feishu-transport.ts</code>、<code>routes-feishu.ts</code>、approval ledger 和 route context 变更；上游没有这些文件。凡是改 <code>app.ts</code>、<code>route-types.ts</code>、<code>runtime-store.ts</code> 的上游 commit 都可能要手工三方合并。</li>
+          <li><strong>Logger 冲突：</strong>上游没有我们加的 <code>src/server/logger.ts</code>，且 <code>src/cli/hive.ts</code> 启动链和错误处理不同。<code>71fdaaf</code> 这类 CLI 启动修复要插入到现有 logger/Feishu credentials/transport 初始化之后。</li>
+          <li><strong>Schema 冲突：</strong>上游 schema 线没有 v20/v21。任何 schema 回灌都必须以 HippoTeam <code>CURRENT_SCHEMA_VERSION = 21</code> 为基准继续加 v22，不能回退。</li>
+          <li><strong>Update/PWA 冲突：</strong>HippoTeam 刚移除了 upstream npm update badge；上游 <code>hive-update.ts</code>、<code>UpdateAvailableToast</code>、service worker update banner 会重新引入上游版本语义，默认不建议整包拿。</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>推荐回灌清单</h2>
+        <ol>
+          <li><code>71fdaaf</code> Improve port-in-use CLI error：低风险高收益。先看 <code>src/cli/hive.ts</code> 的错误分支，把 EADDRINUSE 变成明确端口占用提示，同时保留 HippoTeam logger 和 Feishu transport 启动逻辑。</li>
+          <li><code>53e3645</code> Guard task snapshot websocket reads：server hardening，改动窄。建议回灌到当前 <code>tasks-websocket-server.ts</code>，并补真 websocket 测试。</li>
+          <li><code>e57c6be</code> + <code>7bda143</code> OpenCode mouse input/normalization：作为一组回灌，避免只修 server 或只修 UI 导致 mouse reports 半残。</li>
+          <li><code>a2945fe</code> Add explicit dispatch cancellation：值得做，但不是小 patch。建议单独开任务，先对照我们已修的 pending reset 和 Feishu approval，不直接 cherry-pick。</li>
+          <li><code>4c34bf6</code> Improve terminal performance and scrolling：价值高但改动大。建议在 OpenCode mouse 修完后，再拆成 server stream、UI scroll、tests 三块。</li>
+          <li><code>b34cfe4</code> Match tasks drawer width to member pane：小 UI polish，可在不触碰 rebrand 的情况下手工移植。</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>风险与限制</h2>
+        <ul>
+          <li>上游 1.4.0 的主线重点是 marketplace/PWA/open-workspace/bottom-terminal，而 HippoTeam 近期重点是稳定性、Feishu bridge、approval、rebrand。方向已经从“同源小分叉”变成“共享基础但产品路线分叉”。</li>
+          <li>不建议用 merge 或连续 cherry-pick 追 main；更稳的策略是按问题域回灌：server hardening、terminal fixes、dispatch cancellation，每个都有独立测试。</li>
+          <li>marketplace 的 prompt 库可能有价值，但 vendor 内容巨大、许可和品牌归属要单独审；不应混进 bugfix 回灌。</li>
+          <li>本报告没有运行 upstream 测试，也没有尝试 apply patch；它是回灌决策报告，不是迁移验证报告。</li>
+        </ul>
+        <div class="note">
+          当前最坑的一条是 <code>2300d83</code>：它看起来像“把上游私有线合回来”的总开关，但实际包含多个大功能和发布链路，直接 cherry-pick 会把 update badge、PWA、open workspace、terminal panel、README 方向一次性带进来，冲突和回归面都很大。
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

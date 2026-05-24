@@ -4,6 +4,7 @@ import {
   buildOrchestratorReportPayload,
   buildOrchestratorStatusPayload,
   buildOrchestratorUserInputPayload,
+  buildWorkerCancelPayload,
   buildWorkerDispatchPayload,
 } from '../../src/server/agent-stdin-dispatcher.js'
 import {
@@ -104,5 +105,20 @@ describe('buildWorkerDispatchPayload', () => {
     const reminderIdx = lineIndexOf(payload, '<hive-system-reminder>')
     expect(taskBodyIdx).toBeGreaterThanOrEqual(0)
     expect(reminderIdx).toBeGreaterThan(taskBodyIdx)
+  })
+})
+
+describe('buildWorkerCancelPayload', () => {
+  test('includes dispatch id and reason', () => {
+    const payload = buildWorkerCancelPayload('disp-42', 'wrong direction')
+    expect(payload).toContain('disp-42')
+    expect(payload).toContain('已取消')
+    expect(payload).toContain('wrong direction')
+  })
+
+  test('instructs worker to stop and not report', () => {
+    const payload = buildWorkerCancelPayload('disp-1', 'test')
+    expect(payload).toContain('请停止执行这条派单')
+    expect(payload).toContain('不要再为它调用 team report')
   })
 })
