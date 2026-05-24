@@ -5,11 +5,8 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `c02e72f6` — Step 2 上游回灌 4 组：71fdaaf (port-in-use) + b34cfe4 (drawer width) + e57c6be+7bda143 (OpenCode mouse) + 4c34bf6 (terminal perf, 拆开做)
-- [ ] **关羽** dispatch `e4080e44` — PM 体系 Phase A：5 个文档模板 + workspace 种子 + system prompt PM 段（排队中，关羽 Step 2 完后做）
-- [ ] **典韦** — Step 2 测试补全（关羽 Step 2 完后我派）
-- [ ] **典韦** — PM Phase A 测试补全（关羽 PM Phase A 完后我派）
-- [ ] **Orchestrator** — retrofit hive-serva + HippoMind 的 plan.md（PM Phase A 完后我做，让用户看到 PM 体系实样）
+- [ ] **典韦** dispatch `36051dc9` — Step 2 + PM Phase A 测试合并批：OpenCode mouse SGR / agent-launch-cache / terminal-stream-hub binary / port-in-use formatter / pm-templates / ensurePmDocs / PROTOCOL.md generation
+- [ ] **Orchestrator** — retrofit hive-serva + HippoMind 的 plan.md（典韦测试完后我做，让用户看到 PM 体系实样）
 
 ## Open（user 回来决定）
 
@@ -24,6 +21,9 @@
 ## Done
 
 ### 2026-05-23 ~ 24
+- [x] **关羽** — Step 2 上游回灌：71fdaaf + b34cfe4 + e57c6be+7bda143 + 4c34bf6 部分 (`dbc7a1e`)
+- [x] **关羽** — PM 体系 Phase A：5 个文档模板 + workspace 种子 + system prompt PM 段 (`10322f9`)
+- [x] **Orchestrator** — Restructure tasks.md as GFM checkbox + biome HTML ignore + PM proposal HTML (`41dfac0`)
 - [x] **关羽** + **典韦** — Step 1 上游回灌：53e3645 tasks WS hardening (`473dc46`) + a2945fe team cancel (`02abda0`) + tests (`24fc7d5`)
 - [x] **关羽** — Upstream tt-a1i/hive 5/20 之后 31 个 commit 调研 + 🟢🟡🔴 分类报告
 - [x] **关羽** — Rebrand Hive → HippoTeam (`539266f`)：Topbar 圆圈 H logo + favicon + HTML title + package.json @huangserva/hippoteam + README + i18n 16 处 + 移除 upstream npm update badge
