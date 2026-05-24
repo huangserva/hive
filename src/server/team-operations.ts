@@ -8,6 +8,7 @@ import {
   createStatusMessage,
   createUserInputMessage,
 } from './runtime-message-builders.js'
+import type { TasksFileService } from './tasks-file.js'
 import type { WorkspaceStore } from './workspace-store.js'
 
 export interface TeamOperationsInput {
@@ -40,6 +41,10 @@ export interface TeamOperationsInput {
     workspaceId: string
   }) => DispatchRecord | undefined
   markDispatchSubmitted: (dispatchId: string) => void
+  tasksFileService?: Pick<
+    TasksFileService,
+    'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
+  >
   workspaceStore: WorkspaceStore
 }
 
@@ -76,6 +81,15 @@ export interface ReportTaskResult {
 const reportForwardErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+const noopTasksFileService: Pick<
+  TasksFileService,
+  'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
+> = {
+  recordDispatchCancelled: () => {},
+  recordDispatchDone: () => {},
+  recordDispatchSent: () => {},
+}
+
 export const createTeamOperations = ({
   agentRuntime,
   createDispatch,
@@ -87,8 +101,16 @@ export const createTeamOperations = ({
   markDispatchCancelled,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
+  tasksFileService = noopTasksFileService,
   workspaceStore,
 }: TeamOperationsInput) => {
+  const getWorkspacePath = (workspaceId: string) => {
+    if (tasksFileService === noopTasksFileService) {
+      return null
+    }
+    return workspaceStore.getWorkspaceSnapshot(workspaceId).summary.path
+  }
+
   const ensureWorkerRun = async (workspaceId: string, workerId: string, hivePort: string) => {
     if (agentRuntime.getActiveRunByAgentId(workspaceId, workerId)) {
       return
@@ -156,6 +178,15 @@ export const createTeamOperations = ({
       }
 
       workspaceStore.markTaskDispatched(workspaceId, workerId)
+      const worker = workspaceStore.getWorker(workspaceId, workerId)
+      const workspacePath = getWorkspacePath(workspaceId)
+      if (workspacePath) {
+        tasksFileService.recordDispatchSent(workspacePath, {
+          dispatchId: dispatch.id,
+          taskFirstLine: text,
+          workerName: worker.name,
+        })
+      }
       return dispatch
     } catch (error) {
       if (dispatch) deleteDispatch(dispatch.id)
@@ -181,6 +212,13 @@ export const createTeamOperations = ({
         throw new ConflictError(`No open dispatch: ${dispatchId}`)
       }
       workspaceStore.markTaskCancelled(workspaceId, dispatch.toAgentId)
+      const workspacePath = getWorkspacePath(workspaceId)
+      if (workspacePath) {
+        tasksFileService.recordDispatchCancelled(workspacePath, {
+          dispatchId: dispatch.id,
+          reason: input.reason,
+        })
+      }
       let forwardError: string | null = null
       let forwarded = false
       try {
@@ -267,6 +305,12 @@ export const createTeamOperations = ({
           throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
         }
         workspaceStore.markTaskReported(workspaceId, workerId)
+        const workspacePath = getWorkspacePath(workspaceId)
+        if (workspacePath) {
+          tasksFileService.recordDispatchDone(workspacePath, {
+            dispatchId: dispatch.id,
+          })
+        }
         let forwardError: string | null = null
         let forwarded = false
         if (input.requireActiveRun === true) {

@@ -75,7 +75,9 @@ export const createRuntimeStoreServices = (
   const agentRunStore = createAgentRunStore(db)
   const agentSessionStore = createAgentSessionStore(db)
   const settings = createSettingsStore(db)
-  const tasksFileService = createTasksFileService()
+  const tasksFileService = createTasksFileService(
+    options.logger ? { logger: options.logger } : undefined
+  )
   const cockpitFileWatchCallbacks = new Set<(workspaceId: string) => void>()
   const planFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
   const tasksFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
@@ -135,6 +137,7 @@ export const createRuntimeStoreServices = (
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
+    tasksFileService,
     workspaceStore,
   })
   startExistingWorkspaceWatches()

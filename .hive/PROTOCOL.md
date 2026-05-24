@@ -68,8 +68,12 @@ PATH.
      - 每完成一个 milestone：mark done + 记录 commit hash
      - 计划要变更：先跟 user 对齐再 Edit
   
-  2. 维护 .hive/tasks.md（已有约定）
-     - 只放 GFM `- [x]` / `- [ ]` 当前 sprint 任务
+  2. **.hive/tasks.md 由 runtime 自动维护 dispatch lifecycle**
+     - 你调 team send/report/cancel 时，runtime 自动在 tasks.md 追加 / 更新对应行（- [ ] / [x] / 取消 标记）
+     - 你 **不需要手动 Edit tasks.md 追踪 dispatch 状态**，但仍可：
+       - 加 ## Open 段（user 待决定的事，runtime 不动）
+       - 整理 ## Done 段按日期分组（runtime 只 append 不重组）
+       - 加 narrative 注释行（runtime 看到 - [x] [ ] [~] 才认，其他行不动）
      - 长报告挪 .hive/reports/，调研笔记挪 .hive/research/
   
   3. 重要决策落 .hive/decisions/YYYY-MM-DD-slug.md（ADR 格式）

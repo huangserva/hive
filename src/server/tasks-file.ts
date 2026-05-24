@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 import { buildProtocolDoc } from './hive-team-guidance.js'
+import type { HiveLogger } from './logger.js'
 import {
   ADR_TEMPLATE,
   BASELINE_INDEX_TEMPLATE,
@@ -17,9 +18,37 @@ import {
 } from './pm-templates.js'
 
 interface TasksFileService {
+  /** cancel 时调用：标 cancelled */
+  recordDispatchCancelled: (
+    workspacePath: string,
+    input: {
+      dispatchId: string
+      reason: string
+    }
+  ) => void
+  /** report 时调用：找到对应 dispatch_id 的行，把 [ ] 改 [x] */
+  recordDispatchDone: (
+    workspacePath: string,
+    input: {
+      dispatchId: string
+    }
+  ) => void
+  /** 派单时调用：在 ## In progress 段追加一行 */
+  recordDispatchSent: (
+    workspacePath: string,
+    input: {
+      dispatchId: string
+      taskFirstLine: string
+      workerName: string
+    }
+  ) => void
   readPlan: (workspacePath: string) => string
   readTasks: (workspacePath: string) => string
   writeTasks: (workspacePath: string, content: string) => void
+}
+
+interface CreateTasksFileServiceOptions {
+  logger?: Pick<HiveLogger, 'warn'>
 }
 
 export const HIVE_DIR_NAME = '.hive'
@@ -65,6 +94,78 @@ const ensureFileIfMissing = (filePath: string, content: string) => {
   if (!existsSync(filePath)) {
     writeFileSync(filePath, content, 'utf8')
   }
+}
+
+const DISPATCH_LINE_PATTERN =
+  /^- \[[ x~]\] \*\*(.+?)\*\* dispatch `([0-9a-fA-F-]{8})` \u2014 (.*)$/u
+
+const truncateText = (value: string, maxLength: number) => {
+  const normalized = value.split(/\r?\n/, 1)[0]?.replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
+}
+
+const getDispatchShortId = (dispatchId: string) => dispatchId.slice(0, 8)
+
+const findInProgressSection = (lines: string[]) => {
+  const start = lines.findIndex((line) => /^##\s+In progress\s*$/i.test(line.trim()))
+  if (start === -1) return null
+  const nextSection = lines.findIndex((line, index) => index > start && /^##\s+/.test(line))
+  return {
+    end: nextSection === -1 ? lines.length : nextSection,
+    start,
+  }
+}
+
+const findDispatchLine = (lines: string[], dispatchShortId: string) =>
+  lines.findIndex((line) => {
+    const match = DISPATCH_LINE_PATTERN.exec(line)
+    return match?.[2] === dispatchShortId
+  })
+
+const safeReadTasksFile = (
+  workspacePath: string,
+  logger: Pick<HiveLogger, 'warn'> | undefined,
+  operation: string
+) => {
+  const tasksFilePath = getTasksFilePath(workspacePath)
+  if (!existsSync(tasksFilePath)) {
+    logger?.warn(`tasks lifecycle ${operation} skipped: missing tasks.md path=${tasksFilePath}`)
+    return null
+  }
+  try {
+    return readFileSync(tasksFilePath, 'utf8')
+  } catch (error) {
+    logger?.warn(`tasks lifecycle ${operation} skipped: failed to read tasks.md`, error)
+    return null
+  }
+}
+
+const safeWriteTasksFile = (
+  workspacePath: string,
+  content: string,
+  logger: Pick<HiveLogger, 'warn'> | undefined,
+  operation: string
+) => {
+  try {
+    writeFileSync(getTasksFilePath(workspacePath), content, 'utf8')
+  } catch (error) {
+    logger?.warn(`tasks lifecycle ${operation} skipped: failed to write tasks.md`, error)
+  }
+}
+
+const updateTasksContent = (
+  workspacePath: string,
+  logger: Pick<HiveLogger, 'warn'> | undefined,
+  operation: string,
+  update: (lines: string[]) => string[] | null
+) => {
+  const content = safeReadTasksFile(workspacePath, logger, operation)
+  if (content === null) return
+  const lines = content.split(/\r?\n/)
+  const nextLines = update(lines)
+  if (!nextLines) return
+  safeWriteTasksFile(workspacePath, nextLines.join('\n'), logger, operation)
 }
 
 export const ensureTasksFile = (workspacePath: string) => {
@@ -143,8 +244,63 @@ export const ensurePmDocs = (workspacePath: string) => {
   }
 }
 
-export const createTasksFileService = (): TasksFileService => {
+export const createTasksFileService = (
+  options: CreateTasksFileServiceOptions = {}
+): TasksFileService => {
+  const { logger } = options
   return {
+    recordDispatchCancelled(workspacePath, input) {
+      const dispatchShortId = getDispatchShortId(input.dispatchId)
+      const reason = truncateText(input.reason, 80)
+      updateTasksContent(workspacePath, logger, 'cancel', (lines) => {
+        const lineIndex = findDispatchLine(lines, dispatchShortId)
+        if (lineIndex === -1) {
+          logger?.warn(`tasks lifecycle cancel skipped: dispatch not found id=${dispatchShortId}`)
+          return null
+        }
+        const currentLine = lines[lineIndex]
+        if (!currentLine) return null
+        const match = DISPATCH_LINE_PATTERN.exec(currentLine)
+        const workerName = match?.[1]
+        const shortId = match?.[2]
+        const body = match?.[3]
+        if (!workerName || !shortId || !body) return null
+        lines[lineIndex] = `- [~] **${workerName}** dispatch \`${shortId}\` — ${body} ⊘ ${reason}`
+        return lines
+      })
+    },
+
+    recordDispatchDone(workspacePath, input) {
+      const dispatchShortId = getDispatchShortId(input.dispatchId)
+      updateTasksContent(workspacePath, logger, 'done', (lines) => {
+        const lineIndex = findDispatchLine(lines, dispatchShortId)
+        if (lineIndex === -1) {
+          logger?.warn(`tasks lifecycle done skipped: dispatch not found id=${dispatchShortId}`)
+          return null
+        }
+        const currentLine = lines[lineIndex]
+        if (!currentLine) return null
+        lines[lineIndex] = currentLine.replace(/^- \[[ x~]\]/, '- [x]')
+        return lines
+      })
+    },
+
+    recordDispatchSent(workspacePath, input) {
+      const dispatchShortId = getDispatchShortId(input.dispatchId)
+      const taskFirstLine = truncateText(input.taskFirstLine, 120)
+      updateTasksContent(workspacePath, logger, 'send', (lines) => {
+        const section = findInProgressSection(lines)
+        if (!section) {
+          logger?.warn('tasks lifecycle send skipped: missing ## In progress section')
+          return null
+        }
+        if (findDispatchLine(lines, dispatchShortId) !== -1) return null
+        const line = `- [ ] **${input.workerName}** dispatch \`${dispatchShortId}\` — ${taskFirstLine}`
+        lines.splice(section.end, 0, line)
+        return lines
+      })
+    },
+
     readPlan(workspacePath) {
       ensurePmDocs(workspacePath)
       const planPath = getPlanFilePath(workspacePath)
