@@ -130,6 +130,7 @@ last_review: 2026-05-24
 - [x] POST `/api/workspaces/:id/cockpit/questions/:qId/answer` moves open questions into `## 已答`
 - [x] questions parser exposes answered history with `answer` metadata
 - [x] tests: parser + routes-cockpit + Cockpit Questions UI (`738c657`)
+- [x] wave 2: ActionBar / Ideas / Decisions handlers + POST endpoints (`f99b98e`)
 
 ## Scope
 
