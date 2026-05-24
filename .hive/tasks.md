@@ -5,13 +5,14 @@
 
 ## In progress
 
-- [ ] **典韦** dispatch `36051dc9` — Step 2 + PM Phase A 测试合并批：OpenCode mouse SGR / agent-launch-cache / terminal-stream-hub binary / port-in-use formatter / pm-templates / ensurePmDocs / PROTOCOL.md generation
-- [ ] **Orchestrator** — retrofit hive-serva + HippoMind 的 plan.md（典韦测试完后我做，让用户看到 PM 体系实样）
+（空 — 当前 sprint 全部完成，等 user 决定下一步）
 
 ## Open（user 回来决定）
 
 - [ ] 重启 4010 让今天所有改动生效（破坏性，杀所有 worker）
 - [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e
+- [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后会自动 seed stub，需要 orch 填实际内容；hive-serva 的 plan.md 是示例）
+- [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）—— 典韦报告里点名要 export 才能直测
 - [ ] PM 体系 Phase B（Plan-vs-Actual UI 面板）— Phase A 跑顺 1-2 周再说
 - [ ] PM 体系 Phase C（主动 review 闭环 + 飞书推送）— B 稳了再说
 - [ ] Marketplace 深度调研是否回灌（独立于 PM 体系决定）
@@ -21,6 +22,8 @@
 ## Done
 
 ### 2026-05-23 ~ 24
+- [x] **Orchestrator** — Retrofit `.hive/plan.md` 实样（HippoTeam 10 个 milestones，M1-M6 shipped、M7 blocked、M8-M10 proposed/open）(`57df9d4`)
+- [x] **典韦** — Step 2 + PM Phase A 32 个新测试（agent-launch-cache / pm-templates / ensurePmDocs / PROTOCOL.md）(`47e4d0f`)
 - [x] **关羽** — Step 2 上游回灌：71fdaaf + b34cfe4 + e57c6be+7bda143 + 4c34bf6 部分 (`dbc7a1e`)
 - [x] **关羽** — PM 体系 Phase A：5 个文档模板 + workspace 种子 + system prompt PM 段 (`10322f9`)
 - [x] **Orchestrator** — Restructure tasks.md as GFM checkbox + biome HTML ignore + PM proposal HTML (`41dfac0`)
