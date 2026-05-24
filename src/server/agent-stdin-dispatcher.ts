@@ -63,6 +63,17 @@ export const buildWorkerDispatchPayload = (
     '',
   ].join('\n')
 
+export const buildWorkerCancelPayload = (dispatchId: string, reason: string): string =>
+  [
+    `[Hive 系统消息：dispatch ${dispatchId} 已取消]`,
+    '',
+    '请停止执行这条派单，不要再为它调用 team report。',
+    '',
+    '取消原因：',
+    reason,
+    '',
+  ].join('\n')
+
 export const createAgentStdinDispatcher = ({
   agentManager,
   getLaunchConfig,
@@ -148,6 +159,20 @@ export const createAgentStdinDispatcher = ({
         workerId,
         buildWorkerDispatchPayload(fromAgentName, workerDescription, dispatchId, text),
         { requireActiveRun: true }
+      )
+    },
+    writeCancelPrompt(
+      workspaceId: string,
+      workerId: string,
+      dispatchId: string,
+      reason: string,
+      input: { requireActiveRun?: boolean } = {}
+    ) {
+      writeToActiveAgentRun(
+        workspaceId,
+        workerId,
+        buildWorkerCancelPayload(dispatchId, reason),
+        input
       )
     },
     writeUserInputPrompt(workspaceId: string, text: string) {

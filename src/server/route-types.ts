@@ -27,6 +27,14 @@ export interface ReportTaskBody {
   artifacts?: unknown[]
 }
 
+export interface CancelTaskBody {
+  dispatch_id?: string
+  project_id: string
+  from_agent_id: string
+  token?: string
+  reason?: string
+}
+
 export interface CreateWorkspaceBody {
   path: string
   name: string

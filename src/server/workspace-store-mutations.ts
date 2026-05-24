@@ -82,3 +82,5 @@ export const markTaskReported = (
   if (worker.status !== 'stopped')
     worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
 }
+
+export const markTaskCancelled = markTaskReported

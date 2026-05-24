@@ -12,6 +12,7 @@ import {
   getWorkerRecord,
   markAgentStarted,
   markAgentStopped,
+  markTaskCancelled,
   markTaskDispatched,
   markTaskReported,
 } from './workspace-store-mutations.js'
@@ -160,6 +161,8 @@ export const createWorkspaceStore = (
     },
     markAgentStarted: (workspaceId, agentId) => markAgentStarted(workspaces, workspaceId, agentId),
     markAgentStopped: (workspaceId, agentId) => markAgentStopped(workspaces, workspaceId, agentId),
+    markTaskCancelled: (workspaceId, workerId) =>
+      markTaskCancelled(workspaces, workspaceId, workerId),
     markTaskDispatched: (workspaceId, workerId) =>
       markTaskDispatched(workspaces, workspaceId, workerId),
     markTaskReported: (workspaceId, workerId) =>

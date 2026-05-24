@@ -155,6 +155,9 @@ export const createAgentRuntime = (
         text
       )
     },
+    writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input = {}) {
+      stdinDispatcher.writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input)
+    },
     writeUserInputPrompt(workspaceId, text) {
       stdinDispatcher.writeUserInputPrompt(workspaceId, text)
     },

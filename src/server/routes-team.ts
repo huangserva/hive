@@ -1,6 +1,11 @@
 import { BadRequestError } from './http-errors.js'
 import { readJsonBody, route, sendJson } from './route-helpers.js'
-import type { ReportTaskBody, RouteDefinition, SendTaskBody } from './route-types.js'
+import type {
+  CancelTaskBody,
+  ReportTaskBody,
+  RouteDefinition,
+  SendTaskBody,
+} from './route-types.js'
 import { authenticateCliAgent, requireCommandForRole } from './team-authz.js'
 
 const requireNonEmptyString = (value: unknown, field: string) => {
@@ -34,6 +39,28 @@ export const teamRoutes: RouteDefinition[] = [
     })
 
     sendJson(response, 202, { dispatch_id: dispatch.id, ok: true })
+  }),
+  route('POST', '/api/team/cancel', async ({ request, response, store }) => {
+    const body = await readJsonBody<CancelTaskBody>(request)
+    const projectId = requireNonEmptyString(body.project_id, 'project_id')
+    const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
+    const dispatchId = requireNonEmptyString(body.dispatch_id, 'dispatch_id')
+    const reason = requireNonEmptyString(body.reason, 'reason')
+    const agent = authenticateCliAgent({
+      fromAgentId,
+      getAgent: store.getAgent,
+      token: body.token,
+      validateToken: store.validateAgentToken,
+      workspaceId: projectId,
+    })
+    requireCommandForRole(agent, 'cancel')
+    const result = store.cancelTask(projectId, dispatchId, { fromAgentId, reason })
+    sendJson(response, 202, {
+      dispatch_id: result.dispatch?.id ?? null,
+      forward_error: result.forwardError,
+      forwarded: result.forwarded,
+      ok: true,
+    })
   }),
   route('POST', '/api/team/report', async ({ request, response, store }) => {
     const body = await readJsonBody<ReportTaskBody>(request)

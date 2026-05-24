@@ -148,6 +148,7 @@ Hive 给每个 agent PTY 提供一个 `team` CLI，agent 直接在自己的 shel
 ```bash
 # Orchestrator 可用
 team send <worker-name> "<task>"      # 派单给指定 worker（异步，立即返回；worker 完成时通过 stdin 回灌）
+team cancel --dispatch <id> "<reason>" # 取消指定未完成派单（异步，立即返回；不需要 worker report）
 team list                             # 列当前所有 worker 和状态（JSON 输出）
 
 # Worker 可用（flag 顺序任意；长正文用 --stdin 走 quoted heredoc 避免 shell 解析）
@@ -236,7 +237,7 @@ worker 不需要预先训练，每次派单都重申一遍约定。
 
 #### 3.3.3 回灌：worker → orch
 
-worker 调 `team report` 时，系统必须先找到该 worker 的 open dispatch；找不到则返回 409，避免把待命/接入状态误记为任务完成。找到 open dispatch 后，系统拦下来，包成系统消息注入 orch 的 stdin：
+worker 调 `team report` 时，系统必须先找到该 worker 的 open dispatch；找不到则返回 409，避免把待命/接入状态误记为任务完成。`cancelled` dispatch 不再是 open dispatch，后续 report 同样返回 409。找到 open dispatch 后，系统拦下来，包成系统消息注入 orch 的 stdin：
 
 ```
 [Hive 系统消息：来自 @Alice 的汇报]
@@ -245,6 +246,8 @@ artifact: src/auth.ts
 ```
 
 worker 没有 open dispatch 但需要说明接入、待命或阻塞状态时，必须使用 `team status`。`team status` 记录 `status` 消息并尽力注入 orch stdin，但不递减 `pending_task_count`，也不关闭 dispatch。
+
+orchestrator 需要取消已派但不再需要的任务时，必须调用 `team cancel --dispatch <id> "<reason>"`。系统将该 dispatch 标记为 `cancelled`、递减目标 worker 的 `pending_task_count`，并尽力向目标 worker stdin 注入取消提示。取消是显式协议事件，不做自然语言自动推断。
 
 #### 3.3.4 不做的事
 
@@ -486,7 +489,7 @@ UI 想展示的 worker 状态必须跟协议能力对齐——只看 working / i
 |---|---|---|
 | `stopped` ↔ `idle/working` | PTY 启动 / 退出 | runtime 监听 `node-pty` 的 onData / onExit 回调 |
 | `idle` → `working` | `team send <worker-name> ...` | Team Command Server 收到 send 后给目标 worker 的 `pending_task_count += 1` |
-| `working` → `idle` | `team report` from worker | Team Command Server 收到 report 后给该 worker 的 `pending_task_count -= 1`，归零则转 idle |
+| `working` → `idle` | `team report` from worker 或 `team cancel --dispatch <id>` from orchestrator | Team Command Server 收到 report/cancel 后给目标 worker 的 `pending_task_count -= 1`，归零则转 idle |
 | `pending_task_count`（队列长度展示用） | 同上 | 内存里的计数器，不入库（重启从 messages 表重算） |
 
 `stopped` 时记录 `exit_code` 进 `agent_runs` 表（已有），UI 可用它在 stopped 卡片上小字提示（如 "exit code 1"），但**不据此区分 status**。

@@ -48,8 +48,10 @@ export const buildAgentStartupInstructions = ({
       '可用 team 命令：',
       '- team list',
       '- team send <worker-name> "<task>"',
+      '- team cancel --dispatch <id> "<reason>"',
       '',
       '派单时必须使用 worker name，不要使用 worker id。',
+      '取消未完成派单时必须使用 dispatch id。',
       '',
       'Hive worker 派单规则：',
       ...getHiveTeamRules(agent)

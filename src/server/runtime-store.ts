@@ -12,6 +12,7 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
 import type {
+  CancelTaskInput,
   DispatchTaskInput,
   ReportTaskInput,
   ReportTaskResult,
@@ -43,6 +44,7 @@ interface RuntimeStore {
   ) => Promise<DispatchRecord>
   reportTask: (workspaceId: string, workerId: string, input?: ReportTaskInput) => ReportTaskResult
   statusTask: (workspaceId: string, workerId: string, input?: StatusTaskInput) => ReportTaskResult
+  cancelTask: (workspaceId: string, dispatchId: string, input: CancelTaskInput) => ReportTaskResult
   listDispatches: (workspaceId: string, options?: ListDispatchesOptions) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
   getLastPtyLineForAgent: (workspaceId: string, agentId: string) => string | null
@@ -171,6 +173,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       })
     },
     recordUserInput: services.teamOps.recordUserInput,
+    cancelTask: services.teamOps.cancelTask,
     dispatchTask: services.teamOps.dispatchTask,
     dispatchTaskByWorkerName: services.teamOps.dispatchTaskByWorkerName,
     reportTask: services.teamOps.reportTask,

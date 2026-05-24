@@ -60,6 +60,13 @@ export interface AgentRuntime {
     workerDescription: string,
     text: string
   ) => void
+  writeCancelPrompt: (
+    workspaceId: string,
+    workerId: string,
+    dispatchId: string,
+    reason: string,
+    input?: { requireActiveRun?: boolean }
+  ) => void
   writeUserInputPrompt: (workspaceId: string, text: string) => void
 }
 

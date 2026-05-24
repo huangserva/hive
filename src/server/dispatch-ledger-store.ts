@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { Database } from 'better-sqlite3'
 
-export type DispatchStatus = 'queued' | 'submitted' | 'reported'
+export type DispatchStatus = 'queued' | 'submitted' | 'reported' | 'cancelled'
 
 export interface DispatchRecord {
   artifacts: string[]
@@ -48,6 +48,12 @@ interface ReportDispatchInput {
   dispatchId?: string
   reportText: string
   toAgentId: string
+  workspaceId: string
+}
+
+interface CancelDispatchInput {
+  dispatchId: string
+  reason: string
   workspaceId: string
 }
 
@@ -158,7 +164,7 @@ export const createDispatchLedgerStore = (db: Database) => {
            WHERE id = ?
              AND workspace_id = ?
              AND to_agent_id = ?
-             AND status != 'reported'
+             AND status IN ('queued', 'submitted')
            LIMIT 1`
         )
         .get(dispatchId, workspaceId, toAgentId) as DispatchRow | undefined
@@ -172,11 +178,26 @@ export const createDispatchLedgerStore = (db: Database) => {
          FROM dispatches
          WHERE workspace_id = ?
            AND to_agent_id = ?
-           AND status != 'reported'
+           AND status IN ('queued', 'submitted')
          ORDER BY sequence ASC
          LIMIT 1`
       )
       .get(workspaceId, toAgentId) as DispatchRow | undefined
+
+    return row ? toRecord(row) : undefined
+  }
+
+  const findOpenDispatchById = (workspaceId: string, dispatchId: string) => {
+    const row = db
+      .prepare(
+        `SELECT *
+         FROM dispatches
+         WHERE id = ?
+           AND workspace_id = ?
+           AND status IN ('queued', 'submitted')
+         LIMIT 1`
+      )
+      .get(dispatchId, workspaceId) as DispatchRow | undefined
 
     return row ? toRecord(row) : undefined
   }
@@ -203,6 +224,29 @@ export const createDispatchLedgerStore = (db: Database) => {
       reportedAt,
       reportText: input.reportText,
       status: 'reported' as const,
+    }
+  }
+
+  const markCancelled = (input: CancelDispatchInput) => {
+    const dispatch = findOpenDispatchById(input.workspaceId, input.dispatchId)
+    if (!dispatch) {
+      return undefined
+    }
+
+    const cancelledAt = Date.now()
+    db.prepare(
+      `UPDATE dispatches
+       SET status = ?,
+           reported_at = ?,
+           report_text = ?
+       WHERE id = ?`
+    ).run('cancelled', cancelledAt, input.reason, dispatch.id)
+
+    return {
+      ...dispatch,
+      reportedAt: cancelledAt,
+      reportText: input.reason,
+      status: 'cancelled' as const,
     }
   }
 
@@ -243,7 +287,7 @@ export const createDispatchLedgerStore = (db: Database) => {
       .prepare(
         `SELECT workspace_id, to_agent_id AS worker_id, 'send' AS type
            FROM dispatches
-           WHERE status != 'reported'
+           WHERE status IN ('queued', 'submitted')
            ORDER BY sequence ASC`
       )
       .all() as Array<{ type: 'send'; worker_id: string; workspace_id: string }>
@@ -266,8 +310,10 @@ export const createDispatchLedgerStore = (db: Database) => {
     deleteWorkerDispatches,
     deleteWorkspaceDispatches,
     findOpenDispatch,
+    findOpenDispatchById,
     listOpenDispatchKinds,
     listWorkspaceDispatches,
+    markCancelled,
     markReportedByWorker,
     markSubmitted,
   }

@@ -25,7 +25,13 @@ export interface TeamOperationsInput {
     toAgentId: string,
     dispatchId?: string
   ) => DispatchRecord | undefined
+  findOpenDispatchById: (workspaceId: string, dispatchId: string) => DispatchRecord | undefined
   insertMessage: (record: MessageLogRecord) => MessageLogHandle
+  markDispatchCancelled: (input: {
+    dispatchId: string
+    reason: string
+    workspaceId: string
+  }) => DispatchRecord | undefined
   markDispatchReportedByWorker: (input: {
     artifacts: string[]
     dispatchId?: string
@@ -56,6 +62,11 @@ export interface StatusTaskInput {
   text?: string
 }
 
+export interface CancelTaskInput {
+  fromAgentId: string
+  reason: string
+}
+
 export interface ReportTaskResult {
   dispatch: DispatchRecord | null
   forwardError: string | null
@@ -71,7 +82,9 @@ export const createTeamOperations = ({
   deleteDispatch,
   deleteMessage,
   findOpenDispatch,
+  findOpenDispatchById,
   insertMessage,
+  markDispatchCancelled,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
   workspaceStore,
@@ -152,6 +165,33 @@ export const createTeamOperations = ({
   }
 
   return {
+    cancelTask(workspaceId: string, dispatchId: string, input: CancelTaskInput) {
+      workspaceStore.getAgent(workspaceId, input.fromAgentId)
+      const openDispatch = findOpenDispatchById(workspaceId, dispatchId)
+      if (!openDispatch) {
+        throw new ConflictError(`No open dispatch: ${dispatchId}`)
+      }
+      workspaceStore.getWorker(workspaceId, openDispatch.toAgentId)
+      const dispatch = markDispatchCancelled({
+        dispatchId,
+        reason: input.reason,
+        workspaceId,
+      })
+      if (!dispatch) {
+        throw new ConflictError(`No open dispatch: ${dispatchId}`)
+      }
+      workspaceStore.markTaskCancelled(workspaceId, dispatch.toAgentId)
+      let forwardError: string | null = null
+      let forwarded = false
+      try {
+        agentRuntime.writeCancelPrompt(workspaceId, dispatch.toAgentId, dispatch.id, input.reason)
+        forwarded = true
+      } catch (error) {
+        forwardError = reportForwardErrorMessage(error)
+        console.error('[hive] swallowed:teamCancel.forward', error)
+      }
+      return { dispatch, forwardError, forwarded }
+    },
     dispatchTask,
     dispatchTaskByWorkerName(
       workspaceId: string,
