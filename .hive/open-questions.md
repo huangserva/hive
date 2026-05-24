@@ -10,7 +10,7 @@
 
 ### 🟠 medium — 影响下一步规划
 
-- [ ] **Q1** PM 全套 i18n 国际化（Cockpit 8 tabs + ActionBar + drawer / PlanDrawer / WorkspaceSettings Feishu 段）。当前 PM 新增 UI 文案硬编码中文，user 切中/英按钮看不到效果。**计划**：等赵云 Cockpit tab + scroll fix 完事后，让关羽接力做 PM 全套 i18n（同一批 web/src/cockpit/ 文件，sequencing 合理）。**等 user 确认**：i18n 时英文文案要不要 user review？还是直接 ship？
+（暂无）
 
 ### 🟢 low — 灰度区
 
@@ -18,4 +18,4 @@
 
 ## 已答（archive 留追溯）
 
-（暂无）
+- [x] **Q1** PM 全套 i18n（Cockpit 8 tabs + ActionBar + drawer / PlanDrawer / WorkspaceSettings Feishu 段）→ **shipped `2b3e2ed`**：104 个新 i18n key（中英文各），22 个组件改完，CJK 扫描 0 命中。user 切顶栏中/英按钮，重启 4010 + 刷新后所有 PM 文案双语。
