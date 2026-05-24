@@ -5,7 +5,7 @@
 
 ## In progress
 
-（空 — 当前 sprint 全部完成，等 user 决定下一步）
+- [ ] **关羽** dispatch `e6702ba7` — PM 体系 Phase B：plan.md parser + chokidar watch 扩展 + WS 推送 + PlanDrawer UI + Topbar Plan 按钮（drawer 形态、宽松 schema、WS 推送，已选 A+A+A）
 
 ## Open（user 回来决定）
 
@@ -13,7 +13,7 @@
 - [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后会自动 seed stub，需要 orch 填实际内容；hive-serva 的 plan.md 是示例）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）—— 典韦报告里点名要 export 才能直测
-- [ ] PM 体系 Phase B（Plan-vs-Actual UI 面板）— Phase A 跑顺 1-2 周再说
+- [ ] PM 体系 Phase B 提前做了（dispatch `e6702ba7`）→ M8 移动到 In progress，跳过"跑顺 1-2 周"等待期
 - [ ] PM 体系 Phase C（主动 review 闭环 + 飞书推送）— B 稳了再说
 - [ ] Marketplace 深度调研是否回灌（独立于 PM 体系决定）
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
