@@ -5,7 +5,12 @@
 
 ## In progress
 
-（空 — PM Phase C-1 shipped + tests + race 修，等 user 决定要不要进 C-2 Cockpit UI 或 C-3 AI 主动行为）
+（空 — PM Phase C-1 + C-3a shipped + tests，899 tests 全绿）
+
+下一步选项（等 user 拍板）：
+- C-2 Cockpit UI（1.5 天）：6 tabs + 底部 AI 行动栏，把分散的 Plan/Todo/Questions/Ideas/Decisions/Baseline/Archive 合一
+- 跑 1 周看 PM 真用起来什么样，再决定 C-2 / C-3b
+- 其他方向（飞书 e2e / marketplace 调研 / etc）
 
 ## Open（user 回来决定）
 
@@ -22,7 +27,8 @@
 ## Done
 
 ### 2026-05-23 ~ 24
-- [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-1 文件层：4 个新文档（open-questions / ideas / baseline / archive）+ 6 节 ORCHESTRATOR_RULES + 24 个新测试 + 修 plan WS race (`82fc5a2` + 本 commit)
+- [x] **赵云 + 典韦** — PM 体系 Phase C-3a：session-start review nudge（runtime 一次性注入 system message + 3 启动路径 + idempotent + 12 tests）(`be1d633` + `9d1467b`)
+- [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-1 文件层：4 个新文档（open-questions / ideas / baseline / archive）+ 6 节 ORCHESTRATOR_RULES + 24 个新测试 + 修 plan WS race (`82fc5a2` + `64c7236`)
 - [x] **典韦** — PM 体系 Phase B 50 个新测试 (`9619d26`)
 - [x] **Orchestrator** — Retrofit `.hive/plan.md` 实样（HippoTeam 10 个 milestones，M1-M6 shipped、M7 blocked、M8-M10 proposed/open）(`57df9d4`)
 - [x] **典韦** — Step 2 + PM Phase A 32 个新测试（agent-launch-cache / pm-templates / ensurePmDocs / PROTOCOL.md）(`47e4d0f`)
