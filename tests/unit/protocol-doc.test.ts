@@ -43,4 +43,42 @@ describe('buildProtocolDoc', () => {
     const doc = buildProtocolDoc()
     expect(doc).toContain('team cancel')
   })
+
+  test('contains Open Questions / Ideas Inbox / Baseline / Decisions / Archive / Cross-workspace section headings', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Open Questions')
+    expect(doc).toContain('Ideas Inbox')
+    expect(doc).toContain('Baseline')
+    expect(doc).toContain('Decisions')
+    expect(doc).toContain('Archive')
+    expect(doc).toContain('Cross-workspace')
+  })
+
+  test('contains "最多每 session 挂 2 条新 Q" constraint', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('最多每 session 挂 2 条新 Q')
+  })
+
+  test('contains "200 行内" baseline size constraint', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('200 行内')
+  })
+
+  test('contains ADR draft naming convention draft-YYYY-MM-DD-X.md', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('draft-YYYY-MM-DD-X.md')
+  })
+
+  test('contains archive directory format archive/YYYY-MM/', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('archive/YYYY-MM/')
+  })
+
+  test('directory conventions section lists open-questions / ideas/inbox / baseline / archive', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('open-questions.md')
+    expect(doc).toContain('ideas/inbox.md')
+    expect(doc).toContain('baseline/')
+    expect(doc).toContain('archive/')
+  })
 })

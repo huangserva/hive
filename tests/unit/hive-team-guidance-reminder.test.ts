@@ -22,6 +22,17 @@ describe('ORCHESTRATOR_REMINDER_TAIL', () => {
     expect(ORCHESTRATOR_REMINDER_TAIL).toContain('Task')
     expect(ORCHESTRATOR_REMINDER_TAIL).toContain('Explore')
   })
+
+  test('contains session start / baseline / ideas/inbox / open-questions keywords', () => {
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('session start')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('baseline')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('ideas/inbox')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('open-questions')
+  })
+
+  test('length stays under 2000 characters for token cost control', () => {
+    expect(ORCHESTRATOR_REMINDER_TAIL.length).toBeLessThan(2000)
+  })
 })
 
 describe('buildWorkerReminderTail', () => {

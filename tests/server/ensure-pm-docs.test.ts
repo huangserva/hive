@@ -101,4 +101,65 @@ describe('ensurePmDocs', () => {
 
     expect(firstContent).toBe(secondContent)
   })
+
+  test('creates all 14 new PM files in empty workspace', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-new-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const hive = join(workspacePath, '.hive')
+    expect(existsSync(join(hive, 'open-questions.md'))).toBe(true)
+    expect(existsSync(join(hive, 'ideas', 'inbox.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'README.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'module-map.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'runtime-flows.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'state-storage.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'test-gates.md'))).toBe(true)
+    expect(existsSync(join(hive, 'baseline', 'risk-hotspots.md'))).toBe(true)
+    expect(existsSync(join(hive, 'decisions', '.gitkeep'))).toBe(true)
+    expect(existsSync(join(hive, 'research', '.gitkeep'))).toBe(true)
+    expect(existsSync(join(hive, 'archive', '.gitkeep'))).toBe(true)
+    expect(existsSync(join(hive, 'templates', 'open-questions.template.md'))).toBe(true)
+    expect(existsSync(join(hive, 'templates', 'ideas-inbox.template.md'))).toBe(true)
+    expect(existsSync(join(hive, 'templates', 'baseline.template.md'))).toBe(true)
+  })
+
+  test('does not overwrite existing baseline/module-map.md', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-baseline-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+    const custom = '# Custom Module Map\nWritten by AI.'
+    writeFileSync(join(workspacePath, '.hive', 'baseline', 'module-map.md'), custom, 'utf8')
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(join(workspacePath, '.hive', 'baseline', 'module-map.md'), 'utf8')
+    expect(content).toBe(custom)
+  })
+
+  test('baseline README replaces {{PROJECT_NAME}} with workspace basename', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'my-baseline-ws-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(join(workspacePath, '.hive', 'baseline', 'README.md'), 'utf8')
+    expect(content).not.toContain('{{PROJECT_NAME}}')
+    expect(content).toContain('my-baseline-ws-')
+  })
+
+  test('multiple calls on new files are idempotent', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-idem2-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+    const first = readFileSync(join(workspacePath, '.hive', 'open-questions.md'), 'utf8')
+
+    ensurePmDocs(workspacePath)
+    const second = readFileSync(join(workspacePath, '.hive', 'open-questions.md'), 'utf8')
+
+    expect(first).toBe(second)
+  })
 })

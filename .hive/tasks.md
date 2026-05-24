@@ -5,9 +5,7 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `0554d2e0` — PM C-1 之模板 + ensurePmDocs（pm-templates.ts 加 5 模板 + tasks-file.ts seed 11 个新文件/目录）
-- [ ] **赵云** dispatch `ef8de3b7` — PM C-1 之 ORCHESTRATOR_RULES 6 节扩展 + REMINDER_TAIL + buildProtocolDoc 目录约定 (并行)
-- [ ] **典韦** — PM C-1 测试补全（关羽 + 赵云 都报告完后我派）
+（空 — PM Phase C-1 shipped + tests + race 修，等 user 决定要不要进 C-2 Cockpit UI 或 C-3 AI 主动行为）
 
 ## Open（user 回来决定）
 
@@ -24,6 +22,8 @@
 ## Done
 
 ### 2026-05-23 ~ 24
+- [x] **关羽 + 赵云 + 典韦** — PM 体系 Phase C-1 文件层：4 个新文档（open-questions / ideas / baseline / archive）+ 6 节 ORCHESTRATOR_RULES + 24 个新测试 + 修 plan WS race (`82fc5a2` + 本 commit)
+- [x] **典韦** — PM 体系 Phase B 50 个新测试 (`9619d26`)
 - [x] **Orchestrator** — Retrofit `.hive/plan.md` 实样（HippoTeam 10 个 milestones，M1-M6 shipped、M7 blocked、M8-M10 proposed/open）(`57df9d4`)
 - [x] **典韦** — Step 2 + PM Phase A 32 个新测试（agent-launch-cache / pm-templates / ensurePmDocs / PROTOCOL.md）(`47e4d0f`)
 - [x] **关羽** — Step 2 上游回灌：71fdaaf + b34cfe4 + e57c6be+7bda143 + 4c34bf6 部分 (`dbc7a1e`)

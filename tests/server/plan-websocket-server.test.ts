@@ -31,14 +31,6 @@ const waitFor = async (
 
 const toWsUrl = (baseUrl: string, suffix: string) => baseUrl.replace('http://', 'ws://') + suffix
 
-const openSocket = async (url: string, cookie: string) => {
-  return await new Promise<WebSocket>((resolve, reject) => {
-    const socket = new WebSocket(url, { headers: { cookie } })
-    socket.once('open', () => resolve(socket))
-    socket.once('error', reject)
-  })
-}
-
 const expectUpgradeStatus = async (
   url: string,
   cookie: string,
@@ -123,9 +115,14 @@ describe('plan websocket server', () => {
       const cookie = await getUiCookie(server.baseUrl)
       const workspace = server.store.createWorkspace(workspacePath, 'PlanWS')
 
-      const socket = await openSocket(toWsUrl(server.baseUrl, `/ws/plan/${workspace.id}`), cookie)
+      const url = toWsUrl(server.baseUrl, `/ws/plan/${workspace.id}`)
       const messages: string[] = []
-      socket.on('message', (chunk) => messages.push(chunk.toString()))
+      const socket = await new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(url, { headers: { cookie } })
+        ws.on('message', (chunk) => messages.push(chunk.toString()))
+        ws.once('open', () => resolve(ws))
+        ws.once('error', reject)
+      })
 
       await waitFor(() => {
         expect(messages.length).toBeGreaterThanOrEqual(1)
