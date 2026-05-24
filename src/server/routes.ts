@@ -11,6 +11,7 @@ import type {
 import { dispatchRoutes } from './routes-dispatches.js'
 import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
+import { planRoutes } from './routes-plan.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
 import { taskRoutes } from './routes-tasks.js'
@@ -26,6 +27,7 @@ const routes: RouteDefinition[] = [
   ...uiRoutes,
   ...settingsRoutes,
   ...taskRoutes,
+  ...planRoutes,
   ...runtimeRoutes,
   ...teamRoutes,
   ...feishuRoutes,

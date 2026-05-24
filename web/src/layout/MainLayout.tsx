@@ -11,8 +11,10 @@ import {
 type MainLayoutProps = {
   children: ReactNode
   hideTopbarActions?: boolean
+  onTogglePlan: () => void
   onToggleTaskGraph: () => void
   openTaskCount?: number
+  planOpen: boolean
   sidebar: ReactNode
   taskGraphOpen: boolean
 }
@@ -20,8 +22,10 @@ type MainLayoutProps = {
 export const MainLayout = ({
   children,
   hideTopbarActions = false,
+  onTogglePlan,
   onToggleTaskGraph,
   openTaskCount = 0,
+  planOpen,
   sidebar,
   taskGraphOpen,
 }: MainLayoutProps) => {
@@ -35,8 +39,10 @@ export const MainLayout = ({
     >
       <Topbar
         hideActions={hideTopbarActions}
+        onTogglePlan={onTogglePlan}
         onToggleTaskGraph={onToggleTaskGraph}
         openTaskCount={openTaskCount}
+        planOpen={planOpen}
         taskGraphOpen={taskGraphOpen}
       />
       <div className="flex min-h-0 flex-1">

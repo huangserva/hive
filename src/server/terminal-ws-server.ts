@@ -3,6 +3,7 @@ import type { IncomingMessage, Server } from 'node:http'
 import { WebSocketServer } from 'ws'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
+import { createPlanWebSocketServer } from './plan-websocket-server.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { TasksFileService } from './tasks-file.js'
 import { createTasksWebSocketServer } from './tasks-websocket-server.js'
@@ -50,13 +51,17 @@ const logUpgradeError = (logger: HiveLogger | undefined, error: unknown) => {
 export const createTerminalWebSocketServer = (
   server: Server,
   store: RuntimeStore,
-  tasksFileService: Pick<TasksFileService, 'readTasks'>,
+  tasksFileService: Pick<TasksFileService, 'readPlan' | 'readTasks'>,
   logger?: HiveLogger
 ) => {
   const ioWss = new WebSocketServer({ noServer: true })
   const controlWss = new WebSocketServer({ noServer: true })
+  const planWss = createPlanWebSocketServer(server, store, tasksFileService, logger)
   const tasksWss = createTasksWebSocketServer(server, store, tasksFileService, logger)
   const hub = createTerminalStreamHub(store)
+  const disposePlanListener = store.registerPlanListener((workspaceId, content) => {
+    planWss.publish(workspaceId, content)
+  })
   const disposeTasksListener = store.registerTasksListener((workspaceId, content) => {
     tasksWss.publish(workspaceId, content)
   })
@@ -75,7 +80,7 @@ export const createTerminalWebSocketServer = (
       const pathname = url.pathname
       const match = matchTerminalPath(pathname)
       if (!match) {
-        if (/^\/ws\/tasks\/.+/.test(pathname)) {
+        if (/^\/ws\/(plan|tasks)\/.+/.test(pathname)) {
           return
         }
         rejectUpgrade(socket, '404 Not Found')
@@ -110,10 +115,12 @@ export const createTerminalWebSocketServer = (
   })
 
   server.on('close', () => {
+    disposePlanListener()
     disposeTasksListener()
     hub.close()
     ioWss.close()
     controlWss.close()
+    planWss.close()
     tasksWss.close()
   })
 

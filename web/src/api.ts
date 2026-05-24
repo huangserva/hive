@@ -143,6 +143,38 @@ export interface FeishuBinding {
   workspaceId: string
 }
 
+export type PlanMilestoneStatus = 'shipped' | 'blocked' | 'proposed' | 'open' | 'in_progress'
+
+export interface ParsedMilestone {
+  body: string
+  date?: string
+  doneCount: number
+  id: string
+  items: { done: boolean; text: string }[]
+  progress: number
+  status: PlanMilestoneStatus
+  title: string
+  totalCount: number
+}
+
+export interface ParsedPlan {
+  currentPhase: string | null
+  frontmatter: {
+    title?: string
+    started?: string
+    current_phase?: string
+    status?: string
+    last_review?: string
+    [key: string]: string | undefined
+  }
+  goal: string | null
+  milestones: ParsedMilestone[]
+  parseError: string | null
+  raw: string
+  risks: string[]
+  scope: { in: string[]; out: string[] } | null
+}
+
 interface CommandPresetPayload {
   args: string[]
   available: boolean
@@ -484,6 +516,35 @@ export const getWorkspaceTasks = async (workspaceId: string): Promise<{ content:
   }
 
   return (await response.json()) as { content: string }
+}
+
+export const fetchPlan = async (workspaceId: string): Promise<ParsedPlan> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/plan`)
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load plan'))
+  }
+
+  return (await response.json()) as ParsedPlan
+}
+
+const toWorkspaceSocketUrl = (path: string) => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${protocol}//${window.location.host}${path}`
+}
+
+export const connectPlanStream = (
+  workspaceId: string,
+  onUpdate: (plan: ParsedPlan) => void
+): WebSocket => {
+  const socket = new WebSocket(toWorkspaceSocketUrl(`/ws/plan/${workspaceId}`))
+  socket.onmessage = (event) => {
+    const payload = JSON.parse(event.data) as { plan?: ParsedPlan; type: string }
+    if ((payload.type === 'plan-snapshot' || payload.type === 'plan-updated') && payload.plan) {
+      onUpdate(payload.plan)
+    }
+  }
+  return socket
 }
 
 export const saveWorkspaceTasks = async (

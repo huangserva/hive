@@ -1,4 +1,6 @@
 import type { TeamListItem } from '../../src/shared/types.js'
+import { PlanDrawer } from './plan/PlanDrawer.js'
+import type { usePlan } from './plan/usePlan.js'
 import type { useTasksFile } from './tasks/useTasksFile.js'
 import { WorkspaceTaskDrawer } from './tasks/WorkspaceTaskDrawer.js'
 import { FirstRunWizard } from './wizard/FirstRunWizard.js'
@@ -6,6 +8,7 @@ import { AddWorkspaceDialog } from './workspace/AddWorkspaceDialog.js'
 import type { WorkspaceCreateInput } from './workspace/workspace-create-input.js'
 
 type TasksFileApi = ReturnType<typeof useTasksFile>
+type PlanApi = ReturnType<typeof usePlan>
 
 type AppOverlaysProps = {
   addDialogTrigger: number
@@ -13,7 +16,10 @@ type AppOverlaysProps = {
   onCloseTaskGraph: () => void
   onCloseWizard: (shouldMarkSeen?: boolean) => void
   onCreateWorkspace: (input: WorkspaceCreateInput) => Promise<unknown> | undefined
+  onClosePlan: () => void
   onTryDemo: () => void
+  planFile: PlanApi
+  planOpen: boolean
   taskGraphOpen: boolean
   tasksFile: TasksFileApi
   wizardOpen: boolean
@@ -32,7 +38,10 @@ export const AppOverlays = ({
   onCloseTaskGraph,
   onCloseWizard,
   onCreateWorkspace,
+  onClosePlan,
   onTryDemo,
+  planFile,
+  planOpen,
   taskGraphOpen,
   tasksFile,
   wizardOpen,
@@ -42,6 +51,15 @@ export const AppOverlays = ({
   connectionStale,
 }: AppOverlaysProps) => (
   <>
+    {workspacePath ? (
+      <PlanDrawer
+        loaded={planFile.loaded}
+        onClose={onClosePlan}
+        open={planOpen}
+        plan={planFile.plan}
+        workspacePath={workspacePath}
+      />
+    ) : null}
     {workspacePath ? (
       <WorkspaceTaskDrawer
         open={taskGraphOpen}

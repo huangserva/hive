@@ -7,6 +7,7 @@ import {
   ensurePmDocs,
   ensureProtocolFile,
   ensureTasksFile,
+  getPlanFilePath,
   getTasksFilePath,
 } from './tasks-file.js'
 
@@ -19,19 +20,26 @@ export interface TasksFileWatcher {
 }
 
 export const createTasksFileWatcher = ({
+  onPlanUpdated,
   onTasksUpdated,
 }: {
+  onPlanUpdated?: (workspaceId: string, content: string) => void
   onTasksUpdated: (workspaceId: string, content: string) => void
 }): TasksFileWatcher => {
   const watchers = new Map<string, FSWatcher>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
   const clearTimer = (workspaceId: string) => {
-    const timer = timers.get(workspaceId)
-    if (!timer) return
-    clearTimeout(timer)
-    timers.delete(workspaceId)
+    for (const kind of ['plan', 'tasks'] as const) {
+      const key = timerKey(workspaceId, kind)
+      const timer = timers.get(key)
+      if (!timer) continue
+      clearTimeout(timer)
+      timers.delete(key)
+    }
   }
+
+  const timerKey = (workspaceId: string, kind: 'plan' | 'tasks') => `${workspaceId}:${kind}`
 
   const emitCurrentContent = async (workspaceId: string, workspacePath: string) => {
     const tasksPath = getTasksFilePath(workspacePath)
@@ -41,6 +49,17 @@ export const createTasksFileWatcher = ({
     } catch (error) {
       if ((error as { code?: string }).code !== 'ENOENT') throw error
       onTasksUpdated(workspaceId, '')
+    }
+  }
+
+  const emitCurrentPlan = async (workspaceId: string, workspacePath: string) => {
+    const planPath = getPlanFilePath(workspacePath)
+    try {
+      const content = existsSync(planPath) ? await readFile(planPath, 'utf8') : ''
+      onPlanUpdated?.(workspaceId, content)
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') throw error
+      onPlanUpdated?.(workspaceId, '')
     }
   }
 
@@ -60,16 +79,25 @@ export const createTasksFileWatcher = ({
       ensureTasksFile(workspacePath)
       ensurePmDocs(workspacePath)
       ensureProtocolFile(workspacePath)
-      const watcher = chokidar.watch(getTasksFilePath(workspacePath), {
+      const tasksPath = getTasksFilePath(workspacePath)
+      const planPath = getPlanFilePath(workspacePath)
+      const watcher = chokidar.watch([tasksPath, planPath], {
         ignoreInitial: true,
       })
-      const scheduleEmit = () => {
-        clearTimer(workspaceId)
+      const scheduleEmit = (path: string) => {
+        const kind = path === planPath ? 'plan' : 'tasks'
+        const key = timerKey(workspaceId, kind)
+        const timer = timers.get(key)
+        if (timer) clearTimeout(timer)
         timers.set(
-          workspaceId,
+          key,
           setTimeout(() => {
-            timers.delete(workspaceId)
-            void emitCurrentContent(workspaceId, workspacePath)
+            timers.delete(key)
+            if (kind === 'plan') {
+              void emitCurrentPlan(workspaceId, workspacePath)
+            } else {
+              void emitCurrentContent(workspaceId, workspacePath)
+            }
           }, DEBOUNCE_MS)
         )
       }

@@ -11,6 +11,7 @@ import {
 } from './pm-templates.js'
 
 interface TasksFileService {
+  readPlan: (workspacePath: string) => string
   readTasks: (workspacePath: string) => string
   writeTasks: (workspacePath: string, content: string) => void
 }
@@ -102,6 +103,12 @@ export const ensurePmDocs = (workspacePath: string) => {
 
 export const createTasksFileService = (): TasksFileService => {
   return {
+    readPlan(workspacePath) {
+      ensurePmDocs(workspacePath)
+      const planPath = getPlanFilePath(workspacePath)
+      return existsSync(planPath) ? readFileSync(planPath, 'utf8') : ''
+    },
+
     readTasks(workspacePath) {
       return ensureTasksFile(workspacePath)
     },

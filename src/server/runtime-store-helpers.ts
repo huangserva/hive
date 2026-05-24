@@ -32,6 +32,7 @@ export interface RuntimeStoreServices {
   messageLogStore: ReturnType<typeof createMessageLogStore>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
+  planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   tasksFileWatcher: ReturnType<typeof createTasksFileWatcher>
   tasksFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   tasksFileService: ReturnType<typeof createTasksFileService>
@@ -74,8 +75,12 @@ export const createRuntimeStoreServices = (
   const agentSessionStore = createAgentSessionStore(db)
   const settings = createSettingsStore(db)
   const tasksFileService = createTasksFileService()
+  const planFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
   const tasksFileWatchCallbacks = new Set<(workspaceId: string, content: string) => void>()
   const tasksFileWatcher = createTasksFileWatcher({
+    onPlanUpdated: (workspaceId, content) => {
+      notifyTasksUpdated(planFileWatchCallbacks, workspaceId, content)
+    },
     onTasksUpdated: (workspaceId, content) => {
       notifyTasksUpdated(tasksFileWatchCallbacks, workspaceId, content)
     },
@@ -139,6 +144,7 @@ export const createRuntimeStoreServices = (
     messageLogStore,
     settings,
     shellRuntime,
+    planFileWatchCallbacks,
     tasksFileWatcher,
     tasksFileWatchCallbacks,
     tasksFileService,
@@ -266,6 +272,12 @@ export const createRuntimeStoreLifecycle = ({
       services.tasksFileWatchCallbacks.add(listener)
       return () => {
         services.tasksFileWatchCallbacks.delete(listener)
+      }
+    },
+    registerPlanListener: (listener: (workspaceId: string, content: string) => void) => {
+      services.planFileWatchCallbacks.add(listener)
+      return () => {
+        services.planFileWatchCallbacks.delete(listener)
       }
     },
     startWorkspaceWatch: async (workspaceId: string) => {

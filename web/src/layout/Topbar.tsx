@@ -1,4 +1,4 @@
-import { ListChecks } from 'lucide-react'
+import { ListChecks, Map as MapIcon } from 'lucide-react'
 
 import type { VersionInfo } from '../api.js'
 import { FeishuStatusIndicator } from '../feishu/FeishuStatusIndicator.js'
@@ -11,8 +11,10 @@ import { LanguageToggle } from './LanguageToggle.js'
 
 type TopbarProps = {
   hideActions?: boolean
+  onTogglePlan: () => void
   onToggleTaskGraph: () => void
   openTaskCount?: number
+  planOpen: boolean
   taskGraphOpen: boolean
   version?: string
   versionInfo?: VersionInfo
@@ -20,8 +22,10 @@ type TopbarProps = {
 
 export const Topbar = ({
   hideActions = false,
+  onTogglePlan,
   onToggleTaskGraph,
   openTaskCount = 0,
+  planOpen,
   taskGraphOpen,
   version = APP_VERSION,
 }: TopbarProps) => {
@@ -48,6 +52,19 @@ export const Topbar = ({
       <div className="flex-1" />
       {hideActions ? null : (
         <div className="flex items-center gap-1">
+          <Tooltip label={planOpen ? 'Hide Plan' : 'Show Plan (.hive/plan.md)'}>
+            <button
+              type="button"
+              onClick={onTogglePlan}
+              aria-pressed={planOpen}
+              aria-label="Toggle Plan"
+              className="flex cursor-pointer items-center gap-1.5 rounded px-3 py-1 text-xs text-sec hover:bg-3 hover:text-pri"
+              data-testid="topbar-plan"
+            >
+              <MapIcon size={14} aria-hidden className={planOpen ? 'text-accent' : undefined} />
+              <span>Plan</span>
+            </button>
+          </Tooltip>
           <Tooltip label={tooltipLabel}>
             <button
               type="button"

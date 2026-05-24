@@ -8,6 +8,7 @@ import { DEMO_TASKS_MD } from './demo/demo-fixture.js'
 import { useDemoMode } from './demo/useDemoMode.js'
 import { useEffectiveWorkspaceState } from './demo/useEffectiveWorkspaceState.js'
 import { MainLayout } from './layout/MainLayout.js'
+import { usePlan } from './plan/usePlan.js'
 import { Sidebar } from './sidebar/Sidebar.js'
 import { parseTaskMarkdown } from './tasks/task-markdown.js'
 import { useTasksFile } from './tasks/useTasksFile.js'
@@ -32,6 +33,7 @@ const AppInner = () => {
   const localPollIds = demoMode || !workspaces ? [] : workspaces.map(({ id }) => id)
   const [workersByWorkspaceId, setWorkersByWorkspaceId] = useWorkspaceWorkers(localPollIds)
   const [addDialogTrigger, setAddDialogTrigger] = useState(0)
+  const [planOpen, setPlanOpen] = useState(false)
   const [taskGraphOpen, setTaskGraphOpen] = useState(false)
   const [settingsWorkspace, setSettingsWorkspace] = useState<WorkspaceSummary | null>(null)
   const toast = useToast()
@@ -63,6 +65,7 @@ const AppInner = () => {
     demoMode ? null : (activeWorkspaceId ?? null),
     demoMode ? DEMO_TASKS_MD : undefined
   )
+  const planFile = usePlan(demoMode ? null : (activeWorkspaceId ?? null))
   const openTaskCount = eff.effectiveActiveWorkspace
     ? parseTaskMarkdown(tasksFile.content).filter((task) => !task.checked).length
     : 0
@@ -74,7 +77,10 @@ const AppInner = () => {
   })
   const deleteWorkspace = useWorkspaceDelete({
     activeWorkspaceId,
-    onActiveDeleted: () => setTaskGraphOpen(false),
+    onActiveDeleted: () => {
+      setPlanOpen(false)
+      setTaskGraphOpen(false)
+    },
     selectWorkspace,
     setWorkersByWorkspaceId,
     setWorkspaces,
@@ -92,8 +98,10 @@ const AppInner = () => {
   return (
     <MainLayout
       hideTopbarActions={!eff.effectiveActiveWorkspace}
+      onTogglePlan={() => setPlanOpen((value) => !value)}
       onToggleTaskGraph={() => setTaskGraphOpen((value) => !value)}
       openTaskCount={openTaskCount}
+      planOpen={planOpen}
       sidebar={
         <Sidebar
           activeWorkspaceId={eff.effectiveActiveWorkspaceId}
@@ -130,9 +138,12 @@ const AppInner = () => {
         wizardOpen={wizardOpen}
         onAddWorkspace={triggerAddDialog}
         onCloseTaskGraph={() => setTaskGraphOpen(false)}
+        onClosePlan={() => setPlanOpen(false)}
         onCloseWizard={closeWizard}
         onCreateWorkspace={wsCreate.createNewWorkspace}
         onTryDemo={enableDemo}
+        planFile={planFile}
+        planOpen={planOpen}
         taskGraphOpen={taskGraphOpen}
         tasksFile={tasksFile}
         workspacePath={eff.effectiveActiveWorkspace?.path ?? null}
