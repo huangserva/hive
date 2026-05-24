@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { AIAction } from '../../web/src/api.js'
 import { ActionBar } from '../../web/src/cockpit/ActionBar.js'
@@ -56,5 +56,15 @@ describe('ActionBar', () => {
     render(<ActionBar actions={[makeAction()]} />)
     expect(screen.getByText('Answer Q1')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '回答' })).toBeInTheDocument()
+  })
+
+  test('dispatches action button clicks to the parent handler', () => {
+    const onAction = vi.fn()
+    const action = makeAction()
+    render(<ActionBar actions={[action]} onAction={onAction} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '回答' }))
+
+    expect(onAction).toHaveBeenCalledWith(action)
   })
 })

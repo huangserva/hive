@@ -587,6 +587,57 @@ export const answerCockpitQuestion = async (
   }
 }
 
+export type PromoteIdeaTarget = 'adr' | 'plan' | 'question'
+
+export const promoteCockpitIdea = async (
+  workspaceId: string,
+  ideaId: string,
+  target: PromoteIdeaTarget
+): Promise<void> => {
+  const response = await apiFetch(
+    `/api/workspaces/${workspaceId}/cockpit/ideas/${encodeURIComponent(ideaId)}/promote`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target }),
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to promote idea'))
+  }
+}
+
+export const confirmCockpitDecision = async (
+  workspaceId: string,
+  decisionId: string
+): Promise<void> => {
+  const response = await apiFetch(
+    `/api/workspaces/${workspaceId}/cockpit/decisions/${encodeURIComponent(decisionId)}/confirm`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to confirm decision'))
+  }
+}
+
+export const openWorkspaceFile = async (workspaceId: string, path: string): Promise<void> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/open-file`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path }),
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to open file'))
+  }
+}
+
 const toWorkspaceSocketUrl = (path: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}${path}`

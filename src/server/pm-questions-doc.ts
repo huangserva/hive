@@ -95,6 +95,9 @@ export const parseQuestionsDoc = (content: string): ParsedQuestions => {
 const answeredLine = (questionId: string, questionText: string, answer: string) =>
   `- [x] **${questionId}** ${questionText} → **answered ${new Date().toISOString().slice(0, 10)}**：${answer}`
 
+const questionLine = (questionId: string, questionText: string) =>
+  `- [ ] **${questionId}** ${questionText}`
+
 const isHeading = (line: string) => /^##/.test(line.trim())
 const isQuestionLine = (line: string) => QUESTION_LINE_RE.test(line)
 
@@ -167,4 +170,61 @@ export const answerQuestionInFile = (workspacePath: string, questionId: string, 
     answeredLine(questionId, block.question.text, trimmedAnswer.replace(/\s+/g, ' '))
   ).join('\n')
   writeFileSync(questionsPath, output.endsWith('\n') ? output : `${output}\n`, 'utf8')
+}
+
+const nextQuestionId = (lines: string[]) => {
+  let max = 0
+  for (const line of lines) {
+    const match = /\*\*Q(\d+)\*\*/.exec(line)
+    if (!match) continue
+    max = Math.max(max, Number(match[1]))
+  }
+  return `Q${max + 1}`
+}
+
+const appendOpenQuestionLine = (lines: string[], line: string) => {
+  const mediumIndex = lines.findIndex((current) => /^###\s+.*\bmedium\b/i.test(current.trim()))
+  const highIndex = lines.findIndex((current) => /^###\s+.*\bhigh\b/i.test(current.trim()))
+  const anchorIndex = mediumIndex !== -1 ? mediumIndex : highIndex
+  if (anchorIndex === -1) return [...lines, '', '### 🟠 medium — 影响下一步规划', '', line]
+
+  const nextLines = [...lines]
+  let insertAt = nextLines.length
+  for (let index = anchorIndex + 1; index < nextLines.length; index += 1) {
+    if (
+      /^###\s+/.test(nextLines[index]?.trim() ?? '') ||
+      /^##\s+已答/.test(nextLines[index]?.trim() ?? '')
+    ) {
+      insertAt = index
+      break
+    }
+  }
+
+  const placeholderIndex = nextLines.findIndex(
+    (current, index) => index > anchorIndex && current.trim() === '（暂无）'
+  )
+  if (placeholderIndex > anchorIndex && placeholderIndex < insertAt) {
+    nextLines.splice(placeholderIndex, 1)
+    insertAt -= 1
+  }
+
+  nextLines.splice(insertAt, 0, line)
+  return nextLines
+}
+
+export const appendQuestionInFile = (workspacePath: string, questionText: string) => {
+  const trimmed = questionText.trim()
+  if (!trimmed) throw new BadRequestError('question must not be empty')
+
+  const questionsPath = join(workspacePath, '.hive', 'open-questions.md')
+  if (!existsSync(questionsPath)) {
+    throw new NotFoundError('open-questions.md not found')
+  }
+
+  const content = readFileSync(questionsPath, 'utf8')
+  const lines = content.split(/\r?\n/)
+  const questionId = nextQuestionId(lines)
+  const output = appendOpenQuestionLine(lines, questionLine(questionId, trimmed)).join('\n')
+  writeFileSync(questionsPath, output.endsWith('\n') ? output : `${output}\n`, 'utf8')
+  return { questionId }
 }

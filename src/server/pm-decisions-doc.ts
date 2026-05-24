@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
+
+import { ConflictError, NotFoundError } from './http-errors.js'
 
 export type PMDecisionStatus = 'draft' | 'adopted' | 'superseded'
 
@@ -61,4 +63,40 @@ export const parseDecisionsDoc = (decisionsDir: string): ParsedDecisions => {
     parsed.parseError = error instanceof Error ? error.message : String(error)
   }
   return parsed
+}
+
+const today = () => new Date().toISOString().slice(0, 10)
+
+const markAdopted = (content: string) => {
+  const statusLine = /(\*\*状态\*\*\s*[:：]\s*)(.+)/.exec(content)
+  const withStatus = statusLine
+    ? content.replace(/(\*\*状态\*\*\s*[:：]\s*)(.+)/, '$1已采纳')
+    : content.replace(/^(#\s+.+)$/m, `$1\n\n**状态**: 已采纳`)
+
+  if (/\*\*确认日期\*\*\s*[:：]/.test(withStatus)) {
+    return withStatus.replace(/(\*\*确认日期\*\*\s*[:：]\s*)(.+)/, `$1${today()}`)
+  }
+  return withStatus.replace(/(\*\*状态\*\*\s*[:：]\s*已采纳)/, `$1\n**确认日期**: ${today()}`)
+}
+
+export const confirmDecisionInFile = (workspacePath: string, decisionId: string) => {
+  const filename = basename(decisionId)
+  if (filename !== decisionId || !filename.endsWith('.md')) {
+    throw new NotFoundError(`Decision not found: ${decisionId}`)
+  }
+
+  const decisionsDir = join(workspacePath, '.hive', 'decisions')
+  const draftPath = join(decisionsDir, filename)
+  if (!existsSync(draftPath)) throw new NotFoundError(`Decision not found: ${decisionId}`)
+
+  const nextFilename = filename.startsWith('draft-') ? filename.slice('draft-'.length) : filename
+  const nextPath = join(decisionsDir, nextFilename)
+  if (nextPath !== draftPath && existsSync(nextPath)) {
+    throw new ConflictError(`Decision already exists: ${nextFilename}`)
+  }
+
+  const nextContent = markAdopted(readFileSync(draftPath, 'utf8'))
+  writeFileSync(draftPath, nextContent.endsWith('\n') ? nextContent : `${nextContent}\n`, 'utf8')
+  if (nextPath !== draftPath) renameSync(draftPath, nextPath)
+  return { filename: nextFilename }
 }

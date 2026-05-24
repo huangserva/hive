@@ -150,3 +150,122 @@ describe('POST /api/workspaces/:workspaceId/cockpit/questions/:questionId/answer
     expect(body.error).toBe('answer must not be empty')
   })
 })
+
+describe('POST /api/workspaces/:workspaceId/cockpit/ideas/:ideaId/promote', () => {
+  test('moves an inbox idea to promoted and creates an open question by default', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+    const hiveDir = join(workspace.path, '.hive')
+    const ideasPath = join(hiveDir, 'ideas', 'inbox.md')
+    const questionsPath = join(hiveDir, 'open-questions.md')
+    mkdirSync(join(hiveDir, 'ideas'), { recursive: true })
+    writeFileSync(
+      ideasPath,
+      `# Ideas Inbox
+
+## inbox（按加入时间倒序）
+
+### 2026-05-24
+
+- 🤔 idea: add voice mode
+
+## promoted
+
+（暂无）
+`,
+      'utf8'
+    )
+    writeFileSync(
+      questionsPath,
+      `# Open Questions
+
+## 待 user 拍板（按优先级）
+
+### 🔴 high — 阻塞 ongoing 工作
+
+（暂无）
+
+### 🟠 medium — 影响下一步规划
+
+（暂无）
+
+### 🟢 low — 灰度区
+
+（暂无）
+
+## 已答（archive 留追溯）
+
+（暂无）
+`,
+      'utf8'
+    )
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/ideas/I1/promote`,
+      {
+        body: JSON.stringify({ target: 'question' }),
+        headers: { ...uiHeaders(uiToken), 'content-type': 'application/json' },
+        method: 'POST',
+      }
+    )
+
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    const nextIdeas = readFileSync(ideasPath, 'utf8')
+    expect(nextIdeas).not.toContain('- 🤔 idea: add voice mode')
+    expect(nextIdeas).toContain('- ~~add voice mode~~ → promoted to question')
+    const nextQuestions = readFileSync(questionsPath, 'utf8')
+    expect(nextQuestions).toContain('**Q1** 是否将 idea 提升为 question：add voice mode')
+  })
+})
+
+describe('POST /api/workspaces/:workspaceId/cockpit/decisions/:decisionId/confirm', () => {
+  test('renames a draft ADR to adopted and updates its status', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+    const decisionsDir = join(workspace.path, '.hive', 'decisions')
+    mkdirSync(decisionsDir, { recursive: true })
+    const draftPath = join(decisionsDir, 'draft-2026-05-24-test-decision.md')
+    writeFileSync(
+      draftPath,
+      `# 决策：Test Decision
+
+**日期**: 2026-05-24
+**状态**: 提案中
+`,
+      'utf8'
+    )
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/decisions/draft-2026-05-24-test-decision.md/confirm`,
+      {
+        body: JSON.stringify({}),
+        headers: { ...uiHeaders(uiToken), 'content-type': 'application/json' },
+        method: 'POST',
+      }
+    )
+
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true, filename: '2026-05-24-test-decision.md' })
+    expect(() => readFileSync(draftPath, 'utf8')).toThrow()
+    const adopted = readFileSync(join(decisionsDir, '2026-05-24-test-decision.md'), 'utf8')
+    expect(adopted).toContain('**状态**: 已采纳')
+    expect(adopted).toContain('**确认日期**:')
+  })
+})
+
+describe('POST /api/workspaces/:workspaceId/open-file', () => {
+  test('rejects paths outside the workspace before invoking the opener', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/open-file`,
+      {
+        body: JSON.stringify({ path: '/tmp/outside-hippoteam-open-file.md' }),
+        headers: { ...uiHeaders(uiToken), 'content-type': 'application/json' },
+        method: 'POST',
+      }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('path must be inside workspace')
+  })
+})

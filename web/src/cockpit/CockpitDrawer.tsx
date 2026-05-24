@@ -2,7 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { Gauge, PanelRightClose } from 'lucide-react'
 import { useState } from 'react'
 
-import type { ParsedCockpit } from '../api.js'
+import { type AIAction, openWorkspaceFile, type ParsedCockpit } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { Tooltip } from '../ui/Tooltip.js'
@@ -27,14 +27,51 @@ type CockpitDrawerProps = {
   workspacePath: string | null
 }
 
-const renderTab = (cockpit: ParsedCockpit, activeTab: CockpitTab, workspaceId: string) => {
+type PendingAction = {
+  id: string
+  nonce: number
+  type: AIAction['type']
+} | null
+
+const renderTab = (
+  cockpit: ParsedCockpit,
+  activeTab: CockpitTab,
+  workspaceId: string,
+  pendingAction: PendingAction,
+  onPendingActionConsumed: () => void
+) => {
   if (activeTab === 'plan') return <PlanTab plan={cockpit.plan} />
   if (activeTab === 'tasks') return <TasksTab tasks={cockpit.tasks} />
   if (activeTab === 'questions') {
-    return <QuestionsTab questions={cockpit.questions} workspaceId={workspaceId} />
+    return (
+      <QuestionsTab
+        onPendingActionConsumed={onPendingActionConsumed}
+        pendingActionId={pendingAction?.type === 'question' ? pendingAction.id : null}
+        questions={cockpit.questions}
+        workspaceId={workspaceId}
+      />
+    )
   }
-  if (activeTab === 'ideas') return <IdeasTab ideas={cockpit.ideas} />
-  if (activeTab === 'decisions') return <DecisionsTab decisions={cockpit.decisions} />
+  if (activeTab === 'ideas') {
+    return (
+      <IdeasTab
+        ideas={cockpit.ideas}
+        onPendingActionConsumed={onPendingActionConsumed}
+        pendingActionId={pendingAction?.type === 'promote' ? pendingAction.id : null}
+        workspaceId={workspaceId}
+      />
+    )
+  }
+  if (activeTab === 'decisions') {
+    return (
+      <DecisionsTab
+        decisions={cockpit.decisions}
+        onPendingActionConsumed={onPendingActionConsumed}
+        pendingActionId={pendingAction?.type === 'decision' ? pendingAction.id : null}
+        workspaceId={workspaceId}
+      />
+    )
+  }
   if (activeTab === 'research') return <ResearchTab research={cockpit.research} />
   if (activeTab === 'baseline') return <BaselineTab baseline={cockpit.baseline} />
   return <ArchiveTab archive={cockpit.archive} />
@@ -50,8 +87,34 @@ export const CockpitDrawer = ({
   workspacePath,
 }: CockpitDrawerProps) => {
   const [activeTab, setActiveTab] = useState<CockpitTab>('plan')
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const { t } = useI18n()
   const filePath = workspacePath ? `${workspacePath}/.hive/` : '.hive/'
+
+  const handleAction = (action: AIAction & { href?: string }) => {
+    if (action.href) {
+      if (/^https?:\/\//i.test(action.href)) {
+        window.open(action.href, '_blank', 'noopener,noreferrer')
+        return
+      }
+      if (workspaceId) {
+        openWorkspaceFile(workspaceId, action.href).catch((error) => {
+          console.warn('Failed to open Cockpit action file', error)
+        })
+      }
+      return
+    }
+
+    if (action.targetTab) {
+      setActiveTab(action.targetTab)
+      if (action.type === 'question' || action.type === 'promote' || action.type === 'decision') {
+        setPendingAction({ id: action.id, nonce: Date.now(), type: action.type })
+      }
+      return
+    }
+
+    console.warn('Unknown Cockpit action', action)
+  }
 
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
@@ -112,10 +175,12 @@ export const CockpitDrawer = ({
                 />
               </div>
             ) : (
-              renderTab(cockpit, activeTab, workspaceId)
+              renderTab(cockpit, activeTab, workspaceId, pendingAction, () =>
+                setPendingAction(null)
+              )
             )}
           </div>
-          <ActionBar actions={cockpit?.aiActions ?? []} />
+          <ActionBar actions={cockpit?.aiActions ?? []} onAction={handleAction} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

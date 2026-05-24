@@ -34,7 +34,13 @@ const hasLocalizedActionLabels = (actions: AIAction[]) =>
 const LEGACY_EMPTY_MESSAGE =
   '\u5f53\u524d\u6ca1\u6709 AI \u7b49\u5f85 user \u5904\u7406\u7684\u884c\u52a8\u3002'
 
-export const ActionBar = ({ actions }: { actions: AIAction[] }) => {
+export const ActionBar = ({
+  actions,
+  onAction,
+}: {
+  actions: AIAction[]
+  onAction?: (action: AIAction) => void
+}) => {
   const { isFallback, t } = useI18n()
   const useActionLabels = hasLocalizedActionLabels(actions)
   return (
@@ -72,9 +78,7 @@ export const ActionBar = ({ actions }: { actions: AIAction[] }) => {
                 <button
                   className="shrink-0 cursor-pointer rounded px-2 py-1 text-accent hover:bg-3"
                   type="button"
-                  onClick={() => {
-                    // TODO: wire POST actions in Phase C-2.5.
-                  }}
+                  onClick={() => onAction?.(action)}
                 >
                   {useActionLabels ? action.action : labelKey ? t(labelKey) : action.action}
                 </button>

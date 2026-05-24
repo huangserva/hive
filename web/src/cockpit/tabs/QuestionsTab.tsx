@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ParsedQuestions, PMQuestion, PMQuestionPriority } from '../../api.js'
 import { answerCockpitQuestion } from '../../api.js'
 import { type TranslationKey, useI18n } from '../../i18n.js'
@@ -12,10 +12,14 @@ const PRIORITIES: Array<{ key: PMQuestionPriority; labelKey: TranslationKey; ton
 
 const QuestionRow = ({
   canAnswer = true,
+  autoOpen = false,
+  onAutoOpenConsumed,
   question,
   workspaceId,
 }: {
+  autoOpen?: boolean
   canAnswer?: boolean
+  onAutoOpenConsumed?: () => void
   question: PMQuestion
   workspaceId: string
 }) => {
@@ -24,6 +28,12 @@ const QuestionRow = ({
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!autoOpen || !canAnswer) return
+    setOpen(true)
+    onAutoOpenConsumed?.()
+  }, [autoOpen, canAnswer, onAutoOpenConsumed])
 
   const submitAnswer = async () => {
     setSubmitting(true)
@@ -108,9 +118,13 @@ const QuestionRow = ({
 }
 
 export const QuestionsTab = ({
+  onPendingActionConsumed,
+  pendingActionId,
   questions,
   workspaceId,
 }: {
+  onPendingActionConsumed?: () => void
+  pendingActionId?: string | null
   questions: ParsedQuestions
   workspaceId: string
 }) => {
@@ -141,7 +155,13 @@ export const QuestionsTab = ({
             <div className="space-y-2 px-3 pb-3">
               {items.length ? (
                 items.map((question) => (
-                  <QuestionRow key={question.id} question={question} workspaceId={workspaceId} />
+                  <QuestionRow
+                    autoOpen={pendingActionId === question.id}
+                    key={question.id}
+                    onAutoOpenConsumed={onPendingActionConsumed}
+                    question={question}
+                    workspaceId={workspaceId}
+                  />
                 ))
               ) : (
                 <p className="text-sec text-sm">{t('cockpit.questions.empty')}</p>
