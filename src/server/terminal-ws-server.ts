@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
+import type { TasksFileService } from './tasks-file.js'
 import { createTasksWebSocketServer } from './tasks-websocket-server.js'
 import type { TerminalMirrorSize } from './terminal-state-mirror.js'
 import { createTerminalStreamHub } from './terminal-stream-hub.js'
@@ -49,11 +50,12 @@ const logUpgradeError = (logger: HiveLogger | undefined, error: unknown) => {
 export const createTerminalWebSocketServer = (
   server: Server,
   store: RuntimeStore,
+  tasksFileService: Pick<TasksFileService, 'readTasks'>,
   logger?: HiveLogger
 ) => {
   const ioWss = new WebSocketServer({ noServer: true })
   const controlWss = new WebSocketServer({ noServer: true })
-  const tasksWss = createTasksWebSocketServer(server, store, logger)
+  const tasksWss = createTasksWebSocketServer(server, store, tasksFileService, logger)
   const hub = createTerminalStreamHub(store)
   const disposeTasksListener = store.registerTasksListener((workspaceId, content) => {
     tasksWss.publish(workspaceId, content)

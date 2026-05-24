@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
+import type { TasksFileService } from './tasks-file.js'
 import { readCookie } from './ui-auth-helpers.js'
 
 const matchTasksPath = (pathname: string) => {
@@ -36,6 +37,7 @@ export interface TasksWebSocketServer {
 export const createTasksWebSocketServer = (
   server: Server,
   store: RuntimeStore,
+  tasksFileService: Pick<TasksFileService, 'readTasks'>,
   logger?: HiveLogger
 ): TasksWebSocketServer => {
   const wss = new WebSocketServer({ noServer: true })
@@ -69,6 +71,7 @@ export const createTasksWebSocketServer = (
         return
       }
       wss.handleUpgrade(request, socket, head, (ws) => {
+        const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
         const sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
         sockets.add(ws)
         socketsByWorkspaceId.set(workspaceId, sockets)
@@ -76,6 +79,21 @@ export const createTasksWebSocketServer = (
           sockets.delete(ws)
           if (sockets.size === 0) {
             socketsByWorkspaceId.delete(workspaceId)
+          }
+        })
+        setImmediate(() => {
+          if (ws.readyState !== ws.OPEN) return
+          try {
+            ws.send(
+              JSON.stringify({
+                type: 'tasks-snapshot',
+                content: tasksFileService.readTasks(workspacePath),
+              })
+            )
+          } catch {
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'tasks-snapshot', content: '' }))
+            }
           }
         })
       })

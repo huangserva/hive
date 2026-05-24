@@ -154,7 +154,7 @@ export const createApp = ({
   server.on('error', (error) => {
     logger?.error('http server error', error)
   })
-  createTerminalWebSocketServer(server, store, logger)
+  createTerminalWebSocketServer(server, store, tasksFileService, logger)
 
   return { server, store }
 }
