@@ -23,13 +23,16 @@ type CockpitDrawerProps = {
   isConnected: boolean
   onClose: () => void
   open: boolean
+  workspaceId?: string
   workspacePath: string | null
 }
 
-const renderTab = (cockpit: ParsedCockpit, activeTab: CockpitTab) => {
+const renderTab = (cockpit: ParsedCockpit, activeTab: CockpitTab, workspaceId: string) => {
   if (activeTab === 'plan') return <PlanTab plan={cockpit.plan} />
   if (activeTab === 'tasks') return <TasksTab tasks={cockpit.tasks} />
-  if (activeTab === 'questions') return <QuestionsTab questions={cockpit.questions} />
+  if (activeTab === 'questions') {
+    return <QuestionsTab questions={cockpit.questions} workspaceId={workspaceId} />
+  }
   if (activeTab === 'ideas') return <IdeasTab ideas={cockpit.ideas} />
   if (activeTab === 'decisions') return <DecisionsTab decisions={cockpit.decisions} />
   if (activeTab === 'research') return <ResearchTab research={cockpit.research} />
@@ -43,6 +46,7 @@ export const CockpitDrawer = ({
   isConnected,
   onClose,
   open,
+  workspaceId = '',
   workspacePath,
 }: CockpitDrawerProps) => {
   const [activeTab, setActiveTab] = useState<CockpitTab>('plan')
@@ -108,7 +112,7 @@ export const CockpitDrawer = ({
                 />
               </div>
             ) : (
-              renderTab(cockpit, activeTab)
+              renderTab(cockpit, activeTab, workspaceId)
             )}
           </div>
           <ActionBar actions={cockpit?.aiActions ?? []} />

@@ -146,6 +146,7 @@ const AppInner = () => {
         openTaskCount={openTaskCount}
         taskGraphOpen={taskGraphOpen}
         tasksFile={tasksFile}
+        workspaceId={eff.effectiveActiveWorkspaceId}
         workspacePath={eff.effectiveActiveWorkspace?.path ?? null}
         workers={activeWorkers}
         onSelectOwner={handleSelectOwner}

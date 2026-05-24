@@ -27,6 +27,7 @@ type AppOverlaysProps = {
   taskGraphOpen: boolean
   tasksFile: TasksFileApi
   wizardOpen: boolean
+  workspaceId: string | null
   workspacePath: string | null
   /** Workspace's active worker roster — feeds the §6.6.2 chip resolution. */
   workers?: readonly TeamListItem[]
@@ -51,19 +52,21 @@ export const AppOverlays = ({
   taskGraphOpen,
   tasksFile,
   wizardOpen,
+  workspaceId,
   workspacePath,
   workers,
   onSelectOwner,
   connectionStale,
 }: AppOverlaysProps) => (
   <>
-    {workspacePath ? (
+    {workspaceId && workspacePath ? (
       <CockpitDrawer
         cockpit={cockpitFile.cockpit}
         error={cockpitFile.error}
         isConnected={cockpitFile.isConnected}
         onClose={onCloseCockpit}
         open={cockpitOpen}
+        workspaceId={workspaceId}
         workspacePath={workspacePath}
       />
     ) : null}

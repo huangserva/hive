@@ -23,6 +23,7 @@ const FULL_QUESTIONS = `# Open Questions
 ## 已答（archive 留追溯）
 
 - [x] **Q6** 已决定使用 SQLite
+- [x] **Q8** 是否继续用 SQLite → **answered 2026-05-24**：继续用，保持轻量
 - [x] **Q7** 采用 monorepo 结构
 `
 
@@ -32,7 +33,7 @@ describe('parseQuestionsDoc', () => {
     expect(result.high).toHaveLength(2)
     expect(result.medium).toHaveLength(2)
     expect(result.low).toHaveLength(1)
-    expect(result.answered).toHaveLength(2)
+    expect(result.answered).toHaveLength(3)
     expect(result.parseError).toBeNull()
   })
 
@@ -72,5 +73,15 @@ describe('parseQuestionsDoc', () => {
   test('answered items get low priority', () => {
     const result = parseQuestionsDoc(FULL_QUESTIONS)
     expect(result.answered[0]?.priority).toBe('low')
+  })
+
+  test('answered items expose answer text when present', () => {
+    const result = parseQuestionsDoc(FULL_QUESTIONS)
+    expect(result.answered[1]).toMatchObject({
+      answer: '继续用，保持轻量',
+      answered: true,
+      id: 'Q8',
+      text: '是否继续用 SQLite',
+    })
   })
 })

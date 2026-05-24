@@ -568,6 +568,25 @@ export const fetchCockpit = async (workspaceId: string): Promise<ParsedCockpit> 
   return (await response.json()) as ParsedCockpit
 }
 
+export const answerCockpitQuestion = async (
+  workspaceId: string,
+  questionId: string,
+  answer: string
+): Promise<void> => {
+  const response = await apiFetch(
+    `/api/workspaces/${workspaceId}/cockpit/questions/${encodeURIComponent(questionId)}/answer`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to answer question'))
+  }
+}
+
 const toWorkspaceSocketUrl = (path: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}${path}`
