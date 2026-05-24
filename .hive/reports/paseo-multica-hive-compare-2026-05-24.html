@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paseo / Multica / HippoTeam 三方横向对照</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f2;
+      --panel: #ffffff;
+      --ink: #1f2328;
+      --muted: #65707a;
+      --line: #d9ddd4;
+      --strong: #0f766e;
+      --soft: #e6f3f1;
+      --blue: #2563eb;
+      --orange: #a16207;
+      --red: #b42318;
+      --green: #166534;
+      --purple: #6d28d9;
+      --code: #f0f2ec;
+      --shadow: 0 10px 30px rgba(31, 35, 40, 0.07);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      line-height: 1.68;
+    }
+    main { max-width: 1260px; margin: 0 auto; padding: 34px 24px 70px; }
+    header {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 28px;
+      margin-bottom: 28px;
+    }
+    h1 { margin: 0 0 12px; font-size: 31px; line-height: 1.24; letter-spacing: 0; }
+    h2 { margin: 38px 0 14px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 23px; line-height: 1.3; }
+    h3 { margin: 24px 0 9px; font-size: 18px; line-height: 1.35; color: var(--strong); }
+    h4 { margin: 18px 0 8px; font-size: 15px; color: #374151; }
+    p { margin: 9px 0; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      padding: 1px 5px;
+      border: 1px solid #e1e5da;
+      background: var(--code);
+      border-radius: 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 12.5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      margin: 14px 0 24px;
+      font-size: 14px;
+    }
+    th, td { border: 1px solid var(--line); padding: 10px 12px; vertical-align: top; }
+    th { background: #edf1e9; text-align: left; }
+    td:first-child, th:first-child { width: 150px; font-weight: 700; }
+    ul { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 5px 0; }
+    .lead {
+      margin: 0;
+      padding: 14px 16px;
+      background: var(--soft);
+      border-left: 5px solid var(--strong);
+      font-size: 16px;
+      font-weight: 650;
+    }
+    .meta { color: var(--muted); font-size: 13px; margin-top: 14px; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .card strong { display: block; color: var(--strong); margin-bottom: 4px; }
+    .section-card { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); padding: 18px; margin: 14px 0; }
+    .tag { display: inline-block; padding: 2px 8px; border: 1px solid var(--line); background: #fafbf8; color: var(--muted); font-size: 12px; border-radius: 999px; margin-right: 5px; }
+    .green { color: var(--green); font-weight: 700; }
+    .orange { color: var(--orange); font-weight: 700; }
+    .red { color: var(--red); font-weight: 700; }
+    .purple { color: var(--purple); font-weight: 700; }
+    .muted { color: var(--muted); }
+    .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .quote {
+      border-left: 4px solid var(--line);
+      padding: 8px 12px;
+      color: var(--muted);
+      background: #fafbf8;
+    }
+    .small { font-size: 13px; color: var(--muted); }
+    @media (max-width: 940px) {
+      main { padding: 22px 14px 54px; }
+      header { padding: 20px; }
+      .cards, .cols { grid-template-columns: 1fr; }
+      table { display: block; overflow-x: auto; white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Paseo / Multica / HippoTeam 三方横向对照</h1>
+    <p class="lead">一句话结论：三者不是同一条赛道的三种皮肤。Paseo 是“随身 agent runtime + mobile voice”，Multica 是“桌面/云端团队 agent 平台 + 队列治理”，HippoTeam 是“本机轻量多 agent 工作台 + 飞书远控 + PM Cockpit”。真正的决策点不是谁替代谁，而是 HippoTeam 要从哪一边补能力：Paseo 的手机/语音/runtime 协议，还是 Multica 的队列/平台化治理。</p>
+    <p class="meta">生成日期：2026-05-24。参考：<code>.hive/reports/paseo-research-v2-2026-05-24.html</code>、<code>.hive/reports/multica-borrowing-2026-05-20.html</code>、<code>~/development/paseo</code>、<code>~/development/multica</code>、HippoTeam 当前代码与 <code>.hive/baseline/*.md</code>。Multica 当前 repo 桌面端证据指向 Electron/Vite（<code>apps/desktop/electron-vite</code>、<code>electron-builder</code>），因此本文用“桌面客户端”表述。</p>
+    <div class="cards">
+      <div class="card"><strong>Paseo</strong>把 coding agent 做成可从手机、桌面、web、CLI 控制的本地 daemon，并把语音、relay、timeline、provider catalog 当成核心架构。</div>
+      <div class="card"><strong>Multica</strong>把 agent 运行时、issue/autopilot、runtime daemon、Postgres 队列和桌面客户端组合成团队平台。</div>
+      <div class="card"><strong>HippoTeam</strong>把本机 workspace 的 orchestrator + named workers 暴露成 web PTY 工作台，并叠加飞书远控、审批、PM 文档和 Cockpit。</div>
+    </div>
+  </header>
+
+  <h2>Section 1：一句话定位 + 总览对照表</h2>
+  <table>
+    <thead>
+      <tr><th>维度</th><th>Paseo</th><th>Multica</th><th>HippoTeam</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>定位</td>
+        <td>Self-hostable coding-agent runtime：daemon 在本机/服务器跑，mobile/web/desktop/CLI 都是控制端。</td>
+        <td>团队协作型 agent 平台：workspace、issue、autopilot、runtime daemon、desktop app、云端后端。</td>
+        <td>单人本机轻量 multi-agent 工作台：workspace web UI + PTY workers + Feishu remote + PM cockpit。</td>
+      </tr>
+      <tr>
+        <td>主交互形态</td>
+        <td>Expo mobile + voice + web/desktop/CLI，手机是一级入口。</td>
+        <td>Electron desktop + web views + CLI daemon，桌面端负责启动/管理本机 runtime。</td>
+        <td>Web app + PTY terminal + 飞书 IM；浏览器主控，手机侧走飞书。</td>
+      </tr>
+      <tr>
+        <td>核心差异化能力</td>
+        <td>自研双向音频、OpenAI Realtime/本地 speech、E2EE relay、provider manifest、timeline seq/epoch。</td>
+        <td>Postgres-backed task queue、runtime sweeper、squad/autopilot、per-agent thinking_level、desktop daemon integration。</td>
+        <td>飞书 inbound/outbound/approval/reaction、runtime logger、dispatch cancel、PM 文档体系、Cockpit dashboard。</td>
+      </tr>
+      <tr>
+        <td>多 agent 模型</td>
+        <td>AgentManager 管长期 agent/session；skills 通过 MCP 创建 agent/worktree/loop/committee。</td>
+        <td>agent_task_queue 按 runtime/priority/created_at claim；autopilot 可派 agent 或 squad leader。</td>
+        <td>workspace 内固定 orchestrator + named workers；<code>team send/report/cancel</code> 通过 PTY stdin 串联。</td>
+      </tr>
+      <tr>
+        <td>手机端</td>
+        <td><span class="green">强</span>：Expo 原生 app，语音、通知、relay、会话恢复。</td>
+        <td><span class="red">弱</span>：核心是 web/desktop，未见 mobile native 主入口。</td>
+        <td><span class="orange">中</span>：飞书 IM 远控，无 native app。</td>
+      </tr>
+      <tr>
+        <td>语音</td>
+        <td><span class="green">重投入</span>：native PCM、AEC/NS、VAD/STT/TTS、voice mode prompt。</td>
+        <td><span class="red">无</span>：未见一等语音控制路径。</td>
+        <td><span class="red">无</span>：飞书可承载文本远控，但 runtime 无语音协议。</td>
+      </tr>
+      <tr>
+        <td>持久化</td>
+        <td>JSON 文件存储于 <code>$PASEO_HOME</code>，Zod 校验，temp + rename 原子写。</td>
+        <td>Postgres + SQL migrations + sqlc/Go store；适合云端多人和队列查询。</td>
+        <td>SQLite <code>~/.config/hive/runtime.sqlite</code> + workspace <code>.hive/*.md</code> 文件。</td>
+      </tr>
+      <tr>
+        <td>Lifecycle/状态机</td>
+        <td>agent <code>initializing/idle/running/error/closed</code>，timeline 每 run 有 epoch。</td>
+        <td>runtime online/offline + task queued/dispatched/running/done/failed/cancelled，sweeper 修复孤儿状态。</td>
+        <td>worker <code>idle/working/stopped</code> 三态；dispatch <code>submitted/reported/cancelled</code>；agent_runs 记录 PTY run。</td>
+      </tr>
+      <tr>
+        <td>Skill/playbook</td>
+        <td><span class="green">强</span>：<code>skills/paseo-*</code> 覆盖 handoff/advisor/committee/epic/loop。</td>
+        <td><span class="orange">弱到中</span>：有 agent skills/模板能力，但不是 paseo 式 orchestrator playbook。</td>
+        <td><span class="orange">中</span>：无通用 skills；有 <code>.hive/templates</code>、PM rules、team protocol。</td>
+      </tr>
+      <tr>
+        <td>Provider catalog</td>
+        <td>详细 manifest：provider modes、risk、unattended、voice defaults、ACP/direct registry。</td>
+        <td>thinking_level 深：Claude/Codex per-model/per-cli capability discovery + picker。</td>
+        <td>4 preset（Claude/Codex/OpenCode/Gemini）+ thinking_level；catalog 轻量。</td>
+      </tr>
+      <tr>
+        <td>项目治理</td>
+        <td>无明确 PM 文档体系；epic skill 可做项目 ceremony。</td>
+        <td>有 issue/autopilot/project 管理，但不是 workspace 本地 PM 文档闭环。</td>
+        <td><span class="green">强</span>：<code>.hive/plan.md</code>、decisions、ideas、questions、baseline、Cockpit。</td>
+      </tr>
+      <tr>
+        <td>上游 star</td>
+        <td>GitHub API 查询：6625 stars，活跃发布。</td>
+        <td>未按公开 star 驱动；代码体量和私有平台痕迹重。</td>
+        <td>fork 自 <code>tt-a1i/hive</code>，当前是 huangserva 本地产品化 fork。</td>
+      </tr>
+      <tr>
+        <td>Mobile + voice 工程量级</td>
+        <td>重 native：Expo module + iOS/Android 音频 + server speech + relay。</td>
+        <td>0 到轻：现有核心不围绕 mobile/voice。</td>
+        <td>0 到中：飞书已做远控文本链路，但 native voice/mobile 仍是新工程。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Section 2：维度逐项 PK</h2>
+
+  <section class="section-card">
+    <h3>1. 多 agent 协作 / 调度模型</h3>
+    <p>Paseo 的多 agent 协作更像“runtime 能创建和管理很多长期 agent”。核心不是固定的 worker 名单，而是 <code>AgentManager</code>、provider registry、worktree、timeline 和 skills 组合起来：<code>skills/paseo/SKILL.md</code> 规定如何 discover provider、create_agent、create_worktree；<code>paseo-loop</code> 把 worker/verifier 循环固定成 ceremony；<code>paseo-committee</code> 让两个高推理 agent 做 root-cause/plan；<code>paseo-epic</code> 把大型任务拆成 research、intent capture、plan、review、implement。它强在“多 agent 工作法的模板化”和“agent session 可长期存在”，但从当前代码看，不是以传统队列作为主轴，也没有 HippoTeam 那种显式 worker name protocol。</p>
+    <p>Multica 的调度最像平台级 job system。<code>agent_task_queue</code> 有 queued claim candidate index：<code>runtime_id, priority DESC, created_at ASC WHERE status='queued'</code>；runtime sweeper 每 30 秒扫 stale runtime、running task timeout、queued TTL。Autopilot 可以把 assignee 指向 agent 或 squad，squad 在实现上解析到 <code>squad.leader_id</code>，这样 UI 上是“派给 squad”，执行上仍然落到一个 leader agent。Multica 强在队列治理、优先级、批量 GC 和多人平台一致性；弱点是工程面重，Postgres/daemon/handler/view 都要协同。</p>
+    <p>HippoTeam 的调度是最小显式协议：orchestrator 用 <code>team send &lt;worker-name&gt; "&lt;task&gt;"</code>，runtime 记录 dispatch ledger、递增 worker <code>pending_task_count</code>、通过 <code>agent-stdin-dispatcher.ts</code> 注入 worker PTY；worker 用 <code>team report</code> 回 orch，<code>team cancel</code> 支持显式撤销。它强在单人本机场景可解释、易 debug、和 <code>.hive/tasks.md</code> 自动同步；弱点是没有 Multica 式优先级队列、claim/lease，也没有 Paseo 式 playbook 自动组织复杂 agent 拓扑。</p>
+    <p><strong>结论：</strong>队列治理 Multica 最强，agent 工作法 Paseo 最强，HippoTeam 的优势是简单、可审计、和 PM 文档闭环。若 HippoTeam 要补“可靠调度”，更像借 Multica 的队列/ledger；若要补“高阶多 agent 用法”，更像借 Paseo 的 skills playbook。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>2. Lifecycle / 状态机</h3>
+    <p>Paseo 的 lifecycle 以 agent session 为核心。架构文档写的是 <code>initializing → idle ⇄ running → error → closed</code>，每个 run 更新 timeline epoch；客户端用 cursor/epoch/seq 判断自己是不是 stale，必要时 reset。这个模型适合多客户端同时看同一个 agent：手机断线、桌面还在、web 重新打开，都能从 timeline 恢复。它的状态机更偏“会话对象”的生命周期，而不是“任务 dispatch”的生命周期。</p>
+    <p>Multica 的 lifecycle 以 runtime 与 task 为核心。Runtime daemon 有 online/offline/managed-by-desktop/auto-update 等维度；task queue 有 queued、dispatched、running、failed/expired/cancelled 等状态，<code>runtime_sweeper.go</code> 会处理 stale runtime、orphaned dispatched/running tasks、queued TTL。这对平台可靠性很关键：如果某台机器掉线，系统能把任务从“正在跑”修复为失败或可重新分配。代价是必须有后端全局时钟、数据库事务和扫尾策略。</p>
+    <p>HippoTeam 明确遵守三态：worker 只有 <code>idle/working/stopped</code>，复杂度刻意压低。dispatch ledger 记录 <code>submitted/reported/cancelled</code>，agent_runs 记录 PTY run 的 started/updated/error_tail 等，worker status 从 pending count 派生。这个模型的优点是 PM/orch 很容易理解：worker 不是平台 job worker，而是一个真实 PTY。缺口是异常恢复更多依赖 runtime 钩子和日志；如果要做跨设备、多客户端回放，就需要引入类似 Paseo timeline 的事件层。</p>
+    <p><strong>结论：</strong>Paseo lifecycle 最适合“随身 agent runtime”，Multica lifecycle 最适合“平台任务队列”，HippoTeam lifecycle 最适合“本机可控 PTY 团队”。三者强弱取决于产品形态，不是简单先进/落后。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>3. 手机端接入路径</h3>
+    <p>Paseo 把手机端作为一等客户端。<code>packages/app</code> 是 Expo app，不是 webview；它要处理 daemon session、voice runtime、dictation stream、push token、keep-awake、连接恢复。手机和 daemon 的关系是：daemon 在本机或服务器执行 agent，手机通过 relay/direct WS 控制。Relay 被设计成 untrusted，安全文档描述了 ECDH + XSalsa20-Poly1305 的 E2EE 握手。这个路径带来的产品能力是：用户在路上也能看 timeline、说话、启动/暂停 agent、收到通知。</p>
+    <p>Multica 的手机端接入不是核心。它更像 web + Electron desktop + CLI daemon 的组合：桌面端管理本机 daemon、扫描 PATH、控制本机 CLI binary、处理本地 machine row。移动端没有出现在核心架构里；如果手机访问 web，只是普通 responsive web 或浏览器入口，不是 native agent controller。Multica 的重点是团队平台和桌面 runtime 管理。</p>
+    <p>HippoTeam 当前手机路径是飞书：Feishu inbound 把消息路由到 workspace orchestrator，outbound 通过 <code>team feishu reply</code> 回消息，approval card 让手机用户点 Allow/Deny，reaction 给收到/完成反馈。这是非常低维护的手机控制面：不用开发 app，不用做 push，不用做账号系统；但它受限于 IM 文本模型，不具备 native audio、rich timeline、后台状态同步和离线恢复。用户能“远控团队”，但不是在手机上完整操作 runtime。</p>
+    <p><strong>结论：</strong>手机端能力 Paseo 明显最强；HippoTeam 是“借飞书获得手机入口”；Multica 不以手机为中心。若 HippoTeam 未来进入 mobile app，Paseo 的 relay/session/voice runtime 比飞书链路更接近目标参考。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>4. 语音控制</h3>
+    <p>Paseo 是三者里唯一真正做语音控制的。它的语音不是“录音转文字塞给 agent”，而是端到端 voice mode：<code>packages/expo-two-way-audio</code> 原生模块采集/播放 16k PCM；iOS 用 <code>AVAudioEngine</code>、<code>AVAudioSession.playAndRecord</code>、voice processing、speaker AEC 适配；Android 用 <code>AudioRecord(VOICE_COMMUNICATION)</code>、<code>AudioTrack</code>、<code>AcousticEchoCanceler</code>、<code>NoiseSuppressor</code>。App 侧 <code>voice-runtime.ts</code> 管 <code>listening/submitting/waiting/playing</code> 状态，server 侧 <code>voice-turn-controller.ts</code> 管 VAD/STT turn，OpenAI path 用 Realtime transcription websocket，本地 path 用 Sherpa/PocketTTS/Silero。</p>
+    <p>Multica 当前没有看到语音作为产品能力。它有丰富的 desktop runtime 管理和 agent UI，但没有 native audio module、speech provider、voice-mode prompt、speak tool 或音频流协议。要做语音，Multica 需要从客户端音频采集、server speech、agent turn 协议开始新建一条链。</p>
+    <p>HippoTeam 也没有一等语音控制。飞书用户可以在飞书里用语音输入法或发语音消息，但 HippoTeam runtime 现在只处理 text message，并且明确把非 text 消息 drop/log。Feishu bridge 已经有 route resolver、inbound handler、outbound reply、approval card、reaction，这些能作为远程控制基础；但要升级为真正语音 agent，需要加 speech ingestion、turn state、speaker output、以及“orch 如何用语音回答”的协议。</p>
+    <p><strong>结论：</strong>语音维度 Paseo 单家领先，而且领先点在工程细节：native audio、AEC、streaming STT、voice state machine、speak tool。HippoTeam 如果要朝语音控制多 agent 开发走，Paseo 是当前三者里最直接的蓝图。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>5. 持久化 / state 管理</h3>
+    <p>Paseo 使用 JSON 文件持久化，存储在 <code>$PASEO_HOME</code>。文档强调 Zod runtime validation、temp file + rename 原子写、optional fields + defaults 兼容旧数据。它适合 local-first、用户可 inspect、无需数据库迁移的产品节奏：agents、schedules、chat、loops、projects、push tokens、daemon keypair 都是可直接读的文件。弱点是复杂查询、并发写、事务一致性和跨对象聚合会越来越难。</p>
+    <p>Multica 使用 Postgres + migrations。它有大量 SQL migration 文件、runtime/task queue index、squad/autopilot schema、agent thinking_level schema。这让它能做多人、多 runtime、队列 claim、TTL sweeper、reporting 和平台后台。优点是强一致、可查询、可扩展；代价是本地单用户部署更重，也需要运维数据库和 schema 纪律。</p>
+    <p>HippoTeam 是混合：runtime 状态进入 SQLite <code>~/.config/hive/runtime.sqlite</code>，workspace PM/任务文档在 <code>.hive/*.md</code>。SQLite 表包括 workspaces、workers、messages、dispatches、agent_runs、agent_sessions、command_presets、role_templates、app_state、feishu_bindings；运行时 memory 包括 PTY handles、WS clients、Feishu transport、approval ledger。Markdown 文件则承担 plan/tasks/questions/ideas/baseline/decisions/archive 的可读治理层。它比 Paseo 更适合事务和 dispatch ledger，比 Multica 更轻；但跨 workspace 搜索、历史事件 replay、mobile sync 还不是强项。</p>
+    <p><strong>结论：</strong>持久化选择反映产品重心：Paseo 重本地 inspect 和快速演化，Multica 重平台事务，HippoTeam 重轻量本机 + 可读 PM 文档。若补 timeline/event sourcing，可在 SQLite 增加 append-only events，而不必全盘转 Postgres 或 JSON。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>6. Skill / Playbook / 工作流模板</h3>
+    <p>Paseo 的 skills 是最接近“多 agent 操作系统”的部分。<code>skills/paseo</code> 规定 provider discovery、agent/worktree 创建、schedule、CLI parity；<code>paseo-handoff</code> 固定交接结构；<code>paseo-advisor</code> 固定 second opinion；<code>paseo-committee</code> 固定双 agent 评审；<code>paseo-loop</code> 固定 worker/verifier 循环；<code>paseo-epic</code> 固定大型任务 ceremony。它的价值在于把“怎么组织 agent”沉淀为可复用剧本，而不是靠每次 orchestrator 自己想。</p>
+    <p>Multica 没有同等意义的 playbook 层。它有 agent templates、skills 表/视图、autopilot、issue workflow，但更偏产品对象和平台流程，不是把多 agent 操作法写成本地技能文本。它的强项在执行层和 UI 层，而非 prompt/playbook。</p>
+    <p>HippoTeam 有 PM 模板和 protocol，但不是 playbook system。<code>.hive/templates</code> 提供 plan、ADR、handoff、research、milestone review、open questions、ideas、baseline 等模板；<code>hive-team-guidance.ts</code> 给 orchestrator 注入 PM、Feishu reply、approval、cancel 规则；Cockpit 聚合 PM 文件。这些让 workspace 会“治理项目”，但还没有“advisor/committee/loop/epic”这种可调用的 agent 操作套路。</p>
+    <p><strong>结论：</strong>Paseo 在 playbook 维度最领先。HippoTeam 最适合借鉴的不是照搬 skills runtime，而是把 PM 体系里的常见动作升级为 <code>.hive/playbooks/*.md</code> 或 <code>team playbook run</code> 一类轻量机制。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>7. Provider / preset 抽象</h3>
+    <p>Paseo 的 provider 抽象最系统。<code>provider-manifest.ts</code> 声明 Claude/Codex/OpenCode 等 provider 的 mode、permission risk、是否 unattended、voice default；<code>provider-registry.ts</code> 把 direct provider 和 ACP provider 统一到 factory。它适合做“同一 runtime 下接入各种 agent CLI/ACP”的平台：用户选择 provider/mode 时，UI 可以知道风险、语音默认值、是否适合 unattended。</p>
+    <p>Multica 的 provider 抽象在 thinking_level 上做得很深。<code>server/pkg/agent/thinking.go</code> 不把 Claude 和 Codex 的值强行统一，而是按 CLI 版本、本机 executable、model catalog 发现支持的 reasoning levels；<code>thinking-picker.tsx</code> 只在支持时显示，孤儿值仍可清除。它是一个小颗粒高质量模式：能力发现、缓存、UI 兼容旧值。</p>
+    <p>HippoTeam 目前 provider/preset 是轻量的：Claude/Codex/OpenCode/Gemini preset + worker launch config + thinking_level 注入。它足够支撑本机多 worker，但 catalog 还不包含 Paseo 式 risk/unattended/voice defaults，也没有 Multica 式动态 discovery 的完整链。若未来要做 voice/mobile 或更强 provider UX，catalog 需要从“命令模板”升级为“能力声明”。</p>
+    <p><strong>结论：</strong>Paseo 适合借“manifest 能力声明”，Multica 适合借“某个能力的细粒度 discovery + orphan-value picker”，HippoTeam 当前胜在简单。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>8. UI / 控制面板</h3>
+    <p>Paseo UI 的核心是多端一致控制面：mobile app、web、desktop、CLI 都围绕 daemon session 和 timeline。Mobile app 是它最强的 UI 资产，尤其语音状态、timeline、agent interaction、notification、relay 配对。Paseo 还做了轻量 syntax highlight 包，说明它在移动端阅读代码/diff 的体验上也有投入。</p>
+    <p>Multica UI 是平台型控制面。<code>packages/views</code> 覆盖 agents、autopilots、issues、runtimes、workspace、settings；desktop app 用 Electron preload 暴露 <code>desktopAPI</code>，本机 daemon 由桌面端启动和管理。它擅长处理列表、过滤、picker、状态 badge、runtime machine row、update section、desktop download bridge 等平台产品细节。</p>
+    <p>HippoTeam UI 是本机工作台型：Topbar、Sidebar、workspace、PTY terminal、TaskGraph/Todo、PlanDrawer、Cockpit 8 tabs、WorkspaceSettings、Feishu status indicator。它的强项是把 PM 文件变成 dashboard，把 workspace 的真实任务/计划/问题/ideas/baseline/decisions 聚合起来。弱点是没有 native mobile UI，terminal/timeline 的跨设备恢复也没有 Paseo 那么系统。</p>
+    <p><strong>结论：</strong>Multica 是桌面/平台 UI 细节最多，Paseo 是 mobile UI 方向最强，HippoTeam 是 PM cockpit 和本机 PTY 工作台最完整。UI 借鉴应按目标选择，不应混成一个“大而全”。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>9. 项目治理 / PM 文档体系</h3>
+    <p>HippoTeam 在这个维度最强。Phase A/B/C 已经把 <code>.hive/plan.md</code>、<code>open-questions.md</code>、<code>ideas/inbox.md</code>、<code>baseline/*.md</code>、<code>decisions/</code>、<code>archive/</code>、templates、Cockpit aggregate parser、WS 推送、PlanDrawer 和 tasks dispatch lifecycle 串起来。它不是普通 TODO，而是让 orchestrator 每个 session 都有计划、风险、问题、决策、baseline 的上下文。</p>
+    <p>Paseo 有 <code>paseo-epic</code>、<code>handoff</code>、<code>loop</code> 这类 playbook，也有 <code>~/.paseo/plans/&lt;slug&gt;.md</code> 的大型任务 ceremony；但它没有像 HippoTeam 这样把 workspace PM 文档做成 runtime artifact + UI cockpit。Paseo 更关注“如何操作 agent 完成任务”，HippoTeam 更关注“这个 workspace 的项目治理状态是什么”。</p>
+    <p>Multica 有 issue/project/autopilot 等平台对象，能管理任务生命周期和团队协作，但不是本地 markdown PM 系统。它的治理由产品数据库和 UI 承担，适合多人平台；HippoTeam 的治理由 <code>.hive</code> 文档和 orchestrator rule 承担，适合本机单人长期项目。</p>
+    <p><strong>结论：</strong>PM 文档体系是 HippoTeam 的差异化资产。未来即使借 Paseo mobile/voice，也应把 voice/mobile 接到 Cockpit 和 PM 文档，而不是放弃这条主线。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>10. 跨设备同步 / 远程控制</h3>
+    <p>Paseo 的跨设备路径是 relay + E2EE + daemon session。Daemon outbound 连接 relay，手机和 daemon 在 relay 会合；relay 不可信，双方通过 ECDH 协商 key，消息用 XSalsa20-Poly1305 加密。这个设计的意义是：不需要用户开端口，也不需要把 agent 执行搬到云上。跨设备同步依赖 session protocol、timeline cursor、voice resync、notification。</p>
+    <p>HippoTeam 的远程控制路径是飞书桥。它已经完成 inbound、outbound、binding UI、transport status、approval card、reaction 两阶段反馈。优点是用户手机上已有飞书，不需要安装 app；群聊/私聊、卡片审批、通知、权限都借 IM 平台完成。缺点是消息表达被 IM 限制：没有本地 timeline cursor、没有 rich terminal、没有真正 voice turn、没有端到端控制 runtime UI。</p>
+    <p>Multica 主要是 web/desktop/daemon 之间的连接；desktop 自动启动本机 daemon，web/desktop 都可连后端。它不是移动远控方案，但在 desktop-managed daemon、local machine row、CLI binary update、runtime health 上比 HippoTeam 成熟。</p>
+    <p><strong>结论：</strong>跨设备“完整控制”Paseo 最强，“低成本手机远控”HippoTeam 最强，“桌面 runtime 管理”Multica 最强。HippoTeam 的下一步取决于 user 想要手机上完整 runtime，还是继续让飞书做轻量 remote command lane。</p>
+  </section>
+
+  <h2>Section 3：HippoTeam 的领先、落后、持平</h2>
+  <div class="cols">
+    <section class="section-card">
+      <h3>⭐ 独有 / 领先</h3>
+      <ul>
+        <li><strong>PM 文档闭环</strong>：<code>.hive/plan.md</code>、questions、ideas、baseline、decisions、archive、Cockpit，比 Paseo/Multica 更直接服务“长期项目自我治理”。</li>
+        <li><strong>飞书远控闭环</strong>：inbound → orch PTY、<code>team feishu reply</code>、approval card、reaction；Paseo 有 mobile app，HippoTeam 有企业 IM 远控。</li>
+        <li><strong>本机可解释 PTY 团队</strong>：orchestrator + named workers + real PTY，用户能看到真实 shell，不是黑盒 hosted runner。</li>
+        <li><strong>轻量部署</strong>：SQLite + local web runtime + markdown workspace，不需要 Postgres 或云端账号。</li>
+        <li><strong>任务 lifecycle 写入 tasks.md</strong>：runtime 自动同步 dispatch send/report/cancel，PM dashboard 可以直接消费。</li>
+      </ul>
+    </section>
+    <section class="section-card">
+      <h3>🔴 明显落后</h3>
+      <ul>
+        <li><strong>语音控制</strong>：没有 native audio、speech provider、voice turn、speak tool；Paseo 已经做成完整链路。</li>
+        <li><strong>Native mobile</strong>：飞书是远控入口，不是完整 mobile runtime client；Paseo Expo app 能看状态、播音频、恢复连接。</li>
+        <li><strong>Provider manifest 详细度</strong>：缺 risk/unattended/mode/voice defaults/ACP registry 级 catalog。</li>
+        <li><strong>Timeline 可恢复性</strong>：没有 Paseo 的 seq/epoch/gap/stale cursor；当前 WS 更多是 snapshot/update。</li>
+        <li><strong>平台队列治理</strong>：没有 Multica 的 priority claim、runtime sweeper、queued TTL、squad leader assignment。</li>
+      </ul>
+    </section>
+    <section class="section-card">
+      <h3>🟡 大致持平 / 取舍不同</h3>
+      <ul>
+        <li><strong>多 agent 基础</strong>：三者都能驱动多个 agent，但抽象不同：Paseo 是 session/runtime，Multica 是 queue/platform，HippoTeam 是 named PTY workers。</li>
+        <li><strong>状态机基础</strong>：HippoTeam 三态更简单，可靠性靠日志/ledger；Paseo/Multica 更复杂但覆盖更多分布式场景。</li>
+        <li><strong>Thinking level</strong>：HippoTeam 已借鉴 Multica 做了 per-worker thinking_level，但 discovery/catalog 可继续补。</li>
+        <li><strong>审批/风险控制</strong>：Paseo provider mode 有 risk/unattended，HippoTeam 有飞书 approval；两者方向不同但都在处理高风险动作。</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2>Section 4：最值得借鉴的 Top 1-2</h2>
+
+  <section class="section-card">
+    <h3>来自 Paseo：Top 1 — Timeline seq/epoch/gap 模型</h3>
+    <p><span class="tag">价值</span>让 HippoTeam 的 terminal/task/cockpit/feishu 事件从“当前 snapshot”升级为“可恢复事件流”。这对未来 mobile/voice 特别关键：手机断线后能知道自己漏了哪些事件，而不是粗暴 refetch。</p>
+    <p><span class="tag">Paseo 源</span><code>packages/server/src/server/agent-timeline-store.ts</code>、<code>docs/architecture.md</code> timeline section。</p>
+    <p><span class="tag">HippoTeam 修改路径</span>新增 <code>src/server/runtime-event-store.ts</code> 或扩展 <code>agent-run-store.ts</code>，在 SQLite 里建立 append-only <code>runtime_events</code>；让 <code>terminal-stream-hub.ts</code>、<code>tasks-websocket-server.ts</code>、<code>cockpit-websocket-server.ts</code> 支持 cursor/after/epoch；前端 <code>web/src/cockpit/useCockpit.ts</code> 和 terminal hook 支持 gap reset。</p>
+    <p><span class="tag">工程量</span>M-L。小步可先给 Cockpit/Task snapshot 加 monotonic version；完整 timeline 需要 schema、WS 协议、前端恢复策略。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>来自 Paseo：Top 2 — Voice mode 分层架构</h3>
+    <p><span class="tag">价值</span>如果 HippoTeam 未来方向是语音控制多 agent 开发，Paseo 的分层最清晰：native audio engine、app voice runtime、server speech providers、voice turn controller、agent speak tool/prompt。它能避免把语音误做成“语音输入法”。</p>
+    <p><span class="tag">Paseo 源</span><code>packages/expo-two-way-audio</code>、<code>packages/app/src/voice/voice-runtime.ts</code>、<code>packages/server/src/server/speech/*</code>、<code>voice-config.ts</code>。</p>
+    <p><span class="tag">HippoTeam 修改路径</span>短期可以先在 server 侧设计 <code>src/server/voice-session.ts</code>、<code>voice-turn-controller.ts</code>、<code>team voice reply</code> 协议；移动端若做 native app，再建 Expo package；Feishu 可以保留为 text/approval lane，不必承载 voice runtime。</p>
+    <p><span class="tag">工程量</span>L。涉及客户端 native、音频权限、speech provider、agent prompt/tool、WS 音频流、隐私和成本控制。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>来自 Multica：Top 1 — Queue/ledger/sweeper 的平台治理模式</h3>
+    <p><span class="tag">价值</span>HippoTeam 已有 dispatch ledger 和 cancel，但还没有 priority claim、orphan recovery、queued TTL、runtime sweep 的完整治理。Multica 的实现展示了当任务从“PTY 对话”升级到“可排队任务系统”时，哪些索引和扫尾机制是必须的。</p>
+    <p><span class="tag">Multica 源</span><code>server/migrations/067_task_queue_claim_candidate_index.up.sql</code>、<code>080_agent_task_queue_queued_index.up.sql</code>、<code>server/cmd/server/runtime_sweeper.go</code>。</p>
+    <p><span class="tag">HippoTeam 修改路径</span>扩展 <code>src/server/dispatch-ledger-store.ts</code>、<code>team-operations.ts</code>、<code>workspace-store-mutations.ts</code>；如要做显式队列，新增 SQLite migration 和 queue table；UI 在 Cockpit/Task drawer 展示 queued/dispatched/running/cancelled。</p>
+    <p><span class="tag">工程量</span>M-L。需要产品决策：HippoTeam 是否继续保持“orch 明确派单给 named worker”，还是允许 runtime 自动 claim/reassign。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>来自 Multica：Top 2 — Provider capability picker 模式</h3>
+    <p><span class="tag">价值</span>HippoTeam 已实现 thinking_level，但 Multica 的细节仍值得保留：按 CLI/model discovery，unsupported 时隐藏，已有孤儿值仍可清除。这个模式未来可复用到 provider mode、permission profile、voice capability。</p>
+    <p><span class="tag">Multica 源</span><code>server/pkg/agent/thinking.go</code>、<code>packages/views/agents/components/inspector/thinking-picker.tsx</code>、<code>095_agent_thinking_level.up.sql</code>。</p>
+    <p><span class="tag">HippoTeam 修改路径</span>把 <code>src/server/agent-run-bootstrap.ts</code> 的 preset injection 能力抽象到 <code>src/server/provider-capabilities.ts</code>；前端 AddWorker/WorkspaceSettings picker 用同一套 capability list；保留 orphan-value clear。</p>
+    <p><span class="tag">工程量</span>S-M。无须改状态机，主要是 catalog 与 UI 一致性。</p>
+  </section>
+
+  <section class="section-card">
+    <h3>HippoTeam 自己要保持的强项</h3>
+    <ul>
+      <li><strong>PM Cockpit 不要丢</strong>：这是 Paseo/Multica 都没有的本地项目治理资产。未来无论接 mobile/voice，入口都应能读取 plan/questions/ideas/baseline/decisions。</li>
+      <li><strong>飞书审批链保留</strong>：即使未来有 native mobile app，Feishu approval card 仍是低摩擦的高风险确认通道，适合企业/群聊场景。</li>
+      <li><strong>三态简单性保留在核心层</strong>：复杂队列和 timeline 可以作为外层能力，worker 的 <code>idle/working/stopped</code> 不必轻易膨胀。</li>
+    </ul>
+  </section>
+
+  <h2>Section 5：三方未来 5 年走向与 HippoTeam 可选方向</h2>
+  <p>Paseo 的自然方向是个人 agent OS：手机随身、语音优先、本机 daemon 执行、provider 可插拔、timeline 可恢复。它可能会越来越像“开发者的 remote control plane”，把电脑、服务器、手机、语音和 agent provider 连成一个 runtime。Multica 的自然方向是团队 agent ops 平台：组织、workspace、runtime fleet、issue/autopilot、队列、权限、桌面 daemon 管理、企业协作。它会在可靠性、队列治理、多人权限和平台 UI 上继续加深。</p>
+  <p>HippoTeam 的位置可以很独特：它不必复制 Paseo 的所有 mobile/native，也不必复制 Multica 的多人云平台。它可以保留“本机轻量 + PM-aware orchestrator + 飞书远控”的低维护优势，再按 user 需求选择性吸收：如果目标是语音控制多 agent 开发，先借 Paseo 的 voice/timeline 分层；如果目标是更可靠的任务执行平台，先借 Multica 的 queue/ledger/sweeper；无论走哪条，PM Cockpit 都可以作为 HippoTeam 的长期差异化，而不是临时附属功能。</p>
+
+  <h2>附：关键代码索引</h2>
+  <table>
+    <thead><tr><th>项目</th><th>模块 / 文件</th><th>本文引用能力</th></tr></thead>
+    <tbody>
+      <tr><td>Paseo</td><td><code>packages/expo-two-way-audio</code></td><td>iOS/Android 原生双向音频、AEC/NS、16k PCM。</td></tr>
+      <tr><td>Paseo</td><td><code>packages/app/src/voice/voice-runtime.ts</code></td><td>mobile voice 状态机、PCM 上传、播放 ack、resync。</td></tr>
+      <tr><td>Paseo</td><td><code>packages/server/src/server/speech/*</code></td><td>OpenAI Realtime、本地 speech、VAD/STT/TTS。</td></tr>
+      <tr><td>Paseo</td><td><code>packages/server/src/server/agent-timeline-store.ts</code></td><td>seq/epoch/gap/stale cursor timeline。</td></tr>
+      <tr><td>Paseo</td><td><code>skills/paseo-*</code></td><td>handoff/advisor/committee/epic/loop playbooks。</td></tr>
+      <tr><td>Multica</td><td><code>server/pkg/agent/thinking.go</code></td><td>per CLI/model thinking_level discovery 与缓存。</td></tr>
+      <tr><td>Multica</td><td><code>packages/views/.../thinking-picker.tsx</code></td><td>capability-gated picker + orphan value clear。</td></tr>
+      <tr><td>Multica</td><td><code>server/cmd/server/runtime_sweeper.go</code></td><td>stale runtime/task/queued TTL sweep。</td></tr>
+      <tr><td>Multica</td><td><code>server/migrations/067_*.sql</code>、<code>080_*.sql</code>、<code>084_*.sql</code>、<code>096_*.sql</code></td><td>task queue index、squad、autopilot squad assignee。</td></tr>
+      <tr><td>HippoTeam</td><td><code>src/server/team-operations.ts</code>、<code>dispatch-ledger-store.ts</code></td><td>team send/report/cancel 和 dispatch ledger。</td></tr>
+      <tr><td>HippoTeam</td><td><code>src/server/feishu-transport.ts</code>、<code>routes-feishu.ts</code></td><td>Feishu inbound/outbound/status/approval/reaction。</td></tr>
+      <tr><td>HippoTeam</td><td><code>src/server/cockpit-doc.ts</code>、<code>web/src/cockpit/*</code></td><td>PM aggregate parser 和 Cockpit dashboard。</td></tr>
+      <tr><td>HippoTeam</td><td><code>.hive/baseline/*.md</code></td><td>项目稳定上下文、runtime flows、state storage、risk hotspots。</td></tr>
+    </tbody>
+  </table>
+</main>
+</body>
+</html>
