@@ -16,11 +16,14 @@ const isResearchNote = (file) =>
 
 const isIgnoredReport = (file) => IGNORED_REPORT_PATTERNS.some((pattern) => pattern.test(file))
 
-export const evaluateStagedPmGovernance = (files) => {
+export const evaluateStagedPmGovernance = (files, committedResearchFiles = []) => {
   const staged = files.map(normalizePath)
   const warnings = []
   const errors = []
-  const researchDates = new Set(staged.filter(isResearchNote).map(dateFromPath).filter(Boolean))
+  const researchDates = new Set([
+    ...staged.filter(isResearchNote).map(dateFromPath).filter(Boolean),
+    ...committedResearchFiles.map(normalizePath).map(dateFromPath).filter(Boolean),
+  ])
 
   for (const report of staged.filter(isReportHtml).filter((file) => !isIgnoredReport(file))) {
     const reportDate = dateFromPath(report)
@@ -48,8 +51,22 @@ const readStagedFiles = () =>
     .map((line) => line.trim())
     .filter(Boolean)
 
+const readCommittedResearchFiles = () => {
+  try {
+    return execFileSync('git', ['ls-files', '.hive/research/'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+    })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
 const main = () => {
-  const result = evaluateStagedPmGovernance(readStagedFiles())
+  const result = evaluateStagedPmGovernance(readStagedFiles(), readCommittedResearchFiles())
   for (const warning of result.warnings) {
     console.error(`[pm-governance warning] ${warning}`)
   }
