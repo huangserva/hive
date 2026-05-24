@@ -42,20 +42,25 @@ export const evaluateStagedPmGovernance = (files, committedResearchFiles = []) =
   return { errors, warnings }
 }
 
-const readStagedFiles = () =>
-  execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACMRT'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'inherit'],
-  })
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+export const readStagedFiles = () => {
+  try {
+    return execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACMRT'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+}
 
-const readCommittedResearchFiles = () => {
+export const readCommittedResearchFiles = () => {
   try {
     return execFileSync('git', ['ls-files', '.hive/research/'], {
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'inherit'],
+      stdio: ['ignore', 'pipe', 'ignore'],
     })
       .split(/\r?\n/)
       .map((line) => line.trim())

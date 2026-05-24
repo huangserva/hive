@@ -27,6 +27,14 @@ const suggestedResearchFilename = (reportFilename: string, reportDate: string) =
   return `${reportDate}-${slug}.md`
 }
 
+const listMarkdownFiles = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name.startsWith('.')) return []
+    const entryPath = join(dir, entry.name)
+    if (entry.isDirectory()) return listMarkdownFiles(entryPath)
+    return entry.isFile() && entry.name.endsWith('.md') ? [entryPath] : []
+  })
+
 export const detectOrphanReports = (hiveDir: string): OrphanReport[] => {
   const reportsDir = join(hiveDir, 'reports')
   const researchDir = join(hiveDir, 'research')
@@ -34,8 +42,7 @@ export const detectOrphanReports = (hiveDir: string): OrphanReport[] => {
 
   const researchDates = new Set(
     existsSync(researchDir)
-      ? readdirSync(researchDir)
-          .filter((filename) => filename.endsWith('.md') && !filename.startsWith('.'))
+      ? listMarkdownFiles(researchDir)
           .map(extractDate)
           .filter((date): date is string => Boolean(date))
       : []

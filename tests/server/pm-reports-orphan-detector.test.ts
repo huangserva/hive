@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
@@ -68,5 +68,27 @@ describe('detectOrphanReports', () => {
     expect(basename(orphan?.suggestedResearchPath ?? '')).toBe(
       '2026-05-24-external-framework-compare.md'
     )
+  })
+
+  test('pairs reports with nested same-day research notes', () => {
+    const hive = setupHiveDir()
+    writeReport(hive, '2026-05-24-nested-research.html')
+    mkdirSync(join(hive, 'research', 'archive'), { recursive: true })
+    writeFileSync(join(hive, 'research', 'archive', '2026-05-24-nested.md'), '# Nested\n', 'utf8')
+
+    expect(detectOrphanReports(hive)).toEqual([])
+  })
+
+  test('uses current filesystem state when a previously paired research note is deleted', () => {
+    const hive = setupHiveDir()
+    writeReport(hive, '2026-05-24-deleted-note.html')
+    const researchPath = join(hive, 'research', '2026-05-24-deleted-note.md')
+    writeFileSync(researchPath, '# Deleted\n', 'utf8')
+    unlinkSync(researchPath)
+
+    const [orphan] = detectOrphanReports(hive)
+
+    expect(orphan?.reportDate).toBe('2026-05-24')
+    expect(basename(orphan?.reportPath ?? '')).toBe('2026-05-24-deleted-note.html')
   })
 })
