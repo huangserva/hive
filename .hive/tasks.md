@@ -5,7 +5,7 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `e6702ba7` — PM 体系 Phase B：plan.md parser + chokidar watch 扩展 + WS 推送 + PlanDrawer UI + Topbar Plan 按钮（drawer 形态、宽松 schema、WS 推送，已选 A+A+A）
+（空 — 当前 sprint 全部完成，等 user 拍板 PM master plan 决策点）
 
 ## Open（user 回来决定）
 
