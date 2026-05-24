@@ -2,6 +2,7 @@ import { Gauge } from 'lucide-react'
 
 import type { VersionInfo } from '../api.js'
 import { FeishuStatusIndicator } from '../feishu/FeishuStatusIndicator.js'
+import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { APP_VERSION } from '../version.js'
@@ -24,6 +25,7 @@ export const Topbar = ({
   onToggleCockpit,
   version = APP_VERSION,
 }: TopbarProps) => {
+  const { t } = useI18n()
   return (
     <header
       className="flex h-11 shrink-0 items-center px-4"
@@ -40,12 +42,12 @@ export const Topbar = ({
       <div className="flex-1" />
       {hideActions ? null : (
         <div className="flex items-center gap-1">
-          <Tooltip label={cockpitOpen ? 'Hide Cockpit' : 'Show Cockpit'}>
+          <Tooltip label={cockpitOpen ? t('topbar.hideCockpit') : t('topbar.showCockpit')}>
             <button
               type="button"
               onClick={onToggleCockpit}
               aria-pressed={cockpitOpen}
-              aria-label="Toggle Cockpit"
+              aria-label={t('topbar.toggleCockpit')}
               className="relative flex cursor-pointer items-center gap-1.5 rounded px-3 py-1 text-xs text-sec hover:bg-3 hover:text-pri"
               data-testid="topbar-cockpit"
             >
@@ -54,7 +56,7 @@ export const Topbar = ({
                 aria-hidden
                 className={cockpitOpen || cockpitActionCount > 0 ? 'text-accent' : undefined}
               />
-              <span>Cockpit</span>
+              <span>{t('topbar.cockpit')}</span>
               {cockpitActionCount > 0 ? (
                 <span
                   className="-top-1 -right-1 absolute min-w-4 rounded-full px-1 text-center text-[10px] text-white tabular-nums"

@@ -11,18 +11,12 @@ import {
   listFeishuBindings,
   unbindFeishuChat,
 } from '../api.js'
+import { type TranslationKey, useI18n } from '../i18n.js'
 
 type WorkspaceSettingsProps = {
   onClose: () => void
   open: boolean
   workspace: WorkspaceSummary | null
-}
-
-const STATUS_LABEL: Record<FeishuTransportStatus['status'], string> = {
-  connected: 'Connected',
-  disabled: 'Not configured',
-  disconnected: 'Reconnecting',
-  error: 'Error',
 }
 
 const STATUS_TONE: Record<FeishuTransportStatus['status'], string> = {
@@ -32,11 +26,15 @@ const STATUS_TONE: Record<FeishuTransportStatus['status'], string> = {
   error: 'pill--red',
 }
 
+const statusLabelKey = (status: FeishuTransportStatus['status']): TranslationKey =>
+  `feishu.status.${status}`
+
 const FieldLabel = ({ children }: { children: React.ReactNode }) => (
   <span className="text-xs font-medium uppercase tracking-wider text-ter">{children}</span>
 )
 
 export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSettingsProps) => {
+  const { t } = useI18n()
   const [bindings, setBindings] = useState<FeishuBinding[]>([])
   const [chatId, setChatId] = useState('')
   const [chatName, setChatName] = useState('')
@@ -128,7 +126,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
               </div>
               <div className="min-w-0 flex-1">
                 <Dialog.Title className="text-lg font-semibold text-pri">
-                  Feishu Integration
+                  {t('feishu.settings.title')}
                 </Dialog.Title>
                 <Dialog.Description className="truncate text-xs text-ter">
                   {workspace.name}
@@ -143,7 +141,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
               <div className="flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className={`pill ${STATUS_TONE[status.status]}`}>
-                    {STATUS_LABEL[status.status]}
+                    {t(statusLabelKey(status.status))}
                   </span>
                   {status.appId ? (
                     <code className="mono text-xs text-ter">{status.appId}</code>
@@ -157,7 +155,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
                   className="rounded border px-3 py-2 text-sm text-ter"
                   style={{ borderColor: 'var(--border)' }}
                 >
-                  Configure ~/.config/hive/feishu.json and restart Hive
+                  {t('feishu.settings.configureHint')}
                 </div>
               ) : null}
 
@@ -175,13 +173,13 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
               ) : null}
 
               <section className="flex flex-col gap-2">
-                <FieldLabel>Bound chats</FieldLabel>
+                <FieldLabel>{t('feishu.settings.boundChats')}</FieldLabel>
                 {bindings.length === 0 ? (
                   <div
                     className="rounded border px-3 py-3 text-sm text-ter"
                     style={{ borderColor: 'var(--border)' }}
                   >
-                    No Feishu chats bound to this workspace.
+                    {t('feishu.settings.emptyBindings')}
                   </div>
                 ) : (
                   <div
@@ -206,7 +204,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
                           onClick={() => unbind(binding)}
                         >
                           <Trash2 size={13} aria-hidden />
-                          Unbind
+                          {t('feishu.settings.unbind')}
                         </button>
                       </div>
                     ))}
@@ -216,7 +214,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
 
               <form onSubmit={submit} className="grid grid-cols-[1fr_1fr_auto] items-end gap-3">
                 <label className="flex min-w-0 flex-col gap-2">
-                  <FieldLabel>chat_id</FieldLabel>
+                  <FieldLabel>{t('feishu.settings.chatId')}</FieldLabel>
                   <input
                     className="input mono"
                     placeholder="oc_xxx"
@@ -225,10 +223,10 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
                   />
                 </label>
                 <label className="flex min-w-0 flex-col gap-2">
-                  <FieldLabel>chat_name</FieldLabel>
+                  <FieldLabel>{t('feishu.settings.chatName')}</FieldLabel>
                   <input
                     className="input"
-                    placeholder="Optional"
+                    placeholder={t('feishu.settings.optional')}
                     value={chatName}
                     onChange={(event) => setChatName(event.target.value)}
                   />
@@ -238,7 +236,7 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
                   className="icon-btn icon-btn--primary h-9"
                   disabled={saving || !chatId.trim()}
                 >
-                  {saving ? 'Binding...' : 'Bind'}
+                  {saving ? t('feishu.settings.binding') : t('feishu.settings.bind')}
                 </button>
               </form>
             </div>

@@ -1,12 +1,15 @@
 import { AlertTriangle } from 'lucide-react'
 
+import { useI18n } from '../i18n.js'
+
 export const RiskList = ({ risks }: { risks: string[] }) => {
+  const { t } = useI18n()
   if (!risks.length) return null
   return (
     <section className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>
       <h3 className="mb-3 flex items-center gap-2 font-medium text-pri text-sm">
         <AlertTriangle size={14} aria-hidden />
-        已知 risk
+        {t('plan.risk.title')}
       </h3>
       <ul className="space-y-2 text-sec text-sm">
         {risks.map((risk) => (

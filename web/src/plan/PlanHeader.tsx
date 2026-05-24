@@ -1,4 +1,5 @@
 import type { ParsedPlan } from '../api.js'
+import { useI18n } from '../i18n.js'
 
 const statusColor = (status?: string) => {
   if (status === 'maintenance' || status === 'active') return 'var(--accent)'
@@ -17,9 +18,10 @@ export const getPlanProgress = (plan: ParsedPlan) => {
 }
 
 export const PlanHeader = ({ plan }: { plan: ParsedPlan }) => {
+  const { t } = useI18n()
   const progress = getPlanProgress(plan)
-  const title = plan.frontmatter.title ?? 'Plan'
-  const status = plan.frontmatter.status ?? 'unknown'
+  const title = plan.frontmatter.title ?? t('plan.header.defaultTitle')
+  const status = plan.frontmatter.status ?? t('plan.header.unknownStatus')
   return (
     <div className="border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -37,7 +39,7 @@ export const PlanHeader = ({ plan }: { plan: ParsedPlan }) => {
             </span>
             {plan.frontmatter.current_phase ? <span>{plan.frontmatter.current_phase}</span> : null}
             {plan.frontmatter.last_review ? (
-              <span>reviewed {plan.frontmatter.last_review}</span>
+              <span>{t('plan.header.reviewed', { date: plan.frontmatter.last_review })}</span>
             ) : null}
           </div>
         </div>
@@ -49,7 +51,7 @@ export const PlanHeader = ({ plan }: { plan: ParsedPlan }) => {
         </div>
       </div>
       <div
-        aria-label="Plan progress"
+        aria-label={t('plan.header.progress')}
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={progress.percent}

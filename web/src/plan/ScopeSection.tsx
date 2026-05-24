@@ -1,4 +1,5 @@
 import type { ParsedPlan } from '../api.js'
+import { useI18n } from '../i18n.js'
 
 const ScopeColumn = ({ items, title }: { items: string[]; title: string }) => (
   <div className="min-w-0">
@@ -19,13 +20,14 @@ const ScopeColumn = ({ items, title }: { items: string[]; title: string }) => (
 )
 
 export const ScopeSection = ({ scope }: { scope: ParsedPlan['scope'] }) => {
+  const { t } = useI18n()
   if (!scope) return null
   return (
     <section className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>
-      <h3 className="mb-3 font-medium text-pri text-sm">Scope</h3>
+      <h3 className="mb-3 font-medium text-pri text-sm">{t('plan.scope.title')}</h3>
       <div className="grid grid-cols-2 gap-4">
-        <ScopeColumn items={scope.in} title="In" />
-        <ScopeColumn items={scope.out} title="Out" />
+        <ScopeColumn items={scope.in} title={t('plan.scope.in')} />
+        <ScopeColumn items={scope.out} title={t('plan.scope.out')} />
       </div>
     </section>
   )

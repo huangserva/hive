@@ -2,6 +2,7 @@ import { CheckCircle2, ChevronDown, ChevronRight, Circle } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ParsedMilestone, PlanMilestoneStatus } from '../api.js'
+import { useI18n } from '../i18n.js'
 
 const STATUS_TONE: Record<PlanMilestoneStatus, string> = {
   blocked: 'var(--status-red)',
@@ -13,6 +14,7 @@ const STATUS_TONE: Record<PlanMilestoneStatus, string> = {
 
 export const MilestoneCard = ({ milestone }: { milestone: ParsedMilestone }) => {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useI18n()
   const percent = Math.round(milestone.progress * 100)
   const tone = STATUS_TONE[milestone.status]
   return (
@@ -64,7 +66,7 @@ export const MilestoneCard = ({ milestone }: { milestone: ParsedMilestone }) => 
           </ul>
         ) : (
           <pre className="mt-3 overflow-auto rounded bg-2 p-3 text-ter text-xs leading-5">
-            {milestone.body || '(empty)'}
+            {milestone.body || t('plan.milestone.emptyBody')}
           </pre>
         )
       ) : null}

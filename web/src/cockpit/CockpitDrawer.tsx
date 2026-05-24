@@ -3,6 +3,7 @@ import { Gauge, PanelRightClose } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ParsedCockpit } from '../api.js'
+import { useI18n } from '../i18n.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { ActionBar } from './ActionBar.js'
@@ -45,13 +46,14 @@ export const CockpitDrawer = ({
   workspacePath,
 }: CockpitDrawerProps) => {
   const [activeTab, setActiveTab] = useState<CockpitTab>('plan')
+  const { t } = useI18n()
   const filePath = workspacePath ? `${workspacePath}/.hive/` : '.hive/'
 
   return (
     <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <Dialog.Portal>
         <Dialog.Content
-          aria-label="Cockpit"
+          aria-label={t('cockpit.title')}
           className="fixed top-0 right-0 bottom-0 z-40 flex flex-col border-l shadow-2xl"
           data-testid="cockpit-drawer"
           style={{
@@ -67,9 +69,11 @@ export const CockpitDrawer = ({
             style={{ borderColor: 'var(--border)' }}
           >
             <Tooltip label={<span className="mono text-ter">{filePath}</span>}>
-              <Dialog.Title className="cursor-default font-semibold text-pri">Cockpit</Dialog.Title>
+              <Dialog.Title className="cursor-default font-semibold text-pri">
+                {t('cockpit.title')}
+              </Dialog.Title>
             </Tooltip>
-            <span className="text-ter text-xs">.hive PM</span>
+            <span className="text-ter text-xs">{t('cockpit.subtitle')}</span>
             <span
               className="rounded-full px-2 py-0.5 text-[10px]"
               style={{
@@ -77,14 +81,14 @@ export const CockpitDrawer = ({
                 color: isConnected ? 'var(--accent)' : 'var(--text-tertiary)',
               }}
             >
-              {isConnected ? 'live' : 'loading'}
+              {isConnected ? t('cockpit.connection.live') : t('cockpit.connection.loading')}
             </span>
             <div className="flex-1" />
-            <Tooltip label="Close Cockpit">
+            <Tooltip label={t('cockpit.close')}>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Close Cockpit"
+                aria-label={t('cockpit.close')}
                 className="icon-btn"
               >
                 <PanelRightClose size={14} />
@@ -99,8 +103,8 @@ export const CockpitDrawer = ({
               <div className="flex h-full items-center justify-center px-6">
                 <EmptyState
                   icon={<Gauge size={20} />}
-                  title="Loading cockpit"
-                  description="HippoTeam is loading the workspace PM documents."
+                  title={t('cockpit.loading')}
+                  description={t('cockpit.loadingDescription')}
                 />
               </div>
             ) : (
