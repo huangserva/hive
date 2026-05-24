@@ -10,7 +10,20 @@ export interface BuiltinCommandPresetDefaults {
   yoloArgsTemplate: string[] | null
 }
 
-const CODEX_DEFAULT_YOLO_ARGS = ['--dangerously-bypass-approvals-and-sandbox']
+const CODEX_PLAYWRIGHT_MCP_ARGS = [
+  '-c',
+  'mcp_servers.playwright.command="npx"',
+  '-c',
+  'mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"]',
+  '-c',
+  'mcp_servers.playwright.startup_timeout_sec=30',
+  '-c',
+  'mcp_servers.playwright.tool_timeout_sec=60',
+]
+const CODEX_DEFAULT_YOLO_ARGS = [
+  '--dangerously-bypass-approvals-and-sandbox',
+  ...CODEX_PLAYWRIGHT_MCP_ARGS,
+]
 const OPENCODE_DEFAULT_YOLO_ARGS: string[] = []
 const GEMINI_DEFAULT_YOLO_ARGS = ['--yolo']
 

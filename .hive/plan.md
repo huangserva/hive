@@ -132,6 +132,14 @@ last_review: 2026-05-24
 - [x] tests: parser + routes-cockpit + Cockpit Questions UI (`738c657`)
 - [x] wave 2: ActionBar / Ideas / Decisions handlers + POST endpoints (`f99b98e`)
 
+### M16 · Codex MCP browser E2E 能力 · shipped 2026-05-24
+- [x] 调研 browser MCP 候选：Playwright MCP / Chrome DevTools MCP / Browserbase MCP
+- [x] 选择 `@playwright/mcp@0.0.75`，通过 Codex builtin preset `-c mcp_servers.playwright.*` 注入
+- [x] schema v22 migration 刷新已有 DB 的 builtin Codex preset
+- [x] tests: settings API + agent bootstrap + schema migration
+- [x] PM docs: `.hive/reports/codex-mcp-browser-spike-2026-05-24.html` + `.hive/research/2026-05-24-codex-mcp-browser.md` + `.hive/decisions/2026-05-24-codex-mcp-browser.md`
+- 注：M15 已被 Questions answer flow 占用；本 milestone 顺延为 M16，避免重写已 shipped milestone 编号。
+
 ## Scope
 
 **in（覆盖范围）**：

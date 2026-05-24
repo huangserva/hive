@@ -60,7 +60,17 @@ describe('settings api', () => {
       expect.objectContaining({
         id: 'codex',
         display_name: 'Codex',
-        yolo_args_template: ['--dangerously-bypass-approvals-and-sandbox'],
+        yolo_args_template: [
+          '--dangerously-bypass-approvals-and-sandbox',
+          '-c',
+          'mcp_servers.playwright.command="npx"',
+          '-c',
+          'mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"]',
+          '-c',
+          'mcp_servers.playwright.startup_timeout_sec=30',
+          '-c',
+          'mcp_servers.playwright.tool_timeout_sec=60',
+        ],
       }),
       expect.objectContaining({
         id: 'opencode',

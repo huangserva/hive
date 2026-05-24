@@ -120,6 +120,42 @@ describe('agent run bootstrap', () => {
     ])
   })
 
+  test('injects Codex preset MCP browser config before launch args', () => {
+    const bootstrap = buildAgentRunBootstrap(
+      { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
+      'agent-1',
+      {
+        args: ['--model', 'gpt-5-codex'],
+        command: 'codex',
+        commandPresetId: 'codex',
+      },
+      createSessionStore(''),
+      (id) =>
+        id === 'codex'
+          ? {
+              ...codexPreset,
+              yoloArgsTemplate: [
+                '--dangerously-bypass-approvals-and-sandbox',
+                '-c',
+                'mcp_servers.playwright.command="npx"',
+                '-c',
+                'mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"]',
+              ],
+            }
+          : undefined
+    )
+
+    expect(bootstrap.startConfig.args).toEqual([
+      '--dangerously-bypass-approvals-and-sandbox',
+      '-c',
+      'mcp_servers.playwright.command="npx"',
+      '-c',
+      'mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"]',
+      '--model',
+      'gpt-5-codex',
+    ])
+  })
+
   test('does not inject thinking_level for unsupported presets', () => {
     const bootstrap = buildAgentRunBootstrap(
       { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },

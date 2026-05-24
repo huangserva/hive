@@ -13,6 +13,8 @@ const originalClaudeProjectsDir = process.env.HIVE_CLAUDE_PROJECTS_DIR
 const originalCodexHome = process.env.CODEX_HOME
 const originalGeminiHome = process.env.HIVE_GEMINI_HOME
 const originalOpenCodeDbPath = process.env.HIVE_OPENCODE_DB_PATH
+const CODEX_PLAYWRIGHT_MCP_ARGS =
+  '-c mcp_servers.playwright.command="npx" -c mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"] -c mcp_servers.playwright.startup_timeout_sec=30 -c mcp_servers.playwright.tool_timeout_sec=60'
 
 const waitFor = async (
   assertion: () => void | Promise<void>,
@@ -570,7 +572,7 @@ describe('preset-driven Layer A', () => {
         process.env.CODEX_HOME = join(homeDir, '.codex')
       },
       expectedArgs: (sessionId: string) =>
-        `ARGS:--dangerously-bypass-approvals-and-sandbox resume ${sessionId} --session-id-test ${sessionId}`,
+        `ARGS:--dangerously-bypass-approvals-and-sandbox ${CODEX_PLAYWRIGHT_MCP_ARGS} resume ${sessionId} --session-id-test ${sessionId}`,
       presetId: 'codex',
       sessionId: '019dc277-0e8e-75c1-9794-94929426288e',
       writeCli: writeFakeCodex,
@@ -680,7 +682,7 @@ describe('preset-driven Layer A', () => {
         const state = await getRunViaHttp(server.baseUrl, cookie, secondRun.runId)
         expect(state.status).toBe('running')
         expect(state.output).toContain(
-          `ARGS:--dangerously-bypass-approvals-and-sandbox resume ${sessionId} --session-id-test ${sessionId}`
+          `ARGS:--dangerously-bypass-approvals-and-sandbox ${CODEX_PLAYWRIGHT_MCP_ARGS} resume ${sessionId} --session-id-test ${sessionId}`
         )
       })
     } finally {
