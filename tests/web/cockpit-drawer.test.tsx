@@ -26,6 +26,8 @@ const makeCockpit = (overrides: Partial<ParsedCockpit> = {}): ParsedCockpit => (
     scope: null,
   },
   questions: { answered: [], high: [], low: [], medium: [], parseError: null },
+  research: { entries: [], parseError: null, totalCount: 0 },
+  tasks: { parseError: null, raw: '', sections: [], totalDone: 0, totalOpen: 0 },
   ...overrides,
 })
 
@@ -142,5 +144,49 @@ describe('CockpitDrawer', () => {
     )
     expect(screen.getByText('Answer Q1')).toBeInTheDocument()
     expect(screen.getByText('(1)')).toBeInTheDocument()
+  })
+
+  test('tab body container has overflow-y-auto class', () => {
+    render(
+      <CockpitDrawer
+        cockpit={makeCockpit()}
+        error={null}
+        isConnected={true}
+        onClose={vi.fn()}
+        open={true}
+        workspacePath={null}
+      />
+    )
+    const drawer = screen.getByTestId('cockpit-drawer')
+    const scrollDiv = drawer.querySelector('[class*="overflow-y-auto"]')
+    expect(scrollDiv).toBeTruthy()
+  })
+
+  test('ActionBar remains in DOM alongside scrollable content', () => {
+    const cockpit = makeCockpit({
+      aiActions: [
+        {
+          action: '回答',
+          id: 'q-1',
+          priority: 'high',
+          targetTab: 'questions',
+          text: 'Action present',
+          type: 'question',
+        },
+      ],
+    })
+    render(
+      <CockpitDrawer
+        cockpit={cockpit}
+        error={null}
+        isConnected={true}
+        onClose={vi.fn()}
+        open={true}
+        workspacePath={null}
+      />
+    )
+    const drawer = screen.getByTestId('cockpit-drawer')
+    expect(drawer.querySelector('[class*="overflow-y-auto"]')).toBeTruthy()
+    expect(screen.getByText('Action present')).toBeInTheDocument()
   })
 })

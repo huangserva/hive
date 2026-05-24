@@ -21,6 +21,7 @@ const setupWorkspace = (overrides: Record<string, string> = {}) => {
   mkdirSync(join(hive, 'ideas'), { recursive: true })
   mkdirSync(join(hive, 'decisions'), { recursive: true })
   mkdirSync(join(hive, 'archive'), { recursive: true })
+  mkdirSync(join(hive, 'research'), { recursive: true })
   mkdirSync(join(hive, 'templates'), { recursive: true })
 
   const defaults: Record<string, string> = {
@@ -31,15 +32,17 @@ const setupWorkspace = (overrides: Record<string, string> = {}) => {
       '# Ideas Inbox\n\n## inbox\n\n### 2026-05-20\n\n- 🤔 idea: Cool idea\n\n## promoted\n',
     'baseline/README.md': '# Baseline · Test',
     'baseline/module-map.md': '# Module Map\n\nReal content here.',
+    'tasks.md': '## In progress\n\n- [ ] Task A\n- [x] Task B\n',
   }
   for (const [path, content] of Object.entries({ ...defaults, ...overrides })) {
     writeFileSync(join(hive, path), content, 'utf8')
   }
+  writeFileSync(join(hive, 'research', '2026-05-20-test.md'), '# Test Research\n\nContent.', 'utf8')
   return dir
 }
 
 describe('parseCockpit', () => {
-  test('aggregates all 6 sections', () => {
+  test('aggregates all sections including tasks and research', () => {
     const dir = setupWorkspace()
     const result = parseCockpit(dir)
     expect(result.plan).toBeDefined()
@@ -48,6 +51,8 @@ describe('parseCockpit', () => {
     expect(result.baseline).toBeDefined()
     expect(result.decisions).toBeDefined()
     expect(result.archive).toBeDefined()
+    expect(result.tasks).toBeDefined()
+    expect(result.research).toBeDefined()
     expect(result.generatedAt).toBeGreaterThan(0)
   })
 
@@ -131,5 +136,42 @@ describe('aiActions', () => {
     const dir = setupWorkspace({ 'open-questions.md': questions })
     const result = parseCockpit(dir)
     expect(result.aiActions.length).toBeLessThanOrEqual(10)
+  })
+})
+
+describe('parseCockpit tasks and research integration', () => {
+  test('tasks section parsed from tasks.md', () => {
+    const dir = setupWorkspace({ 'tasks.md': '## In progress\n\n- [ ] Task X\n- [x] Task Y\n' })
+    const result = parseCockpit(dir)
+    expect(result.tasks.sections).toHaveLength(1)
+    expect(result.tasks.totalDone).toBe(1)
+    expect(result.tasks.totalOpen).toBe(1)
+  })
+
+  test('research section parsed from research/ directory', () => {
+    const dir = setupWorkspace()
+    const result = parseCockpit(dir)
+    expect(result.research.entries).toHaveLength(1)
+    expect(result.research.entries[0]?.title).toBe('Test Research')
+    expect(result.research.totalCount).toBe(1)
+  })
+
+  test('empty tasks.md yields empty sections', () => {
+    const dir = setupWorkspace({ 'tasks.md': '' })
+    const result = parseCockpit(dir)
+    expect(result.tasks.sections).toEqual([])
+    expect(result.tasks.totalDone).toBe(0)
+    expect(result.tasks.totalOpen).toBe(0)
+  })
+
+  test('aiActions does not produce actions for tasks or research', () => {
+    const dir = setupWorkspace({
+      'tasks.md': '## Open\n\n- [ ] Many tasks\n- [ ] More tasks\n',
+    })
+    const result = parseCockpit(dir)
+    const taskActions = result.aiActions.filter((a) => a.type === 'task')
+    const researchActions = result.aiActions.filter((a) => a.type === 'research')
+    expect(taskActions).toEqual([])
+    expect(researchActions).toEqual([])
   })
 })
