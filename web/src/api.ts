@@ -6,6 +6,28 @@ import type {
   WorkspaceSummary,
 } from '../../src/shared/types.js'
 
+export type {
+  AIAction,
+  AIActionType,
+  CockpitTargetTab,
+  ParsedCockpit,
+} from '../../src/server/cockpit-doc.js'
+export type { ArchivedMonth, ParsedArchive } from '../../src/server/pm-archive-doc.js'
+export type { BaselineFile, ParsedBaseline } from '../../src/server/pm-baseline-doc.js'
+export type {
+  ParsedDecisions,
+  PMDecision,
+  PMDecisionStatus,
+} from '../../src/server/pm-decisions-doc.js'
+export type { ParsedIdeas, PMIdea } from '../../src/server/pm-ideas-doc.js'
+export type {
+  ParsedQuestions,
+  PMQuestion,
+  PMQuestionPriority,
+} from '../../src/server/pm-questions-doc.js'
+
+import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
+
 const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   id: payload.id,
   name: payload.name,
@@ -528,6 +550,16 @@ export const fetchPlan = async (workspaceId: string): Promise<ParsedPlan> => {
   return (await response.json()) as ParsedPlan
 }
 
+export const fetchCockpit = async (workspaceId: string): Promise<ParsedCockpit> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/cockpit`)
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load cockpit'))
+  }
+
+  return (await response.json()) as ParsedCockpit
+}
+
 const toWorkspaceSocketUrl = (path: string) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}${path}`
@@ -545,6 +577,23 @@ export const connectPlanStream = (
     }
   }
   return socket
+}
+
+export const connectCockpitStream = (
+  workspaceId: string,
+  onUpdate: (cockpit: ParsedCockpit) => void
+): { close: () => void } => {
+  const socket = new WebSocket(toWorkspaceSocketUrl(`/ws/cockpit/${workspaceId}`))
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data) as { kind?: string; payload?: ParsedCockpit }
+    if (
+      (message.kind === 'cockpit-snapshot' || message.kind === 'cockpit-update') &&
+      message.payload
+    ) {
+      onUpdate(message.payload)
+    }
+  }
+  return { close: () => socket.close() }
 }
 
 export const saveWorkspaceTasks = async (

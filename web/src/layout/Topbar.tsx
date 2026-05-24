@@ -1,8 +1,7 @@
-import { ListChecks, Map as MapIcon } from 'lucide-react'
+import { Gauge } from 'lucide-react'
 
 import type { VersionInfo } from '../api.js'
 import { FeishuStatusIndicator } from '../feishu/FeishuStatusIndicator.js'
-import { useI18n } from '../i18n.js'
 import { NotificationSettingsButton } from '../notifications/NotificationSettingsButton.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { APP_VERSION } from '../version.js'
@@ -10,32 +9,21 @@ import { HippoLogo } from './HippoLogo.js'
 import { LanguageToggle } from './LanguageToggle.js'
 
 type TopbarProps = {
+  cockpitActionCount?: number
+  cockpitOpen: boolean
   hideActions?: boolean
-  onTogglePlan: () => void
-  onToggleTaskGraph: () => void
-  openTaskCount?: number
-  planOpen: boolean
-  taskGraphOpen: boolean
+  onToggleCockpit: () => void
   version?: string
   versionInfo?: VersionInfo
 }
 
 export const Topbar = ({
+  cockpitActionCount = 0,
+  cockpitOpen,
   hideActions = false,
-  onTogglePlan,
-  onToggleTaskGraph,
-  openTaskCount = 0,
-  planOpen,
-  taskGraphOpen,
+  onToggleCockpit,
   version = APP_VERSION,
 }: TopbarProps) => {
-  const { t } = useI18n()
-  const hasOpenTasks = openTaskCount > 0
-  const tooltipLabel = taskGraphOpen
-    ? t('topbar.hideTodo')
-    : hasOpenTasks
-      ? t('topbar.todoOpen', { count: openTaskCount })
-      : t('topbar.showTodo')
   return (
     <header
       className="flex h-11 shrink-0 items-center px-4"
@@ -52,39 +40,29 @@ export const Topbar = ({
       <div className="flex-1" />
       {hideActions ? null : (
         <div className="flex items-center gap-1">
-          <Tooltip label={planOpen ? 'Hide Plan' : 'Show Plan (.hive/plan.md)'}>
+          <Tooltip label={cockpitOpen ? 'Hide Cockpit' : 'Show Cockpit'}>
             <button
               type="button"
-              onClick={onTogglePlan}
-              aria-pressed={planOpen}
-              aria-label="Toggle Plan"
-              className="flex cursor-pointer items-center gap-1.5 rounded px-3 py-1 text-xs text-sec hover:bg-3 hover:text-pri"
-              data-testid="topbar-plan"
+              onClick={onToggleCockpit}
+              aria-pressed={cockpitOpen}
+              aria-label="Toggle Cockpit"
+              className="relative flex cursor-pointer items-center gap-1.5 rounded px-3 py-1 text-xs text-sec hover:bg-3 hover:text-pri"
+              data-testid="topbar-cockpit"
             >
-              <MapIcon size={14} aria-hidden className={planOpen ? 'text-accent' : undefined} />
-              <span>Plan</span>
-            </button>
-          </Tooltip>
-          <Tooltip label={tooltipLabel}>
-            <button
-              type="button"
-              onClick={onToggleTaskGraph}
-              aria-pressed={taskGraphOpen}
-              aria-label="Toggle Todo"
-              data-has-tasks={hasOpenTasks ? 'true' : undefined}
-              className="flex cursor-pointer items-center gap-1.5 rounded px-3 py-1 text-xs text-sec hover:bg-3 hover:text-pri"
-              data-testid="topbar-blueprint"
-            >
-              <ListChecks
+              <Gauge
                 size={14}
                 aria-hidden
-                /* Light up when there are open tasks so the icon reads as
-                   "you have something to look at" without a separate
-                   badge. text-accent on a dim button is enough; bumping
-                   the surrounding text would be too loud. */
-                className={hasOpenTasks ? 'text-accent' : undefined}
+                className={cockpitOpen || cockpitActionCount > 0 ? 'text-accent' : undefined}
               />
-              <span>{t('topbar.todo')}</span>
+              <span>Cockpit</span>
+              {cockpitActionCount > 0 ? (
+                <span
+                  className="-top-1 -right-1 absolute min-w-4 rounded-full px-1 text-center text-[10px] text-white tabular-nums"
+                  style={{ background: 'var(--status-red)' }}
+                >
+                  {cockpitActionCount}
+                </span>
+              ) : null}
             </button>
           </Tooltip>
           <FeishuStatusIndicator />

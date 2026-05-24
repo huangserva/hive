@@ -4,11 +4,11 @@ import type { WorkspaceSummary } from '../../src/shared/types.js'
 import { AppOverlays } from './AppOverlays.js'
 import { AppProviders } from './AppProviders.js'
 import { AppWorkspaceContent } from './AppWorkspaceContent.js'
+import { useCockpit } from './cockpit/useCockpit.js'
 import { DEMO_TASKS_MD } from './demo/demo-fixture.js'
 import { useDemoMode } from './demo/useDemoMode.js'
 import { useEffectiveWorkspaceState } from './demo/useEffectiveWorkspaceState.js'
 import { MainLayout } from './layout/MainLayout.js'
-import { usePlan } from './plan/usePlan.js'
 import { Sidebar } from './sidebar/Sidebar.js'
 import { parseTaskMarkdown } from './tasks/task-markdown.js'
 import { useTasksFile } from './tasks/useTasksFile.js'
@@ -33,7 +33,7 @@ const AppInner = () => {
   const localPollIds = demoMode || !workspaces ? [] : workspaces.map(({ id }) => id)
   const [workersByWorkspaceId, setWorkersByWorkspaceId] = useWorkspaceWorkers(localPollIds)
   const [addDialogTrigger, setAddDialogTrigger] = useState(0)
-  const [planOpen, setPlanOpen] = useState(false)
+  const [cockpitOpen, setCockpitOpen] = useState(false)
   const [taskGraphOpen, setTaskGraphOpen] = useState(false)
   const [settingsWorkspace, setSettingsWorkspace] = useState<WorkspaceSummary | null>(null)
   const toast = useToast()
@@ -65,7 +65,7 @@ const AppInner = () => {
     demoMode ? null : (activeWorkspaceId ?? null),
     demoMode ? DEMO_TASKS_MD : undefined
   )
-  const planFile = usePlan(demoMode ? null : (activeWorkspaceId ?? null))
+  const cockpitFile = useCockpit(demoMode ? null : (activeWorkspaceId ?? null))
   const openTaskCount = eff.effectiveActiveWorkspace
     ? parseTaskMarkdown(tasksFile.content).filter((task) => !task.checked).length
     : 0
@@ -78,7 +78,7 @@ const AppInner = () => {
   const deleteWorkspace = useWorkspaceDelete({
     activeWorkspaceId,
     onActiveDeleted: () => {
-      setPlanOpen(false)
+      setCockpitOpen(false)
       setTaskGraphOpen(false)
     },
     selectWorkspace,
@@ -97,11 +97,10 @@ const AppInner = () => {
   const handleSelectOwner = useWorkerHighlight()
   return (
     <MainLayout
+      cockpitActionCount={cockpitFile.cockpit?.aiActions.length ?? 0}
+      cockpitOpen={cockpitOpen}
       hideTopbarActions={!eff.effectiveActiveWorkspace}
-      onTogglePlan={() => setPlanOpen((value) => !value)}
-      onToggleTaskGraph={() => setTaskGraphOpen((value) => !value)}
-      openTaskCount={openTaskCount}
-      planOpen={planOpen}
+      onToggleCockpit={() => setCockpitOpen((value) => !value)}
       sidebar={
         <Sidebar
           activeWorkspaceId={eff.effectiveActiveWorkspaceId}
@@ -114,7 +113,6 @@ const AppInner = () => {
           workspaces={eff.effectiveWorkspaces}
         />
       }
-      taskGraphOpen={taskGraphOpen}
     >
       <AppWorkspaceContent
         activeId={activeId}
@@ -135,15 +133,17 @@ const AppInner = () => {
       />
       <AppOverlays
         addDialogTrigger={addDialogTrigger}
+        cockpitFile={cockpitFile}
+        cockpitOpen={cockpitOpen}
         wizardOpen={wizardOpen}
         onAddWorkspace={triggerAddDialog}
+        onCloseCockpit={() => setCockpitOpen(false)}
         onCloseTaskGraph={() => setTaskGraphOpen(false)}
-        onClosePlan={() => setPlanOpen(false)}
         onCloseWizard={closeWizard}
         onCreateWorkspace={wsCreate.createNewWorkspace}
+        onOpenTaskGraph={() => setTaskGraphOpen(true)}
         onTryDemo={enableDemo}
-        planFile={planFile}
-        planOpen={planOpen}
+        openTaskCount={openTaskCount}
         taskGraphOpen={taskGraphOpen}
         tasksFile={tasksFile}
         workspacePath={eff.effectiveActiveWorkspace?.path ?? null}

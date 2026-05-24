@@ -10,24 +10,20 @@ import {
 
 type MainLayoutProps = {
   children: ReactNode
+  cockpitActionCount?: number
+  cockpitOpen: boolean
   hideTopbarActions?: boolean
-  onTogglePlan: () => void
-  onToggleTaskGraph: () => void
-  openTaskCount?: number
-  planOpen: boolean
+  onToggleCockpit: () => void
   sidebar: ReactNode
-  taskGraphOpen: boolean
 }
 
 export const MainLayout = ({
   children,
+  cockpitActionCount = 0,
+  cockpitOpen,
   hideTopbarActions = false,
-  onTogglePlan,
-  onToggleTaskGraph,
-  openTaskCount = 0,
-  planOpen,
+  onToggleCockpit,
   sidebar,
-  taskGraphOpen,
 }: MainLayoutProps) => {
   const { t } = useI18n()
   const sidebarResize = useWorkspaceSidebarResize()
@@ -38,12 +34,10 @@ export const MainLayout = ({
       style={{ background: 'var(--bg-0)', color: 'var(--text-primary)' }}
     >
       <Topbar
+        cockpitActionCount={cockpitActionCount}
+        cockpitOpen={cockpitOpen}
         hideActions={hideTopbarActions}
-        onTogglePlan={onTogglePlan}
-        onToggleTaskGraph={onToggleTaskGraph}
-        openTaskCount={openTaskCount}
-        planOpen={planOpen}
-        taskGraphOpen={taskGraphOpen}
+        onToggleCockpit={onToggleCockpit}
       />
       <div className="flex min-h-0 flex-1">
         <aside

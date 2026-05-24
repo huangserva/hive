@@ -1,6 +1,8 @@
+import { ListChecks } from 'lucide-react'
+
 import type { TeamListItem } from '../../src/shared/types.js'
-import { PlanDrawer } from './plan/PlanDrawer.js'
-import type { usePlan } from './plan/usePlan.js'
+import { CockpitDrawer } from './cockpit/CockpitDrawer.js'
+import type { useCockpit } from './cockpit/useCockpit.js'
 import type { useTasksFile } from './tasks/useTasksFile.js'
 import { WorkspaceTaskDrawer } from './tasks/WorkspaceTaskDrawer.js'
 import { FirstRunWizard } from './wizard/FirstRunWizard.js'
@@ -8,18 +10,20 @@ import { AddWorkspaceDialog } from './workspace/AddWorkspaceDialog.js'
 import type { WorkspaceCreateInput } from './workspace/workspace-create-input.js'
 
 type TasksFileApi = ReturnType<typeof useTasksFile>
-type PlanApi = ReturnType<typeof usePlan>
+type CockpitApi = ReturnType<typeof useCockpit>
 
 type AppOverlaysProps = {
   addDialogTrigger: number
+  cockpitFile: CockpitApi
+  cockpitOpen: boolean
   onAddWorkspace: () => void
+  onCloseCockpit: () => void
   onCloseTaskGraph: () => void
   onCloseWizard: (shouldMarkSeen?: boolean) => void
   onCreateWorkspace: (input: WorkspaceCreateInput) => Promise<unknown> | undefined
-  onClosePlan: () => void
+  onOpenTaskGraph: () => void
   onTryDemo: () => void
-  planFile: PlanApi
-  planOpen: boolean
+  openTaskCount: number
   taskGraphOpen: boolean
   tasksFile: TasksFileApi
   wizardOpen: boolean
@@ -34,14 +38,16 @@ type AppOverlaysProps = {
 
 export const AppOverlays = ({
   addDialogTrigger,
+  cockpitFile,
+  cockpitOpen,
   onAddWorkspace,
+  onCloseCockpit,
   onCloseTaskGraph,
   onCloseWizard,
   onCreateWorkspace,
-  onClosePlan,
+  onOpenTaskGraph,
   onTryDemo,
-  planFile,
-  planOpen,
+  openTaskCount,
   taskGraphOpen,
   tasksFile,
   wizardOpen,
@@ -52,11 +58,12 @@ export const AppOverlays = ({
 }: AppOverlaysProps) => (
   <>
     {workspacePath ? (
-      <PlanDrawer
-        loaded={planFile.loaded}
-        onClose={onClosePlan}
-        open={planOpen}
-        plan={planFile.plan}
+      <CockpitDrawer
+        cockpit={cockpitFile.cockpit}
+        error={cockpitFile.error}
+        isConnected={cockpitFile.isConnected}
+        onClose={onCloseCockpit}
+        open={cockpitOpen}
         workspacePath={workspacePath}
       />
     ) : null}
@@ -70,6 +77,18 @@ export const AppOverlays = ({
         {...(onSelectOwner ? { onSelectOwner } : {})}
         {...(connectionStale !== undefined ? { connectionStale } : {})}
       />
+    ) : null}
+    {workspacePath && !taskGraphOpen ? (
+      <button
+        aria-label="Toggle Todo"
+        className="fixed right-4 bottom-4 z-30 flex h-10 min-w-10 cursor-pointer items-center justify-center gap-2 rounded-full border px-3 text-sec text-xs shadow-lg hover:bg-3 hover:text-pri"
+        onClick={onOpenTaskGraph}
+        style={{ background: 'var(--bg-1)', borderColor: 'var(--border)' }}
+        type="button"
+      >
+        <ListChecks size={15} className={openTaskCount > 0 ? 'text-accent' : undefined} />
+        {openTaskCount > 0 ? <span className="tabular-nums">{openTaskCount}</span> : null}
+      </button>
     ) : null}
     <AddWorkspaceDialog
       onClose={() => {}}
