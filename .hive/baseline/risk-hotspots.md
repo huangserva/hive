@@ -65,6 +65,14 @@
 - Current mitigation: Cockpit `baseline-stale` aiAction when stubs/missing files exist.
 - Rule: update baseline after milestone-scale changes; keep each file under 200 lines.
 
+## Web asset serving: rebuild churn + dev/prod port confusion
+
+- Risk: 浏览器跑着跑着要手动刷（字体掉/连不上/状态陈旧）。两条独立成因。
+- Trigger A（dev 5180）：worker 编辑 `web/src/*` → Vite HMR 重载 user 开着的 tab。
+- Trigger B（prod 4010）：`pnpm build:web` 换 content-hash → 旧页面引用的旧 hash 资源 404。
+- Current mitigation: app.ts 缓存头（index.html no-cache / assets immutable）+ `preload-recovery.ts`（chunk 失败自动 reload）+ `reconnecting-websocket.ts`（WS backoff 重连）。
+- 关键操作事实：`pnpm dev` 起双端口 = 4010 后端(+serve dist) / 5180 Vite dev(HMR，代理到 4010)。**user 固定看 4010**；诊断刷新类问题先确认端口（5180 上 app.ts 缓存修复无效）。
+
 ## Local data and secrets
 
 - Risk: `.hive/` docs are repo/workspace files; Feishu credentials are local config.

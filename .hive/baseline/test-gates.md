@@ -39,6 +39,14 @@
 - Confirm tests were not changed when the dispatch forbids it.
 - For UI work, build must pass and text must fit in target containers.
 
+## Current scale & no-mock examples (2026-05-25)
+
+- ~1143 tests / 177 files. New no-mock integration patterns worth copying:
+  - `tests/cli/team-cli-side-effects.test.ts` — real server + store + PTY + `team send` CLI, asserts worker stdin carries Cockpit snapshot (M13 Layer 4).
+  - `tests/server/routes-cockpit-questions-answer.test.ts` — real PTY orchestrator echo, asserts answer route nudges orch (idea-6).
+  - `tests/server/routes-cockpit.test.ts` — report-file route: serves `.hive/reports/*.html`, rejects `../` traversal / non-html / missing.
+  - `tests/server/app.test.ts` — static cache-control headers (index.html no-cache / assets immutable).
+
 ## Known noisy but accepted test output
 
 - PTY teardown can print `Unhandled pty write error EIO/EBADF` while tests still pass.
