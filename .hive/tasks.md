@@ -5,9 +5,10 @@
 
 ## In progress
 
-（空 — 等 user 硬刷新验证终端 bug 修复 + 重启 4010 验 #7）
+（空）
 
-> ⚠️ 待 user 重启 4010：#7 RuntimeStatusStrip 新 endpoint 生效（重启后张飞验收）
+> ✅ 终端输入框 bug：user 硬刷新后 **300 行压力实测通过、已关闭**（9b63ae2）
+> ⚠️ 待 user 重启 4010：#7 RuntimeStatusStrip 新 endpoint 才生效（重启后张飞验收）；之前 idea-7 viewer + 终端修复都是纯前端，已验证可用
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
