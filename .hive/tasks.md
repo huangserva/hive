@@ -5,11 +5,12 @@
 
 ## In progress
 
-- [ ] **张飞** dispatch `d969941a` — 全 app 主动 E2E 巡检 + 产出可复用 regression smoke runbook（用你的 playwright MCP browser 工具）
-- [ ] **关羽** dispatch `77f695e8` — 修 Bug：Cockpit Questions parser 静默丢弃非数字 ID（你 E2E 时发现的）
+（空 — 本轮 6 个 dispatch 全 done。等 user 重启 4010 加载 handoff RULES；UI 修复已 rebuild，刷新浏览器即生效）
+
 ## Open（user 回来决定）
 
-- [ ] **parser 脆弱点**（关羽 E2E 5/25 发现，低优）：Questions parser 只认 `Q\d+`，PM 手写非数字 ID（如 `Q-E2E`）在 Cockpit 静默不渲染。Ideas parser 同理重排成 I5。建议 broaden regex 或 parse 时 warn，避免无声 drift
+- [ ] **Q7 待答**：确认归档 M17 handoff ADR draft（定后续 4 playbook 基调）
+- [ ] M17 余下 4 个 playbook（loop → advisor → committee → epic，按赵云推荐顺序，逐个实现）
 - [ ] M12 Cockpit Reports tab（Q2 拍板 5/25 要做）— 队列中
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
@@ -22,7 +23,12 @@
 
 ## Done
 
-### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser）
+### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `ded4e020` — 修张飞巡检发现 #1 aria-describedby（dialog console warning 归零）+ #3 Todo Add Task Save/Cancel affordance + #4 移除 unsupported audio preload。浏览器验证 0 warning (`94dccfc`)
+- [x] **赵云** dispatch `4da9662b` — M17 handoff playbook 实现：ADR draft + playbook-handoff 模板 seed + ORCHESTRATOR_RULES handoff 段 + Cockpit playbook aiAction（保守，只 cancel 行触发 max 2）+ tests，1109 tests (`d1cab8a` + `308fc0a`)
+- [x] **关羽** dispatch `77f695e8` — 修 Questions parser 静默丢弃非数字 ID：`Q\d+` → `Q[\w-]+`，answer flow 支持非数字 ID，TDD 红→绿 + 浏览器验证 (`708fa0f`)
+- [x] **张飞** dispatch `d969941a` — 全 app E2E 巡检：0 blocker / 2 medium / 2 low，findings 报告 + 可复用 regression smoke runbook (`4f0c1b9`)
+- [x] **Orchestrator** — M17 handoff bookkeeping：Q7 挂确认归档 ADR + idea-5 记 thinking_level 缓做 + PROTOCOL.md regen (`7d29e89`) + web rebuild
 - [x] **赵云** dispatch `e73a7988` — M17 调研+设计：paseo 5 playbook 转译 HippoTeam 设计（templates/RULES/ActionBar 着力点 + 优先级）。推荐先做 handoff。全 gate 过 (1103 tests) (`3b9a5f0` + `81fc4c9`)
 - [x] **关羽** dispatch `8501d6e0` — 真浏览器 E2E 验证 Cockpit（playwright MCP）：8 tab 全渲染真数据 + Questions answer flow 真点 PASS + Ideas promote dialog 渲染 PASS + Decisions 0 draft SKIP，0 console error，报告 + research 自己 commit (`c98659b`)
 - [x] **Orchestrator** — PM doc 对账（5/25）：Q4/Q2/Q5 答复归档，M12 queued / M14 confirmed / M17 promoted from idea-2，清理 tasks.md In-progress 堆积
