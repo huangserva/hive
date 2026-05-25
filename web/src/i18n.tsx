@@ -94,6 +94,11 @@ const enMessages = {
   'role.custom': 'Custom',
   'role.reviewer': 'Reviewer',
   'role.tester': 'Tester',
+  'runtimeStatus.cwd': 'CWD',
+  'runtimeStatus.database': 'Database',
+  'runtimeStatus.logs': 'Logs',
+  'runtimeStatus.pid': 'pid {pid}',
+  'runtimeStatus.title': 'Runtime',
   'sidebar.deleteAria': 'Delete Workspace {name}',
   'sidebar.deleteConfirm': 'Delete Workspace "{name}"?',
   'sidebar.deleteDescription':
@@ -545,6 +550,11 @@ const zhMessages: Record<TranslationKey, string> = {
   'role.custom': '自定义',
   'role.reviewer': '审查',
   'role.tester': '测试',
+  'runtimeStatus.cwd': '工作目录',
+  'runtimeStatus.database': '数据库',
+  'runtimeStatus.logs': '日志',
+  'runtimeStatus.pid': 'pid {pid}',
+  'runtimeStatus.title': 'Runtime',
   'sidebar.deleteAria': '删除 Workspace {name}',
   'sidebar.deleteConfirm': '删除 Workspace "{name}"？',
   'sidebar.deleteDescription':

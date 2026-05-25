@@ -183,6 +183,7 @@ export const runHiveCommand = async (
     feishuTransport,
     store,
     logger,
+    runtimeInfo: { dataDir, port },
     versionService,
   })
 

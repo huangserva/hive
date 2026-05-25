@@ -76,6 +76,7 @@ export interface RouteContext {
   store: RuntimeStore
   tasksFileService: TasksFileService
   pickFolderService: () => Promise<PickFolderResponse>
+  runtimeInfo: RuntimeInfo
   versionService: VersionService
   params: Record<string, string>
 }
@@ -87,3 +88,8 @@ export interface RouteDefinition {
 }
 
 export type { WorkerRole }
+
+export interface RuntimeInfo {
+  dataDir: string
+  port?: number
+}

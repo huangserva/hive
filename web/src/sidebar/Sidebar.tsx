@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../../src/shared/types.js'
 import { useI18n } from '../i18n.js'
+import { RuntimeStatusStrip } from '../layout/RuntimeStatusStrip.js'
 import { Confirm } from '../ui/Confirm.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { Tooltip } from '../ui/Tooltip.js'
@@ -291,6 +292,8 @@ export const Sidebar = ({
           </li>
         </ul>
       )}
+
+      <RuntimeStatusStrip />
 
       {githubDismissed ? null : (
         <div

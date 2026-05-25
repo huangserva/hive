@@ -1,9 +1,27 @@
+import { join } from 'node:path'
+
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { ConfigureAgentLaunchBody, RouteDefinition } from './route-types.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 import { getWorkspaceShellAgentId } from './workspace-shell-runtime.js'
 
 export const runtimeRoutes: RouteDefinition[] = [
+  route(
+    'GET',
+    '/api/runtime/status',
+    async ({ request, response, runtimeInfo, store, versionService }) => {
+      requireUiTokenFromRequest(request, store.validateUiToken)
+      const version = await versionService.getVersionInfo()
+      sendJson(response, 200, {
+        port: runtimeInfo.port ?? 0,
+        pid: process.pid,
+        cwd: process.cwd(),
+        log_path: join(runtimeInfo.dataDir, 'logs', `runtime-${runtimeInfo.port ?? 0}.log`),
+        db_path: join(runtimeInfo.dataDir, 'runtime.sqlite'),
+        version: version.current_version,
+      })
+    }
+  ),
   route('GET', '/api/ui/workspaces/:workspaceId/runs', ({ params, request, response, store }) => {
     const workspaceId = getRequiredParam(
       response,

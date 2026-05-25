@@ -1,6 +1,7 @@
 import { constants } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { homedir } from 'node:os'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { FeishuOutboundTransport } from './feishu-transport.js'
@@ -8,6 +9,7 @@ import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
+import type { RuntimeInfo } from './route-types.js'
 import { matchRoute } from './routes.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { createTasksFileService, type TasksFileService } from './tasks-file.js'
@@ -21,6 +23,7 @@ interface CreateAppOptions {
   tasksFileService?: TasksFileService
   versionService?: VersionService
   logger?: HiveLogger
+  runtimeInfo?: RuntimeInfo
 }
 
 const getDefaultStaticDir = () => {
@@ -115,9 +118,12 @@ export const createApp = ({
   tasksFileService = createTasksFileService(),
   versionService = createVersionService(),
   logger,
+  runtimeInfo,
 }: CreateAppOptions) => {
   const staticDir = process.env.HIVE_STATIC_DIR ?? getDefaultStaticDir()
   const staticAvailablePromise = canServeStatic(staticDir)
+  const dataDir =
+    runtimeInfo?.dataDir ?? process.env.HIVE_DATA_DIR ?? join(homedir(), '.config', 'hive')
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET'
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
@@ -127,12 +133,20 @@ export const createApp = ({
 
       const match = matchRoute(method, url.pathname)
       if (match) {
+        const port =
+          runtimeInfo?.port ??
+          (Number.parseInt(process.env.HIVE_PORT ?? '', 10) ||
+            (typeof request.socket.localPort === 'number' ? request.socket.localPort : undefined))
         await match.handler({
           request,
           response,
           store,
           feishuTransport,
           logger,
+          runtimeInfo: {
+            dataDir,
+            ...(port === undefined ? {} : { port }),
+          },
           tasksFileService,
           pickFolderService,
           versionService,
