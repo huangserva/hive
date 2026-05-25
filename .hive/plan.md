@@ -3,7 +3,7 @@ title: HippoTeam
 started: 2026-05-20
 current_phase: maintenance + PM 体系 rollout
 status: active
-last_review: 2026-05-24
+last_review: 2026-05-25
 ---
 
 ## 目标
@@ -104,9 +104,9 @@ last_review: 2026-05-24
 - [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
 - [ ] 决定回灌 / 借鉴概念 / 跳过
 
-### M12 · Cockpit Reports tab · open (low)
-- [ ] `.hive/reports/*.html` 列表 + 一键打开
-- low priority, 备份选项
+### M12 · Cockpit Reports tab · queued (Q2 拍板 5/25)
+- [ ] `.hive/reports/*.html` 列表 + 一键打开（`open` 或浏览器内嵌预览）
+- Q2 答复：要做。优先级从 low 提升为正常队列
 
 ### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+5) 2026-05-24
 - [x] Layer 1 dispatch prompt 自动注入 PM_DISPATCH_REMINDER（`7c95e2d` + `2432b09`）
@@ -119,11 +119,12 @@ last_review: 2026-05-24
 - 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`
 - ADR：`.hive/decisions/2026-05-24-team-pm-co-maintenance.md`
 
-### M14 · mobile + voice 扩张方向（paseo 借鉴） · proposed (待 Q4)
-- [ ] Q4 答复方向：候选 1（先 ideas 观察）/ 2（mobile-voice spike POC）/ 3（先抠 skills playbook）
-- 触发：paseo 调研 user 明示"未来方向是语音控制多 agent 开发"
-- 候选 idea：ideas/inbox.md idea-1 (expo-two-way-audio) + idea-2 (skills playbook) + idea-3 (provider catalog) + idea-4 (timeline 模型)
-- 阻塞 Q4 user 答复才能拆 sub-task
+### M14 · mobile + voice 扩张方向（paseo 借鉴） · confirmed (Q4 拍板 5/25)
+- [ ] Q4 答复：要纳入 plan.md 作为未来 milestone（user 明示"未来方向是语音控制多 agent 开发"）
+- [ ] 排序：skills playbook（M17）先做（独立、不依赖移动端），mobile + voice 作为后续大版本方向
+- 核心使能模块：idea-1 (paseo expo-two-way-audio 双向音频，Q5 folded)
+- 其余候选 idea：idea-3 (provider catalog) + idea-4 (timeline 模型)
+- 开工时拆 sub-task + 起 ADR：自建 mobile vs 借第三方框架 vs 飞书 + voice plugin 第三路径
 
 ### M15 · Cockpit Questions answer flow · shipped 2026-05-24
 - [x] Questions tab Answer button opens a Radix dialog with Q text + textarea
@@ -139,6 +140,13 @@ last_review: 2026-05-24
 - [x] tests: settings API + agent bootstrap + schema migration
 - [x] PM docs: `.hive/reports/codex-mcp-browser-spike-2026-05-24.html` + `.hive/research/2026-05-24-codex-mcp-browser.md` + `.hive/decisions/2026-05-24-codex-mcp-browser.md`
 - 注：M15 已被 Questions answer flow 占用；本 milestone 顺延为 M16，避免重写已 shipped milestone 编号。
+
+### M17 · paseo skills playbook 体系借鉴 · queued (idea-2 promote 5/25)
+- [ ] 把 paseo 5 个 playbook（handoff / advisor / committee / epic / loop）转译成 HippoTeam 形态
+- [ ] 产出：`.hive/templates/*` playbook 模板 + ORCHESTRATOR_RULES 对应规则 + Cockpit ActionBar 建议
+- 触发：idea-2 promote。成熟度🟢高，不依赖 mobile/voice 决策，直接增强当前 PM 体系
+- 先派 worker 出调研 + 设计（reports/*.html + research/*.md 配对），再实现
+- 排在 M14 mobile+voice 之前做（user 5/25 排序）
 
 ## Scope
 
@@ -175,4 +183,4 @@ last_review: 2026-05-24
 4. session 结束前更新 `.hive/handoff.html` 给下一个 session 接手
 5. 重大调研产物（如本次 upstream-diff、feishu plan、PM proposal）放 `.hive/reports/*.html`
 
-**当前阻塞**：M7（等 user 配凭证）+ M10（等 user 决定 marketplace 是否调研）
+**当前阻塞**：无硬阻塞。下一步队列：重启 4010 加载 M13 runtime + schema v22 → 派 codex worker MCP browser E2E 验 Cockpit → 开 M17 skills playbook + M12 Reports tab。M11 marketplace 调研待 user 决定是否启动。

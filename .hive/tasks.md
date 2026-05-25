@@ -5,35 +5,34 @@
 
 ## In progress
 
-（空 — PM 体系 5 个 phase 全 shipped。等 user 重启 4010 看 Cockpit + 决定下一步）
+（空 — 本轮所有 dispatch 已 done/rescue。下一步：user 重启 4010 加载 M13 runtime + schema v22 → 派 codex worker MCP browser E2E 验 Cockpit）
 
-- [x] **关羽** dispatch `5def6905` — 实现：飞书消息 emoji reaction 两阶段反馈（M7 UX 补强）
-- [x] **关羽** dispatch `71d7fde1` — Debug：飞书 reaction API 调用失败
-- [x] **关羽** dispatch `b8562201` — 调研：GitHub 搜 paseo 开源项目，下载 + 出 HTML 报告
-- [x] **关羽** dispatch `64807571` — 重做 paseo 调研 v2（commit d3062e2 v1 报告 framing 错误，重做）
-- [~] **关羽** dispatch `7ef6ff64` — v3 调研：Paseo / Multica / HippoTeam 三方横向对照报告（决策辅助型） ⊘ 关羽 PTY stuck (last_pty_line='─' 空状态线，working 几小时不动)。v3 HTML 已写好 39K 在工作树，orch 接…
-- [x] **关羽** dispatch `9e05b245` — Fix：Cockpit Research tab 时间戳只到日期没分钟
-- [~] **赵云** dispatch `82aecc7c` — 实施：PM 体系 governance harden（reports/ ↔ research/ 双产出 enforcement，对应 plan.md M13） ⊘ scope 太小。重派整个团队 PM 共维护体系，含 worker 端 PM 维护 + dispatch prompt 自动注入 + commit hook …
-- [x] **赵云** dispatch `295b7861` — 重大设计 + 实施：**整个团队共同维护 Cockpit/PM 文档体系**（pre-emptive，不是 reactive audit）
-- [x] **赵云** dispatch `d9638cd3` — Follow-up：M13 governance hook 测试补全 + edge case audit
-- [x] **典韦** dispatch `1fddae81` — VERIFICATION TASK：不要做任何实际工作。请直接在 team report 里粘贴：
-- [x] **关羽** dispatch `160e5438` — Fix UI bug：Cockpit Questions tab 回答按钮无 handler
-- [x] **典韦** dispatch `d4d93723` — Cockpit 完整体检 audit（pre-emptive，不要等 user 发现）
-- [x] **赵云** dispatch `22e7791c` — Spike + 实施：给 codex worker 装 MCP browser server，开 UI E2E 能力
-- [x] **典韦** dispatch `5a19af15` — Audit 后续：补 4 个 Cockpit tab 组件测试 + POST answer route 测试
-- [x] **关羽** dispatch `551b829d` — Phase C-2.5 wave 2：ActionBar + IdeasTab + DecisionsTab dead handlers + 3 个 POST endpoint
 ## Open（user 回来决定）
 
-- [ ] 配置 `~/.config/hive/feishu.json` → 测真飞书 e2e（M7 blocked）
+- [ ] M17 paseo skills playbook 体系借鉴（idea-2 promote 5/25）— 重启后派 worker 出调研+设计
+- [ ] M12 Cockpit Reports tab（Q2 拍板 5/25 要做）— 队列中
+- [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
 - [ ] PM 体系 Phase C-3b（A4-A6 主动 trigger：milestone 完成自动 baseline 体检 / 月度 archive cron / cross-workspace drift）— 观察 1 周 LLM 自觉性后再决定（M8）
 - [ ] Marketplace 深度调研是否回灌（M11，独立于 PM 体系决定）
-- [ ] Cockpit Reports tab 要不要做（M12, Q2 low priority）
+- [ ] M13 Layer 4 Cockpit snapshot 注入所有 PTY agent（典韦 opencode preset 连续 2 次不 commit 暴露的洞）
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
 - [ ] multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强）
 
 ## Done
+
+### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser）
+- [x] **Orchestrator** — PM doc 对账（5/25）：Q4/Q2/Q5 答复归档，M12 queued / M14 confirmed / M17 promoted from idea-2，清理 tasks.md In-progress 堆积
+- [x] **典韦** dispatch `d4d93723` + `5a19af15` — Cockpit 完整体检 audit + 补 4 个 tab 组件测试 + POST answer route 测试（典韦 opencode preset 写文件但没 commit，orch rescue `bca29a2`）
+- [x] **关羽** dispatch `551b829d` — Phase C-2.5 wave 2：ActionBar + IdeasTab + DecisionsTab handlers + 3 个 POST endpoint (`f99b98e` + `aec2598`)
+- [x] **关羽** dispatch `160e5438` — Fix UI bug：Cockpit Questions tab 回答按钮无 handler (`738c657` + `96dd211`)
+- [x] **赵云** dispatch `22e7791c` — Spike + 实施：给 codex worker 装 MCP browser server (playwright)，schema v22 (`9638a92`)
+- [x] **赵云** dispatch `295b7861` + `d9638cd3` — 整个团队共同维护 Cockpit/PM 文档体系（M13 Layer 1+2+3+5）+ hook 测试补全 edge case audit
+- [x] **关羽** dispatch `5def6905` + `71d7fde1` — 飞书消息 emoji reaction 两阶段反馈 GLANCE→OK + debug API 失败（M7 UX 补强）
+- [x] **关羽** dispatch `b8562201` + `64807571` + `7ef6ff64`(stuck→orch rescue) — paseo 调研 v1→v2→v3 三方横向对照报告
+- [x] **关羽** dispatch `9e05b245` — Fix：Cockpit Research tab 时间戳只到日期没分钟 (`9167a6a`)
+- [x] **典韦** dispatch `1fddae81` — VERIFICATION TASK：echo 验证 M13 Layer 1 PM_DISPATCH_REMINDER 注入成功
 
 ### 2026-05-23 ~ 24
 - [x] **Orchestrator** — 重启 4010 + 浏览器刷新 + 真用 Cockpit dashboard（user 自己做的）
