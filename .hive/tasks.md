@@ -5,10 +5,10 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `c8867a7c` — M19 原生 APP **出方案**（user 拍板要原生、要最优）：epic 框架设计 RN/Expo 客户端 + client/daemon 协议 + 远程接入层(host 配对/直连/relay/auth) + 看板/终端/任务 + M14 语音收敛 + 分阶段 M19a/b/c。回填 ADR + plan.md。只设计不实现
+（空 — M19 原生 app 方案出齐，等 user 飞书拍板开工 M19a）
 
-> 🎯 user 飞书拍板**走原生 app**（否决 PWA-first，明确"要最优、不因难/飞书重叠退缩"——已记长期记忆）。ADR 已采纳原生。赵云出方案。📱 chat oc_0d5e…
-> 🎤 M14a Phase 2 done（0b4cf98，本地 whisper STT）：待 user 装 whisper + 重启 → 真 E2E（不急，user 定节奏）
+> 🎯 M19 原生 app 方案 done（e895380）：epic 锁不可变需求 + M19a-M19f 分阶段 + 远程接入层(配对/LAN/relay/设备 keypair 鉴权) + M14 语音收敛。**赵云推荐先开 M19a**（协议 audit + Expo skeleton + LAN 只读看板）。已发 user 飞书等拍。📱 chat oc_0d5e…
+> 🎤 M14a 本地 STT done（0b4cf98）：待 user 装 whisper + 重启 → 真 E2E（user 定节奏）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -23,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **赵云** dispatch `c8867a7c` — **M19 原生 app 架构方案**（epic）：锁不可变需求（真原生 iOS/Android、解决 loopback 外安全远程=host pairing+LAN+加密 relay、覆盖看板/Cockpit/终端/任务 + M14 语音收敛、relay 只转密文+capability/approval）+ M19a-M19f 阶段 + 技术选型（Expo/RN/Expo Router、设备 keypair+SecureStore、direct LAN 优先 relay E2E 加密）。回填 ADR + plan.md M19 confirmed epic。report 457 行+research，全 gate 1167 (`e895380`+`d1775e7`)。推荐先开 M19a
 - [x] **关羽** dispatch `6b8951b5` — **M14a Phase 2** 本地 STT 落地：新建 local-stt.ts LocalSttProvider（白名单探测 whisper-cli/whisper，.txt 优先 stdout 兜底，临时目录用完清理，CLI 缺失返 null 不崩），接进 feishu-transport（audio→临时.opus→本地转写→现有 inbound 注入；本地不可用回退飞书 ASR）。真临时脚本测试无 mock，9 focused + 全量 1167 (`0b4cf98`)。⚠️待 user 装 whisper(brew whisper-cpp / pip openai-whisper) + 重启 + 真 E2E
 - [x] **赵云** dispatch `1eb7852c` — M19 前端 APP 调研：paseo 拆解（不是单壳，是 Expo+Electron+CLI+relay 连本地 daemon 的 client/server）+ PWA/Tauri/RN 三选项对比。**推荐 PWA-first**（复用现有 Cockpit/9tab/Tasks，0.5-1.5 天 installable+dashboard-first；手机远程仍靠飞书桥不另开 RN）。report+research+ADR draft，新增 plan M19 proposed，全 gate 1167 (`2fa6425`+`d434ce5`)。ADR 待 user 拍
 - [x] **关羽** dispatch `701ab29f` — M14a Q10 选项 D 调研（openclaw 本地 STT）：**可行+推荐**。openclaw media-understanding/runner 用无 key 本地 CLI auto-detect（sherpa-onnx-offline→whisper-cli→python whisper→才落 provider key）。建议不搬整套，加 LocalSttProvider 借 CLI adapter/fallback：飞书 audio→临时文件→whisper-cli/whisper→解析→复用 inbound 注入。MVP 白名单 whisper-cli/whisper、不引 native binding、不自动下大模型。坑：user 需装 CLI/模型、冷启动、中文质量、CPU timeout。report+research+Q10 更新，全 gate 1161 (`96cee8a`)
