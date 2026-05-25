@@ -3,10 +3,9 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress（两个并行 — 文件集不重叠）
+## In progress
 
 - [ ] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开（runtime 加 report-file 路由 serve text/html + path-traversal 防护，ReportsTab 改 window.open，不再 shell OS open）
-- [ ] **赵云** dispatch `73ebadd8` — M17 收官：advisor + committee + epic 三 playbook（模板 + RULES + 保守 aiAction），勾上 M17 总括行标 shipped
 
 ## Open（user 回来决定）
 
@@ -24,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **赵云** dispatch `73ebadd8` — **M17 收官**（5/5 playbook 全齐）：advisor + committee + epic 三模板 seed + ORCHESTRATOR_RULES 三段 + plan.md M17 标 shipped。advisor/committee/epic **故意不加 aiAction**（无干净触发信号，硬凑会污染 ActionBar，是 PM 主动选择型）。三 gate 绿 1141 tests + orch 复验 31/31 (`4304d2e`)。⚠️RULES merge 后需重启 4010
 - [x] **关羽** dispatch `c883244c` — M12 Cockpit Reports tab（第 9 个 tab）：新建 pm-reports-doc parseReportsDoc（扫 reports/*.html 抽 title/date/topic，mtime 倒序）+ cockpit-doc 聚合 + ReportsTab.tsx（镜像 ResearchTab，复用 open-file endpoint）+ i18n + 测试。全 gate 绿 1131 tests + orch 复验 27+3 (`a7c0860`)。⚠️cockpit-doc server 改动 merge 后需重启 4010 才出数据
 - [x] **赵云** dispatch `81b4df68` — M17 loop playbook（第 2 个）：playbook-loop 模板 seed + ORCHESTRATOR_RULES loop 段 + cockpit-doc loopPlaybookActions（保守启发式：只认带 verifier 语义的 failed/blocked，调研失败不触发，max 2）+ 测试。三 gate 绿 1121 tests + orch 复验 42/42 (`1fa7f2e`)。⚠️RULES merge 后需重启 4010
 - [x] **赵云** dispatch `8e5bb22e` — 浏览器刷新 bug 根治：app.ts 缓存头（index.html no-cache / assets immutable）+ preload-recovery.ts（Vite chunk 失败自动重载）+ reconnecting-websocket.ts（tasks/terminal/cockpit WS backoff 重连）+ ActionBar 英文漏翻修正。三 gate 绿 1117 tests + orch 复验 21/21 (`3164deb`)。⚠️app.ts 改动 merge 后需重启 4010
