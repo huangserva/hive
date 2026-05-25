@@ -155,6 +155,37 @@ describe('aiActions', () => {
     )
   })
 
+  test('failed verifier dispatch produces a conservative loop playbook action', () => {
+    const dir = setupWorkspace({
+      'tasks.md':
+        '## Done\n\n- [x] **赵云** dispatch `def67890` — pnpm test failed after retries; blocked until verifier passes\n',
+    })
+
+    const result = parseCockpit(dir)
+    const playbookActions = result.aiActions.filter((a) => a.type === 'playbook')
+
+    expect(playbookActions).toContainEqual(
+      expect.objectContaining({
+        action: '准备',
+        id: 'loop:def67890',
+        priority: 'medium',
+        targetTab: 'tasks',
+        text: expect.stringContaining('准备 loop brief'),
+      })
+    )
+  })
+
+  test('loop playbook action does not trigger for non-verifier research failure', () => {
+    const dir = setupWorkspace({
+      'tasks.md':
+        '## Done\n\n- [x] **关羽** dispatch `fedcba98` — paseo 调研 blocked because external docs are unclear\n',
+    })
+
+    const result = parseCockpit(dir)
+    const loopActions = result.aiActions.filter((a) => a.id.startsWith('loop:'))
+    expect(loopActions).toEqual([])
+  })
+
   test('actions sorted high before medium before low', () => {
     const dir = setupWorkspace()
     const result = parseCockpit(dir)

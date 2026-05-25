@@ -90,4 +90,13 @@ describe('buildProtocolDoc', () => {
     expect(doc).toContain('跨 session 续接')
     expect(doc).toContain('保任务语义')
   })
+
+  test('contains loop playbook rules for bounded verifier retry loops', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Loop Playbook')
+    expect(doc).toContain('verifier')
+    expect(doc).toContain('max iterations')
+    expect(doc).toContain('有界停止')
+    expect(doc).toContain('保任务语义')
+  })
 })

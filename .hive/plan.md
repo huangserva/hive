@@ -146,6 +146,7 @@ last_review: 2026-05-25
 - [ ] 把 paseo 5 个 playbook（handoff / advisor / committee / epic / loop）转译成 HippoTeam 形态
 - [x] 调研 + 设计产出：`.hive/reports/m17-skills-playbook-design-2026-05-25.html` + `.hive/research/2026-05-25-m17-skills-playbook.md` (`3b9a5f0`)
 - [x] Handoff playbook first slice：template seed + ORCHESTRATOR_RULES + Cockpit playbook aiAction + ADR draft (`d1cab8a`)
+- [x] Loop playbook second slice：template seed + ORCHESTRATOR_RULES + conservative Cockpit playbook aiAction（commit 见本 dispatch report）
 - [ ] 产出：`.hive/templates/*` playbook 模板 + ORCHESTRATOR_RULES 对应规则 + Cockpit ActionBar 建议
 - 触发：idea-2 promote。成熟度🟢高，不依赖 mobile/voice 决策，直接增强当前 PM 体系
 - 先派 worker 出调研 + 设计（reports/*.html + research/*.md 配对），再实现

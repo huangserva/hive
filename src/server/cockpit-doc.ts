@@ -75,6 +75,12 @@ const isRecentIdea = (idea: PMIdea, now = Date.now()) => {
 
 const cancelledDispatchPattern =
   /^-\s+\[~\]\s+\*\*(.+?)\*\*\s+dispatch\s+`([0-9a-fA-F-]{8})`\s+—\s+(.+)$/gmu
+const reportedDispatchPattern =
+  /^-\s+\[x\]\s+\*\*(.+?)\*\*\s+dispatch\s+`([0-9a-fA-F-]{8})`\s+—\s+(.+)$/gmu
+const blockedOrFailedPattern = /\b(blocked|failed|failure|failing|stuck)\b|阻塞|失败|未通过/iu
+const verifierRetryPattern =
+  /\b(verifier|verify|test|tests|check|build|e2e|lint|tsc|vitest|pnpm|ready|retry|retries)\b|验证|检查|测试|跑测|重试|通过/iu
+const researchOnlyPattern = /调研|research|investigate/iu
 
 const handoffPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
   const actions: AIAction[] = []
@@ -89,6 +95,28 @@ const handoffPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
       priority: 'medium',
       targetTab: 'tasks',
       text: `准备 handoff brief：${workerName} dispatch ${dispatchShortId} 已取消/接手中 — ${summary}`,
+      type: 'playbook',
+    })
+  }
+  return actions.slice(0, 2)
+}
+
+const loopPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
+  const actions: AIAction[] = []
+  for (const match of tasks.raw.matchAll(reportedDispatchPattern)) {
+    const workerName = match[1]?.trim()
+    const dispatchShortId = match[2]?.trim()
+    const summary = match[3]?.trim()
+    if (!workerName || !dispatchShortId || !summary) continue
+    if (!blockedOrFailedPattern.test(summary)) continue
+    if (!verifierRetryPattern.test(summary)) continue
+    if (researchOnlyPattern.test(summary)) continue
+    actions.push({
+      action: '准备',
+      id: `loop:${dispatchShortId}`,
+      priority: 'medium',
+      targetTab: 'tasks',
+      text: `准备 loop brief：${workerName} dispatch ${dispatchShortId} 需要有界 verifier 重试 — ${summary}`,
       type: 'playbook',
     })
   }
@@ -139,6 +167,7 @@ const buildAiActions = (
       type: 'decision' as const,
     })),
     ...handoffPlaybookActions(tasks),
+    ...loopPlaybookActions(tasks),
   ]
   if (baseline.staleHint) {
     actions.push({

@@ -32,6 +32,9 @@ describe('ensurePmDocs', () => {
     expect(
       existsSync(join(workspacePath, '.hive', 'templates', 'playbook-handoff.template.md'))
     ).toBe(true)
+    expect(existsSync(join(workspacePath, '.hive', 'templates', 'playbook-loop.template.md'))).toBe(
+      true
+    )
   })
 
   test('does not overwrite existing plan.md', () => {
@@ -142,6 +145,23 @@ describe('ensurePmDocs', () => {
     expect(content).toContain('investigate')
     expect(content).toContain('fix')
     expect(content).toContain('验收标准')
+  })
+
+  test('loop playbook template requires a verifier and bounded stop condition', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-loop-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(
+      join(workspacePath, '.hive', 'templates', 'playbook-loop.template.md'),
+      'utf8'
+    )
+    expect(content).toContain('verifier')
+    expect(content).toContain('具体命令')
+    expect(content).toContain('max iterations')
+    expect(content).toContain('成功判据')
+    expect(content).toContain('保任务语义')
   })
 
   test('does not overwrite existing baseline/module-map.md', () => {
