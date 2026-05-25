@@ -5,7 +5,7 @@
 ## 后端 (src/server/)
 
 ### Runtime / app shell
-- app.ts — 创建 HTTP server、route 分发、静态资源与 app context。
+- app.ts — 创建 HTTP server、route 分发、静态资源与 app context；静态资源缓存头（index.html no-cache / assets immutable）。
 - routes.ts — HTTP route registry，按 method/path 匹配 RouteDefinition。
 - route-helpers.ts — route DSL、参数读取、JSON 响应工具。
 - route-types.ts — RouteContext、body 类型、Feishu transport DI 类型。
@@ -19,7 +19,7 @@
 - runtime-store.ts — RuntimeStore facade，组合 workspace/agent/team/feishu/PM 服务。
 - runtime-store-helpers.ts — 创建 stores、watcher、agentRuntime、lifecycle helpers。
 - runtime-database.ts — 打开 better-sqlite3 runtime.sqlite 并初始化 schema。
-- sqlite-schema.ts — 当前 schema v21 与迁移调度。
+- sqlite-schema.ts — 当前 schema v22 与迁移调度（v22 = Codex preset 内置 playwright MCP）。
 - sqlite-schema-v*.ts — 历史 schema migration，小步 ALTER/CREATE。
 - workspace-store.ts — workspace/worker 内存状态 facade。
 - workspace-store-contract.ts — workspace store 类型契约。
@@ -49,7 +49,7 @@
 - agent-session-store.ts — agent_sessions 表，Layer A session id。
 - agent-tokens.ts — per-agent token 生成与校验。
 - agent-startup-instructions.ts — agent 启动注入的 team guidance。
-- agent-stdin-dispatcher.ts — 向 agent PTY 写入 team/system/user 消息。
+- agent-stdin-dispatcher.ts — 向 agent PTY 写入 team/system/user 消息；worker dispatch 注入 PM_DISPATCH_REMINDER + 紧凑 Cockpit 快照（M13 Layer 4）；answer→orch nudge payload（idea-6）。
 - post-start-input-writer.ts — PTY 启动后写初始 prompt/env review。
 - worker-output-tracker.ts — 跟踪 worker 最近输出行。
 
@@ -94,13 +94,14 @@
 - tasks-file-watcher.ts — chokidar watch tasks/plan/cockpit PM 文件。
 - task markdown parsers live in web/src/tasks; server only stores file text.
 - plan-doc.ts — plan.md parser。
-- cockpit-doc.ts — ParsedCockpit 聚合器与 aiActions。
-- pm-questions-doc.ts — open-questions.md parser。
+- cockpit-doc.ts — ParsedCockpit 聚合器与 aiActions（含 reports 聚合、handoff/loop playbook 建议）。
+- pm-questions-doc.ts — open-questions.md parser；answerQuestionInFile 写回已答。
 - pm-ideas-doc.ts — ideas/inbox.md parser。
-- pm-baseline-doc.ts — baseline dir metadata parser。
+- pm-baseline-doc.ts — baseline dir metadata parser + git staleness 检测。
 - pm-decisions-doc.ts — decisions dir parser。
 - pm-archive-doc.ts — archive/YYYY-MM parser。
-- pm-templates.ts — plan/ADR/handoff/research/baseline 模板。
+- pm-reports-doc.ts — reports/*.html 列表 parser（title/date/topic/mtime，Cockpit Reports tab）。
+- pm-templates.ts — plan/ADR/handoff/research/baseline + 5 个 playbook（handoff/loop/advisor/committee/epic）模板。
 - hive-team-guidance.ts — ORCHESTRATOR_RULES/REMINDER/PROTOCOL builder。
 - session-start-review-message.ts — session-start PM review system message。
 
@@ -121,7 +122,7 @@
 - routes-dispatches.ts — dispatch list/cancel UI endpoints。
 - routes-tasks.ts — tasks.md API。
 - routes-plan.ts — plan.md API。
-- routes-cockpit.ts — cockpit aggregate API。
+- routes-cockpit.ts — cockpit aggregate API + question answer（idea-6）+ report-file（同浏览器 serve reports/*.html，path-traversal 防护）。
 - routes-fs.ts — file browser/picker endpoints。
 - routes-settings.ts — settings endpoints。
 - routes-ui.ts — UI session/bootstrap endpoints。
@@ -139,6 +140,8 @@
 - app.tsx — root state composition and workspace selection wiring。
 - main.tsx — React entrypoint。
 - api.ts — fetch/WebSocket client functions and shared response types。
+- reconnecting-websocket.ts — WS 自动 backoff 重连封装（tasks/terminal/cockpit 共用）。
+- preload-recovery.ts — 监听 Vite dynamic-import 失败自动 reload（build 换 hash 后免手刷）。
 - AppProviders.tsx — app-level providers。
 - AppOverlays.tsx — dialogs/drawers composition。
 - AppWorkspaceContent.tsx — active workspace main content。

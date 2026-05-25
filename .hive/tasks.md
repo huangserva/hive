@@ -5,11 +5,9 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `b947680a` — M13 Layer 4（串行队列最后一个）：给 worker dispatch 注入紧凑 Cockpit 快照（current_phase + 活跃 milestone + open Q 数 + baseline stale + 共维护提醒），buildWorkerDispatchPayload append，务必紧凑
+（空 — 本轮 greenlit 全收完 + baseline 已刷。等 user 最后一次重启 4010 激活所有 server 改动）
 
 ## Open（user 回来决定）
-
-- [ ] **收尾：刷 baseline**（user 同意 5/25）— Cockpit Baseline 标"过期"（module-map 等落后于今天大量新模块）。等 Layer 4 收完，一次性把 pm-reports-doc / reconnecting-websocket / preload-recovery / 5 playbook / report-file 路由 / cockpit-doc 扩展 / idea-6 注入等补进 module-map + runtime-flows，消除 staleness
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
@@ -21,6 +19,8 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **Orchestrator** — 收尾刷 baseline（消 staleness）：module-map（+pm-reports-doc/reconnecting-websocket/preload-recovery，schema v21→v22，标注 dispatcher 快照注入/cockpit reports+playbook/routes-cockpit report-file+answer）+ runtime-flows（Flow1 Layer4 快照、Flow4 reports/answer/9 tabs）+ state-storage（schema v22）
+- [x] **赵云** dispatch `b947680a` — **M13 Layer 4**（5 层全齐 shipped）：buildWorkerCockpitSnapshot 生成 4 行紧凑快照（phase + 活跃 milestone + open Q/high 数 + baseline fresh/stale + 共维护提醒，<520 字符），dispatch 当下经 writeSendPrompt 注入到 PM_DISPATCH_REMINDER 之后。真 PTY CLI 测试断言 worker stdin 真带快照。全 gate 绿 1143 tests + orch 复验 19/19 (`62ca462`)。⚠️注入逻辑 merge 后需重启 4010
 - [x] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开：runtime 加 GET report-file 路由（只允许 .hive/reports/ 下 .html，path-traversal/非html/不存在分别拒）+ ReportsTab 改 window.open(_blank)，不再 shell OS open 弹默认浏览器。16 focused + 全量 1141 (`4e20c7f`)。⚠️新路由 merge 后需重启 4010
 - [x] **赵云** dispatch `73ebadd8` — **M17 收官**（5/5 playbook 全齐）：advisor + committee + epic 三模板 seed + ORCHESTRATOR_RULES 三段 + plan.md M17 标 shipped。advisor/committee/epic **故意不加 aiAction**（无干净触发信号，硬凑会污染 ActionBar，是 PM 主动选择型）。三 gate 绿 1141 tests + orch 复验 31/31 (`4304d2e`)。⚠️RULES merge 后需重启 4010
 - [x] **关羽** dispatch `c883244c` — M12 Cockpit Reports tab（第 9 个 tab）：新建 pm-reports-doc parseReportsDoc（扫 reports/*.html 抽 title/date/topic，mtime 倒序）+ cockpit-doc 聚合 + ReportsTab.tsx（镜像 ResearchTab，复用 open-file endpoint）+ i18n + 测试。全 gate 绿 1131 tests + orch 复验 27+3 (`a7c0860`)。⚠️cockpit-doc server 改动 merge 后需重启 4010 才出数据

@@ -13,6 +13,7 @@ User
   -> workspace-store-mutations.ts pending_task_count += 1, status=working
   -> dispatch-ledger-store.ts creates submitted dispatch
   -> agent-stdin-dispatcher.ts writes task prompt into worker PTY
+     (task + PM_DISPATCH_REMINDER + 紧凑 Cockpit 快照 [M13 Layer 4])
   -> message-log-store.ts records send message
   -> web refresh/WS shows worker working
 ```
@@ -20,6 +21,7 @@ User
 Notes:
 - Protocol state is event-driven: send -> working, report -> idle when pending is zero.
 - Worker identity is by worker name at CLI boundary; internal IDs stay server-side.
+- M13 Layer 4: dispatch 当下 parseCockpit 生成 4 行快照（phase/milestone/open Q/baseline stale/共维护提醒）注入，worker 接活即带 PM 上下文。
 
 ## Flow 2: Worker `team report` 回 orch
 
@@ -67,11 +69,13 @@ Notes:
   -> RuntimeStore registerCockpitListener callbacks
   -> cockpit-websocket-server.ts publishes /ws/cockpit/:workspaceId
   -> cockpit-doc.ts parseCockpit(workspacePath)
-  -> plan/PM parsers produce ParsedCockpit
+  -> plan/PM parsers (含 pm-reports-doc) produce ParsedCockpit
   -> web/src/cockpit/useCockpit.ts receives snapshot/update
-  -> CockpitDrawer renders tabs + action bar
+  -> CockpitDrawer renders 9 tabs (含 Reports) + action bar
 ```
 
 Notes:
 - Legacy `/ws/plan/:workspaceId` remains for PlanDrawer backward compatibility.
-- `aiActions` currently derive from high/medium questions, recent ideas, draft decisions, and baseline stale hint.
+- `aiActions` derive from high/medium questions, recent ideas, draft decisions, baseline stale hint, orphan reports, 以及 handoff/loop playbook 建议（advisor/committee/epic 无自动触发）。
+- Reports tab 用 routes-cockpit report-file 路由在同浏览器开 HTML；Questions 答复经 answer route nudge orch PTY（idea-6）。
+- Cockpit 9 tabs: Plan/Tasks/Questions/Ideas/Decisions/Research/Reports/Baseline/Archive。

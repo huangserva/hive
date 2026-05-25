@@ -13,7 +13,7 @@
 
 ## SQLite schema version
 
-- Current schema: `CURRENT_SCHEMA_VERSION = 21` in `src/server/sqlite-schema.ts`.
+- Current schema: `CURRENT_SCHEMA_VERSION = 22` in `src/server/sqlite-schema.ts` (v22 = Codex builtin preset 注入 playwright MCP)。
 - `schema_version(version, applied_at)` records applied migrations.
 - Migrations live in `sqlite-schema-v*.ts`; schema changes must go through them.
 
