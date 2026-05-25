@@ -5,10 +5,10 @@
 
 ## In progress
 
-（空）
+- [ ] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：对比 ①自建 mobile ②第三方框架 ③飞书+voice，出 reports+research+ADR draft 给推荐路线。**user 出门，结论走飞书**
 
-> ✅ 终端输入框 bug：user 硬刷新后 **300 行压力实测通过、已关闭**（9b63ae2）
-> ⚠️ 待 user 重启 4010：#7 RuntimeStatusStrip 新 endpoint 才生效（重启后张飞验收）；之前 idea-7 viewer + 终端修复都是纯前端，已验证可用
+> ✅ 终端输入框 bug：user 硬刷 300 行实测通过、关闭（9b63ae2）｜#7 已重启上线（endpoint 403 验证在；待 user 瞄 sidebar 底部状态条）
+> 📱 user 出门中，进展走飞书（chat oc_0d5e…，team feishu reply --chat）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)

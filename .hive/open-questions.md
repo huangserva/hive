@@ -22,3 +22,5 @@
 - [x] **Q1** PM 全套 i18n（Cockpit 8 tabs + ActionBar + drawer / PlanDrawer / WorkspaceSettings Feishu 段）→ **shipped `2b3e2ed`**：104 个新 i18n key（中英文各），22 个组件改完，CJK 扫描 0 命中。user 切顶栏中/英按钮，重启 4010 + 刷新后所有 PM 文案双语。
 
 - [x] **Q7** 确认归档 M17 handoff ADR（`.hive/decisions/2026-05-25-m17-handoff-playbook.md`，现 status=draft）？它记录的设计裁决——playbook 作为 PM 文档制品（不另造 runtime）/ 先模板后自动化 / ActionBar 只建议不自动执行 / handoff first——会作为后续 4 个 playbook（loop/advisor/committee/epic）的实现基调。你确认就把 status 改 accepted 归档。 → **answered 2026-05-25**：可以的
+
+- [x] **Q8** 是否将 idea 提升为 question：**idea-3 paseo Provider catalog manifest 借鉴**（preset 方向） → **answered 2026-05-25**：同意
