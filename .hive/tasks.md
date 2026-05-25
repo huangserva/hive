@@ -5,12 +5,12 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `8e5bb22e` — 【浏览器刷新 bug 三件套 + i18n 漏翻 · TDD】app.ts 缓存头 + 客户端 chunk 失败自动重载 + WS backoff 重连 + ActionBar 英文模式漏翻"查看"修正。改完自己 rebuild，注明 merge 后需重启 4010
+- [ ] **赵云** dispatch `81b4df68` — 【M17 playbook #2：loop · TDD】playbook-loop 模板 seed + ORCHESTRATOR_RULES loop 段 + Cockpit playbook aiAction（保守）+ 测试。沿用 handoff 同套模式 (d1cab8a)
 
 ## Open（user 回来决定）
 
-- [ ] M17 余下 4 个 playbook（loop → advisor → committee → epic，按赵云推荐顺序，逐个实现）；下一个 = **loop**（带 verifier 的重试循环，治"典韦不 commit 要人盯"）
-- [ ] M12 Cockpit Reports tab（Q2 拍板 5/25 要做）— 队列中
+- [ ] **本轮 greenlit 串行队列**（都触碰 cockpit-doc.ts，串行避免撞）：①M17 loop（赵云进行中）→ ②M12 Reports tab（Cockpit 列 reports/*.html + 一键打开）→ ③M13 Layer 4（Cockpit snapshot 注入所有 PTY worker，治 worker 看不见 PM 状态）
+- [ ] M17 余下 3 个 playbook（advisor → committee → epic，loop 后按赵云推荐顺序）
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
@@ -23,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **赵云** dispatch `8e5bb22e` — 浏览器刷新 bug 根治：app.ts 缓存头（index.html no-cache / assets immutable）+ preload-recovery.ts（Vite chunk 失败自动重载）+ reconnecting-websocket.ts（tasks/terminal/cockpit WS backoff 重连）+ ActionBar 英文漏翻修正。三 gate 绿 1117 tests + orch 复验 21/21 (`3164deb`)。⚠️app.ts 改动 merge 后需重启 4010
 - [x] **关羽** dispatch `23eb5cec` — idea-6 闭环：Cockpit 答 question 后自动 nudge orchestrator（answer route→store.notifyQuestionAnswered→writeQuestionAnsweredPrompt 注入 orch PTY；无 active run 优雅 no-op；真 PTY 集成测试无 mock）。三 gate 绿 1114 tests，更新 plan.md M15 (`a990f14`)。⚠️merge 后需重启 4010
 - [x] **张飞** dispatch `7a86c021` — 全 app 真浏览器 UI sweep：16 PASS / 0 console error / 1 medium（派单提到 Reports tab 但实际只有 8 tab——Reports 是 M12 未建，预期内非 bug）/ 1 low（ActionBar 英文模式漏翻"查看"，已派赵云修）/ 1 未验证（Questions submit 因无 open question，待 idea-6 落地后造测试数据验）。报告 + research (`eed047e`)
 - [x] **关羽** dispatch `ded4e020` — 修张飞巡检发现 #1 aria-describedby（dialog console warning 归零）+ #3 Todo Add Task Save/Cancel affordance + #4 移除 unsupported audio preload。浏览器验证 0 warning (`94dccfc`)
