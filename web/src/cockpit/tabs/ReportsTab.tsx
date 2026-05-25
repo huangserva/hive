@@ -1,7 +1,6 @@
 import { ExternalLink } from 'lucide-react'
 
 import type { ParsedReports, PMReportEntry } from '../../api.js'
-import { openWorkspaceFile } from '../../api.js'
 import { useI18n } from '../../i18n.js'
 
 const formatMtime = (mtime: string) =>
@@ -11,9 +10,10 @@ const ReportEntryCard = ({ entry, workspaceId }: { entry: PMReportEntry; workspa
   const { t } = useI18n()
   const openReport = () => {
     if (!workspaceId) return
-    openWorkspaceFile(workspaceId, entry.path).catch((error) => {
-      console.warn('Failed to open Cockpit report', error)
-    })
+    const url = `/api/workspaces/${workspaceId}/cockpit/report-file?path=${encodeURIComponent(
+      entry.path
+    )}`
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
   return (
     <div className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>

@@ -1,5 +1,8 @@
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { resolve, sep } from 'node:path'
+
 import { parseCockpit } from './cockpit-doc.js'
-import { BadRequestError } from './http-errors.js'
+import { BadRequestError, NotFoundError } from './http-errors.js'
 import { openWorkspaceFile } from './open-file.js'
 import { confirmDecisionInFile } from './pm-decisions-doc.js'
 import { type IdeaPromoteTarget, promoteIdeaInFile } from './pm-ideas-doc.js'
@@ -20,6 +23,36 @@ interface OpenFileBody {
   path?: unknown
 }
 
+const REPORTS_PATH_PREFIX = '.hive/reports/'
+
+const isInside = (root: string, candidate: string) => {
+  const relative = candidate.slice(root.length)
+  return candidate === root || relative.startsWith(sep)
+}
+
+const readWorkspaceReportHtml = (workspacePath: string, requestedPath: string) => {
+  const trimmed = requestedPath.trim()
+  if (!trimmed) throw new BadRequestError('path must not be empty')
+  if (!trimmed.toLowerCase().endsWith('.html')) {
+    throw new BadRequestError('report path must be an .html file')
+  }
+  if (!trimmed.startsWith(REPORTS_PATH_PREFIX)) {
+    throw new BadRequestError('report path must stay inside .hive/reports')
+  }
+
+  const workspaceRoot = resolve(workspacePath)
+  const reportsRoot = resolve(workspaceRoot, '.hive', 'reports')
+  const candidate = resolve(workspaceRoot, trimmed)
+  if (!isInside(reportsRoot, candidate)) {
+    throw new BadRequestError('report path must stay inside .hive/reports')
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
+    throw new NotFoundError(`Report not found: ${requestedPath}`)
+  }
+
+  return readFileSync(candidate, 'utf8')
+}
+
 export const cockpitRoutes: RouteDefinition[] = [
   route('GET', '/api/workspaces/:workspaceId/cockpit', ({ params, request, response, store }) => {
     const workspaceId = getRequiredParam(
@@ -35,6 +68,30 @@ export const cockpitRoutes: RouteDefinition[] = [
     const workspace = store.getWorkspaceSnapshot(workspaceId)
     sendJson(response, 200, parseCockpit(workspace.summary.path))
   }),
+  route(
+    'GET',
+    '/api/workspaces/:workspaceId/cockpit/report-file',
+    ({ params, request, response, store }) => {
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+
+      requireUiTokenFromRequest(request, store.validateUiToken)
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const reportPath = url.searchParams.get('path')
+      if (!reportPath) throw new BadRequestError('path is required')
+
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      const html = readWorkspaceReportHtml(workspace.summary.path, reportPath)
+      response.statusCode = 200
+      response.setHeader('content-type', 'text/html; charset=utf-8')
+      response.end(html)
+    }
+  ),
   route(
     'POST',
     '/api/workspaces/:workspaceId/cockpit/questions/:questionId/answer',

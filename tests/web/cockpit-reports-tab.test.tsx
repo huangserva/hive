@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { ParsedReports } from '../../web/src/api.js'
@@ -56,12 +56,8 @@ describe('ReportsTab', () => {
     expect(screen.getByRole('button', { name: 'Open report' })).toBeInTheDocument()
   })
 
-  test('Open button posts existing open-file request for the report path', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    })
-    vi.stubGlobal('fetch', fetchMock)
+  test('Open button opens the report-file route in a browser tab', () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
 
     render(
       <ReportsTab
@@ -85,14 +81,10 @@ describe('ReportsTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open report' }))
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/workspaces/ws1/open-file',
-        expect.objectContaining({
-          body: JSON.stringify({ path: '.hive/reports/2026-05-25-cockpit-e2e.html' }),
-          method: 'POST',
-        })
-      )
-    })
+    expect(openSpy).toHaveBeenCalledWith(
+      '/api/workspaces/ws1/cockpit/report-file?path=.hive%2Freports%2F2026-05-25-cockpit-e2e.html',
+      '_blank',
+      'noopener,noreferrer'
+    )
   })
 })

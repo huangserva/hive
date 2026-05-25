@@ -48,6 +48,12 @@ const fetchJson = async (url: string, init: RequestInit = {}) => {
   return { body, status: response.status }
 }
 
+const fetchText = async (url: string, init: RequestInit = {}) => {
+  const response = await fetch(url, init)
+  const body = await response.text()
+  return { body, contentType: response.headers.get('content-type'), status: response.status }
+}
+
 describe('GET /api/workspaces/:workspaceId/cockpit', () => {
   test('returns 403 when UI token is missing', async () => {
     const { baseUrl, workspace } = await setupServer()
@@ -267,5 +273,71 @@ describe('POST /api/workspaces/:workspaceId/open-file', () => {
 
     expect(status).toBe(400)
     expect(body.error).toBe('path must be inside workspace')
+  })
+})
+
+describe('GET /api/workspaces/:workspaceId/cockpit/report-file', () => {
+  test('serves report html inside .hive/reports', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+    const reportsDir = join(workspace.path, '.hive', 'reports')
+    mkdirSync(reportsDir, { recursive: true })
+    writeFileSync(
+      join(reportsDir, '2026-05-25-cockpit-report.html'),
+      '<!doctype html><title>Cockpit Report</title><h1>OK</h1>',
+      'utf8'
+    )
+
+    const { body, contentType, status } = await fetchText(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/report-file?path=${encodeURIComponent(
+        '.hive/reports/2026-05-25-cockpit-report.html'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(200)
+    expect(contentType).toContain('text/html')
+    expect(body).toContain('<h1>OK</h1>')
+  })
+
+  test('rejects path traversal outside .hive/reports', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/report-file?path=${encodeURIComponent(
+        '.hive/reports/../escaped.html'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('report path must stay inside .hive/reports')
+  })
+
+  test('rejects non-html report paths', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/report-file?path=${encodeURIComponent(
+        '.hive/reports/report.md'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('report path must be an .html file')
+  })
+
+  test('returns 404 when report file does not exist', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/report-file?path=${encodeURIComponent(
+        '.hive/reports/missing.html'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(404)
+    expect(body.error).toBe('Report not found: .hive/reports/missing.html')
   })
 })
