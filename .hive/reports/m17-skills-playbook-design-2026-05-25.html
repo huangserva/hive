@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>M17 paseo skills playbook 体系借鉴设计</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1218;
+      --panel: #171c24;
+      --panel-2: #1f2630;
+      --text: #e8edf5;
+      --muted: #9ca8ba;
+      --line: #2c3542;
+      --accent: #7dd3fc;
+      --good: #86efac;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 24px 72px;
+    }
+    h1, h2, h3 { line-height: 1.2; margin: 0 0 14px; }
+    h1 { font-size: 34px; letter-spacing: 0; }
+    h2 { font-size: 24px; margin-top: 34px; }
+    h3 { font-size: 18px; margin-top: 22px; }
+    p { margin: 0 0 12px; }
+    a { color: var(--accent); }
+    code {
+      background: #111720;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 1px 5px;
+      color: #dbeafe;
+    }
+    .hero {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+    }
+    .kicker {
+      color: var(--accent);
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+    }
+    .summary {
+      color: var(--muted);
+      max-width: 860px;
+      font-size: 16px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+      margin: 22px 0 8px;
+    }
+    .tile, .card, .decision {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .tile { padding: 14px; }
+    .tile strong { display: block; font-size: 14px; margin-bottom: 4px; }
+    .tile span { color: var(--muted); font-size: 13px; }
+    .card {
+      padding: 20px;
+      margin: 18px 0;
+    }
+    .meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 10px 0 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 24px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      border-radius: 999px;
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .badge.good { color: var(--good); }
+    .badge.warn { color: var(--warn); }
+    .badge.bad { color: var(--bad); }
+    .cols {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .box {
+      background: #111720;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 150px;
+    }
+    .box h4 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+    ul, ol { margin: 8px 0 0 20px; padding: 0; }
+    li { margin: 5px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 11px 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: var(--panel-2);
+      color: var(--accent);
+      font-size: 13px;
+    }
+    td { background: var(--panel); }
+    .decision {
+      padding: 16px;
+      margin: 12px 0;
+      border-left: 4px solid var(--accent);
+    }
+    .priority {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--good);
+    }
+    @media (max-width: 900px) {
+      .grid, .cols { grid-template-columns: 1fr; }
+      main { padding: 28px 16px 56px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div class="kicker">HippoTeam M17 design · 2026-05-25</div>
+    <h1>paseo skills playbook 体系借鉴设计</h1>
+    <p class="summary">
+      结论：不要复制 paseo 的 runtime；把 5 个 playbook 转译成 HippoTeam 的 PM 文档、模板、ORCHESTRATOR_RULES 和 Cockpit ActionBar 建议。优先落地 handoff，因为它最直接补齐 worker rescue、跨 session 续接和 dispatch 质量问题。
+    </p>
+    <div class="grid">
+      <div class="tile"><strong>1. Handoff</strong><span>最高 ROI，低实现风险</span></div>
+      <div class="tile"><strong>2. Loop</strong><span>把反复验证变成有边界流程</span></div>
+      <div class="tile"><strong>3. Advisor</strong><span>只读第二意见，减少盲点</span></div>
+      <div class="tile"><strong>4. Committee</strong><span>卡住时做双模型根因分析</span></div>
+      <div class="tile"><strong>5. Epic</strong><span>大项目的不可变需求与阶段门</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>现有上下文</h2>
+    <p>
+      参考源码位于 <code>~/development/paseo/skills/</code>。本次读了 <code>paseo-handoff</code>、<code>paseo-advisor</code>、<code>paseo-committee</code>、<code>paseo-epic</code>、<code>paseo-loop</code>，并参考 <code>paseo</code> 基础 skill 与已废弃的 <code>paseo-orchestrate</code>。
+    </p>
+    <p>
+      HippoTeam 已有 <code>.hive/plan.md</code>、<code>tasks.md</code>、<code>open-questions.md</code>、<code>ideas/inbox.md</code>、<code>decisions/</code>、<code>research/</code>、<code>reports/</code>、<code>baseline/</code>、Cockpit 与 ActionBar。缺口不是“没有 PM 状态”，而是缺少可复用的协作操作手册。
+    </p>
+  </section>
+
+  <section>
+    <h2>总设计</h2>
+    <div class="decision">
+      <strong>设计裁决：</strong>先把 playbook 做成 PM 层能力：模板负责结构化 brief，ORCHESTRATOR_RULES 负责触发条件，Cockpit ActionBar 负责把当前状态里的“该用某个 playbook”暴露出来。运行时自动化放到后续，而不是 M17 第一刀。
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>层</th>
+          <th>建议落点</th>
+          <th>理由</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>模板</td>
+          <td><code>.hive/templates/playbook-*.template.md</code></td>
+          <td>沿用现有 PM 模板机制；先解决 brief 缺字段、上下文丢失、验收不清的问题。</td>
+        </tr>
+        <tr>
+          <td>规则</td>
+          <td><code>src/server/hive-team-guidance.ts</code> 的 ORCHESTRATOR_RULES 新增 “Playbooks” 小节</td>
+          <td>把“什么时候必须用 playbook”写进 orchestrator 协议，避免靠临场记忆。</td>
+        </tr>
+        <tr>
+          <td>Cockpit</td>
+          <td><code>cockpit-doc.ts</code> 的 <code>aiActions</code> 增加 <code>playbook</code> 类型建议</td>
+          <td>ActionBar 已是 PM 主动行为入口，适合提醒“准备 handoff brief / 发起 advisor / 启动 bounded loop”。</td>
+        </tr>
+        <tr>
+          <td>后续 runtime</td>
+          <td>必要时再加 <code>team playbook prepare/run</code></td>
+          <td>advisor、committee、loop 会消耗 worker 或执行命令，先不要自动化到不可控。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>逐个 playbook 转译</h2>
+
+    <article class="card">
+      <h3>1. paseo-handoff → HippoTeam handoff brief</h3>
+      <div class="meta">
+        <span class="badge good">优先级 #1</span>
+        <span class="badge">低实现风险</span>
+        <span class="badge">直接改善 worker rescue</span>
+      </div>
+      <p><strong>paseo 原版本质：</strong>把当前任务完整移交给另一个 agent，确保对方不靠聊天上下文猜测。</p>
+      <p><strong>关键步骤：</strong>识别 provider/worktree/task → 整理自包含 handoff prompt → 包含 task、context、files、current state、tried、decisions、acceptance、constraints → 启动接手 agent。</p>
+      <p><strong>HippoTeam 缺口：</strong>现在有 session 级 <code>handoff.html</code> 和 worker <code>team report</code>，但没有任务级移交 brief。关羽 stuck、dispatch 被 rescue、worker 重启时仍依赖 orch 手写长 prompt。</p>
+      <div class="cols">
+        <div class="box">
+          <h4>Templates</h4>
+          <ul>
+            <li>新增 <code>playbook-handoff.template.md</code></li>
+            <li>字段：任务、dispatch id、当前状态、相关文件、已尝试、决策、验收标准、约束、PM 文档影响</li>
+            <li>输出位置可先用 <code>.hive/reports/</code> 或 <code>.hive/handoff.html</code> 附录，后续再加 <code>.hive/playbooks/</code></li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>Rules</h4>
+          <ul>
+            <li>worker rescue、跨 worker 转派、同任务重启、长任务中断时必须先写 handoff brief</li>
+            <li>不得改变任务语义：调研任务不能在 handoff 里变成实现任务</li>
+            <li>brief 必须列未验证假设与剩余风险</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>ActionBar</h4>
+          <ul>
+            <li>当 tasks/dispatch 状态显示 stuck、canceled、reassigned 时提示“准备 handoff brief”</li>
+            <li>当活跃 worker 长时间无 report 且有未完成验收时提示 handoff</li>
+            <li>第一版可以只基于 tasks.md 文案和 dispatch 状态做保守提醒</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>2. paseo-loop → bounded worker/verifier loop</h3>
+      <div class="meta">
+        <span class="badge good">优先级 #2</span>
+        <span class="badge warn">需要边界保护</span>
+      </div>
+      <p><strong>paseo 原版本质：</strong>让 worker 和 verifier 反复迭代，直到明确 verifier 通过或达到停止条件。</p>
+      <p><strong>关键步骤：</strong>明确目标 → 写 worker prompt → 选择 shell check 或 verifier prompt → 设置 max iterations/time → 归档每轮日志 → stop。</p>
+      <p><strong>HippoTeam 缺口：</strong>现在测试失败、E2E audit、外部状态等待都靠 orch 手动重复派单和复跑命令；没有统一的 loop 记录、验收条件和停止线。</p>
+      <div class="cols">
+        <div class="box">
+          <h4>Templates</h4>
+          <ul>
+            <li>新增 <code>playbook-loop.template.md</code></li>
+            <li>字段：目标、worker prompt、verify command、verifier criteria、max iterations、max time、每轮记录、退出原因</li>
+            <li>loop 日志后续可归档到 <code>.hive/archive/YYYY-MM/</code></li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>Rules</h4>
+          <ul>
+            <li>任何 loop 必须有 max iterations 或 max time</li>
+            <li>verifier 只判断事实和证据，不负责给修复方案</li>
+            <li>失败三轮以上必须升级为 advisor 或 committee，而不是无限重试</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>ActionBar</h4>
+          <ul>
+            <li>当最近 report 显示同一验证命令反复失败时建议 bounded loop</li>
+            <li>当 tasks 中出现“等待外部检查/PR/check”时建议 babysit loop</li>
+            <li>初版只建议“准备 loop brief”，不自动执行命令</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>3. paseo-advisor → read-only second opinion</h3>
+      <div class="meta">
+        <span class="badge">优先级 #3</span>
+        <span class="badge">适合决策前</span>
+      </div>
+      <p><strong>paseo 原版本质：</strong>问一个只读 advisor 做第二意见，自己保留最终判断。</p>
+      <p><strong>关键步骤：</strong>挑 provider/视角 → 写 sharp question → 给已考虑/已排除方案和相关文件 → 要求 recommendation with reasoning → 综合 advisor verdict 与自己的建议。</p>
+      <p><strong>HippoTeam 缺口：</strong>现在可以临时派 tester/reviewer，但没有明确“只读、单问题、不得改代码”的 advisor 模式；重大 ADR 草稿也缺少二次质询。</p>
+      <div class="cols">
+        <div class="box">
+          <h4>Templates</h4>
+          <ul>
+            <li>新增 <code>playbook-advisor.template.md</code></li>
+            <li>字段：问题、上下文、候选方案、已排除方案、相关文件、需要回答的 verdict、no-edits 约束</li>
+            <li>可在 ADR draft 里引用 advisor verdict</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>Rules</h4>
+          <ul>
+            <li>不可逆架构选择、付费/外部凭证、多方案取舍前建议 advisor</li>
+            <li>advisor 不写代码、不改 PM 文档，只交意见</li>
+            <li>orch 必须给出采纳/不采纳理由</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>ActionBar</h4>
+          <ul>
+            <li>decision draft 存在且未确认时提示“请 advisor 复核”</li>
+            <li>high priority open question 涉及多选项时提示 advisor</li>
+            <li>需要扩展 <code>AIActionType</code> 为 <code>playbook</code></li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>4. paseo-committee → two-advisor stuck analysis</h3>
+      <div class="meta">
+        <span class="badge">优先级 #4</span>
+        <span class="badge warn">消耗更高</span>
+      </div>
+      <p><strong>paseo 原版本质：</strong>卡住或高风险规划时，让两个高推理 agent 从不同模型家族做根因分析、计划质询和 diff review。</p>
+      <p><strong>关键步骤：</strong>问题级 prompt → 并行双 advisor → challenge assumptions → 合并计划 → 另行实现 → committee review diff → 需要时循环。</p>
+      <p><strong>HippoTeam 缺口：</strong>AGENTS.md 要求 milestone 前自评，但 Hive worker 边界禁止 nested subagents；实际做法应由 orchestrator 派多个 worker，却缺标准 committee brief 和 consensus 记录。</p>
+      <div class="cols">
+        <div class="box">
+          <h4>Templates</h4>
+          <ul>
+            <li>新增 <code>playbook-committee.template.md</code></li>
+            <li>字段：问题、症状、约束、尝试、假设、成员 A/B verdict、共识、分歧、用户需拍板项</li>
+            <li>可把最终 consensus 附到 ADR 或 milestone review</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>Rules</h4>
+          <ul>
+            <li>同一 bug 多轮失败、设计分歧严重、风险热点改动时启用</li>
+            <li>committee 成员只读，不直接实现</li>
+            <li>分歧不能被 orch 硬猜时挂 open question</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>ActionBar</h4>
+          <ul>
+            <li>同任务多次 canceled/retry 或 blocked 时提示 committee</li>
+            <li>risk-hotspots stale 且计划涉及 server core 时提示 committee</li>
+            <li>需要后续从 dispatch history 提取失败计数</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <h3>5. paseo-epic → large milestone ceremony</h3>
+      <div class="meta">
+        <span class="badge">优先级 #5</span>
+        <span class="badge warn">与 plan.md 重叠，需要谨慎</span>
+      </div>
+      <p><strong>paseo 原版本质：</strong>大项目流程：研究、意图捕获、不可变需求、计划、对抗审查、分阶段实施、交付。</p>
+      <p><strong>关键步骤：</strong>建 plan 文件 → capture intent → grill user → planner/reviewer 对抗 → 确认 → phase loop → delivery commit。</p>
+      <p><strong>HippoTeam 缺口：</strong>已有 global <code>plan.md</code> 和 tasks.md，但缺“不可变需求”块、phase gates、planner/reviewer 结构化审查。M13/M16 这类多层架构已经需要 epic 级 ceremony。</p>
+      <div class="cols">
+        <div class="box">
+          <h4>Templates</h4>
+          <ul>
+            <li>新增 <code>playbook-epic.template.md</code> 或 <code>epic-plan.template.md</code></li>
+            <li>建议后续 active docs 放 <code>.hive/epics/YYYY-MM-DD-slug.md</code></li>
+            <li>字段：目标、不可变需求、约束、阶段、验证门、交付条件、PM 文档影响</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>Rules</h4>
+          <ul>
+            <li>跨多 worker、多天、多模块或有用户体验承诺时必须建 epic</li>
+            <li>requirements 只由 user/orch 修改，reviewer 只能挑战 HOW</li>
+            <li>每个 phase 完成要更新 plan/tasks 和验证证据</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h4>ActionBar</h4>
+          <ul>
+            <li>milestone 有多条并行任务但无 epic plan 时提示建 epic</li>
+            <li>phase gate 未验证时提示“补 epic gate”</li>
+            <li>需要新增 <code>pm-epics-doc.ts</code> 后才能做准</li>
+          </ul>
+        </div>
+      </div>
+    </article>
+  </section>
+
+  <section>
+    <h2>优先级表</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Playbook</th>
+          <th>当前 PM 增益</th>
+          <th>实现切口</th>
+          <th>为什么不是更早/更晚</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="priority">1</td>
+          <td>Handoff</td>
+          <td>最高：直接减少 rescue 和跨 worker 续接的信息损耗。</td>
+          <td>模板 + ORCHESTRATOR_RULES + ActionBar stuck/reassign 提醒。</td>
+          <td>与现有 plan/tasks 重叠少，且马上能改善当前团队操作。</td>
+        </tr>
+        <tr>
+          <td class="priority">2</td>
+          <td>Loop</td>
+          <td>高：把重复修测试、E2E audit、外部等待变成有边界流程。</td>
+          <td>模板先行；后续再实现 runtime loop。</td>
+          <td>价值高，但自动执行风险比 handoff 大，必须先约束 stop 条件。</td>
+        </tr>
+        <tr>
+          <td class="priority">3</td>
+          <td>Advisor</td>
+          <td>中高：提高 ADR 和高风险选择质量。</td>
+          <td>只读 advisor brief + decision draft ActionBar。</td>
+          <td>容易做，但不是每天都会触发；排在 handoff/loop 后。</td>
+        </tr>
+        <tr>
+          <td class="priority">4</td>
+          <td>Committee</td>
+          <td>中：适合真正卡住或高风险的问题。</td>
+          <td>committee brief + blocked/retry 检测。</td>
+          <td>消耗两个高推理 worker，触发要保守。</td>
+        </tr>
+        <tr>
+          <td class="priority">5</td>
+          <td>Epic</td>
+          <td>中：补大项目 ceremony，但当前已有 plan.md 基础。</td>
+          <td>epic template + optional .hive/epics parser。</td>
+          <td>最系统但也最容易和 plan.md 重叠，适合在前 4 个 playbook 稳定后做。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>建议的 M17 实施拆分</h2>
+    <ol>
+      <li><strong>M17-A Handoff first：</strong>新增 handoff playbook template，ORCHESTRATOR_RULES 加 reassign/rescue/stuck 触发条件，Cockpit ActionBar 加保守 handoff 建议。</li>
+      <li><strong>M17-B Loop brief：</strong>新增 loop template 和 bounded loop 规则，只生成 brief，不自动运行。</li>
+      <li><strong>M17-C Advisor + Committee：</strong>新增 read-only advisory 模板与 decision/blocked 触发建议。</li>
+      <li><strong>M17-D Epic：</strong>评估是否引入 <code>.hive/epics/</code>；如果引入，再加 parser 和 Cockpit 展示。</li>
+    </ol>
+    <p>
+      第一刀推荐 handoff：它最符合当前 HippoTeam 的真实痛点，能在不改 runtime 的前提下立刻提升 dispatch 质量，并为后续 advisor/committee/loop 的 brief 格式打样。
+    </p>
+  </section>
+</main>
+</body>
+</html>
