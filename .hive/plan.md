@@ -167,6 +167,13 @@ last_review: 2026-05-25
 - 触发：idea-3 promote，user Q8 答"同意"（5/25）。来源 multica/paseo provider catalog
 - 注意：别滑成 multica 式重平台；HippoTeam 保持轻量，manifest 只服务"派单更精准"
 
+### M19 · HippoTeam frontend app / dashboard · proposed (user 飞书 5/25)
+- [x] 路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile，推荐 PWA-first（commit 见本 dispatch report）
+- [ ] 若 user 拍板：M19a PWA manifest/icons/standalone/install CTA
+- [ ] 若 user 拍板：M19b dashboard-first layout（Cockpit summary + Tasks + Workers 常驻面板）
+- [ ] 后续再评估：Tauri/Electron runtime shell 或 Expo mobile + relay/tunnel（仅当 PWA/飞书桥不足）
+- 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”
+
 ## Scope
 
 **in（覆盖范围）**：
