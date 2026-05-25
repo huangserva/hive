@@ -54,6 +54,7 @@ describe('parseCockpit', () => {
     expect(result.archive).toBeDefined()
     expect(result.tasks).toBeDefined()
     expect(result.research).toBeDefined()
+    expect(result.reports).toBeDefined()
     expect(result.generatedAt).toBeGreaterThan(0)
   })
 
@@ -227,6 +228,20 @@ describe('parseCockpit tasks and research integration', () => {
     expect(result.research.entries).toHaveLength(1)
     expect(result.research.entries[0]?.title).toBe('Test Research')
     expect(result.research.totalCount).toBe(1)
+  })
+
+  test('reports section parsed from reports/ directory', () => {
+    const dir = setupWorkspace()
+    writeFileSync(
+      join(dir, '.hive', 'reports', '2026-05-25-cockpit-report.html'),
+      '<html><head><title>Cockpit Report</title></head><body>Report</body></html>',
+      'utf8'
+    )
+
+    const result = parseCockpit(dir)
+    expect(result.reports.entries).toHaveLength(1)
+    expect(result.reports.entries[0]?.title).toBe('Cockpit Report')
+    expect(result.reports.totalCount).toBe(1)
   })
 
   test('empty tasks.md yields empty sections', () => {

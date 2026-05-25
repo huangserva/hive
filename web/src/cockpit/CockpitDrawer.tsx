@@ -14,6 +14,7 @@ import { DecisionsTab } from './tabs/DecisionsTab.js'
 import { IdeasTab } from './tabs/IdeasTab.js'
 import { PlanTab } from './tabs/PlanTab.js'
 import { QuestionsTab } from './tabs/QuestionsTab.js'
+import { ReportsTab } from './tabs/ReportsTab.js'
 import { ResearchTab } from './tabs/ResearchTab.js'
 import { TasksTab } from './tabs/TasksTab.js'
 
@@ -73,6 +74,9 @@ const renderTab = (
     )
   }
   if (activeTab === 'research') return <ResearchTab research={cockpit.research} />
+  if (activeTab === 'reports') {
+    return <ReportsTab reports={cockpit.reports} workspaceId={workspaceId} />
+  }
   if (activeTab === 'baseline') return <BaselineTab baseline={cockpit.baseline} />
   return <ArchiveTab archive={cockpit.archive} />
 }

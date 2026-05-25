@@ -34,6 +34,7 @@ const makeCockpit = () => ({
   },
   questions: { answered: [], high: [], low: [], medium: [], parseError: null },
   research: { entries: [], parseError: null, totalCount: 0 },
+  reports: { entries: [], parseError: null, totalCount: 0 },
   tasks: { parseError: null, raw: '', sections: [], totalDone: 0, totalOpen: 0 },
 })
 
@@ -50,6 +51,7 @@ describe('CockpitTabs i18n', () => {
     expect(screen.getByText('Ideas')).toBeInTheDocument()
     expect(screen.getByText('Decisions')).toBeInTheDocument()
     expect(screen.getByText('Research')).toBeInTheDocument()
+    expect(screen.getByText('Reports')).toBeInTheDocument()
     expect(screen.getByText('Baseline')).toBeInTheDocument()
     expect(screen.getByText('Archive')).toBeInTheDocument()
   })
@@ -67,6 +69,7 @@ describe('CockpitTabs i18n', () => {
     expect(screen.getByText('想法')).toBeInTheDocument()
     expect(screen.getByText('决策')).toBeInTheDocument()
     expect(screen.getByText('调研')).toBeInTheDocument()
+    expect(screen.getByText('报告')).toBeInTheDocument()
     expect(screen.getByText('基线')).toBeInTheDocument()
     expect(screen.getByText('归档')).toBeInTheDocument()
   })

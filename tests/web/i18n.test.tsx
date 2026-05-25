@@ -92,6 +92,7 @@ const COCKPIT_KEYS = [
   'cockpit.tabs.ideas',
   'cockpit.tabs.decisions',
   'cockpit.tabs.research',
+  'cockpit.tabs.reports',
   'cockpit.tabs.baseline',
   'cockpit.tabs.archive',
   'cockpit.actionBar.title',

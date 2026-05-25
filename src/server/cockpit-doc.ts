@@ -12,6 +12,7 @@ import {
   type PMQuestionPriority,
   parseQuestionsDoc,
 } from './pm-questions-doc.js'
+import { type ParsedReports, parseReportsDoc } from './pm-reports-doc.js'
 import { detectOrphanReports, type OrphanReport } from './pm-reports-orphan-detector.js'
 import { type ParsedResearch, parseResearchDoc } from './pm-research-doc.js'
 import { type ParsedTasks, parseTasksDoc } from './pm-tasks-doc.js'
@@ -25,6 +26,7 @@ export type CockpitTargetTab =
   | 'decisions'
   | 'baseline'
   | 'research'
+  | 'reports'
 
 export interface AIAction {
   action: string
@@ -45,6 +47,7 @@ export interface ParsedCockpit {
   plan: ParsedPlan
   questions: ParsedQuestions
   research: ParsedResearch
+  reports: ParsedReports
   tasks: ParsedTasks
 }
 
@@ -194,6 +197,7 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
   const baseline = parseBaselineDoc(join(hiveDir, 'baseline'))
   const decisions = parseDecisionsDoc(join(hiveDir, 'decisions'))
   const research = parseResearchDoc(join(hiveDir, 'research'))
+  const reports = parseReportsDoc(join(hiveDir, 'reports'))
   const orphanReports = detectOrphanReports(hiveDir)
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
   return {
@@ -206,6 +210,7 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
     plan,
     questions,
     research,
+    reports,
     tasks,
   }
 }

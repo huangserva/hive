@@ -104,8 +104,9 @@ last_review: 2026-05-25
 - [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
 - [ ] 决定回灌 / 借鉴概念 / 跳过
 
-### M12 · Cockpit Reports tab · queued (Q2 拍板 5/25)
-- [ ] `.hive/reports/*.html` 列表 + 一键打开（`open` 或浏览器内嵌预览）
+### M12 · Cockpit Reports tab · shipped 2026-05-25
+- [x] `.hive/reports/*.html` 列表 + 一键打开（复用现有 `open-file` endpoint）
+- [x] Cockpit 第 9 个 Reports tab + i18n + parser/UI 测试（本次提交）
 - Q2 答复：要做。优先级从 low 提升为正常队列
 
 ### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+5) 2026-05-24

@@ -3,6 +3,7 @@ import {
   BookOpen,
   CheckSquare,
   CircleHelp,
+  ClipboardList,
   FileText,
   GitBranch,
   Lightbulb,
@@ -19,6 +20,7 @@ export type CockpitTab =
   | 'ideas'
   | 'decisions'
   | 'research'
+  | 'reports'
   | 'baseline'
   | 'archive'
 
@@ -33,6 +35,7 @@ const TABS: Array<{
   { icon: Lightbulb, id: 'ideas', labelKey: 'cockpit.tabs.ideas' },
   { icon: GitBranch, id: 'decisions', labelKey: 'cockpit.tabs.decisions' },
   { icon: BookOpen, id: 'research', labelKey: 'cockpit.tabs.research' },
+  { icon: ClipboardList, id: 'reports', labelKey: 'cockpit.tabs.reports' },
   { icon: FileText, id: 'baseline', labelKey: 'cockpit.tabs.baseline' },
   { icon: Archive, id: 'archive', labelKey: 'cockpit.tabs.archive' },
 ]
@@ -44,6 +47,7 @@ const tabBadge = (cockpit: ParsedCockpit | null, tab: CockpitTab) => {
   if (tab === 'ideas') return cockpit.ideas.inbox.length
   if (tab === 'decisions') return cockpit.decisions.drafts.length + cockpit.decisions.adopted.length
   if (tab === 'research') return cockpit.research?.totalCount ?? 0
+  if (tab === 'reports') return cockpit.reports?.totalCount ?? 0
   if (tab === 'baseline') return cockpit.baseline.staleHint ? 'stale' : null
   if (tab === 'archive') return cockpit.archive.months.length
   return null

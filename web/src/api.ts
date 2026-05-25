@@ -25,6 +25,7 @@ export type {
   PMQuestion,
   PMQuestionPriority,
 } from '../../src/server/pm-questions-doc.js'
+export type { ParsedReports, PMReportEntry } from '../../src/server/pm-reports-doc.js'
 export type { ParsedResearch, PMResearchEntry } from '../../src/server/pm-research-doc.js'
 export type {
   ParsedTasks,

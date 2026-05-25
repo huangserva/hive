@@ -27,6 +27,7 @@ const makeCockpit = (overrides: Partial<ParsedCockpit> = {}): ParsedCockpit => (
   },
   questions: { answered: [], high: [], low: [], medium: [], parseError: null },
   research: { entries: [], parseError: null, totalCount: 0 },
+  reports: { entries: [], parseError: null, totalCount: 0 },
   tasks: { parseError: null, raw: '', sections: [], totalDone: 0, totalOpen: 0 },
   ...overrides,
 })
