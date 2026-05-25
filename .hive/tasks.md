@@ -5,8 +5,8 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `e73a7988` — M17 调研+设计：paseo skills playbook 体系借鉴（只调研+出设计，先不要实现）
-
+- [ ] **张飞** dispatch `d969941a` — 全 app 主动 E2E 巡检 + 产出可复用 regression smoke runbook（用你的 playwright MCP browser 工具）
+- [ ] **关羽** dispatch `77f695e8` — 修 Bug：Cockpit Questions parser 静默丢弃非数字 ID（你 E2E 时发现的）
 ## Open（user 回来决定）
 
 - [ ] **parser 脆弱点**（关羽 E2E 5/25 发现，低优）：Questions parser 只认 `Q\d+`，PM 手写非数字 ID（如 `Q-E2E`）在 Cockpit 静默不渲染。Ideas parser 同理重排成 I5。建议 broaden regex 或 parse 时 warn，避免无声 drift
@@ -23,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser）
+- [x] **赵云** dispatch `e73a7988` — M17 调研+设计：paseo 5 playbook 转译 HippoTeam 设计（templates/RULES/ActionBar 着力点 + 优先级）。推荐先做 handoff。全 gate 过 (1103 tests) (`3b9a5f0` + `81fc4c9`)
 - [x] **关羽** dispatch `8501d6e0` — 真浏览器 E2E 验证 Cockpit（playwright MCP）：8 tab 全渲染真数据 + Questions answer flow 真点 PASS + Ideas promote dialog 渲染 PASS + Decisions 0 draft SKIP，0 console error，报告 + research 自己 commit (`c98659b`)
 - [x] **Orchestrator** — PM doc 对账（5/25）：Q4/Q2/Q5 答复归档，M12 queued / M14 confirmed / M17 promoted from idea-2，清理 tasks.md In-progress 堆积
 - [x] **典韦** dispatch `d4d93723` + `5a19af15` — Cockpit 完整体检 audit + 补 4 个 tab 组件测试 + POST answer route 测试（典韦 opencode preset 写文件但没 commit，orch rescue `bca29a2`）

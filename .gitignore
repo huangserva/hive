@@ -8,3 +8,7 @@ coverage/
 .harnessed/
 .screenshots-prod/
 ~/.hive/
+# Playwright MCP scratch dir + stray E2E screenshots (workers embed base64 into HTML reports instead)
+.playwright-mcp/
+/full-app-*.png
+/cockpit-*.png
