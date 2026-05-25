@@ -10,7 +10,7 @@
 
 ### 🟠 medium — 影响下一步规划
 
-（暂无）
+- [ ] **Q7** 确认归档 M17 handoff ADR（`.hive/decisions/2026-05-25-m17-handoff-playbook.md`，现 status=draft）？它记录的设计裁决——playbook 作为 PM 文档制品（不另造 runtime）/ 先模板后自动化 / ActionBar 只建议不自动执行 / handoff first——会作为后续 4 个 playbook（loop/advisor/committee/epic）的实现基调。你确认就把 status 改 accepted 归档。
 
 ### 🟢 low — 灰度区
 

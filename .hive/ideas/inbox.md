@@ -15,6 +15,13 @@
   - 价值：未来如果做 mobile/voice 需要、现在做 web Cockpit 也可加
   - 成熟度：🟡 中，依赖具体用例
 
+### 2026-05-25 张飞全 app 巡检发现
+
+- **idea-5 已存在 worker 改 thinking_level**（preset / UX 方向）
+  - 现状：thinking_level 只在 Add Worker 创建时可设，已存在 worker 无 endpoint / UI 可改；且 agent 启动时才生效
+  - 要做需：update launch-config endpoint + worker 卡片/detail UI 入口 + "改完 restart 才生效"语义
+  - 成熟度：🟡 中，有 workaround（删了重建 worker），不急；user 真需要再 promote
+
 ## promoted
 
 - **idea-2 paseo skills playbook 系统借鉴** → **M17**（user 拍板 5/25）
