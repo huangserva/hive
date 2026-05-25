@@ -10,7 +10,7 @@
 
 ### 🟠 medium — 影响下一步规划
 
-- [ ] **Q10** M14a 飞书语音 STT provider 怎么选？选项 A：飞书内置 `speech_to_text.fileRecognize`（零新增依赖，但需要语音识别权限/版本支持，免费版不支持）；选项 B：外部 ASR（OpenAI Whisper 等，质量可控但付费/外部服务/数据出境，需要 user 明确拍板）；选项 C：暂不做 STT（不能验证 voice command 核心价值）；选项 D：本地 STT（openclaw 路线：`sherpa-onnx-offline` / `whisper-cli` / Python `whisper`，无 key、可离线，但需要本地 CLI/模型安装、处理冷启动/中文质量/CPU 超时）。关羽调研结论：D 可行且推荐作为下一刀优先验证；报告见 `.hive/reports/m14a-local-stt-openclaw-2026-05-25.html`。M14a Phase 1 已先按飞书内置接口落第一刀，真实 E2E 后可决定是否切换。
+（暂无）
 
 ### 🟢 low — 灰度区
 
@@ -27,3 +27,4 @@
 
 - [x] **Q8** 是否将 idea 提升为 question：**idea-3 paseo Provider catalog manifest 借鉴**（preset 方向） → **answered 2026-05-25**：同意
 - [x] **Q9** M14 语音路线确认（推荐飞书 voice command MVP）→ **answered 2026-05-25（飞书）**：干！→ M14a 路线锁定，ADR 转正归档（2026-05-25-m14-voice-path.md 已采纳），派关羽 Phase 1（4109bb4b）
+- [x] **Q10** M14a STT provider 选哪个（A 飞书内置 / B 外接 ASR / C 不做 / D 本地 STT）→ **answered 2026-05-25（飞书）**：D 干！选本地 STT（openclaw 路线，免费无 key 数据本地），派关羽 Phase 2 实现 LocalSttProvider（6b8951b5）

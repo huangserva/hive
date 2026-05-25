@@ -3,11 +3,12 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress
+## In progress（两条线并行：关羽改 server / 赵云只写 .hive 文档，不撞）
 
-（空 — 等 user 飞书 greenlight 选项 D 实现）
+- [ ] **关羽** dispatch `6b8951b5` — M14a Phase 2：实现 LocalSttProvider（探测+调本机 whisper-cli/whisper 转写，接进飞书桥替代飞书内置 ASR，无 CLI 优雅降级）+ 附 whisper 安装步骤给 user + 测试。user 拍板 D 干
+- [ ] **赵云** dispatch `1eb7852c` — 调研给 HippoTeam 做前端 APP/面板（借鉴 paseo app 端）：paseo app 怎么做 + PWA/Tauri/RN 三选项对比 + 桌面壳 vs 移动远程（跟飞书远控重叠）+ 推荐。出 report+research，不实现
 
-> 🎯 M14a：Phase 1（飞书内置 ASR）done + 选项 D（本地 STT）调研 done = **推荐 D**。openclaw 用无 key 本地 CLI（sherpa-onnx→whisper-cli→python whisper）。建议加 LocalSttProvider（借 CLI adapter 思路、不搬整套）。已发 user 飞书等拍 D 实现。📱 chat oc_0d5e…
+> 📱 user 走飞书（chat oc_0d5e…）；两条线 report 回来都走飞书同步 user。真飞书语音 E2E 待 user 配合
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
