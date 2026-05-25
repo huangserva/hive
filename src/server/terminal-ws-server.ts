@@ -85,7 +85,7 @@ export const createTerminalWebSocketServer = (
       const pathname = url.pathname
       const match = matchTerminalPath(pathname)
       if (!match) {
-        if (/^\/ws\/(cockpit|plan|tasks)\/.+/.test(pathname)) {
+        if (/^\/ws\/(cockpit|plan|tasks|mobile)\/.+/.test(pathname)) {
           return
         }
         rejectUpgrade(socket, '404 Not Found')

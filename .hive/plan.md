@@ -173,6 +173,7 @@ last_review: 2026-05-25
 - [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
 - [ ] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）
   - [x] 子任务 1：现有 HTTP/WS 协议 audit + native app 稳定 API 缺口分析（report/research 已产出，commit 见 dispatch report）
+  - [x] 子任务 3：mobile API 层（单 token pairing + Bearer auth + dashboard aggregate + WS snapshot，commit 见 dispatch report）
 - [ ] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）
 - [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
 - [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）

@@ -9,6 +9,7 @@ import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
+import { createMobileDashboardWebSocketServer } from './mobile-dashboard-websocket-server.js'
 import type { RuntimeInfo } from './route-types.js'
 import { matchRoute } from './routes.js'
 import type { RuntimeStore } from './runtime-store.js'
@@ -35,6 +36,8 @@ const getDefaultStaticDir = () => {
 }
 
 const isReservedPath = (pathname: string) => /^\/(api|internal|ws)(\/|$)/.test(pathname)
+const isMobileApiPath = (pathname: string) =>
+  pathname === '/api/mobile/pair' || pathname.startsWith('/api/mobile/')
 
 const canServeStatic = async (staticDir: string) => {
   try {
@@ -129,7 +132,11 @@ export const createApp = ({
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
 
     try {
-      assertLocalRequest(request)
+      if (!isMobileApiPath(url.pathname)) {
+        assertLocalRequest(request)
+      } else if (url.pathname === '/api/mobile/pair') {
+        assertLocalRequest(request)
+      }
 
       const match = matchRoute(method, url.pathname)
       if (match) {
@@ -180,6 +187,14 @@ export const createApp = ({
     logger?.error('http server error', error)
   })
   createTerminalWebSocketServer(server, store, tasksFileService, logger)
+  const mobileDashboardWss = createMobileDashboardWebSocketServer(server, store, logger)
+  const disposeMobileCockpitListener = store.registerCockpitListener((workspaceId) => {
+    mobileDashboardWss.publish(workspaceId)
+  })
+  server.on('close', () => {
+    disposeMobileCockpitListener()
+    mobileDashboardWss.close()
+  })
 
   return { server, store }
 }

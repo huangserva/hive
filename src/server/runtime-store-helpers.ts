@@ -8,6 +8,7 @@ import { createApprovalLedger } from './feishu-approval-ledger.js'
 import { createFeishuBindingsStore } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
+import { createMobileAuthStore } from './mobile-auth.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
@@ -30,6 +31,7 @@ export interface RuntimeStoreServices {
   dispatchLedgerStore: ReturnType<typeof createDispatchLedgerStore>
   feishuBindingsStore: ReturnType<typeof createFeishuBindingsStore>
   messageLogStore: ReturnType<typeof createMessageLogStore>
+  mobileAuthStore: ReturnType<typeof createMobileAuthStore>
   cockpitFileWatchCallbacks: Set<(workspaceId: string) => void>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
@@ -69,6 +71,8 @@ export const createRuntimeStoreServices = (
 ): RuntimeStoreServices => {
   const db = openRuntimeDatabase(options.dataDir)
   const messageLogStore = createMessageLogStore(db)
+  const mobileAuthStore = createMobileAuthStore(db)
+  mobileAuthStore.ensureDefaultDevice()
   const dispatchLedgerStore = createDispatchLedgerStore(db)
   const approvalLedger = createApprovalLedger()
   const feishuBindingsStore = createFeishuBindingsStore(db)
@@ -150,6 +154,7 @@ export const createRuntimeStoreServices = (
     dispatchLedgerStore,
     feishuBindingsStore,
     messageLogStore,
+    mobileAuthStore,
     cockpitFileWatchCallbacks,
     settings,
     shellRuntime,

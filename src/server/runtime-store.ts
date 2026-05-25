@@ -8,6 +8,7 @@ import type { FeishuBinding } from './feishu-bindings-store.js'
 import { NotFoundError } from './http-errors.js'
 import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
+import type { MobileDeviceRecord } from './mobile-auth.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
@@ -95,9 +96,11 @@ interface RuntimeStore {
   settings: SettingsStore
   writeRunInput: (runId: string, input: Buffer | string) => void
   getUiToken: () => string
+  ensureMobileAccessToken: () => MobileDeviceRecord
   stopAgentRun: (runId: string) => void
   validateAgentToken: (agentId: string, token: string | undefined) => boolean
   validateUiToken: (token: string | undefined) => boolean
+  validateMobileToken: (token: string | undefined) => boolean
   bindFeishuChat: (input: {
     workspaceId: string
     chatId: string
@@ -213,10 +216,12 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     settings: services.settings,
     writeRunInput: lifecycle.writeRunInput,
     getUiToken: () => services.uiAuth.getToken(),
+    ensureMobileAccessToken: () => services.mobileAuthStore.ensureDefaultDevice(),
     stopAgentRun: lifecycle.stopTerminalRun,
     validateAgentToken: (agentId, token) =>
       services.agentRuntime.validateAgentToken(agentId, token),
     validateUiToken: (token) => services.uiAuth.validate(token),
+    validateMobileToken: (token) => services.mobileAuthStore.validateToken(token),
     bindFeishuChat: (input) => {
       try {
         services.workspaceStore.getWorkspaceSnapshot(input.workspaceId)

@@ -12,6 +12,7 @@ import { cockpitRoutes } from './routes-cockpit.js'
 import { dispatchRoutes } from './routes-dispatches.js'
 import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
+import { mobileRoutes } from './routes-mobile.js'
 import { planRoutes } from './routes-plan.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
@@ -29,6 +30,7 @@ const routes: RouteDefinition[] = [
   ...settingsRoutes,
   ...taskRoutes,
   ...planRoutes,
+  ...mobileRoutes,
   ...cockpitRoutes,
   ...runtimeRoutes,
   ...teamRoutes,

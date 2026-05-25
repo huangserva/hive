@@ -1268,8 +1268,8 @@ describe('schema version', () => {
     expect(args).toContain(
       'mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"]'
     )
-    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(22)).toEqual({
-      version: 22,
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(23)).toEqual({
+      version: 23,
     })
     db.close()
   })
