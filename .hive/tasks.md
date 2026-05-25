@@ -3,15 +3,14 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress
+## In progress（两个并行 — 文件集不重叠）
 
-（空 — 串行队列前 2 个已 done，第 3 个 Layer 4 等 user 确认是否现在 fire）
+- [ ] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开（runtime 加 report-file 路由 serve text/html + path-traversal 防护，ReportsTab 改 window.open，不再 shell OS open）
+- [ ] **赵云** dispatch `73ebadd8` — M17 收官：advisor + committee + epic 三 playbook（模板 + RULES + 保守 aiAction），勾上 M17 总括行标 shipped
 
 ## Open（user 回来决定）
 
-- [ ] **greenlit 串行队列**：~~①M17 loop~~ ✅ → ~~②M12 Reports tab~~ ✅ → **③M13 Layer 4**（Cockpit snapshot 注入所有 PTY worker，治 worker 看不见 PM 状态）— ready，等 user 确认 fire
-- [ ] **M17 收尾决策（待 user）**：handoff + loop 已 ship；advisor/committee 单用户场景价值存疑、epic 可留到 M14 顺势做。orch 建议 M17 收尾在 handoff+loop，advisor/committee 标「按需再做」
-- [ ] M17 余下 3 个 playbook（advisor → committee → epic，loop 后按赵云推荐顺序）
+- [ ] **③M13 Layer 4**（greenlit 串行队列最后一个；碰 cockpit-doc.ts，等赵云 M17 收完 tree 干净再派）：Cockpit snapshot 注入所有 PTY worker，治 worker 看不见 PM 状态
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
