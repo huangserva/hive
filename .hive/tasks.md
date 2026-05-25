@@ -5,7 +5,7 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `66b92abe` — 两个 Cockpit 修复：① ideas parser 子条目误当 idea（pm-ideas-doc:188 正则去 `\s*`，修虚高计数+ActionBar 噪音）② baseline/research/decisions 文件浏览器内可打开（复用 report-file 路由模式）
+（空 — 等 user 再重启一次 4010 激活 ideas parser 修复 + doc-file 路由）
 
 ## Open（user 回来决定）
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
@@ -19,6 +19,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `66b92abe` — 两个 Cockpit 修复：① ideas parser bug（pm-ideas-doc parseIdeasDoc 改用 topLevelBullet，缩进子条目不再算独立 idea → 修「想法」虚高计数 + ActionBar 一个 idea 刷成多条噪音）② doc-file 路由 serve `.hive/{baseline,research,decisions}/*.md`（path-traversal+目录+后缀防护，text/plain），3 个 tab 加「打开」按钮 window.open 同浏览器。61 focused + 全量 1153 (`9b62207`)。⚠️parser+新路由 merge 后需重启 4010
 - [x] **Orchestrator** — 收尾刷 baseline（消 staleness）：module-map（+pm-reports-doc/reconnecting-websocket/preload-recovery，schema v21→v22，标注 dispatcher 快照注入/cockpit reports+playbook/routes-cockpit report-file+answer）+ runtime-flows（Flow1 Layer4 快照、Flow4 reports/answer/9 tabs）+ state-storage（schema v22）
 - [x] **赵云** dispatch `b947680a` — **M13 Layer 4**（5 层全齐 shipped）：buildWorkerCockpitSnapshot 生成 4 行紧凑快照（phase + 活跃 milestone + open Q/high 数 + baseline fresh/stale + 共维护提醒，<520 字符），dispatch 当下经 writeSendPrompt 注入到 PM_DISPATCH_REMINDER 之后。真 PTY CLI 测试断言 worker stdin 真带快照。全 gate 绿 1143 tests + orch 复验 19/19 (`62ca462`)。⚠️注入逻辑 merge 后需重启 4010
 - [x] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开：runtime 加 GET report-file 路由（只允许 .hive/reports/ 下 .html，path-traversal/非html/不存在分别拒）+ ReportsTab 改 window.open(_blank)，不再 shell OS open 弹默认浏览器。16 focused + 全量 1141 (`4e20c7f`)。⚠️新路由 merge 后需重启 4010
