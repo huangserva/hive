@@ -98,4 +98,21 @@ describe('ActionBar i18n', () => {
     )
     expect(screen.getByText('(2)')).toBeInTheDocument()
   })
+
+  test('EN locale translates known backend Chinese action labels per action', () => {
+    const actions = [
+      makeAction({ action: '查看', id: 'view', text: 'View item', type: 'audit' }),
+      makeAction({ action: '回答', id: 'answer', text: 'Answer item', type: 'question' }),
+      makeAction({ action: '确认', id: 'confirm', text: 'Confirm item', type: 'decision' }),
+    ]
+    render(
+      <I18nProvider>
+        <ActionBar actions={actions} />
+      </I18nProvider>
+    )
+    expect(screen.getByRole('button', { name: 'View' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '查看' })).not.toBeInTheDocument()
+  })
 })

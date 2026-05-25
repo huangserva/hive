@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getWorkspaceTasks, saveWorkspaceTasks } from '../api.js'
+import { createReconnectingWebSocket } from '../reconnecting-websocket.js'
 import {
   appendChildTaskAtLine,
   deleteTaskLine,
@@ -93,22 +94,24 @@ export const useTasksFile = (workspaceId: string | null, demoContent?: string) =
   useEffect(() => {
     if (!workspaceId) return
     let closed = false
-    const socket = new WebSocket(toTasksSocketUrl(workspaceId))
-    socket.onopen = () => {
-      void getWorkspaceTasks(workspaceId)
-        .then(({ content: nextContent }) => {
-          if (!closed) applyRemoteContent(nextContent, contentRef.current)
-        })
-        .catch((error: unknown) => {
-          console.error('[hive] swallowed:tasks.getOnReconnect', error)
-        })
-    }
-    socket.onmessage = (event) => {
-      if (closed) return
-      const payload = JSON.parse(event.data) as { content: string; type: string }
-      if (payload.type !== 'tasks-updated') return
-      applyRemoteContent(payload.content, contentRef.current)
-    }
+    const socket = createReconnectingWebSocket(toTasksSocketUrl(workspaceId), {
+      onOpen({ isReconnect }) {
+        if (!isReconnect) return
+        void getWorkspaceTasks(workspaceId)
+          .then(({ content: nextContent }) => {
+            if (!closed) applyRemoteContent(nextContent, contentRef.current)
+          })
+          .catch((error: unknown) => {
+            console.error('[hive] swallowed:tasks.getOnReconnect', error)
+          })
+      },
+      onMessage(event) {
+        if (closed) return
+        const payload = JSON.parse(event.data) as { content: string; type: string }
+        if (payload.type !== 'tasks-updated') return
+        applyRemoteContent(payload.content, contentRef.current)
+      },
+    })
     return () => {
       closed = true
       socket.close()

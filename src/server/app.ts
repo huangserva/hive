@@ -68,6 +68,16 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
+const staticCacheControl = (pathname: string, filePath: string) => {
+  if (pathname === '/' || extname(pathname) === '' || extname(filePath) === '.html') {
+    return 'no-cache'
+  }
+  if (pathname.startsWith('/assets/')) {
+    return 'public, max-age=31536000, immutable'
+  }
+  return 'no-cache'
+}
+
 const sendStatic = async (
   response: ServerResponse,
   staticDir: string,
@@ -83,6 +93,7 @@ const sendStatic = async (
       'content-type',
       CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream'
     )
+    response.setHeader('cache-control', staticCacheControl(pathname, filePath))
     response.statusCode = 200
     response.end(request.method === 'HEAD' ? undefined : content)
     return true

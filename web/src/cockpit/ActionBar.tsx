@@ -42,7 +42,7 @@ export const ActionBar = ({
   onAction?: (action: AIAction) => void
 }) => {
   const { isFallback, t } = useI18n()
-  const useActionLabels = hasLocalizedActionLabels(actions)
+  const useLegacyLabels = isFallback && hasLocalizedActionLabels(actions)
   return (
     <footer
       className="shrink-0 border-t px-4 py-3"
@@ -70,7 +70,7 @@ export const ActionBar = ({
                     color: priorityColor(action.priority),
                   }}
                 >
-                  {useActionLabels
+                  {useLegacyLabels
                     ? legacyPriorityLabel(action.priority)
                     : t(priorityLabelKey(action.priority))}
                 </span>
@@ -80,7 +80,7 @@ export const ActionBar = ({
                   type="button"
                   onClick={() => onAction?.(action)}
                 >
-                  {useActionLabels ? action.action : labelKey ? t(labelKey) : action.action}
+                  {useLegacyLabels ? action.action : labelKey ? t(labelKey) : action.action}
                 </button>
               </div>
             )

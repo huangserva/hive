@@ -35,6 +35,10 @@ export type {
 } from '../../src/server/pm-tasks-doc.js'
 
 import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
+import {
+  createReconnectingWebSocket,
+  type ReconnectingWebSocket,
+} from './reconnecting-websocket.js'
 
 const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   id: payload.id,
@@ -646,31 +650,32 @@ const toWorkspaceSocketUrl = (path: string) => {
 export const connectPlanStream = (
   workspaceId: string,
   onUpdate: (plan: ParsedPlan) => void
-): WebSocket => {
-  const socket = new WebSocket(toWorkspaceSocketUrl(`/ws/plan/${workspaceId}`))
-  socket.onmessage = (event) => {
-    const payload = JSON.parse(event.data) as { plan?: ParsedPlan; type: string }
-    if ((payload.type === 'plan-snapshot' || payload.type === 'plan-updated') && payload.plan) {
-      onUpdate(payload.plan)
-    }
-  }
-  return socket
+): ReconnectingWebSocket => {
+  return createReconnectingWebSocket(toWorkspaceSocketUrl(`/ws/plan/${workspaceId}`), {
+    onMessage(event) {
+      const payload = JSON.parse(event.data) as { plan?: ParsedPlan; type: string }
+      if ((payload.type === 'plan-snapshot' || payload.type === 'plan-updated') && payload.plan) {
+        onUpdate(payload.plan)
+      }
+    },
+  })
 }
 
 export const connectCockpitStream = (
   workspaceId: string,
   onUpdate: (cockpit: ParsedCockpit) => void
 ): { close: () => void } => {
-  const socket = new WebSocket(toWorkspaceSocketUrl(`/ws/cockpit/${workspaceId}`))
-  socket.onmessage = (event) => {
-    const message = JSON.parse(event.data) as { kind?: string; payload?: ParsedCockpit }
-    if (
-      (message.kind === 'cockpit-snapshot' || message.kind === 'cockpit-update') &&
-      message.payload
-    ) {
-      onUpdate(message.payload)
-    }
-  }
+  const socket = createReconnectingWebSocket(toWorkspaceSocketUrl(`/ws/cockpit/${workspaceId}`), {
+    onMessage(event) {
+      const message = JSON.parse(event.data) as { kind?: string; payload?: ParsedCockpit }
+      if (
+        (message.kind === 'cockpit-snapshot' || message.kind === 'cockpit-update') &&
+        message.payload
+      ) {
+        onUpdate(message.payload)
+      }
+    },
+  })
   return { close: () => socket.close() }
 }
 

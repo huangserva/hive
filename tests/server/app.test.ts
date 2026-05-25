@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -73,6 +73,17 @@ const startServerWithVersionInfo = async () => {
   }
 }
 
+const startServerWithStaticDir = async (staticDir: string) => {
+  const previousStaticDir = process.env.HIVE_STATIC_DIR
+  process.env.HIVE_STATIC_DIR = staticDir
+  try {
+    return await startServer()
+  } finally {
+    if (previousStaticDir === undefined) delete process.env.HIVE_STATIC_DIR
+    else process.env.HIVE_STATIC_DIR = previousStaticDir
+  }
+}
+
 const requestWithHeaders = async (
   baseUrl: string,
   path: string,
@@ -104,7 +115,28 @@ const requestWithHeaders = async (
   })
 }
 
+const getResponse = async (baseUrl: string, path: string) =>
+  await fetch(`${baseUrl}${path}`, { headers: { 'x-forwarded-for': '127.0.0.1' } })
+
 describe('runtime http app', () => {
+  test('serves index.html with no-cache and hashed assets as immutable', async () => {
+    const staticDir = mkdtempSync(join(tmpdir(), 'hive-static-cache-'))
+    tempDirs.push(staticDir)
+    mkdirSync(join(staticDir, 'assets'), { recursive: true })
+    writeFileSync(join(staticDir, 'index.html'), '<div id="root"></div>', 'utf8')
+    writeFileSync(join(staticDir, 'assets', 'index-abc123.js'), 'console.log("ok")', 'utf8')
+
+    const { baseUrl } = await startServerWithStaticDir(staticDir)
+
+    const indexResponse = await getResponse(baseUrl, '/')
+    const assetResponse = await getResponse(baseUrl, '/assets/index-abc123.js')
+
+    expect(indexResponse.status).toBe(200)
+    expect(indexResponse.headers.get('cache-control')).toBe('no-cache')
+    expect(assetResponse.status).toBe(200)
+    expect(assetResponse.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
+  })
+
   test('GET /api/version returns cached update metadata for the UI', async () => {
     const { baseUrl } = await startServerWithVersionInfo()
 
