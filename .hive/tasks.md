@@ -3,12 +3,12 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress（两条线并行：关羽改 server / 赵云只写 .hive 文档，不撞）
+## In progress
 
-- [ ] **关羽** dispatch `6b8951b5` — M14a Phase 2：实现 LocalSttProvider（探测+调本机 whisper-cli/whisper 转写，接进飞书桥替代飞书内置 ASR，无 CLI 优雅降级）+ 附 whisper 安装步骤给 user + 测试。user 拍板 D 干
-- [ ] **赵云** dispatch `1eb7852c` — 调研给 HippoTeam 做前端 APP/面板（借鉴 paseo app 端）：paseo app 怎么做 + PWA/Tauri/RN 三选项对比 + 桌面壳 vs 移动远程（跟飞书远控重叠）+ 推荐。出 report+research，不实现
+（空 — 两条线都收，等 user 飞书：①装 whisper 做语音真 E2E ②拍 M19 app 路线 PWA-first）
 
-> 📱 user 走飞书（chat oc_0d5e…）；两条线 report 回来都走飞书同步 user。真飞书语音 E2E 待 user 配合
+> 🎤 M14a Phase 2 done（0b4cf98）：本地 whisper STT 接进飞书桥。**待 user：装 whisper + 重启 4010 → 真 E2E**（发飞书语音验）。步骤见 research/2026-05-25-m14a-local-stt.md
+> 📱 M19 app 调研 done（2fa6425）：**推荐 PWA-first**（现有 Cockpit/9tab/Tasks 一键装成 app，0.5-1.5 天；手机远程仍靠飞书桥）。ADR draft 待 user 拍。两件都已发飞书 chat oc_0d5e…
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -23,6 +23,8 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `6b8951b5` — **M14a Phase 2** 本地 STT 落地：新建 local-stt.ts LocalSttProvider（白名单探测 whisper-cli/whisper，.txt 优先 stdout 兜底，临时目录用完清理，CLI 缺失返 null 不崩），接进 feishu-transport（audio→临时.opus→本地转写→现有 inbound 注入；本地不可用回退飞书 ASR）。真临时脚本测试无 mock，9 focused + 全量 1167 (`0b4cf98`)。⚠️待 user 装 whisper(brew whisper-cpp / pip openai-whisper) + 重启 + 真 E2E
+- [x] **赵云** dispatch `1eb7852c` — M19 前端 APP 调研：paseo 拆解（不是单壳，是 Expo+Electron+CLI+relay 连本地 daemon 的 client/server）+ PWA/Tauri/RN 三选项对比。**推荐 PWA-first**（复用现有 Cockpit/9tab/Tasks，0.5-1.5 天 installable+dashboard-first；手机远程仍靠飞书桥不另开 RN）。report+research+ADR draft，新增 plan M19 proposed，全 gate 1167 (`2fa6425`+`d434ce5`)。ADR 待 user 拍
 - [x] **关羽** dispatch `701ab29f` — M14a Q10 选项 D 调研（openclaw 本地 STT）：**可行+推荐**。openclaw media-understanding/runner 用无 key 本地 CLI auto-detect（sherpa-onnx-offline→whisper-cli→python whisper→才落 provider key）。建议不搬整套，加 LocalSttProvider 借 CLI adapter/fallback：飞书 audio→临时文件→whisper-cli/whisper→解析→复用 inbound 注入。MVP 白名单 whisper-cli/whisper、不引 native binding、不自动下大模型。坑：user 需装 CLI/模型、冷启动、中文质量、CPU timeout。report+research+Q10 更新，全 gate 1161 (`96cee8a`)
 - [x] **关羽** dispatch `4109bb4b` — **M14a Phase 1** 飞书语音接入 spike+第一刀：三未知解（①audio msg content 带 file_key→parseAudioContent ②messageResource.get 下载音频 stream ③飞书 speech_to_text.fileRecognize≤60s 但**免费版不支持**）。实现 audio→下载→飞书 ASR→recognition_text→复用 resolveRoute/inbound 注入 orch（标 `[来自飞书语音]`），失败优雅 drop 不接外部。挂 Q10（STT provider 待拍）。report+research 配对，38 focused + 全量 1161 (`f37b21f`+`c29bf2e`)。真飞书 E2E 待 user 配合
 - [x] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：三路横向对比（自建 mobile / 第三方框架 LiveKit-Vapi / 飞书+voice）+ ADR draft。**推荐先走飞书 voice command MVP**（语音→转写→现有 team 协议，复用 M4 桥，ROI 最高，自建/实时框架二阶段）。reports+research+ADR 配对，全 gate 1156 (`7983182`+`933eedc`)。结论已发 user 飞书，路线待拍（Q9）
