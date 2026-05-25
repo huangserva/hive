@@ -9,8 +9,8 @@
 
 ## Open（user 回来决定）
 
-- [ ] **Q7 待答**：确认归档 M17 handoff ADR draft（定后续 4 playbook 基调）
-- [ ] M17 余下 4 个 playbook（loop → advisor → committee → epic，按赵云推荐顺序，逐个实现）
+- [ ] M17 余下 4 个 playbook（loop → advisor → committee → epic，按赵云推荐顺序，逐个实现）；下一个 = **loop**（带 verifier 的重试循环，治"典韦不 commit 要人盯"）
+- [ ] **idea-6 候选**：Cockpit 答 question 后自动 nudge orchestrator（补"答了没反应"的半截循环，类比 team report 注入 orch stdin）— 见下
 - [ ] M12 Cockpit Reports tab（Q2 拍板 5/25 要做）— 队列中
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
@@ -29,6 +29,7 @@
 - [x] **关羽** dispatch `77f695e8` — 修 Questions parser 静默丢弃非数字 ID：`Q\d+` → `Q[\w-]+`，answer flow 支持非数字 ID，TDD 红→绿 + 浏览器验证 (`708fa0f`)
 - [x] **张飞** dispatch `d969941a` — 全 app E2E 巡检：0 blocker / 2 medium / 2 low，findings 报告 + 可复用 regression smoke runbook (`4f0c1b9`)
 - [x] **Orchestrator** — M17 handoff bookkeeping：Q7 挂确认归档 ADR + idea-5 记 thinking_level 缓做 + PROTOCOL.md regen (`7d29e89`) + web rebuild
+- [x] **Orchestrator** — Q7 确认归档（user 答"可以的"）：M17 handoff ADR draft → 已采纳，提交。后续 4 playbook 基调定。顺手记 idea-6（答 question 自动 nudge orch）
 - [x] **赵云** dispatch `e73a7988` — M17 调研+设计：paseo 5 playbook 转译 HippoTeam 设计（templates/RULES/ActionBar 着力点 + 优先级）。推荐先做 handoff。全 gate 过 (1103 tests) (`3b9a5f0` + `81fc4c9`)
 - [x] **关羽** dispatch `8501d6e0` — 真浏览器 E2E 验证 Cockpit（playwright MCP）：8 tab 全渲染真数据 + Questions answer flow 真点 PASS + Ideas promote dialog 渲染 PASS + Decisions 0 draft SKIP，0 console error，报告 + research 自己 commit (`c98659b`)
 - [x] **Orchestrator** — PM doc 对账（5/25）：Q4/Q2/Q5 答复归档，M12 queued / M14 confirmed / M17 promoted from idea-2，清理 tasks.md In-progress 堆积

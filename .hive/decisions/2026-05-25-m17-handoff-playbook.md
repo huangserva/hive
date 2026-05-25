@@ -1,7 +1,8 @@
 # 决策：M17 handoff playbook first
 
 **日期**: 2026-05-25
-**状态**: draft（待 user 确认归档）
+**状态**: 已采纳
+**确认日期**: 2026-05-25
 **关联**: plan.md → M17 paseo skills playbook 体系借鉴
 
 ## 背景
