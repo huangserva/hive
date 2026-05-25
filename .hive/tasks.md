@@ -5,11 +5,11 @@
 
 ## In progress
 
-（空 — 本轮所有 dispatch 已 done/rescue。下一步：user 重启 4010 加载 M13 runtime + schema v22 → 派 codex worker MCP browser E2E 验 Cockpit）
+- [ ] **赵云** dispatch `e73a7988` — M17 调研+设计：paseo skills playbook 体系借鉴（只调研+出设计，先不要实现）
 
 ## Open（user 回来决定）
 
-- [ ] M17 paseo skills playbook 体系借鉴（idea-2 promote 5/25）— 重启后派 worker 出调研+设计
+- [ ] **parser 脆弱点**（关羽 E2E 5/25 发现，低优）：Questions parser 只认 `Q\d+`，PM 手写非数字 ID（如 `Q-E2E`）在 Cockpit 静默不渲染。Ideas parser 同理重排成 I5。建议 broaden regex 或 parse 时 warn，避免无声 drift
 - [ ] M12 Cockpit Reports tab（Q2 拍板 5/25 要做）— 队列中
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
@@ -23,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser）
+- [x] **关羽** dispatch `8501d6e0` — 真浏览器 E2E 验证 Cockpit（playwright MCP）：8 tab 全渲染真数据 + Questions answer flow 真点 PASS + Ideas promote dialog 渲染 PASS + Decisions 0 draft SKIP，0 console error，报告 + research 自己 commit (`c98659b`)
 - [x] **Orchestrator** — PM doc 对账（5/25）：Q4/Q2/Q5 答复归档，M12 queued / M14 confirmed / M17 promoted from idea-2，清理 tasks.md In-progress 堆积
 - [x] **典韦** dispatch `d4d93723` + `5a19af15` — Cockpit 完整体检 audit + 补 4 个 tab 组件测试 + POST answer route 测试（典韦 opencode preset 写文件但没 commit，orch rescue `bca29a2`）
 - [x] **关羽** dispatch `551b829d` — Phase C-2.5 wave 2：ActionBar + IdeasTab + DecisionsTab handlers + 3 个 POST endpoint (`f99b98e` + `aec2598`)
