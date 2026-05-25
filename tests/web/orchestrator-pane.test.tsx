@@ -65,6 +65,11 @@ describe('OrchestratorPane three-state UI', () => {
     const slot = document.getElementById('orch-pty-run-abc')
     expect(slot).not.toBeNull()
     expect(slot?.getAttribute('data-pty-slot')).toBe('orchestrator')
+    expect(slot).toHaveClass('min-h-0', 'min-w-0', 'overflow-hidden')
+    expect(screen.getByTestId('orchestrator-terminal-slot')).toHaveClass(
+      'min-h-0',
+      'overflow-hidden'
+    )
 
     // Stop / Restart / status pill / overlay are all gone — actions surface
     // through other channels (M6-B palette / WorkerModal). The pane is just

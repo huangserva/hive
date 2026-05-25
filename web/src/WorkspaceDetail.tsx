@@ -200,7 +200,7 @@ export const WorkspaceDetail = ({
       <WorkspaceNotifications terminalRuns={terminalRuns} workers={workers} workspace={workspace} />
       <div ref={split.containerRef} className="relative flex min-h-0 flex-1">
         <div
-          className="flex min-w-[480px] shrink-0 flex-col"
+          className="flex min-h-0 min-w-[480px] shrink-0 flex-col overflow-hidden"
           style={{ width: orchWidth }}
           data-testid="orchestrator-pane-shell"
         >

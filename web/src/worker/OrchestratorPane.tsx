@@ -145,7 +145,7 @@ export const OrchestratorPane = ({
   onStart,
 }: OrchestratorPaneProps) => (
   <div
-    className="relative flex h-full w-full min-w-0 flex-col"
+    className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
     style={{
       background: 'var(--bg-crust)',
       borderRight: '1px solid var(--border)',
@@ -155,7 +155,7 @@ export const OrchestratorPane = ({
     {state.kind === 'running' ? (
       <div
         id={`orch-pty-${state.runId}`}
-        className="flex h-full w-full"
+        className="flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
         data-pty-slot="orchestrator"
       />
     ) : state.kind === 'failed' ? (
