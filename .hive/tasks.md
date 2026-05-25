@@ -3,23 +3,25 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress
+## In progress（两个并行：张飞只读验收 + 赵云写代码，不重叠）
 
-（空 — 本日大轮全部收尾，等 user 定下一步方向）
+- [ ] **张飞** dispatch `5216b120` — 真浏览器验收 idea-7 viewer（确认 app 内 Dialog 打开、非新 tab、内容渲染对），过了 orch 才跟 user 说好
+- [ ] **赵云** dispatch `98ca899a` — multica #7：runtime 状态条（GET /api/runtime/status 返 port/pid/cwd/log/db/version + RuntimeStatusStrip 组件，不做心跳）
 
 ## Open（user 回来决定）
-- [ ] **idea-7 候选**：doc/report 打开依赖 `window.open` 新 tab，会被浏览器弹窗拦截 / 旧 bundle 缓存致按钮不显（张飞实测功能本身好的，是 user 浏览器缓存）。更稳做法＝Cockpit 内嵌 markdown/html viewer，不开新 tab。+ 主 app 有 2 条 clipboard 写权限 console error 待查。缓做
+- [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
+- [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
 - [ ] PM 体系 Phase C-3b（A4-A6 主动 trigger：milestone 完成自动 baseline 体检 / 月度 archive cron / cross-workspace drift）— 观察 1 周 LLM 自觉性后再决定（M8）
 - [ ] Marketplace 深度调研是否回灌（M11，独立于 PM 体系决定）
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
-- [ ] multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强）
 
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)。待张飞真浏览器验收
 - [x] **张飞** dispatch `d7e73037` — 真浏览器诊断"baseline 点不开"：**功能本身好的**（5 卡片有按钮、点击开新 tab、doc-file 200 返回 markdown、path 格式对）。根因＝**user 浏览器旧 bundle 缓存**（按钮没渲染），硬刷新解决。附带发现 window.open 新 tab 可能被弹窗拦 + 主 app 2 条 clipboard 写权限 error（记 idea-7）
 - [x] **关羽** dispatch `66b92abe` — 两个 Cockpit 修复：① ideas parser bug（pm-ideas-doc parseIdeasDoc 改用 topLevelBullet，缩进子条目不再算独立 idea → 修「想法」虚高计数 + ActionBar 一个 idea 刷成多条噪音）② doc-file 路由 serve `.hive/{baseline,research,decisions}/*.md`（path-traversal+目录+后缀防护，text/plain），3 个 tab 加「打开」按钮 window.open 同浏览器。61 focused + 全量 1153 (`9b62207`)。⚠️parser+新路由 merge 后需重启 4010
 - [x] **Orchestrator** — 收尾刷 baseline（消 staleness）：module-map（+pm-reports-doc/reconnecting-websocket/preload-recovery，schema v21→v22，标注 dispatcher 快照注入/cockpit reports+playbook/routes-cockpit report-file+answer）+ runtime-flows（Flow1 Layer4 快照、Flow4 reports/answer/9 tabs）+ state-storage（schema v22）
