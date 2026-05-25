@@ -157,6 +157,12 @@ last_review: 2026-05-25
 - 先派 worker 出调研 + 设计（reports/*.html + research/*.md 配对），再实现
 - 排在 M14 mobile+voice 之前做（user 5/25 排序）
 
+### M18 · Provider capability manifest（paseo 借鉴 idea-3） · proposed (Q8 promote 5/25)
+- [ ] preset 加详细能力声明（mode / risk / unattended / feature），orch 派单时按能力路由，取代当前 4 preset 平铺枚举
+- [ ] **先做 scoping spike**（成熟度🟡）：调研现有 preset 设计的真痛点 + orch 派单实际需要哪些能力维度，产出 reports/*.html + research/*.md，再决定实现范围/是否值得做
+- 触发：idea-3 promote，user Q8 答"同意"（5/25）。来源 multica/paseo provider catalog
+- 注意：别滑成 multica 式重平台；HippoTeam 保持轻量，manifest 只服务"派单更精准"
+
 ## Scope
 
 **in（覆盖范围）**：
