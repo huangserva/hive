@@ -167,12 +167,17 @@ last_review: 2026-05-25
 - 触发：idea-3 promote，user Q8 答"同意"（5/25）。来源 multica/paseo provider catalog
 - 注意：别滑成 multica 式重平台；HippoTeam 保持轻量，manifest 只服务"派单更精准"
 
-### M19 · HippoTeam frontend app / dashboard · proposed (user 飞书 5/25)
-- [x] 路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile，推荐 PWA-first（commit 2fa6425）
-- [ ] 若 user 拍板：M19a PWA manifest/icons/standalone/install CTA
-- [ ] 若 user 拍板：M19b dashboard-first layout（Cockpit summary + Tasks + Workers 常驻面板）
-- [ ] 后续再评估：Tauri/Electron runtime shell 或 Expo mobile + relay/tunnel（仅当 PWA/飞书桥不足）
-- 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”
+### M19 · HippoTeam native app / dashboard · confirmed (user 飞书 5/25)
+- [x] 初版路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile（`2fa6425`，结论已被 user 覆写为原生-first）
+- [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
+- [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit 见本 dispatch report）
+- [ ] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）
+- [ ] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）
+- [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
+- [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）
+- [ ] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）
+- [ ] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）
+- 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”后继续拍板“要原生、要最好”。
 
 ## Scope
 

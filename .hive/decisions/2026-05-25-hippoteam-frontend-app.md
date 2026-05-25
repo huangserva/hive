@@ -41,6 +41,29 @@ user 看到 paseo 有 APP 端，要给 HippoTeam 做原生前端 APP。调研（
 - 维护双端（client + daemon 协议）+ 发布链。
 - 缓解：分阶段（epic）推进，先打通本地局域网直连 + 看板，再做 relay 远程 + 语音收敛。
 
-## 结果（后写）
+## 结果 / 方案
 
-待赵云出详细架构方案 + 分阶段 epic 计划后回填。
+赵云已按 epic playbook 起草完整架构方案：
+
+- 方案报告：`.hive/reports/m19-native-app-architecture-2026-05-25.html`
+- 配对索引：`.hive/research/2026-05-25-m19-native-app-design.md`
+- plan.md：M19 从 proposed 升级为 confirmed epic，拆 M19a-M19f。
+
+最终方案骨架：
+
+1. **HippoTeam runtime 升级为稳定 daemon**：保留本地-first 模型，但对第一方 app 暴露 versioned HTTP/WS 协议；复用现有 Cockpit / Tasks / Terminal WS，补 workspace/worker aggregate stream、capability negotiation、mobile-safe control endpoints。
+2. **Expo / React Native 原生 app**：iOS/Android 优先，首屏 dashboard（Cockpit summary + Tasks + Workers），深层进入 Cockpit 9 tabs、agent transcript、terminal pane、task actions。
+3. **远程接入层作为核心能力**：host pairing + device credential + direct LAN + encrypted relay。手机不能依赖 `127.0.0.1`；relay 只转发密文，不读项目/agent 内容。
+4. **认证/授权**：每台设备独立 keypair，private key 存 Expo SecureStore，runtime 保存 device public key + scopes；短期 token + rotation；capabilities 控制 read dashboard / read terminal / send prompt / approve / admin。
+5. **M14 语音收敛**：Feishu voice command 是过渡；原生 app 承载最终 voice-to-command、STT、push、realtime voice/TTS。
+
+阶段：
+
+- **M19a**：协议 audit + Expo app skeleton + LAN 只读 dashboard。
+- **M19b**：pairing/auth + scoped direct LAN control。
+- **M19c**：encrypted relay remote access。
+- **M19d**：agent/terminal pane + task operations。
+- **M19e**：voice + push convergence。
+- **M19f**：beta hardening + distribution。
+
+第一阶段建议只做 M19a：先证明原生 dashboard + LAN 连接 + read-only realtime 数据成立，再打开控制、relay、terminal input 和 voice。
