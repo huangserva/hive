@@ -13,6 +13,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
@@ -512,6 +513,11 @@ const AddTaskInline = ({
     }
     onSubmit(trimmed)
     setValue('')
+    setOpen(false)
+  }
+  const cancel = () => {
+    setValue('')
+    setOpen(false)
   }
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
@@ -519,8 +525,7 @@ const AddTaskInline = ({
       submit()
     } else if (event.key === 'Escape') {
       event.preventDefault()
-      setValue('')
-      setOpen(false)
+      cancel()
     }
   }
   if (!open) {
@@ -552,10 +557,30 @@ const AddTaskInline = ({
         placeholder={t('tasks.placeholder.newTask')}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={onKey}
-        onBlur={submit}
         data-testid="task-add-input"
         className="task-add-input__field"
       />
+      <div className="task-add-input__actions">
+        <button
+          type="button"
+          className="icon-btn h-7 px-2 text-xs"
+          aria-label={t('tasks.button.cancelNewTask')}
+          onClick={cancel}
+        >
+          <X size={12} aria-hidden />
+          {t('common.cancel')}
+        </button>
+        <button
+          type="button"
+          className="icon-btn icon-btn--primary h-7 px-2 text-xs"
+          aria-label={t('tasks.button.saveNewTask')}
+          disabled={!value.trim()}
+          onClick={submit}
+        >
+          <Check size={12} aria-hidden />
+          {t('common.save')}
+        </button>
+      </div>
     </div>
   )
 }

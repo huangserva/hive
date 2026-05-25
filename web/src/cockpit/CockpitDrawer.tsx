@@ -140,6 +140,7 @@ export const CockpitDrawer = ({
                 {t('cockpit.title')}
               </Dialog.Title>
             </Tooltip>
+            <Dialog.Description className="sr-only">{t('cockpit.description')}</Dialog.Description>
             <span className="text-ter text-xs">{t('cockpit.subtitle')}</span>
             <span
               className="rounded-full px-2 py-0.5 text-[10px]"

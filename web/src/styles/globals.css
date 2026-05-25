@@ -1012,6 +1012,12 @@ html, body {
 .task-add-input__field::placeholder {
   color: var(--text-tertiary);
 }
+.task-add-input__actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+}
 
 .task-completed-toggle {
   display: flex;

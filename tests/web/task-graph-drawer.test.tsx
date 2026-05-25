@@ -188,6 +188,40 @@ describe('TaskGraphDrawer §6.6.6 — copy line', () => {
   })
 })
 
+describe('TaskGraphDrawer add task affordance', () => {
+  test('expanded add task input exposes Save and Cancel buttons', () => {
+    render(<TaskGraphDrawer {...baseProps()} content={'- [ ] existing\n'} />)
+    fireEvent.click(screen.getByTestId('task-add-toggle'))
+
+    expect(screen.getByTestId('task-add-input')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save new task' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cancel new task' })).toBeInTheDocument()
+  })
+
+  test('Save appends the typed task and Cancel closes without appending', () => {
+    const props = baseProps()
+    render(<TaskGraphDrawer {...props} content={'- [ ] existing\n'} />)
+
+    fireEvent.click(screen.getByTestId('task-add-toggle'))
+    fireEvent.change(screen.getByTestId('task-add-input'), {
+      target: { value: 'new task from button' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save new task' }))
+
+    expect(props.onAppendTask).toHaveBeenCalledWith('new task from button')
+    expect(screen.getByTestId('task-add-toggle')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('task-add-toggle'))
+    fireEvent.change(screen.getByTestId('task-add-input'), {
+      target: { value: 'discard me' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel new task' }))
+
+    expect(props.onAppendTask).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('task-add-toggle')).toBeInTheDocument()
+  })
+})
+
 describe('TaskGraphDrawer §6.6.3 — N/M progress badge', () => {
   test('renders direct-child completion as `done/total` on the parent row', () => {
     render(

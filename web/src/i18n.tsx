@@ -188,6 +188,8 @@ const enMessages = {
   'tasks.aria.expandSubtasks': 'Expand {count} subtasks',
   'tasks.aria.progress': 'Task completion',
   'tasks.button.addTask': 'Add task',
+  'tasks.button.cancelNewTask': 'Cancel new task',
+  'tasks.button.saveNewTask': 'Save new task',
   'tasks.completed.toggle': '{count} completed',
   'tasks.empty.description':
     'Ask the Orchestrator in chat to start planning, or add your first task above to bootstrap .hive/tasks.md.',
@@ -310,6 +312,8 @@ const enMessages = {
   'cockpit.title': 'Cockpit',
   'cockpit.subtitle': '.hive PM',
   'cockpit.close': 'Close Cockpit',
+  'cockpit.description':
+    'Project management cockpit with plan, tasks, questions, ideas, decisions, research, baseline, and archive tabs.',
   'cockpit.loading': 'Loading cockpit',
   'cockpit.loadingDescription': 'HippoTeam is loading the workspace PM documents.',
   'cockpit.connection.live': 'live',
@@ -622,6 +626,8 @@ const zhMessages: Record<TranslationKey, string> = {
   'tasks.aria.expandSubtasks': '展开 {count} 个子任务',
   'tasks.aria.progress': '任务完成度',
   'tasks.button.addTask': '添加任务',
+  'tasks.button.cancelNewTask': '取消新任务',
+  'tasks.button.saveNewTask': '保存新任务',
   'tasks.completed.toggle': '{count} 个已完成',
   'tasks.empty.description':
     '在聊天中让 Orchestrator 开始规划，或在上方添加第一个任务以创建 .hive/tasks.md。',
@@ -735,6 +741,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'cockpit.title': 'Cockpit',
   'cockpit.subtitle': '.hive PM',
   'cockpit.close': '关闭 Cockpit',
+  'cockpit.description': '项目管理 Cockpit，包含计划、任务、问题、想法、决策、调研、基线和归档。',
   'cockpit.loading': '正在加载 Cockpit',
   'cockpit.loadingDescription': 'HippoTeam 正在加载这个 workspace 的 PM 文档。',
   'cockpit.connection.live': '实时',

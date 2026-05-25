@@ -32,6 +32,25 @@ const makeCockpit = (overrides: Partial<ParsedCockpit> = {}): ParsedCockpit => (
 })
 
 describe('CockpitDrawer', () => {
+  test('open drawer does not emit Radix missing description warnings', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      render(
+        <CockpitDrawer
+          cockpit={makeCockpit()}
+          error={null}
+          isConnected={true}
+          onClose={vi.fn()}
+          open={true}
+          workspacePath="/tmp/ws"
+        />
+      )
+      expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Missing `Description`'))
+    } finally {
+      errorSpy.mockRestore()
+    }
+  })
+
   test('closed — drawer not in document when open=false', () => {
     render(
       <CockpitDrawer
