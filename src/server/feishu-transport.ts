@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import type { EventHandles } from '@larksuiteoapi/node-sdk'
 import * as lark from '@larksuiteoapi/node-sdk'
@@ -23,6 +26,7 @@ import {
   parseTextContent,
   stripLeadingMentions,
 } from './feishu-transport-utils.js'
+import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 
@@ -62,6 +66,7 @@ export interface UpdateApprovalCardInput {
 interface FeishuTransportOptions {
   credentials: FeishuCredentials
   logger: HiveLogger
+  localSttProvider?: LocalSttProvider
   onInboundChat?: (event: FeishuInboundChatEvent) => Promise<void> | void
   store: RuntimeStore
 }
@@ -132,6 +137,7 @@ const readableToBuffer = async (stream: Readable): Promise<Buffer> => {
 export class FeishuTransport implements FeishuOutboundTransport {
   private readonly credentials: FeishuCredentials
   private readonly logger: HiveLogger
+  private readonly localSttProvider: LocalSttProvider
   private readonly onInboundChat:
     | ((event: FeishuInboundChatEvent) => Promise<void> | void)
     | undefined
@@ -144,9 +150,16 @@ export class FeishuTransport implements FeishuOutboundTransport {
   private cleanupInterval: ReturnType<typeof setInterval> | null = null
   private wsClient: lark.WSClient | null = null
 
-  constructor({ credentials, logger, onInboundChat, store }: FeishuTransportOptions) {
+  constructor({
+    credentials,
+    localSttProvider,
+    logger,
+    onInboundChat,
+    store,
+  }: FeishuTransportOptions) {
     this.credentials = credentials
     this.logger = logger
+    this.localSttProvider = localSttProvider ?? createLocalSttProvider({ logger })
     this.onInboundChat = onInboundChat
     this.store = store
     this.client = new lark.Client({
@@ -470,6 +483,12 @@ export class FeishuTransport implements FeishuOutboundTransport {
         },
       })
       const audioBuffer = await readableToBuffer(resource.getReadableStream())
+      const localTranscript = await this.extractLocalAudioTranscript(audioBuffer, {
+        chatId: message.chat_id,
+        fileKey: audio.fileKey,
+      })
+      if (localTranscript) return localTranscript
+
       const response = await this.client.speech_to_text.v1.speech.fileRecognize({
         data: {
           config: {
@@ -496,6 +515,33 @@ export class FeishuTransport implements FeishuOutboundTransport {
         stringifyFeishuError(error)
       )
       return null
+    }
+  }
+
+  private async extractLocalAudioTranscript(
+    audioBuffer: Buffer,
+    input: { chatId: string; fileKey: string }
+  ): Promise<string | null> {
+    const tempDir = await mkdtemp(join(tmpdir(), 'hive-feishu-audio-'))
+    const audioPath = join(tempDir, `${input.fileKey}.opus`)
+    try {
+      await writeFile(audioPath, audioBuffer)
+      const result = await this.localSttProvider.transcribeAudioFile(audioPath)
+      if (!result) return null
+      const transcript = result?.text.trim()
+      if (!transcript) return null
+      this.logger.info(
+        `feishu audio transcribed locally chat_id=${input.chatId} file_key=${input.fileKey} provider=${result.provider}`
+      )
+      return transcript
+    } catch (error) {
+      this.logger.warn(
+        `feishu local STT failed chat_id=${input.chatId} file_key=${input.fileKey}`,
+        stringifyFeishuError(error)
+      )
+      return null
+    } finally {
+      await rm(tempDir, { force: true, recursive: true })
     }
   }
 

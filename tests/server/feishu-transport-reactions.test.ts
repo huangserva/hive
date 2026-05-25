@@ -133,9 +133,17 @@ describe('FeishuTransport reactions', () => {
   test('downloads and transcribes inbound audio before injecting the shared Feishu prompt', async () => {
     const logger = makeLogger()
     const store = makeStore()
+    const localSttProvider = {
+      detect: vi.fn(),
+      transcribeAudioFile: vi.fn().mockResolvedValue({
+        provider: 'whisper',
+        text: '本地语音转写内容',
+      }),
+    }
     const transport = new FeishuTransport({
       credentials: { appId: 'app_1', appSecret: 'secret_1' },
       logger,
+      localSttProvider,
       store,
     })
     const createReaction = vi.fn().mockResolvedValue({ data: { reaction_id: 'rx_eye' } })
@@ -184,6 +192,76 @@ describe('FeishuTransport reactions', () => {
       params: { type: 'audio' },
       path: { file_key: 'audio_file_1', message_id: 'om_audio_1' },
     })
+    expect(localSttProvider.transcribeAudioFile).toHaveBeenCalledWith(expect.any(String))
+    expect(fileRecognize).not.toHaveBeenCalled()
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.stringContaining('[来自飞书语音]')
+    )
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.stringContaining('本地语音转写内容')
+    )
+  })
+
+  test('falls back to Feishu speech recognition when local STT is unavailable', async () => {
+    const logger = makeLogger()
+    const store = makeStore()
+    const localSttProvider = {
+      detect: vi.fn(),
+      transcribeAudioFile: vi.fn().mockResolvedValue(null),
+    }
+    const transport = new FeishuTransport({
+      credentials: { appId: 'app_1', appSecret: 'secret_1' },
+      logger,
+      localSttProvider,
+      store,
+    })
+    const createReaction = vi.fn().mockResolvedValue({ data: { reaction_id: 'rx_eye' } })
+    const getResource = vi.fn().mockResolvedValue({
+      getReadableStream: () => Readable.from([Buffer.from('audio bytes')]),
+    })
+    const fileRecognize = vi.fn().mockResolvedValue({
+      data: { recognition_text: '飞书兜底转写内容' },
+    })
+    ;(
+      transport as unknown as {
+        client: {
+          im: {
+            v1: {
+              messageReaction: { create: typeof createReaction }
+              messageResource: { get: typeof getResource }
+            }
+          }
+          speech_to_text: {
+            v1: { speech: { fileRecognize: typeof fileRecognize } }
+          }
+        }
+      }
+    ).client.im.v1.messageReaction.create = createReaction
+    ;(
+      transport as unknown as {
+        client: {
+          im: { v1: { messageResource: { get: typeof getResource } } }
+          speech_to_text: { v1: { speech: { fileRecognize: typeof fileRecognize } } }
+        }
+      }
+    ).client.im.v1.messageResource.get = getResource
+    ;(
+      transport as unknown as {
+        client: { speech_to_text: { v1: { speech: { fileRecognize: typeof fileRecognize } } } }
+      }
+    ).client.speech_to_text.v1.speech.fileRecognize = fileRecognize
+
+    await (
+      transport as unknown as {
+        handleMessageReceive: (event: ReturnType<typeof makeAudioMessageEvent>) => Promise<void>
+      }
+    ).handleMessageReceive(makeAudioMessageEvent())
+
+    expect(localSttProvider.transcribeAudioFile).toHaveBeenCalledWith(expect.any(String))
     expect(fileRecognize).toHaveBeenCalledWith({
       data: {
         config: {
@@ -197,12 +275,7 @@ describe('FeishuTransport reactions', () => {
     expect(store.recordUserInput).toHaveBeenCalledWith(
       'ws-1',
       'ws-1:orchestrator',
-      expect.stringContaining('[来自飞书语音]')
-    )
-    expect(store.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      expect.stringContaining('语音转写内容')
+      expect.stringContaining('飞书兜底转写内容')
     )
   })
 })
