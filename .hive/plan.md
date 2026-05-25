@@ -170,7 +170,7 @@ last_review: 2026-05-25
 ### M19 · HippoTeam native app / dashboard · confirmed (user 飞书 5/25)
 - [x] 初版路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile（`2fa6425`，结论已被 user 覆写为原生-first）
 - [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
-- [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit 见本 dispatch report）
+- [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
 - [ ] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）
 - [ ] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）
 - [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
