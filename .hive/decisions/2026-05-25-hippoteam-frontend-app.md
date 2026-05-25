@@ -1,52 +1,46 @@
-# 决策：HippoTeam 前端 APP 先走 PWA-first
+# 决策：HippoTeam 前端走原生 APP（Expo/RN 客户端 + 远程接入层）
 
 **日期**: 2026-05-25
-**状态**: draft（待 user 确认）
-**关联**: user 飞书诉求“方便看所有任务 + 有 dashboard/面板”
+**状态**: 已采纳
+**确认日期**: 2026-05-25（user 飞书拍板）
+**关联**: user 飞书诉求"方便看所有任务 + 有 dashboard/面板" + 明确要原生
 
 ## 背景
 
-user 看到 paseo 有 APP 端，询问 HippoTeam 是否也应该做前端 APP，让任务和面板更容易看。
+user 看到 paseo 有 APP 端，要给 HippoTeam 做原生前端 APP。调研（赵云 dispatch 1eb7852c，报告 `.hive/reports/hippoteam-frontend-app-eval-2026-05-25.html`）拆清 paseo：
 
-调研发现 paseo 的 app 端不是单一外壳，而是完整 client/daemon 架构：
+- **移动端是真原生**（Expo / React Native，编译 iOS/Android）。
+- 桌面端 Electron 套壳，可管 daemon 子进程；web 带 PWA manifest。
+- 真正使能移动的不是"原生"本身，而是底层 **client/daemon 架构 + WebSocket 协议 + direct/relay 连接 + host 配对/重连**。
 
-- Expo / React Native app 支持 mobile + web。
-- Electron desktop app 包装 web 并能管理 daemon。
-- optional encrypted relay 支持远程访问。
-- app 内有 host profile、direct/relay 连接、sessions/projects/workspaces、agent panes、terminal、voice 等。
-
-HippoTeam 当前已经有 web UI、Cockpit 9 tabs、Tasks tab、Workers 卡片、RuntimeStatusStrip 和 Feishu bridge。用户诉求首先是“看任务和面板方便”，不等同于必须立即做原生移动端。
+调研初版曾推 PWA-first（最省）。**user 否决，明确要原生、要"最好、效果最佳"的方式**——并立规矩：**不因"实现难"或"跟飞书远控重叠"就砍好方案**（见记忆 feedback-pursue-best-not-cheapest）。
 
 ## 决策
 
-推荐 **PWA-first**：
+走 **原生 APP**（Expo / React Native 跨端客户端，iOS/Android 优先，可同栈出 web/桌面），HippoTeam 升级为 **client/daemon 架构**：
 
-1. 第一阶段把现有 HippoTeam web 做成可安装 app：manifest、icons、standalone display、install CTA。
-2. 第二阶段优化 dashboard-first 布局：常驻展示 Cockpit summary、Tasks、Workers 和 ActionBar，drawer 保留深 drilldown。
-3. 暂不立即做 Expo / React Native mobile，也不立即引入 Tauri/Electron 桌面壳。
-4. 如果 PWA 不能满足“本机 app 自动管理 runtime”的需求，再 spike Tauri/Electron。
-5. 如果 Feishu bridge 不能满足“手机远程看/控任务面板”的需求，再设计 mobile app + relay/tunnel。
+1. runtime 暴露稳定的 agent/任务/Cockpit 数据协议（WebSocket，复用现有 /ws/* + 补齐）。
+2. 原生 app 作为第一方客户端：dashboard/面板、任务、Workers、agent/终端、（未来）语音控制。
+3. **远程接入层**（关键硬骨头）：host 配对 + direct/relay 连接 + auth，让手机能安全连到本机 runtime（loopback 之外）。
+4. 与 M14 语音收敛：原生 app 是"语音控制多 agent"的最佳载体，M14a 飞书 voice 是过渡，原生 app 是终局。
+5. PWA/Web 可并存作为轻量入口，但**目标形态是原生**，不是 PWA 收尾。
+
+详细架构方案另出（赵云设计 dispatch）。
 
 ## 理由
 
-1. **最贴合当前诉求**：user 要的是任务可视化和面板，现有 Cockpit/Tasks/Workers 已经提供数据和 UI。
-2. **最小增量**：PWA 复用现有 React/Vite 前端，不拆新技术栈，不重写 dashboard。
-3. **避开远程访问陷阱**：HippoTeam runtime 绑定 `127.0.0.1`，手机原生 app 无法直接访问电脑 loopback；移动远程是连接/安全架构问题。
-4. **不重复 Feishu 远控**：M4 Feishu bridge 和 M14a voice command MVP 已覆盖低成本远程控制入口。
-5. **保留升级路径**：PWA 不妨碍后续 desktop shell 或 native mobile；反而能先验证 dashboard 信息架构。
+1. **user 明确偏好最优/效果最佳**，原生是第一方、体验最强的形态。
+2. **不因难退缩**：远程接入/relay 是真硬骨头，但正是它让"随时随地原生控多 agent"成立——这是核心价值，不是可砍项。
+3. **不因飞书重叠退缩**：飞书远控是文本级、借第三方；原生 app 是第一方完整体验（面板 + 终端 + 语音），二者互补不互斥。
+4. 与北极星"语音控制多 agent"收敛，一个原生客户端承载看板 + 语音。
 
-## 已知代价
+## 已知代价（照实记，不劝退）
 
-- PWA 不是完整 native app；无法自动启动 runtime，也没有 tray/deep OS integration。
-- 手机安装 PWA 仍无法直接访问电脑上的 `127.0.0.1` runtime，除非同设备或另配远程访问层。
-- 若未来要 App Store / native push / background voice / relay pairing，仍需 Expo/RN 或 native shell。
-
-## 备选方案
-
-- **Electron/Tauri first**：更像桌面 app，可管理 runtime，但引入打包、签名、auto-update、安全和跨平台维护成本。
-- **Expo/RN first**：长期 mobile UX 最好，但对当前“看任务+面板”诉求过重，并与 Feishu 远控/M14 voice 路线重叠。
-- **不做 app 化，只保留浏览器**：维护成本最低，但不能解决 user 对“像 app 一样固定打开”的体验诉求。
+- 工作量最大：Expo/RN 客户端 + 远程接入/relay/auth 基础设施 + App 分发/证书 + 移动测试。
+- runtime 绑 `127.0.0.1`，必须新建远程接入层（隧道/relay + 配对 + 鉴权）才能手机远程用。
+- 维护双端（client + daemon 协议）+ 发布链。
+- 缓解：分阶段（epic）推进，先打通本地局域网直连 + 看板，再做 relay 远程 + 语音收敛。
 
 ## 结果（后写）
 
-待 user 确认。如果采纳，下一步可拆为 PWA manifest/icons/install CTA + dashboard-first layout 两个小 milestone。
+待赵云出详细架构方案 + 分阶段 epic 计划后回填。

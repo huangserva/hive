@@ -5,10 +5,10 @@
 
 ## In progress
 
-（空 — 两条线都收，等 user 飞书：①装 whisper 做语音真 E2E ②拍 M19 app 路线 PWA-first）
+- [ ] **赵云** dispatch `c8867a7c` — M19 原生 APP **出方案**（user 拍板要原生、要最优）：epic 框架设计 RN/Expo 客户端 + client/daemon 协议 + 远程接入层(host 配对/直连/relay/auth) + 看板/终端/任务 + M14 语音收敛 + 分阶段 M19a/b/c。回填 ADR + plan.md。只设计不实现
 
-> 🎤 M14a Phase 2 done（0b4cf98）：本地 whisper STT 接进飞书桥。**待 user：装 whisper + 重启 4010 → 真 E2E**（发飞书语音验）。步骤见 research/2026-05-25-m14a-local-stt.md
-> 📱 M19 app 调研 done（2fa6425）：**推荐 PWA-first**（现有 Cockpit/9tab/Tasks 一键装成 app，0.5-1.5 天；手机远程仍靠飞书桥）。ADR draft 待 user 拍。两件都已发飞书 chat oc_0d5e…
+> 🎯 user 飞书拍板**走原生 app**（否决 PWA-first，明确"要最优、不因难/飞书重叠退缩"——已记长期记忆）。ADR 已采纳原生。赵云出方案。📱 chat oc_0d5e…
+> 🎤 M14a Phase 2 done（0b4cf98，本地 whisper STT）：待 user 装 whisper + 重启 → 真 E2E（不急，user 定节奏）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
