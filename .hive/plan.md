@@ -190,4 +190,8 @@ last_review: 2026-05-25
 4. session 结束前更新 `.hive/handoff.html` 给下一个 session 接手
 5. 重大调研产物（如本次 upstream-diff、feishu plan、PM proposal）放 `.hive/reports/*.html`
 
-**当前阻塞**：无硬阻塞。下一步队列：重启 4010 加载 M13 runtime + schema v22 → 派 codex worker MCP browser E2E 验 Cockpit → 开 M17 skills playbook + M12 Reports tab。M11 marketplace 调研待 user 决定是否启动。
+**当前阻塞**：无硬阻塞。PM 体系 rollout 基本完成（M13 五层全齐 + M17 五 playbook 全齐 + Cockpit 9 tabs + idea-6 答题闭环）。
+
+**待 user**：最后一次重启 4010 激活本轮累积的 server 改动（idea-6 答题注入 / app.ts 缓存头 / M17+Layer4 RULES / report-file 路由 / Layer4 快照注入）。
+
+**下一步候选**（user 选）：M14 mobile+voice（大版本，开工起 ADR 选路线）／ M11 marketplace 调研是否启动 ／ M8 主动 trigger（观察期）。详见 Open tasks。
