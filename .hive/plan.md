@@ -130,6 +130,8 @@ last_review: 2026-05-25
 - 其余候选 idea：idea-3 (provider catalog) + idea-4 (timeline 模型)
 - 开工时拆 sub-task + 起 ADR：自建 mobile vs 借第三方框架 vs 飞书 + voice plugin 第三路径
 - [x] 路线 ADR 调研 draft：推荐先走 Feishu voice command MVP，保留 self-built mobile / realtime framework 升级出口（commit 7983182）
+- [x] **路线拍板**：user 飞书"干！"确认走 **M14a Feishu voice command MVP**，ADR 转正已采纳（2026-05-25-m14-voice-path.md）
+- [ ] **M14a Phase 1（进行中）**：飞书语音接入 spike（语音事件/音频下载/STT 三未知）+ 第一刀实现（audio→转写→复用 inbound 注入 orch）。STT 飞书内置 vs 外接 = 待 user 拍的决策点（关羽 dispatch 4109bb4b）
 
 ### M15 · Cockpit Questions answer flow · shipped 2026-05-24
 - [x] Questions tab Answer button opens a Radix dialog with Q text + textarea

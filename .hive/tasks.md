@@ -5,13 +5,12 @@
 
 ## In progress
 
-（空 — 等 user 飞书拍 M14 路线，拍了就拆 sub-task 开干）
+- [ ] **关羽** dispatch `4109bb4b` — M14a Phase 1：飞书语音接入 spike（验 3 未知：语音事件/音频下载/STT）+ 第一刀实现（audio→转写→复用 inbound 注入 orch）。STT 飞书内置 vs 外接 = 决策点摊 user。产 report+research
 
-> ✅ 终端输入框 bug（300 行实测过、关闭 9b63ae2）｜#7 状态条已上线（待 user 瞄）｜idea-6 答题闭环实战活了（Q8）
-> 📱 user 出门中，进展走飞书（chat oc_0d5e…，team feishu reply --chat）；M14 推荐已发飞书等回复
+> 🎯 M14a 飞书 voice MVP 路线 user 飞书拍板"干"，ADR 已采纳（2026-05-25-m14-voice-path.md）。📱 user 出门走飞书（chat oc_0d5e…，--chat）
+> ✅ 本日全收：PM 体系 + M17 五 playbook + M13 五层 + Cockpit 9 tab + idea-6 闭环 + 一串 bug（终端输入框 300 行实测过、浏览器免刷、内嵌 viewer）+ #7 状态条
 
 ## Open（user 回来决定）
-- [ ] **Q9 待答（已发飞书）**：M14 路线确认——赵云调研推荐先走「飞书 voice command MVP」（语音→转写→现有 team 协议，复用 M4 桥，最小改动验证语音控制多 agent；自建 mobile/实时框架二阶段）。ADR draft: `.hive/decisions/2026-05-25-m14-voice-path.md`。user 拍了就拆 sub-task
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR

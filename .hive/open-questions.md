@@ -10,7 +10,7 @@
 
 ### 🟠 medium — 影响下一步规划
 
-- [ ] **Q9** M14 语音路线确认？赵云选路调研推荐**先走「飞书 voice command MVP」**：语音/语音+文字 → 转写 → 现有 team send/approve/reply 协议，复用 M4 飞书桥，最小改动验证"语音控制多 agent"闭环；自建 mobile app / 实时框架（LiveKit 等）留二阶段。ADR draft `.hive/decisions/2026-05-25-m14-voice-path.md`（status=draft）。认可就拆 sub-task 开干（先验飞书语音消息事件 + 转写权限真 E2E）；想走别的路线/要实时双向语音也可改。已同步发 user 飞书。
+（暂无）
 
 ### 🟢 low — 灰度区
 
@@ -26,3 +26,4 @@
 - [x] **Q7** 确认归档 M17 handoff ADR（`.hive/decisions/2026-05-25-m17-handoff-playbook.md`，现 status=draft）？它记录的设计裁决——playbook 作为 PM 文档制品（不另造 runtime）/ 先模板后自动化 / ActionBar 只建议不自动执行 / handoff first——会作为后续 4 个 playbook（loop/advisor/committee/epic）的实现基调。你确认就把 status 改 accepted 归档。 → **answered 2026-05-25**：可以的
 
 - [x] **Q8** 是否将 idea 提升为 question：**idea-3 paseo Provider catalog manifest 借鉴**（preset 方向） → **answered 2026-05-25**：同意
+- [x] **Q9** M14 语音路线确认（推荐飞书 voice command MVP）→ **answered 2026-05-25（飞书）**：干！→ M14a 路线锁定，ADR 转正归档（2026-05-25-m14-voice-path.md 已采纳），派关羽 Phase 1（4109bb4b）
