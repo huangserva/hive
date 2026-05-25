@@ -5,7 +5,7 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `98ca899a` — multica #7：runtime 状态条（GET /api/runtime/status 返 port/pid/cwd/log/db/version + RuntimeStatusStrip 组件，不做心跳）
+（空 — idea-7 + #7 都收。⚠️ #7 有新 endpoint，待 user 重启 4010 才生效，重启后张飞验收 RuntimeStatusStrip 真显示）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -20,6 +20,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **赵云** dispatch `98ca899a` — **multica #7** runtime 状态条：GET /api/runtime/status（UI token 保护）返 port/pid/cwd/log_path/db_path/version + RuntimeStatusStrip 挂 sidebar 底部（独立 useRuntimeStatus hook，不动 api.ts；title 露全路径）+ i18n + 测试。不做心跳。全 gate 绿 1156 tests (`89acb07`)。⚠️新 endpoint merge 后需重启 4010；重启后张飞验收
 - [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)
 - [x] **张飞** dispatch `5216b120` — 真浏览器验收 idea-7 viewer **PASS**：baseline/research/decisions/reports 全部 app 内 Dialog 打开（始终 1 个 tab、未开新 tab），md 用 pre / report 用 iframe 真渲染，Esc + 关闭按钮可关，0 console error。附 clipboard 写权限噪声 4 条（非阻塞，记 idea-7 待查）
 - [x] **张飞** dispatch `d7e73037` — 真浏览器诊断"baseline 点不开"：**功能本身好的**（5 卡片有按钮、点击开新 tab、doc-file 200 返回 markdown、path 格式对）。根因＝**user 浏览器旧 bundle 缓存**（按钮没渲染），硬刷新解决。附带发现 window.open 新 tab 可能被弹窗拦 + 主 app 2 条 clipboard 写权限 error（记 idea-7）
