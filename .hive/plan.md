@@ -172,6 +172,7 @@ last_review: 2026-05-25
 - [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
 - [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
 - [ ] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）
+  - [x] 子任务 1：现有 HTTP/WS 协议 audit + native app 稳定 API 缺口分析（report/research 已产出，commit 见 dispatch report）
 - [ ] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）
 - [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
 - [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）
