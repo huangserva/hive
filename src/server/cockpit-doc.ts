@@ -17,8 +17,14 @@ import { type ParsedResearch, parseResearchDoc } from './pm-research-doc.js'
 import { type ParsedTasks, parseTasksDoc } from './pm-tasks-doc.js'
 import { ensurePmDocs, HIVE_DIR_NAME } from './tasks-file.js'
 
-export type AIActionType = 'question' | 'promote' | 'decision' | 'audit'
-export type CockpitTargetTab = 'questions' | 'ideas' | 'decisions' | 'baseline' | 'research'
+export type AIActionType = 'question' | 'promote' | 'decision' | 'audit' | 'playbook'
+export type CockpitTargetTab =
+  | 'tasks'
+  | 'questions'
+  | 'ideas'
+  | 'decisions'
+  | 'baseline'
+  | 'research'
 
 export interface AIAction {
   action: string
@@ -67,11 +73,34 @@ const isRecentIdea = (idea: PMIdea, now = Date.now()) => {
   return now - timestamp <= 7 * 24 * 60 * 60 * 1000
 }
 
+const cancelledDispatchPattern =
+  /^-\s+\[~\]\s+\*\*(.+?)\*\*\s+dispatch\s+`([0-9a-fA-F-]{8})`\s+—\s+(.+)$/gmu
+
+const handoffPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
+  const actions: AIAction[] = []
+  for (const match of tasks.raw.matchAll(cancelledDispatchPattern)) {
+    const workerName = match[1]?.trim()
+    const dispatchShortId = match[2]?.trim()
+    const summary = match[3]?.trim()
+    if (!workerName || !dispatchShortId || !summary) continue
+    actions.push({
+      action: '准备',
+      id: `handoff:${dispatchShortId}`,
+      priority: 'medium',
+      targetTab: 'tasks',
+      text: `准备 handoff brief：${workerName} dispatch ${dispatchShortId} 已取消/接手中 — ${summary}`,
+      type: 'playbook',
+    })
+  }
+  return actions.slice(0, 2)
+}
+
 const buildAiActions = (
   questions: ParsedQuestions,
   ideas: ParsedIdeas,
   baseline: ParsedBaseline,
   decisions: ParsedDecisions,
+  tasks: ParsedTasks,
   orphanReports: OrphanReport[] = []
 ): AIAction[] => {
   const actions: AIAction[] = [
@@ -109,6 +138,7 @@ const buildAiActions = (
       text: decision.title,
       type: 'decision' as const,
     })),
+    ...handoffPlaybookActions(tasks),
   ]
   if (baseline.staleHint) {
     actions.push({
@@ -138,7 +168,7 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
   const orphanReports = detectOrphanReports(hiveDir)
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
   return {
-    aiActions: buildAiActions(questions, ideas, baseline, decisions, orphanReports),
+    aiActions: buildAiActions(questions, ideas, baseline, decisions, tasks, orphanReports),
     archive,
     baseline,
     decisions,

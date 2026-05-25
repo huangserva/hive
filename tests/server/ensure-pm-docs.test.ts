@@ -29,6 +29,9 @@ describe('ensurePmDocs', () => {
     expect(
       existsSync(join(workspacePath, '.hive', 'templates', 'milestone-review.template.md'))
     ).toBe(true)
+    expect(
+      existsSync(join(workspacePath, '.hive', 'templates', 'playbook-handoff.template.md'))
+    ).toBe(true)
   })
 
   test('does not overwrite existing plan.md', () => {
@@ -123,6 +126,22 @@ describe('ensurePmDocs', () => {
     expect(existsSync(join(hive, 'templates', 'open-questions.template.md'))).toBe(true)
     expect(existsSync(join(hive, 'templates', 'ideas-inbox.template.md'))).toBe(true)
     expect(existsSync(join(hive, 'templates', 'baseline.template.md'))).toBe(true)
+  })
+
+  test('handoff playbook template preserves original task semantics', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-handoff-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(
+      join(workspacePath, '.hive', 'templates', 'playbook-handoff.template.md'),
+      'utf8'
+    )
+    expect(content).toContain('保任务语义')
+    expect(content).toContain('investigate')
+    expect(content).toContain('fix')
+    expect(content).toContain('验收标准')
   })
 
   test('does not overwrite existing baseline/module-map.md', () => {

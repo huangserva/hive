@@ -135,6 +135,26 @@ describe('aiActions', () => {
     )
   })
 
+  test('cancelled dispatch produces a conservative handoff playbook action', () => {
+    const dir = setupWorkspace({
+      'tasks.md':
+        '## In progress\n\n- [~] **关羽** dispatch `abc12345` — paseo v3 HTML stuck ⊘ PTY stuck, needs rescue\n',
+    })
+
+    const result = parseCockpit(dir)
+    const playbookActions = result.aiActions.filter((a) => a.type === 'playbook')
+
+    expect(playbookActions).toContainEqual(
+      expect.objectContaining({
+        action: '准备',
+        id: 'handoff:abc12345',
+        priority: 'medium',
+        targetTab: 'tasks',
+        text: expect.stringContaining('准备 handoff brief'),
+      })
+    )
+  })
+
   test('actions sorted high before medium before low', () => {
     const dir = setupWorkspace()
     const result = parseCockpit(dir)
@@ -186,14 +206,14 @@ describe('parseCockpit tasks and research integration', () => {
     expect(result.tasks.totalOpen).toBe(0)
   })
 
-  test('aiActions does not produce actions for tasks or research', () => {
+  test('aiActions does not produce actions for ordinary tasks or research', () => {
     const dir = setupWorkspace({
       'tasks.md': '## Open\n\n- [ ] Many tasks\n- [ ] More tasks\n',
     })
     const result = parseCockpit(dir)
-    const taskActions = result.aiActions.filter((a) => a.type === 'task')
+    const playbookActions = result.aiActions.filter((a) => a.type === 'playbook')
     const researchActions = result.aiActions.filter((a) => a.type === 'research')
-    expect(taskActions).toEqual([])
+    expect(playbookActions).toEqual([])
     expect(researchActions).toEqual([])
   })
 })

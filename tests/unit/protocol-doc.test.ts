@@ -81,4 +81,13 @@ describe('buildProtocolDoc', () => {
     expect(doc).toContain('baseline/')
     expect(doc).toContain('archive/')
   })
+
+  test('contains handoff playbook rules for worker rescue and semantic preservation', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Handoff Playbook')
+    expect(doc).toContain('worker stuck')
+    expect(doc).toContain('reassign')
+    expect(doc).toContain('跨 session 续接')
+    expect(doc).toContain('保任务语义')
+  })
 })

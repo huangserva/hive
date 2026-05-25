@@ -14,6 +14,7 @@ import {
   MILESTONE_REVIEW_TEMPLATE,
   OPEN_QUESTIONS_TEMPLATE,
   PLAN_TEMPLATE,
+  PLAYBOOK_HANDOFF_TEMPLATE,
   RESEARCH_TEMPLATE,
 } from './pm-templates.js'
 
@@ -235,6 +236,7 @@ export const ensurePmDocs = (workspacePath: string) => {
     ['handoff.template.html', HANDOFF_TEMPLATE],
     ['research.template.md', RESEARCH_TEMPLATE],
     ['milestone-review.template.md', MILESTONE_REVIEW_TEMPLATE],
+    ['playbook-handoff.template.md', PLAYBOOK_HANDOFF_TEMPLATE],
     ['open-questions.template.md', OPEN_QUESTIONS_TEMPLATE],
     ['ideas-inbox.template.md', IDEAS_INBOX_TEMPLATE],
     ['baseline.template.md', BASELINE_PLACEHOLDER_TEMPLATE],
