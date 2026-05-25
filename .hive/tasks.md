@@ -5,9 +5,9 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `701ab29f` — M14a Q10 **选项 D 调研**：扒 openclaw（~/development/openclaw）的本地/无 key STT（whisper.cpp/vosk/sherpa?），评估能否当 M14a 转写后端（免费+不挑租户+数据本地）。出 report+research+更新 Q10，不实现
+（空 — 等 user 飞书 greenlight 选项 D 实现）
 
-> 🎯 M14a 进行中：Phase 1 done（f37b21f，飞书内置 ASR 第一刀）。user 飞书提"本地模型转写"→ Q10 多了选项 D（openclaw 路子），关羽在查。📱 user 走飞书（chat oc_0d5e…，--chat）
+> 🎯 M14a：Phase 1（飞书内置 ASR）done + 选项 D（本地 STT）调研 done = **推荐 D**。openclaw 用无 key 本地 CLI（sherpa-onnx→whisper-cli→python whisper）。建议加 LocalSttProvider（借 CLI adapter 思路、不搬整套）。已发 user 飞书等拍 D 实现。📱 chat oc_0d5e…
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -22,6 +22,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `701ab29f` — M14a Q10 选项 D 调研（openclaw 本地 STT）：**可行+推荐**。openclaw media-understanding/runner 用无 key 本地 CLI auto-detect（sherpa-onnx-offline→whisper-cli→python whisper→才落 provider key）。建议不搬整套，加 LocalSttProvider 借 CLI adapter/fallback：飞书 audio→临时文件→whisper-cli/whisper→解析→复用 inbound 注入。MVP 白名单 whisper-cli/whisper、不引 native binding、不自动下大模型。坑：user 需装 CLI/模型、冷启动、中文质量、CPU timeout。report+research+Q10 更新，全 gate 1161 (`96cee8a`)
 - [x] **关羽** dispatch `4109bb4b` — **M14a Phase 1** 飞书语音接入 spike+第一刀：三未知解（①audio msg content 带 file_key→parseAudioContent ②messageResource.get 下载音频 stream ③飞书 speech_to_text.fileRecognize≤60s 但**免费版不支持**）。实现 audio→下载→飞书 ASR→recognition_text→复用 resolveRoute/inbound 注入 orch（标 `[来自飞书语音]`），失败优雅 drop 不接外部。挂 Q10（STT provider 待拍）。report+research 配对，38 focused + 全量 1161 (`f37b21f`+`c29bf2e`)。真飞书 E2E 待 user 配合
 - [x] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：三路横向对比（自建 mobile / 第三方框架 LiveKit-Vapi / 飞书+voice）+ ADR draft。**推荐先走飞书 voice command MVP**（语音→转写→现有 team 协议，复用 M4 桥，ROI 最高，自建/实时框架二阶段）。reports+research+ADR 配对，全 gate 1156 (`7983182`+`933eedc`)。结论已发 user 飞书，路线待拍（Q9）
 - [x] **关羽** dispatch `ea4054a2` — 修 orch 终端流式时底部输入框消失：根因 flex 链缺约束（orch PTY slot 修前 overflow visible/min-height auto/flex 0 1 auto → 修后 hidden/0/1 1 0%），OrchestratorPane root + portal slot + WorkspaceDetail 左 pane 补 min-h-0+overflow-hidden + 回归测试。**playwright 真浏览器量 DOM + 80 行流式验输入区全程可见**（top937/bottom954<1000）。纯前端不用重启，build:web 已跑。4 focused + 全量 1156 (`9b63ae2`)
