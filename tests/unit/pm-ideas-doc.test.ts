@@ -69,4 +69,23 @@ describe('parseIdeasDoc', () => {
     const result = parseIdeasDoc(FULL_IDEAS)
     expect(result.inbox.map((i) => i.id)).toEqual(['I1', 'I2', 'I3'])
   })
+
+  test('ignores indented child bullets inside an idea', () => {
+    const result = parseIdeasDoc(`# Ideas Inbox
+
+## inbox
+
+### 2026-05-24
+
+- 🤔 idea: provider catalog
+  - 详细能力声明
+  - 价值：减少 preset 分支
+- idea: voice control
+
+## promoted
+`)
+
+    expect(result.inbox).toHaveLength(2)
+    expect(result.inbox.map((idea) => idea.text)).toEqual(['provider catalog', 'voice control'])
+  })
 })

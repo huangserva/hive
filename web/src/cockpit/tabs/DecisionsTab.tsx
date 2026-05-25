@@ -1,7 +1,14 @@
 import * as Dialog from '@radix-ui/react-dialog'
+import { ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { confirmCockpitDecision, type ParsedDecisions, type PMDecision } from '../../api.js'
 import { useI18n } from '../../i18n.js'
+
+const openCockpitDoc = (workspaceId: string, path: string) => {
+  if (!workspaceId) return
+  const url = `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
 
 const DecisionRow = ({
   autoOpen = false,
@@ -20,6 +27,7 @@ const DecisionRow = ({
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const path = `.hive/decisions/${decision.filename}`
 
   useEffect(() => {
     if (!autoOpen || !draft) return
@@ -49,6 +57,16 @@ const DecisionRow = ({
       </div>
       <div className="flex items-start gap-3">
         <p className="min-w-0 flex-1 font-medium text-pri text-sm">{decision.title}</p>
+        <button
+          aria-label={t('cockpit.openDocument')}
+          className="shrink-0 cursor-pointer rounded px-2 py-1 text-accent text-xs hover:bg-3"
+          disabled={!workspaceId}
+          onClick={() => openCockpitDoc(workspaceId, path)}
+          type="button"
+        >
+          <ExternalLink size={13} aria-hidden />
+          {t('cockpit.openDocument')}
+        </button>
         {draft ? (
           <Dialog.Root open={open} onOpenChange={setOpen}>
             <Dialog.Trigger asChild>

@@ -108,6 +108,7 @@ last_review: 2026-05-25
 - [x] `.hive/reports/*.html` 列表 + 一键打开（复用现有 `open-file` endpoint）
 - [x] Cockpit 第 9 个 Reports tab + i18n + parser/UI 测试（本次提交）
 - [x] Reports tab 改为当前浏览器新 tab 打开 HTML，避免弹 OS 默认浏览器（本次提交）
+- [x] Research / Decisions / Baseline 文档改为当前浏览器新 tab 打开，ideas parser 不再把缩进子条目计为独立 idea（本次提交）
 - Q2 答复：要做。优先级从 low 提升为正常队列
 
 ### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+4+5) 2026-05-24

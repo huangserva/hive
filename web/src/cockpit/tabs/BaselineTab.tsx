@@ -1,3 +1,5 @@
+import { ExternalLink } from 'lucide-react'
+
 import type { BaselineFile, ParsedBaseline } from '../../api.js'
 import { useI18n } from '../../i18n.js'
 
@@ -29,8 +31,15 @@ const MarkdownPreview = ({ content }: { content: string }) => (
   </div>
 )
 
-const BaselineCard = ({ file }: { file: BaselineFile }) => {
+const openCockpitDoc = (workspaceId: string, path: string) => {
+  if (!workspaceId) return
+  const url = `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+const BaselineCard = ({ file, workspaceId }: { file: BaselineFile; workspaceId: string }) => {
   const { t } = useI18n()
+  const path = `.hive/baseline/${file.filename}`
   return (
     <div className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>
       <div className="mb-1 flex items-start justify-between gap-2">
@@ -54,11 +63,29 @@ const BaselineCard = ({ file }: { file: BaselineFile }) => {
       <div className="text-sec text-xs tabular-nums">
         {t('cockpit.baseline.size', { count: file.size })}
       </div>
+      {file.exists ? (
+        <button
+          aria-label={t('cockpit.openDocument')}
+          className="icon-btn mt-3 h-8 px-2 text-xs"
+          disabled={!workspaceId}
+          onClick={() => openCockpitDoc(workspaceId, path)}
+          type="button"
+        >
+          <ExternalLink size={13} aria-hidden />
+          {t('cockpit.openDocument')}
+        </button>
+      ) : null}
     </div>
   )
 }
 
-export const BaselineTab = ({ baseline }: { baseline: ParsedBaseline }) => {
+export const BaselineTab = ({
+  baseline,
+  workspaceId,
+}: {
+  baseline: ParsedBaseline
+  workspaceId: string
+}) => {
   const { t } = useI18n()
   return (
     <div className="scroll-y space-y-4 px-5 py-4">
@@ -87,7 +114,7 @@ export const BaselineTab = ({ baseline }: { baseline: ParsedBaseline }) => {
         <h3 className="mb-2 font-medium text-pri text-sm">{t('cockpit.baseline.files')}</h3>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {baseline.children.map((file) => (
-            <BaselineCard file={file} key={file.filename} />
+            <BaselineCard file={file} key={file.filename} workspaceId={workspaceId} />
           ))}
         </div>
       </section>

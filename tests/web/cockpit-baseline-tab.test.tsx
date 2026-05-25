@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { ParsedBaseline } from '../../web/src/api.js'
 import { BaselineTab } from '../../web/src/cockpit/tabs/BaselineTab.js'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const makeBaseline = (overrides: Partial<ParsedBaseline> = {}): ParsedBaseline => ({
   children: [],
@@ -18,7 +21,7 @@ const makeBaseline = (overrides: Partial<ParsedBaseline> = {}): ParsedBaseline =
 
 describe('BaselineTab', () => {
   test('renders empty state when no readme', () => {
-    render(<BaselineTab baseline={makeBaseline()} />)
+    render(<BaselineTab baseline={makeBaseline()} workspaceId="ws1" />)
     expect(screen.getByText('No baseline README found.')).toBeInTheDocument()
   })
 
@@ -26,14 +29,14 @@ describe('BaselineTab', () => {
     const baseline = makeBaseline({
       readme: { raw: '# Baseline · My Project\n\nDescription.', title: 'Baseline · My Project' },
     })
-    render(<BaselineTab baseline={baseline} />)
+    render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
     expect(screen.getByText('Baseline · My Project')).toBeInTheDocument()
     expect(screen.getByText('Description.')).toBeInTheDocument()
   })
 
   test('renders staleHint warning when present', () => {
     const baseline = makeBaseline({ staleHint: '3 baseline files still need drafting' })
-    render(<BaselineTab baseline={baseline} />)
+    render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
     expect(screen.getByText('3 baseline files still need drafting')).toBeInTheDocument()
   })
 
@@ -60,7 +63,7 @@ describe('BaselineTab', () => {
         },
       ],
     })
-    render(<BaselineTab baseline={baseline} />)
+    render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
     expect(screen.getByText('Module Map')).toBeInTheDocument()
     expect(screen.getByText('Test Gates')).toBeInTheDocument()
     expect(screen.getByText('stub')).toBeInTheDocument()
@@ -80,12 +83,39 @@ describe('BaselineTab', () => {
         },
       ],
     })
-    render(<BaselineTab baseline={baseline} />)
+    render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
     expect(screen.getByText('missing')).toBeInTheDocument()
   })
 
   test('renders Baseline files section header', () => {
-    render(<BaselineTab baseline={makeBaseline()} />)
+    render(<BaselineTab baseline={makeBaseline()} workspaceId="ws1" />)
     expect(screen.getByText('Baseline files')).toBeInTheDocument()
+  })
+
+  test('opens an existing baseline file in a browser tab', () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    const baseline = makeBaseline({
+      children: [
+        {
+          exists: true,
+          filename: 'module-map.md',
+          isStub: false,
+          size: 42,
+          staleReason: null,
+          staleSince: null,
+          title: 'Module Map',
+        },
+      ],
+    })
+
+    render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
+    screen.getByRole('button', { name: 'Open document' }).click()
+
+    expect(open).toHaveBeenCalledWith(
+      '/api/workspaces/ws1/cockpit/doc-file?path=.hive%2Fbaseline%2Fmodule-map.md',
+      '_blank',
+      'noopener,noreferrer'
+    )
   })
 })

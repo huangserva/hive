@@ -92,6 +92,31 @@ describe('aiActions', () => {
     expect(promoteActions[0]?.priority).toBe('medium')
   })
 
+  test('promote actions only use top-level ideas, not indented child bullets', () => {
+    const dir = setupWorkspace({
+      'ideas/inbox.md': `# Ideas Inbox
+
+## inbox
+
+### 2026-05-24
+
+- 🤔 idea: provider catalog
+  - 详细能力声明
+  - 价值：减少 preset 分支
+- idea: voice control
+
+## promoted
+`,
+    })
+    const result = parseCockpit(dir)
+    const promoteActions = result.aiActions.filter((a) => a.type === 'promote')
+
+    expect(promoteActions.map((action) => action.text)).toEqual([
+      'provider catalog',
+      'voice control',
+    ])
+  })
+
   test('draft decisions produce decision action with high priority', () => {
     const dir = setupWorkspace()
     writeFileSync(

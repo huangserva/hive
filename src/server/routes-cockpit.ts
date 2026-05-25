@@ -24,11 +24,15 @@ interface OpenFileBody {
 }
 
 const REPORTS_PATH_PREFIX = '.hive/reports/'
+const DOC_PATH_PREFIXES = ['.hive/baseline/', '.hive/research/', '.hive/decisions/'] as const
 
 const isInside = (root: string, candidate: string) => {
   const relative = candidate.slice(root.length)
   return candidate === root || relative.startsWith(sep)
 }
+
+const hasParentTraversal = (requestedPath: string) =>
+  requestedPath.split(/[\\/]+/).some((segment) => segment === '..')
 
 const readWorkspaceReportHtml = (workspacePath: string, requestedPath: string) => {
   const trimmed = requestedPath.trim()
@@ -48,6 +52,35 @@ const readWorkspaceReportHtml = (workspacePath: string, requestedPath: string) =
   }
   if (!existsSync(candidate) || !statSync(candidate).isFile()) {
     throw new NotFoundError(`Report not found: ${requestedPath}`)
+  }
+
+  return readFileSync(candidate, 'utf8')
+}
+
+const readWorkspaceCockpitMarkdown = (workspacePath: string, requestedPath: string) => {
+  const trimmed = requestedPath.trim()
+  if (!trimmed) throw new BadRequestError('path must not be empty')
+  if (!trimmed.toLowerCase().endsWith('.md')) {
+    throw new BadRequestError('doc path must be a .md file')
+  }
+  const matchedPrefix = DOC_PATH_PREFIXES.find((prefix) => trimmed.startsWith(prefix))
+  if (!matchedPrefix) {
+    throw new BadRequestError(
+      'doc path must be under .hive/baseline, .hive/research, or .hive/decisions'
+    )
+  }
+  if (hasParentTraversal(trimmed)) {
+    throw new BadRequestError('doc path must stay inside its allowed .hive directory')
+  }
+
+  const workspaceRoot = resolve(workspacePath)
+  const allowedRoot = resolve(workspaceRoot, matchedPrefix)
+  const candidate = resolve(workspaceRoot, trimmed)
+  if (!isInside(allowedRoot, candidate)) {
+    throw new BadRequestError('doc path must stay inside its allowed .hive directory')
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
+    throw new NotFoundError(`Document not found: ${requestedPath}`)
   }
 
   return readFileSync(candidate, 'utf8')
@@ -90,6 +123,30 @@ export const cockpitRoutes: RouteDefinition[] = [
       response.statusCode = 200
       response.setHeader('content-type', 'text/html; charset=utf-8')
       response.end(html)
+    }
+  ),
+  route(
+    'GET',
+    '/api/workspaces/:workspaceId/cockpit/doc-file',
+    ({ params, request, response, store }) => {
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+
+      requireUiTokenFromRequest(request, store.validateUiToken)
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const docPath = url.searchParams.get('path')
+      if (!docPath) throw new BadRequestError('path is required')
+
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      const markdown = readWorkspaceCockpitMarkdown(workspace.summary.path, docPath)
+      response.statusCode = 200
+      response.setHeader('content-type', 'text/plain; charset=utf-8')
+      response.end(markdown)
     }
   ),
   route(

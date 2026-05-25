@@ -341,3 +341,81 @@ describe('GET /api/workspaces/:workspaceId/cockpit/report-file', () => {
     expect(body.error).toBe('Report not found: .hive/reports/missing.html')
   })
 })
+
+describe('GET /api/workspaces/:workspaceId/cockpit/doc-file', () => {
+  test('serves markdown documents inside allowed .hive PM directories', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+    const baselineDir = join(workspace.path, '.hive', 'baseline')
+    mkdirSync(baselineDir, { recursive: true })
+    writeFileSync(join(baselineDir, 'module-map.md'), '# Module Map\n\nOK', 'utf8')
+
+    const { body, contentType, status } = await fetchText(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+        '.hive/baseline/module-map.md'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(200)
+    expect(contentType).toContain('text/plain')
+    expect(body).toContain('# Module Map')
+  })
+
+  test('rejects traversal outside the matched PM directory', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+        '.hive/baseline/../research/escaped.md'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('doc path must stay inside its allowed .hive directory')
+  })
+
+  test('rejects markdown paths outside baseline research and decisions', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+        '.hive/tasks.md'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe(
+      'doc path must be under .hive/baseline, .hive/research, or .hive/decisions'
+    )
+  })
+
+  test('rejects non-markdown document paths', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+        '.hive/research/report.html'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(400)
+    expect(body.error).toBe('doc path must be a .md file')
+  })
+
+  test('returns 404 when markdown document does not exist', async () => {
+    const { baseUrl, uiToken, workspace } = await setupServer()
+
+    const { body, status } = await fetchJson(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+        '.hive/research/missing.md'
+      )}`,
+      { headers: uiHeaders(uiToken) }
+    )
+
+    expect(status).toBe(404)
+    expect(body.error).toBe('Document not found: .hive/research/missing.md')
+  })
+})

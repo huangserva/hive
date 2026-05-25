@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { ParsedResearch } from '../../web/src/api.js'
 import { ResearchTab } from '../../web/src/cockpit/tabs/ResearchTab.js'
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 const localIso = (year: number, monthIndex: number, day: number, hour: number, minute: number) =>
   new Date(year, monthIndex, day, hour, minute).toISOString()
@@ -20,7 +23,7 @@ const makeResearch = (overrides: Partial<ParsedResearch> = {}): ParsedResearch =
 
 describe('ResearchTab', () => {
   test('renders empty state when no entries', () => {
-    render(<ResearchTab research={makeResearch()} />)
+    render(<ResearchTab research={makeResearch()} workspaceId="ws1" />)
     expect(screen.getByText(/No research notes/)).toBeInTheDocument()
   })
 
@@ -40,6 +43,7 @@ describe('ResearchTab', () => {
           ],
           totalCount: 1,
         })}
+        workspaceId="ws1"
       />
     )
     expect(screen.getByText('1')).toBeInTheDocument()
@@ -61,6 +65,7 @@ describe('ResearchTab', () => {
           ],
           totalCount: 1,
         })}
+        workspaceId="ws1"
       />
     )
     expect(screen.getByText('2026-05-24 09:30')).toBeInTheDocument()
@@ -95,6 +100,7 @@ describe('ResearchTab', () => {
           ],
           totalCount: 2,
         })}
+        workspaceId="ws1"
       />
     )
     expect(screen.getByText('First')).toBeInTheDocument()
@@ -102,7 +108,39 @@ describe('ResearchTab', () => {
   })
 
   test('renders parseError warning when present', () => {
-    render(<ResearchTab research={makeResearch({ parseError: 'read error' })} />)
+    render(<ResearchTab research={makeResearch({ parseError: 'read error' })} workspaceId="ws1" />)
     expect(screen.getByText(/read error/)).toBeInTheDocument()
+  })
+
+  test('opens research note in a browser tab', () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+
+    render(
+      <ResearchTab
+        research={makeResearch({
+          entries: [
+            {
+              date: '2026-05-20',
+              filename: '2026-05-20-api-design.md',
+              mtime: localIso(2026, 4, 24, 9, 30),
+              size: 12,
+              title: 'API Design Notes',
+              topic: 'api design',
+            },
+          ],
+          totalCount: 1,
+        })}
+        workspaceId="ws1"
+      />
+    )
+
+    screen.getByRole('button', { name: 'Open document' }).click()
+
+    expect(open).toHaveBeenCalledWith(
+      '/api/workspaces/ws1/cockpit/doc-file?path=.hive%2Fresearch%2F2026-05-20-api-design.md',
+      '_blank',
+      'noopener,noreferrer'
+    )
   })
 })

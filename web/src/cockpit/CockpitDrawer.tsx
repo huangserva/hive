@@ -73,11 +73,14 @@ const renderTab = (
       />
     )
   }
-  if (activeTab === 'research') return <ResearchTab research={cockpit.research} />
+  if (activeTab === 'research') {
+    return <ResearchTab research={cockpit.research} workspaceId={workspaceId} />
+  }
   if (activeTab === 'reports') {
     return <ReportsTab reports={cockpit.reports} workspaceId={workspaceId} />
   }
-  if (activeTab === 'baseline') return <BaselineTab baseline={cockpit.baseline} />
+  if (activeTab === 'baseline')
+    return <BaselineTab baseline={cockpit.baseline} workspaceId={workspaceId} />
   return <ArchiveTab archive={cockpit.archive} />
 }
 

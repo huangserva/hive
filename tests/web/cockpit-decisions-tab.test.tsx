@@ -62,4 +62,35 @@ describe('DecisionsTab', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
   })
+
+  test('opens decision markdown in a browser tab', () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+
+    render(
+      <DecisionsTab
+        decisions={makeDecisions({
+          adopted: [
+            {
+              date: '2026-05-24',
+              filename: '2026-05-24-test-decision.md',
+              raw: '# 决策：Test Decision',
+              slug: 'test-decision',
+              status: 'adopted',
+              title: 'Test Decision',
+            },
+          ],
+        })}
+        workspaceId="workspace-1"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open document' }))
+
+    expect(open).toHaveBeenCalledWith(
+      '/api/workspaces/workspace-1/cockpit/doc-file?path=.hive%2Fdecisions%2F2026-05-24-test-decision.md',
+      '_blank',
+      'noopener,noreferrer'
+    )
+  })
 })

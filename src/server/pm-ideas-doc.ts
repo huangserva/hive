@@ -185,7 +185,7 @@ export const parseIdeasDoc = (content: string): ParsedIdeas => {
         continue
       }
       if (!section) continue
-      const bullet = /^\s*-\s+(.+?)\s*$/.exec(line)
+      const bullet = topLevelBullet(line)
       if (!bullet) continue
       counter += 1
       const rawText = (bullet[1] ?? '').trim()
