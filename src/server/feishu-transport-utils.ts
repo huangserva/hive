@@ -32,6 +32,16 @@ interface TextContent {
   text?: unknown
 }
 
+interface AudioContent {
+  duration?: unknown
+  file_key?: unknown
+}
+
+export interface ParsedAudioContent {
+  duration?: number
+  fileKey: string
+}
+
 const UNKNOWN_SENDER = 'unknown'
 const FEISHU_TEXT_LIMIT_BYTES = 30 * 1024
 const FEISHU_TEXT_CHUNK_BYTES = 25 * 1024
@@ -45,6 +55,15 @@ export const getSenderUserId = (sender: FeishuMessageSender) =>
 export const parseTextContent = (content: string) => {
   const parsed = JSON.parse(content) as TextContent
   return typeof parsed.text === 'string' ? parsed.text : null
+}
+
+export const parseAudioContent = (content: string): ParsedAudioContent | null => {
+  const parsed = JSON.parse(content) as AudioContent
+  if (typeof parsed.file_key !== 'string' || parsed.file_key.length === 0) return null
+  return {
+    ...(typeof parsed.duration === 'number' ? { duration: parsed.duration } : {}),
+    fileKey: parsed.file_key,
+  }
 }
 
 export const stripLeadingMentions = (text: string, mentions: readonly FeishuMention[]) => {

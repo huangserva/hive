@@ -4,6 +4,7 @@ import {
   type FeishuMention,
   type FeishuMessageSender,
   getSenderUserId,
+  parseAudioContent,
   parseTextContent,
   stripLeadingMentions,
 } from '../../src/server/feishu-transport-utils.js'
@@ -92,6 +93,26 @@ describe('parseTextContent', () => {
 
   test('preserves unicode in text field', () => {
     expect(parseTextContent('{"text":"你好世界"}')).toBe('你好世界')
+  })
+})
+
+describe('parseAudioContent', () => {
+  test('returns file_key and duration from valid Feishu audio JSON', () => {
+    expect(parseAudioContent('{"file_key":"audio_key_1","duration":2300}')).toEqual({
+      duration: 2300,
+      fileKey: 'audio_key_1',
+    })
+  })
+
+  test('accepts audio payload without duration', () => {
+    expect(parseAudioContent('{"file_key":"audio_key_2"}')).toEqual({
+      fileKey: 'audio_key_2',
+    })
+  })
+
+  test('returns null when file_key is missing or invalid', () => {
+    expect(parseAudioContent('{"duration":1200}')).toBeNull()
+    expect(parseAudioContent('{"file_key":123,"duration":1200}')).toBeNull()
   })
 })
 

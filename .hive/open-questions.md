@@ -10,7 +10,7 @@
 
 ### 🟠 medium — 影响下一步规划
 
-（暂无）
+- [ ] **Q10** M14a 飞书语音 STT provider 怎么选？选项 A：飞书内置 `speech_to_text.fileRecognize`（零新增依赖，但需要语音识别权限/版本支持，免费版不支持）；选项 B：外部 ASR（OpenAI Whisper 等，质量可控但付费/外部服务/数据出境，需要 user 明确拍板）。M14a Phase 1 已先按飞书内置接口落第一刀，真实 E2E 后可决定是否切换。
 
 ### 🟢 low — 灰度区
 

@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import type { EventHandles } from '@larksuiteoapi/node-sdk'
 import * as lark from '@larksuiteoapi/node-sdk'
 
@@ -18,6 +19,7 @@ import {
   getCardActionOperator,
   getSenderUserId,
   parseApprovalCardAction,
+  parseAudioContent,
   parseTextContent,
   stripLeadingMentions,
 } from './feishu-transport-utils.js'
@@ -69,6 +71,8 @@ const APPROVAL_LEDGER_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
 const APPROVAL_LEDGER_TTL_MS = 60 * 60 * 1000
 const FEISHU_REACTION_RECEIVED_EMOJI = 'GLANCE'
 const FEISHU_REACTION_DONE_EMOJI = 'OK'
+const FEISHU_AUDIO_RECOGNIZE_ENGINE = '16k_auto'
+const FEISHU_AUDIO_RECOGNIZE_FORMAT = 'opus'
 
 const stringifyFeishuError = (error: unknown) => {
   const response =
@@ -115,6 +119,14 @@ const stringifyFeishuError = (error: unknown) => {
   } catch {
     return String(error)
   }
+}
+
+const readableToBuffer = async (stream: Readable): Promise<Buffer> => {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
 }
 
 export class FeishuTransport implements FeishuOutboundTransport {
@@ -335,14 +347,15 @@ export class FeishuTransport implements FeishuOutboundTransport {
     const senderUserId = getSenderUserId(event.sender)
     this.logger.info(`feishu inbound message chat_id=${chatId} sender=${senderUserId}`)
 
-    const text = this.extractText(event)
-    if (text === null) return
+    const inboundText = await this.extractInboundText(event)
+    if (inboundText === null) return
 
     const inboundEvent: FeishuInboundChatEvent = {
       chatId,
       ...(messageId ? { messageId } : {}),
       senderName: senderUserId,
-      text,
+      sourceType: inboundText.sourceType,
+      text: inboundText.text,
       userId: senderUserId,
     }
     await this.onInboundChat?.(inboundEvent)
@@ -417,6 +430,73 @@ export class FeishuTransport implements FeishuOutboundTransport {
     }
 
     return text
+  }
+
+  private async extractInboundText(
+    event: MessageReceiveEvent
+  ): Promise<{ sourceType: 'text' | 'voice'; text: string } | null> {
+    const { message } = event
+    if (message.message_type === 'audio') {
+      const transcript = await this.extractAudioTranscript(event)
+      return transcript ? { sourceType: 'voice', text: transcript } : null
+    }
+    const text = this.extractText(event)
+    return text === null ? null : { sourceType: 'text', text }
+  }
+
+  private async extractAudioTranscript(event: MessageReceiveEvent): Promise<string | null> {
+    const { message } = event
+    let audio: ReturnType<typeof parseAudioContent> | null = null
+    try {
+      audio = parseAudioContent(message.content)
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound dropped reason=invalid_audio_content chat_id=${message.chat_id}`,
+        error
+      )
+      return null
+    }
+    if (!audio) {
+      this.logger.info(`feishu inbound dropped reason=missing_audio chat_id=${message.chat_id}`)
+      return null
+    }
+
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        params: { type: 'audio' },
+        path: {
+          file_key: audio.fileKey,
+          message_id: message.message_id,
+        },
+      })
+      const audioBuffer = await readableToBuffer(resource.getReadableStream())
+      const response = await this.client.speech_to_text.v1.speech.fileRecognize({
+        data: {
+          config: {
+            engine_type: FEISHU_AUDIO_RECOGNIZE_ENGINE,
+            file_id: audio.fileKey,
+            format: FEISHU_AUDIO_RECOGNIZE_FORMAT,
+          },
+          speech: {
+            speech: audioBuffer.toString('base64'),
+          },
+        },
+      })
+      const transcript = response.data?.recognition_text?.trim()
+      if (!transcript) {
+        this.logger.info(
+          `feishu inbound dropped reason=empty_audio_transcript chat_id=${message.chat_id} file_key=${audio.fileKey}`
+        )
+        return null
+      }
+      return transcript
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound dropped reason=audio_transcribe_failed chat_id=${message.chat_id} file_key=${audio.fileKey}`,
+        stringifyFeishuError(error)
+      )
+      return null
+    }
   }
 
   private async handleCardAction(event: FeishuCardActionTriggerEvent) {

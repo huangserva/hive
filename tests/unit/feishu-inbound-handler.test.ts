@@ -40,6 +40,16 @@ describe('formatFeishuInboundPrompt', () => {
     expect(result).toContain('你好')
   })
 
+  test('marks voice transcripts in the inbound prompt', () => {
+    const event = makeEvent({
+      sourceType: 'voice',
+      text: '请派关羽检查日志',
+    })
+    const result = formatFeishuInboundPrompt(event)
+    expect(result).toContain('[来自飞书语音]')
+    expect(result).toContain('请派关羽检查日志')
+  })
+
   test('preserves special characters in text', () => {
     const event = makeEvent({ text: 'test "quotes" & <tags>\nnewlines' })
     const result = formatFeishuInboundPrompt(event)
