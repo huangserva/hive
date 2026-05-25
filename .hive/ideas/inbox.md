@@ -22,16 +22,10 @@
   - 要做需：update launch-config endpoint + worker 卡片/detail UI 入口 + "改完 restart 才生效"语义
   - 成熟度：🟡 中，有 workaround（删了重建 worker），不急；user 真需要再 promote
 
-### 2026-05-25 user 发现"答了没反应"的半截循环
+## promoted / shipped
 
-- **idea-6 Cockpit 答 question 后自动 nudge orchestrator**（PM 闭环方向）
-  - 现状：Cockpit Questions 答复只走 `answerQuestionInFile`（纯文件写 L1：翻 `[ ]`→`[x]` + 挪进已答 + 追加答复文本）。**不叫醒 orchestrator**。PM 只在下次 user prompt / 读文件时才看到并行动 → user 体感"答了没反应"。
-  - 对比：worker `team report` 有回灌（注入 orch stdin 叫醒 PM），Questions 答复没有这条线 → 问答循环只接了一半。
-  - 要做：runtime 在 POST answer route 成功后，往 orch PTY 注入一条系统消息（"Q7 已答：<答复>，重读 open-questions.md 并行动"）。类比 team report 注入路径，L1 硬接线。
-  - 边界考虑：只在有 orch session 在线时注入；多条快速答复要 debounce / 合并；注入文案要让 PM 知道是"被 user 答题唤醒"而非新 dispatch。
-  - 成熟度：🟢→🟡，价值高（闭合 human-in-the-loop），实现量中等。user 体感痛点直接命中，建议优先 promote。
-
-## promoted
+- **idea-6 Cockpit 答 question 后自动 nudge orchestrator** → **shipped `a990f14`**（5/25）
+  - answer route → store.notifyQuestionAnswered → writeQuestionAnsweredPrompt 注入 orch PTY；无 active run 优雅 no-op；真 PTY 集成测试。闭合了 user 体感的"答了没反应"半截循环。
 
 - **idea-2 paseo skills playbook 系统借鉴** → **M17**（user 拍板 5/25）
   - handoff / advisor / committee / epic / loop 5 个 playbook，转译成 `.hive/templates/*` + ORCHESTRATOR_RULES + Cockpit ActionBar 建议
