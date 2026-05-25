@@ -154,6 +154,123 @@ export const PLAYBOOK_LOOP_TEMPLATE = `# Loop Playbook Brief
 - 需要 user / PM 拍板的问题：
 `
 
+export const PLAYBOOK_ADVISOR_TEMPLATE = `# Advisor Playbook Brief
+
+> 用于只读第二意见：找另一个 agent 对一个尖锐问题给出带理由的推荐，不派实现活。
+
+## 问题
+
+- 原 dispatch / milestone：
+- 尖锐问题：
+- 原始任务语义：调研 / investigate / 实现 / fix / review / test / other
+- **硬规则：保任务语义。advisor 只给第二意见，不把 review 变成实现，不把调研 / investigate 变成修复 / fix。**
+
+## 上下文
+
+（为什么现在需要第二意见、user 真正关心什么、跟 plan.md 哪个 milestone 相关）
+
+## 相关文件
+
+-
+
+## 已考虑 / 已否决的选项
+
+- 选项 A：
+- 选项 B：
+- 已否决：
+
+## Advisor 约束
+
+- **只读，不改代码，不改文件，不运行破坏性命令。**
+- 尽量选择不同 provider / 不同推理风格的 agent，形成真实对比。
+- 输出必须包含：推荐 / 理由 / 风险 / 反例 / 需要 PM 再确认的问题。
+
+## Orch 综合
+
+- advisor 推荐：
+- orch 裁决：
+- 采纳 / 不采纳理由：
+`
+
+export const PLAYBOOK_COMMITTEE_TEMPLATE = `# Committee Playbook Brief
+
+> 用于难题 / 卡死时召两个对立的高推理 advisor。committee 负责提出对立 plan，不直接改代码。
+
+## 难题
+
+- 原 dispatch / milestone：
+- 卡死点：
+- 原始任务语义：调研 / investigate / 实现 / fix / review / test / other
+- **硬规则：保任务语义。committee 不把调研 / investigate 变成修复 / fix；review 不得变成实现。**
+
+## 两个对立 advisor
+
+- Advisor A 立场：
+- Advisor B 立场：
+- 为什么需要对立：
+
+## 输入材料
+
+- 相关文件：
+- 已失败尝试：
+- 已否决方案：
+- 验收标准：
+
+## Committee 约束
+
+- **高推理 advisor 只读，不改代码，不改文件。**
+- 先各自出 plan，再由 orch 对照 plan 做 review。
+- orch 拥有综合、取舍和实现路由；不能盲从任一 advisor。
+
+## 对照 review
+
+- A plan 摘要：
+- B plan 摘要：
+- diff：
+- orch 综合结论：
+- 后续派给谁实现：
+`
+
+export const PLAYBOOK_EPIC_TEMPLATE = `# Epic Playbook Brief
+
+> 用于大型多阶段工作。epic 是 plan.md 的扩展，不是替代；给一个大 M-item 增加不可变需求和阶段闸门。
+
+## Epic 目标
+
+- 对应 plan.md milestone：
+- 用户目标：
+- 原始任务语义：调研 / investigate / 实现 / fix / review / test / other
+- **硬规则：保任务语义。epic planning 不得悄悄扩大需求或把调研 / investigate 改成修复 / fix。**
+
+## 不可变需求（planning 前锁定）
+
+- 必须满足：
+- 明确不做：
+- 成功定义：
+- 变更流程：任何需求变更必须回到 user / PM 确认，planner / reviewer agent 不能改需求。
+
+## 阶段计划
+
+| 阶段 | 目标 | 交付物 | verifier | 闸门 |
+|---|---|---|---|---|
+| 1 |  |  |  |  |
+| 2 |  |  |  |  |
+
+## 对抗式 planning / review
+
+- planner 输入：
+- reviewer 输入：
+- reviewer 不能改需求，只能指出风险、缺口和阶段闸门问题。
+- PM 裁决：
+
+## 执行记录
+
+- 当前阶段：
+- 已完成阶段：
+- 阻塞：
+- 下一阶段进入条件：
+`
+
 export const RESEARCH_TEMPLATE = `# 调研：{{TOPIC}}
 
 **日期**: {{YYYY-MM-DD}}

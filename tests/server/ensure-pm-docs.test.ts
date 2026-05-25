@@ -35,6 +35,15 @@ describe('ensurePmDocs', () => {
     expect(existsSync(join(workspacePath, '.hive', 'templates', 'playbook-loop.template.md'))).toBe(
       true
     )
+    expect(
+      existsSync(join(workspacePath, '.hive', 'templates', 'playbook-advisor.template.md'))
+    ).toBe(true)
+    expect(
+      existsSync(join(workspacePath, '.hive', 'templates', 'playbook-committee.template.md'))
+    ).toBe(true)
+    expect(existsSync(join(workspacePath, '.hive', 'templates', 'playbook-epic.template.md'))).toBe(
+      true
+    )
   })
 
   test('does not overwrite existing plan.md', () => {
@@ -161,6 +170,57 @@ describe('ensurePmDocs', () => {
     expect(content).toContain('具体命令')
     expect(content).toContain('max iterations')
     expect(content).toContain('成功判据')
+    expect(content).toContain('保任务语义')
+  })
+
+  test('advisor playbook template keeps the advisor read-only', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-advisor-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(
+      join(workspacePath, '.hive', 'templates', 'playbook-advisor.template.md'),
+      'utf8'
+    )
+    expect(content).toContain('第二意见')
+    expect(content).toContain('只读')
+    expect(content).toContain('不改代码')
+    expect(content).toContain('已考虑 / 已否决')
+    expect(content).toContain('保任务语义')
+  })
+
+  test('committee playbook template separates opposing advisors from implementation', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-committee-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(
+      join(workspacePath, '.hive', 'templates', 'playbook-committee.template.md'),
+      'utf8'
+    )
+    expect(content).toContain('对立')
+    expect(content).toContain('高推理 advisor')
+    expect(content).toContain('不改代码')
+    expect(content).toContain('diff')
+    expect(content).toContain('综合')
+  })
+
+  test('epic playbook template locks requirements before staged delivery', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-pm-epic-'))
+    tempDirs.push(workspacePath)
+
+    ensurePmDocs(workspacePath)
+
+    const content = readFileSync(
+      join(workspacePath, '.hive', 'templates', 'playbook-epic.template.md'),
+      'utf8'
+    )
+    expect(content).toContain('不可变需求')
+    expect(content).toContain('阶段闸门')
+    expect(content).toContain('plan.md 的扩展')
+    expect(content).toContain('不能改需求')
     expect(content).toContain('保任务语义')
   })
 

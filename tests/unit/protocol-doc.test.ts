@@ -99,4 +99,31 @@ describe('buildProtocolDoc', () => {
     expect(doc).toContain('有界停止')
     expect(doc).toContain('保任务语义')
   })
+
+  test('contains advisor playbook rules for read-only second opinions', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Advisor Playbook')
+    expect(doc).toContain('第二意见')
+    expect(doc).toContain('只读')
+    expect(doc).toContain('不改代码')
+    expect(doc).toContain('orch 综合而不是盲从')
+  })
+
+  test('contains committee playbook rules for opposing high-reasoning advisors', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Committee Playbook')
+    expect(doc).toContain('两个对立')
+    expect(doc).toContain('高推理 advisor')
+    expect(doc).toContain('committee 成员不改代码')
+    expect(doc).toContain('实现路由')
+  })
+
+  test('contains epic playbook rules for immutable requirements and phase gates', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('Epic Playbook')
+    expect(doc).toContain('不可变需求')
+    expect(doc).toContain('阶段闸门')
+    expect(doc).toContain('plan.md 的扩展')
+    expect(doc).toContain('planner / reviewer agent 不能改需求')
+  })
 })
