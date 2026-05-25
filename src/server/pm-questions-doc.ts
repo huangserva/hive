@@ -33,7 +33,7 @@ const emptyQuestions = (content: string): ParsedQuestions => ({
 })
 
 const ANSWER_SEPARATOR = /\s+→\s+\*\*answered\s+\d{4}-\d{2}-\d{2}\*\*[：:]\s*/
-const QUESTION_LINE_RE = /^\s*-\s+\[[ xX]\]\s+\*\*(Q\d+)\*\*\s*(.+?)\s*$/
+const QUESTION_LINE_RE = /^\s*-\s+\[[ xX]\]\s+\*\*(Q[\w-]+)\*\*\s+(.+?)\s*$/
 
 const parseQuestionLine = (
   line: string,
