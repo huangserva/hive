@@ -3,9 +3,8 @@
 > 长 narrative 和决策上下文在 `.hive/handoff.html` 和 `.hive/reports/*.html`。
 > 这个文件只放 GFM checkbox 格式的当前 sprint 任务和历史归档。
 
-## In progress（两个并行：张飞只读验收 + 赵云写代码，不重叠）
+## In progress
 
-- [ ] **张飞** dispatch `5216b120` — 真浏览器验收 idea-7 viewer（确认 app 内 Dialog 打开、非新 tab、内容渲染对），过了 orch 才跟 user 说好
 - [ ] **赵云** dispatch `98ca899a` — multica #7：runtime 状态条（GET /api/runtime/status 返 port/pid/cwd/log/db/version + RuntimeStatusStrip 组件，不做心跳）
 
 ## Open（user 回来决定）
@@ -21,7 +20,8 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
-- [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)。待张飞真浏览器验收
+- [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)
+- [x] **张飞** dispatch `5216b120` — 真浏览器验收 idea-7 viewer **PASS**：baseline/research/decisions/reports 全部 app 内 Dialog 打开（始终 1 个 tab、未开新 tab），md 用 pre / report 用 iframe 真渲染，Esc + 关闭按钮可关，0 console error。附 clipboard 写权限噪声 4 条（非阻塞，记 idea-7 待查）
 - [x] **张飞** dispatch `d7e73037` — 真浏览器诊断"baseline 点不开"：**功能本身好的**（5 卡片有按钮、点击开新 tab、doc-file 200 返回 markdown、path 格式对）。根因＝**user 浏览器旧 bundle 缓存**（按钮没渲染），硬刷新解决。附带发现 window.open 新 tab 可能被弹窗拦 + 主 app 2 条 clipboard 写权限 error（记 idea-7）
 - [x] **关羽** dispatch `66b92abe` — 两个 Cockpit 修复：① ideas parser bug（pm-ideas-doc parseIdeasDoc 改用 topLevelBullet，缩进子条目不再算独立 idea → 修「想法」虚高计数 + ActionBar 一个 idea 刷成多条噪音）② doc-file 路由 serve `.hive/{baseline,research,decisions}/*.md`（path-traversal+目录+后缀防护，text/plain），3 个 tab 加「打开」按钮 window.open 同浏览器。61 focused + 全量 1153 (`9b62207`)。⚠️parser+新路由 merge 后需重启 4010
 - [x] **Orchestrator** — 收尾刷 baseline（消 staleness）：module-map（+pm-reports-doc/reconnecting-websocket/preload-recovery，schema v21→v22，标注 dispatcher 快照注入/cockpit reports+playbook/routes-cockpit report-file+answer）+ runtime-flows（Flow1 Layer4 快照、Flow4 reports/answer/9 tabs）+ state-storage（schema v22）
