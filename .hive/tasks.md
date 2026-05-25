@@ -5,7 +5,7 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `ea4054a2` — Bug：orchestrator 终端流式输出时底部输入框消失、刷新才回。怀疑 portal slot(OrchestratorPane:155) flex 缺 min-h-0 / fit 时机。关羽用 playwright MCP 真浏览器复现+修+验（流式全程输入框可见）
+（空 — 等 user 硬刷新验证终端 bug 修复 + 重启 4010 验 #7）
 
 > ⚠️ 待 user 重启 4010：#7 RuntimeStatusStrip 新 endpoint 生效（重启后张飞验收）
 
@@ -22,6 +22,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `ea4054a2` — 修 orch 终端流式时底部输入框消失：根因 flex 链缺约束（orch PTY slot 修前 overflow visible/min-height auto/flex 0 1 auto → 修后 hidden/0/1 1 0%），OrchestratorPane root + portal slot + WorkspaceDetail 左 pane 补 min-h-0+overflow-hidden + 回归测试。**playwright 真浏览器量 DOM + 80 行流式验输入区全程可见**（top937/bottom954<1000）。纯前端不用重启，build:web 已跑。4 focused + 全量 1156 (`9b63ae2`)
 - [x] **赵云** dispatch `98ca899a` — **multica #7** runtime 状态条：GET /api/runtime/status（UI token 保护）返 port/pid/cwd/log_path/db_path/version + RuntimeStatusStrip 挂 sidebar 底部（独立 useRuntimeStatus hook，不动 api.ts；title 露全路径）+ i18n + 测试。不做心跳。全 gate 绿 1156 tests (`89acb07`)。⚠️新 endpoint merge 后需重启 4010；重启后张飞验收
 - [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)
 - [x] **张飞** dispatch `5216b120` — 真浏览器验收 idea-7 viewer **PASS**：baseline/research/decisions/reports 全部 app 内 Dialog 打开（始终 1 个 tab、未开新 tab），md 用 pre / report 用 iframe 真渲染，Esc + 关闭按钮可关，0 console error。附 clipboard 写权限噪声 4 条（非阻塞，记 idea-7 待查）
