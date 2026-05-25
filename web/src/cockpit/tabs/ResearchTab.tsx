@@ -1,22 +1,26 @@
 import { ExternalLink } from 'lucide-react'
+import { useState } from 'react'
 
 import type { ParsedResearch, PMResearchEntry } from '../../api.js'
 import { useI18n } from '../../i18n.js'
+import {
+  CockpitDocumentViewer,
+  type CockpitDocumentViewerDocument,
+} from '../CockpitDocumentViewer.js'
 
 const formatMtime = (mtime: string) =>
   new Date(mtime).toLocaleString('sv-SE', { hour12: false }).slice(0, 16)
 
-const openCockpitDoc = (workspaceId: string, path: string) => {
-  if (!workspaceId) return
-  const url = `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
+const docUrl = (workspaceId: string, path: string) =>
+  `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
 
 const ResearchEntryCard = ({
   entry,
+  onOpen,
   workspaceId,
 }: {
   entry: PMResearchEntry
+  onOpen: (document: CockpitDocumentViewerDocument) => void
   workspaceId: string
 }) => {
   const { t } = useI18n()
@@ -39,7 +43,9 @@ const ResearchEntryCard = ({
           aria-label={t('cockpit.openDocument')}
           className="icon-btn h-8 px-2 text-xs"
           disabled={!workspaceId}
-          onClick={() => openCockpitDoc(workspaceId, path)}
+          onClick={() =>
+            onOpen({ kind: 'markdown', title: entry.title, url: docUrl(workspaceId, path) })
+          }
           type="button"
         >
           <ExternalLink size={13} aria-hidden />
@@ -58,6 +64,7 @@ export const ResearchTab = ({
   workspaceId: string
 }) => {
   const { t } = useI18n()
+  const [viewerDocument, setViewerDocument] = useState<CockpitDocumentViewerDocument | null>(null)
   return (
     <div className="scroll-y space-y-4 px-5 py-4">
       <div className="flex items-center justify-between">
@@ -75,7 +82,12 @@ export const ResearchTab = ({
       <div className="space-y-2">
         {research.entries.length ? (
           research.entries.map((entry) => (
-            <ResearchEntryCard entry={entry} key={entry.filename} workspaceId={workspaceId} />
+            <ResearchEntryCard
+              entry={entry}
+              key={entry.filename}
+              onOpen={setViewerDocument}
+              workspaceId={workspaceId}
+            />
           ))
         ) : (
           <p
@@ -86,6 +98,7 @@ export const ResearchTab = ({
           </p>
         )}
       </div>
+      <CockpitDocumentViewer document={viewerDocument} onClose={() => setViewerDocument(null)} />
     </div>
   )
 }

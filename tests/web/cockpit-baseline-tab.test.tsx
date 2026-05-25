@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { ParsedBaseline } from '../../web/src/api.js'
@@ -92,9 +92,12 @@ describe('BaselineTab', () => {
     expect(screen.getByText('Baseline files')).toBeInTheDocument()
   })
 
-  test('opens an existing baseline file in a browser tab', () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
+  test('opens an existing baseline file in the embedded viewer', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '# Module Map\n\nServer modules.',
+    })
+    vi.stubGlobal('fetch', fetchMock)
     const baseline = makeBaseline({
       children: [
         {
@@ -110,12 +113,12 @@ describe('BaselineTab', () => {
     })
 
     render(<BaselineTab baseline={baseline} workspaceId="ws1" />)
-    screen.getByRole('button', { name: 'Open document' }).click()
+    fireEvent.click(screen.getByRole('button', { name: 'Open document' }))
 
-    expect(open).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/ws1/cockpit/doc-file?path=.hive%2Fbaseline%2Fmodule-map.md',
-      '_blank',
-      'noopener,noreferrer'
+      expect.objectContaining({ credentials: 'include' })
     )
+    expect(await screen.findByText(/Server modules/)).toBeInTheDocument()
   })
 })

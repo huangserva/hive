@@ -1,7 +1,12 @@
 import { ExternalLink } from 'lucide-react'
+import { useState } from 'react'
 
 import type { BaselineFile, ParsedBaseline } from '../../api.js'
 import { useI18n } from '../../i18n.js'
+import {
+  CockpitDocumentViewer,
+  type CockpitDocumentViewerDocument,
+} from '../CockpitDocumentViewer.js'
 
 const MarkdownPreview = ({ content }: { content: string }) => (
   <div className="space-y-2 text-sec text-sm leading-6">
@@ -31,13 +36,18 @@ const MarkdownPreview = ({ content }: { content: string }) => (
   </div>
 )
 
-const openCockpitDoc = (workspaceId: string, path: string) => {
-  if (!workspaceId) return
-  const url = `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
+const docUrl = (workspaceId: string, path: string) =>
+  `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
 
-const BaselineCard = ({ file, workspaceId }: { file: BaselineFile; workspaceId: string }) => {
+const BaselineCard = ({
+  file,
+  onOpen,
+  workspaceId,
+}: {
+  file: BaselineFile
+  onOpen: (document: CockpitDocumentViewerDocument) => void
+  workspaceId: string
+}) => {
   const { t } = useI18n()
   const path = `.hive/baseline/${file.filename}`
   return (
@@ -68,7 +78,9 @@ const BaselineCard = ({ file, workspaceId }: { file: BaselineFile; workspaceId: 
           aria-label={t('cockpit.openDocument')}
           className="icon-btn mt-3 h-8 px-2 text-xs"
           disabled={!workspaceId}
-          onClick={() => openCockpitDoc(workspaceId, path)}
+          onClick={() =>
+            onOpen({ kind: 'markdown', title: file.title, url: docUrl(workspaceId, path) })
+          }
           type="button"
         >
           <ExternalLink size={13} aria-hidden />
@@ -87,6 +99,7 @@ export const BaselineTab = ({
   workspaceId: string
 }) => {
   const { t } = useI18n()
+  const [viewerDocument, setViewerDocument] = useState<CockpitDocumentViewerDocument | null>(null)
   return (
     <div className="scroll-y space-y-4 px-5 py-4">
       {baseline.staleHint ? (
@@ -114,10 +127,16 @@ export const BaselineTab = ({
         <h3 className="mb-2 font-medium text-pri text-sm">{t('cockpit.baseline.files')}</h3>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {baseline.children.map((file) => (
-            <BaselineCard file={file} key={file.filename} workspaceId={workspaceId} />
+            <BaselineCard
+              file={file}
+              key={file.filename}
+              onOpen={setViewerDocument}
+              workspaceId={workspaceId}
+            />
           ))}
         </div>
       </section>
+      <CockpitDocumentViewer document={viewerDocument} onClose={() => setViewerDocument(null)} />
     </div>
   )
 }

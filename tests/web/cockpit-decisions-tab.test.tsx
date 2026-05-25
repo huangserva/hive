@@ -63,9 +63,12 @@ describe('DecisionsTab', () => {
     })
   })
 
-  test('opens decision markdown in a browser tab', () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
+  test('opens decision markdown in the embedded viewer', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '# 决策：Test Decision\n\nAccepted.',
+    })
+    vi.stubGlobal('fetch', fetchMock)
 
     render(
       <DecisionsTab
@@ -87,10 +90,10 @@ describe('DecisionsTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open document' }))
 
-    expect(open).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/workspace-1/cockpit/doc-file?path=.hive%2Fdecisions%2F2026-05-24-test-decision.md',
-      '_blank',
-      'noopener,noreferrer'
+      expect.objectContaining({ credentials: 'include' })
     )
+    expect(await screen.findByText(/Accepted/)).toBeInTheDocument()
   })
 })

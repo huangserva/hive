@@ -1,19 +1,32 @@
 import { ExternalLink } from 'lucide-react'
+import { useState } from 'react'
 
 import type { ParsedReports, PMReportEntry } from '../../api.js'
 import { useI18n } from '../../i18n.js'
+import {
+  CockpitDocumentViewer,
+  type CockpitDocumentViewerDocument,
+} from '../CockpitDocumentViewer.js'
 
 const formatMtime = (mtime: string) =>
   new Date(mtime).toLocaleString('sv-SE', { hour12: false }).slice(0, 16)
 
-const ReportEntryCard = ({ entry, workspaceId }: { entry: PMReportEntry; workspaceId: string }) => {
+const reportUrl = (workspaceId: string, path: string) =>
+  `/api/workspaces/${workspaceId}/cockpit/report-file?path=${encodeURIComponent(path)}`
+
+const ReportEntryCard = ({
+  entry,
+  onOpen,
+  workspaceId,
+}: {
+  entry: PMReportEntry
+  onOpen: (document: CockpitDocumentViewerDocument) => void
+  workspaceId: string
+}) => {
   const { t } = useI18n()
   const openReport = () => {
     if (!workspaceId) return
-    const url = `/api/workspaces/${workspaceId}/cockpit/report-file?path=${encodeURIComponent(
-      entry.path
-    )}`
-    window.open(url, '_blank', 'noopener,noreferrer')
+    onOpen({ kind: 'html', title: entry.title, url: reportUrl(workspaceId, entry.path) })
   }
   return (
     <div className="rounded border p-3" style={{ borderColor: 'var(--border)' }}>
@@ -52,6 +65,7 @@ export const ReportsTab = ({
   workspaceId: string
 }) => {
   const { t } = useI18n()
+  const [viewerDocument, setViewerDocument] = useState<CockpitDocumentViewerDocument | null>(null)
   return (
     <div className="scroll-y space-y-4 px-5 py-4">
       <div className="flex items-center justify-between">
@@ -69,7 +83,12 @@ export const ReportsTab = ({
       <div className="space-y-2">
         {reports.entries.length ? (
           reports.entries.map((entry) => (
-            <ReportEntryCard entry={entry} key={entry.filename} workspaceId={workspaceId} />
+            <ReportEntryCard
+              entry={entry}
+              key={entry.filename}
+              onOpen={setViewerDocument}
+              workspaceId={workspaceId}
+            />
           ))
         ) : (
           <p
@@ -80,6 +99,7 @@ export const ReportsTab = ({
           </p>
         )}
       </div>
+      <CockpitDocumentViewer document={viewerDocument} onClose={() => setViewerDocument(null)} />
     </div>
   )
 }

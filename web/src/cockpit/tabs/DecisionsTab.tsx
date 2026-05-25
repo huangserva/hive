@@ -3,23 +3,26 @@ import { ExternalLink } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { confirmCockpitDecision, type ParsedDecisions, type PMDecision } from '../../api.js'
 import { useI18n } from '../../i18n.js'
+import {
+  CockpitDocumentViewer,
+  type CockpitDocumentViewerDocument,
+} from '../CockpitDocumentViewer.js'
 
-const openCockpitDoc = (workspaceId: string, path: string) => {
-  if (!workspaceId) return
-  const url = `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
+const docUrl = (workspaceId: string, path: string) =>
+  `/api/workspaces/${workspaceId}/cockpit/doc-file?path=${encodeURIComponent(path)}`
 
 const DecisionRow = ({
   autoOpen = false,
   decision,
   draft,
+  onOpenDocument,
   onAutoOpenConsumed,
   workspaceId,
 }: {
   autoOpen?: boolean
   decision: PMDecision
   draft?: boolean
+  onOpenDocument: (document: CockpitDocumentViewerDocument) => void
   onAutoOpenConsumed?: () => void
   workspaceId: string
 }) => {
@@ -61,7 +64,13 @@ const DecisionRow = ({
           aria-label={t('cockpit.openDocument')}
           className="shrink-0 cursor-pointer rounded px-2 py-1 text-accent text-xs hover:bg-3"
           disabled={!workspaceId}
-          onClick={() => openCockpitDoc(workspaceId, path)}
+          onClick={() =>
+            onOpenDocument({
+              kind: 'markdown',
+              title: decision.title,
+              url: docUrl(workspaceId, path),
+            })
+          }
           type="button"
         >
           <ExternalLink size={13} aria-hidden />
@@ -130,6 +139,7 @@ export const DecisionsTab = ({
   workspaceId: string
 }) => {
   const { t } = useI18n()
+  const [viewerDocument, setViewerDocument] = useState<CockpitDocumentViewerDocument | null>(null)
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-5 py-4 lg:grid-cols-2">
       <section className="min-h-0 scroll-y">
@@ -145,6 +155,7 @@ export const DecisionsTab = ({
                 decision={decision}
                 draft
                 key={decision.filename}
+                onOpenDocument={setViewerDocument}
                 onAutoOpenConsumed={onPendingActionConsumed}
                 workspaceId={workspaceId}
               />
@@ -167,7 +178,12 @@ export const DecisionsTab = ({
         <div className="space-y-2">
           {decisions.adopted.length ? (
             decisions.adopted.map((decision) => (
-              <DecisionRow decision={decision} key={decision.filename} workspaceId={workspaceId} />
+              <DecisionRow
+                decision={decision}
+                key={decision.filename}
+                onOpenDocument={setViewerDocument}
+                workspaceId={workspaceId}
+              />
             ))
           ) : (
             <p
@@ -179,6 +195,7 @@ export const DecisionsTab = ({
           )}
         </div>
       </section>
+      <CockpitDocumentViewer document={viewerDocument} onClose={() => setViewerDocument(null)} />
     </div>
   )
 }

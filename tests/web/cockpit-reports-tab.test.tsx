@@ -56,9 +56,7 @@ describe('ReportsTab', () => {
     expect(screen.getByRole('button', { name: 'Open report' })).toBeInTheDocument()
   })
 
-  test('Open button opens the report-file route in a browser tab', () => {
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
-
+  test('Open button renders the report in the embedded viewer iframe and can close it', () => {
     render(
       <ReportsTab
         reports={makeReports({
@@ -81,10 +79,12 @@ describe('ReportsTab', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open report' }))
 
-    expect(openSpy).toHaveBeenCalledWith(
-      '/api/workspaces/ws1/cockpit/report-file?path=.hive%2Freports%2F2026-05-25-cockpit-e2e.html',
-      '_blank',
-      'noopener,noreferrer'
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByTitle('Cockpit E2E Report')).toHaveAttribute(
+      'src',
+      '/api/workspaces/ws1/cockpit/report-file?path=.hive%2Freports%2F2026-05-25-cockpit-e2e.html'
     )
+    fireEvent.click(screen.getByRole('button', { name: 'Close viewer' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

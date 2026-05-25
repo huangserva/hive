@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { ParsedResearch } from '../../web/src/api.js'
@@ -112,9 +112,12 @@ describe('ResearchTab', () => {
     expect(screen.getByText(/read error/)).toBeInTheDocument()
   })
 
-  test('opens research note in a browser tab', () => {
-    const open = vi.fn()
-    vi.stubGlobal('open', open)
+  test('opens research note in the embedded viewer and can close it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => '# API Design Notes\n\nRendered in Cockpit.',
+    })
+    vi.stubGlobal('fetch', fetchMock)
 
     render(
       <ResearchTab
@@ -135,12 +138,15 @@ describe('ResearchTab', () => {
       />
     )
 
-    screen.getByRole('button', { name: 'Open document' }).click()
+    fireEvent.click(screen.getByRole('button', { name: 'Open document' }))
 
-    expect(open).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       '/api/workspaces/ws1/cockpit/doc-file?path=.hive%2Fresearch%2F2026-05-20-api-design.md',
-      '_blank',
-      'noopener,noreferrer'
+      expect.objectContaining({ credentials: 'include' })
     )
+    expect(await screen.findByText(/Rendered in Cockpit/)).toBeInTheDocument()
+    expect(screen.getByText(/Rendered in Cockpit/).tagName.toLowerCase()).toBe('pre')
+    fireEvent.click(screen.getByRole('button', { name: 'Close viewer' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
