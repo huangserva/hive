@@ -5,10 +5,10 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `4109bb4b` — M14a Phase 1：飞书语音接入 spike（验 3 未知：语音事件/音频下载/STT）+ 第一刀实现（audio→转写→复用 inbound 注入 orch）。STT 飞书内置 vs 外接 = 决策点摊 user。产 report+research
+（空 — M14a Phase 1 第一刀落地，等 user 飞书拍 Q10 STT 方案 + 安排真飞书 E2E）
 
-> 🎯 M14a 飞书 voice MVP 路线 user 飞书拍板"干"，ADR 已采纳（2026-05-25-m14-voice-path.md）。📱 user 出门走飞书（chat oc_0d5e…，--chat）
-> ✅ 本日全收：PM 体系 + M17 五 playbook + M13 五层 + Cockpit 9 tab + idea-6 闭环 + 一串 bug（终端输入框 300 行实测过、浏览器免刷、内嵌 viewer）+ #7 状态条
+> 🎯 M14a 进行中：Phase 1 done（f37b21f，audio→飞书内置 ASR→注入 orch）。📱 user 出门走飞书（chat oc_0d5e…，--chat）
+> ⚠️ Q10 待 user 拍：STT 选飞书内置(免费版不支持!) vs 外接 ASR(付费/数据出境)；真飞书 E2E（user 发真语音）待安排，像 M7 那样配合
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -23,6 +23,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `4109bb4b` — **M14a Phase 1** 飞书语音接入 spike+第一刀：三未知解（①audio msg content 带 file_key→parseAudioContent ②messageResource.get 下载音频 stream ③飞书 speech_to_text.fileRecognize≤60s 但**免费版不支持**）。实现 audio→下载→飞书 ASR→recognition_text→复用 resolveRoute/inbound 注入 orch（标 `[来自飞书语音]`），失败优雅 drop 不接外部。挂 Q10（STT provider 待拍）。report+research 配对，38 focused + 全量 1161 (`f37b21f`+`c29bf2e`)。真飞书 E2E 待 user 配合
 - [x] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：三路横向对比（自建 mobile / 第三方框架 LiveKit-Vapi / 飞书+voice）+ ADR draft。**推荐先走飞书 voice command MVP**（语音→转写→现有 team 协议，复用 M4 桥，ROI 最高，自建/实时框架二阶段）。reports+research+ADR 配对，全 gate 1156 (`7983182`+`933eedc`)。结论已发 user 飞书，路线待拍（Q9）
 - [x] **关羽** dispatch `ea4054a2` — 修 orch 终端流式时底部输入框消失：根因 flex 链缺约束（orch PTY slot 修前 overflow visible/min-height auto/flex 0 1 auto → 修后 hidden/0/1 1 0%），OrchestratorPane root + portal slot + WorkspaceDetail 左 pane 补 min-h-0+overflow-hidden + 回归测试。**playwright 真浏览器量 DOM + 80 行流式验输入区全程可见**（top937/bottom954<1000）。纯前端不用重启，build:web 已跑。4 focused + 全量 1156 (`9b63ae2`)
 - [x] **赵云** dispatch `98ca899a` — **multica #7** runtime 状态条：GET /api/runtime/status（UI token 保护）返 port/pid/cwd/log_path/db_path/version + RuntimeStatusStrip 挂 sidebar 底部（独立 useRuntimeStatus hook，不动 api.ts；title 露全路径）+ i18n + 测试。不做心跳。全 gate 绿 1156 tests (`89acb07`)。⚠️新 endpoint merge 后需重启 4010；重启后张飞验收
