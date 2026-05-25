@@ -38,7 +38,7 @@ export const cockpitRoutes: RouteDefinition[] = [
   route(
     'POST',
     '/api/workspaces/:workspaceId/cockpit/questions/:questionId/answer',
-    async ({ params, request, response, store }) => {
+    async ({ logger, params, request, response, store }) => {
       const workspaceId = getRequiredParam(
         response,
         params,
@@ -54,6 +54,11 @@ export const cockpitRoutes: RouteDefinition[] = [
 
       const workspace = store.getWorkspaceSnapshot(workspaceId)
       answerQuestionInFile(workspace.summary.path, questionId, body.answer)
+      try {
+        store.notifyQuestionAnswered(workspaceId, questionId, body.answer)
+      } catch (error) {
+        logger?.warn(`cockpit question answer nudge failed question_id=${questionId}`, error)
+      }
       sendJson(response, 200, { ok: true })
     }
   ),

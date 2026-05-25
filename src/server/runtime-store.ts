@@ -31,6 +31,7 @@ interface RuntimeStore {
   deleteWorker: (workspaceId: string, workerId: string) => void
   renameWorker: (workspaceId: string, workerId: string, name: string) => AgentSummary
   recordUserInput: (workspaceId: string, orchestratorId: string, text: string) => void
+  notifyQuestionAnswered: (workspaceId: string, questionId: string, answer: string) => void
   dispatchTask: (
     workspaceId: string,
     workerId: string,
@@ -171,6 +172,9 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       })
     },
     recordUserInput: services.teamOps.recordUserInput,
+    notifyQuestionAnswered: (workspaceId, questionId, answer) => {
+      services.agentRuntime.writeQuestionAnsweredPrompt(workspaceId, questionId, answer)
+    },
     cancelTask: services.teamOps.cancelTask,
     dispatchTask: services.teamOps.dispatchTask,
     dispatchTaskByWorkerName: services.teamOps.dispatchTaskByWorkerName,

@@ -145,6 +145,9 @@ export const createAgentRuntime = (
     writeStatusPrompt(workspaceId, workerName, _workerId, text, artifacts, input = {}) {
       stdinDispatcher.writeStatusPrompt(workspaceId, workerName, text, artifacts, input)
     },
+    writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input = {}) {
+      stdinDispatcher.writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input)
+    },
     writeSendPrompt(workspaceId, workerId, dispatchId, fromAgentName, workerDescription, text) {
       stdinDispatcher.writeSendPrompt(
         workspaceId,

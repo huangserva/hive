@@ -9,11 +9,15 @@ import { createApp } from '../../src/server/app.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 
 const servers: Array<{ close: () => void }> = []
+const stores: Array<ReturnType<typeof createRuntimeStore>> = []
 const tempDirs: string[] = []
 
-afterEach(() => {
+afterEach(async () => {
   while (servers.length > 0) {
     servers.pop()?.close()
+  }
+  while (stores.length > 0) {
+    await stores.pop()?.close()
   }
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
@@ -32,6 +36,7 @@ const QUESTIONS_CONTENT = `# Open Questions
 const setupServer = async (questionsContent = QUESTIONS_CONTENT) => {
   const agentManager = createAgentManager()
   const store = createRuntimeStore({ agentManager })
+  stores.push(store)
   const app = createApp({ store })
 
   await new Promise<void>((resolve) => {
@@ -53,6 +58,23 @@ const setupServer = async (questionsContent = QUESTIONS_CONTENT) => {
   const cookie = `hive_ui_token=${uiToken}`
 
   return { baseUrl, cookie, store, workspace, workspacePath }
+}
+
+const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25) => {
+  const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+
+  while (Date.now() <= deadline) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  throw lastError
 }
 
 const postAnswer = async (url: string, cookie: string, body: Record<string, unknown>) => {
@@ -77,6 +99,41 @@ describe('POST /api/workspaces/:wsId/cockpit/questions/:qId/answer', () => {
 
     const updated = readFileSync(join(workspacePath, '.hive', 'open-questions.md'), 'utf8')
     expect(updated).toContain('Use exponential backoff')
+  })
+
+  test('happy path — nudges the active orchestrator PTY after persisting an answer', async () => {
+    const { baseUrl, cookie, store, workspace, workspacePath } = await setupServer()
+    const orchestratorId = `${workspace.id}:orchestrator`
+    const orchScript = join(workspacePath, 'orch-echo.js')
+    writeFileSync(
+      orchScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('ORCH:' + chunk)",
+        '})',
+      ].join('\n')
+    )
+    store.configureAgentLaunch(workspace.id, orchestratorId, {
+      command: '/bin/bash',
+      args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+    })
+    const run = await store.startAgent(workspace.id, orchestratorId, { hivePort: '4010' })
+
+    const { status } = await postAnswer(
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/questions/Q1/answer`,
+      cookie,
+      { answer: 'Use exponential backoff before retrying' }
+    )
+
+    expect(status).toBe(200)
+    await waitFor(() => {
+      const activeRun = store.getLiveRun(run.runId)
+      expect(activeRun.output).toContain('ORCH:[Hive 系统消息：PM question 已被 user 答复]')
+      expect(activeRun.output).toContain('question_id: Q1')
+      expect(activeRun.output).toContain('Use exponential backoff before retrying')
+      expect(activeRun.output).toContain('请重读 .hive/open-questions.md')
+    })
   })
 
   test('returns 400 when answer is missing', async () => {

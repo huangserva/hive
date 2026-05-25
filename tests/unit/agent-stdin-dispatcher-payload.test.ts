@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  buildOrchestratorQuestionAnsweredPayload,
   buildOrchestratorReportPayload,
   buildOrchestratorStatusPayload,
   buildOrchestratorUserInputPayload,
@@ -75,6 +76,21 @@ describe('buildOrchestratorUserInputPayload', () => {
   test('preserves multi-line user input as-is before the reminder', () => {
     const payload = buildOrchestratorUserInputPayload('line one\nline two')
     expect(payload.startsWith('line one\nline two\n')).toBe(true)
+    expect(payload).toContain(ORCHESTRATOR_REMINDER_TAIL)
+  })
+})
+
+describe('buildOrchestratorQuestionAnsweredPayload', () => {
+  test('tells the orchestrator a Cockpit question was answered and points it back to open-questions.md', () => {
+    const payload = buildOrchestratorQuestionAnsweredPayload(
+      'Q-E2E',
+      'Run the browser smoke before closing M17'
+    )
+    expect(payload.split('\n')[0]).toBe('[Hive 系统消息：PM question 已被 user 答复]')
+    expect(payload).toContain('question_id: Q-E2E')
+    expect(payload).toContain('answer_summary: Run the browser smoke before closing M17')
+    expect(payload).toContain('请重读 .hive/open-questions.md')
+    expect(payload).toContain('这不是新 dispatch')
     expect(payload).toContain(ORCHESTRATOR_REMINDER_TAIL)
   })
 })

@@ -132,6 +132,7 @@ last_review: 2026-05-25
 - [x] questions parser exposes answered history with `answer` metadata
 - [x] tests: parser + routes-cockpit + Cockpit Questions UI (`738c657`)
 - [x] wave 2: ActionBar / Ideas / Decisions handlers + POST endpoints (`f99b98e`)
+- [x] answer route auto-nudges active orchestrator PTY after user answers a question（M17/idea-6 闭环，本次提交）
 
 ### M16 · Codex MCP browser E2E 能力 · shipped 2026-05-24
 - [x] 调研 browser MCP 候选：Playwright MCP / Chrome DevTools MCP / Browserbase MCP

@@ -43,6 +43,28 @@ export const buildOrchestratorStatusPayload = (
 export const buildOrchestratorUserInputPayload = (text: string): string =>
   [text, '', ORCHESTRATOR_REMINDER_TAIL, ''].join('\n')
 
+const summarizeQuestionAnswer = (answer: string) => {
+  const normalized = answer.trim().replace(/\s+/g, ' ')
+  if (normalized.length <= 240) return normalized
+  return `${normalized.slice(0, 237)}...`
+}
+
+export const buildOrchestratorQuestionAnsweredPayload = (
+  questionId: string,
+  answer: string
+): string =>
+  [
+    '[Hive 系统消息：PM question 已被 user 答复]',
+    `question_id: ${questionId}`,
+    `answer_summary: ${summarizeQuestionAnswer(answer)}`,
+    '',
+    '请重读 .hive/open-questions.md，并根据 user 的答复决定后续行动。',
+    '这不是新 dispatch；这是 Cockpit Questions tab 的 human-in-the-loop 回答唤醒。',
+    '',
+    ORCHESTRATOR_REMINDER_TAIL,
+    '',
+  ].join('\n')
+
 export const buildWorkerDispatchPayload = (
   fromAgentName: string,
   workerDescription: string,
@@ -149,6 +171,19 @@ export const createAgentStdinDispatcher = ({
         workspaceId,
         `${workspaceId}:orchestrator`,
         buildOrchestratorStatusPayload(workerName, text, artifacts),
+        input
+      )
+    },
+    writeQuestionAnsweredPrompt(
+      workspaceId: string,
+      questionId: string,
+      answer: string,
+      input: { requireActiveRun?: boolean } = {}
+    ) {
+      writeToActiveAgentRun(
+        workspaceId,
+        `${workspaceId}:orchestrator`,
+        buildOrchestratorQuestionAnsweredPayload(questionId, answer),
         input
       )
     },
