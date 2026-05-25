@@ -5,10 +5,9 @@
 
 ## In progress
 
-（空 — M14a Phase 1 第一刀落地，等 user 飞书拍 Q10 STT 方案 + 安排真飞书 E2E）
+- [ ] **关羽** dispatch `701ab29f` — M14a Q10 **选项 D 调研**：扒 openclaw（~/development/openclaw）的本地/无 key STT（whisper.cpp/vosk/sherpa?），评估能否当 M14a 转写后端（免费+不挑租户+数据本地）。出 report+research+更新 Q10，不实现
 
-> 🎯 M14a 进行中：Phase 1 done（f37b21f，audio→飞书内置 ASR→注入 orch）。📱 user 出门走飞书（chat oc_0d5e…，--chat）
-> ⚠️ Q10 待 user 拍：STT 选飞书内置(免费版不支持!) vs 外接 ASR(付费/数据出境)；真飞书 E2E（user 发真语音）待安排，像 M7 那样配合
+> 🎯 M14a 进行中：Phase 1 done（f37b21f，飞书内置 ASR 第一刀）。user 飞书提"本地模型转写"→ Q10 多了选项 D（openclaw 路子），关羽在查。📱 user 走飞书（chat oc_0d5e…，--chat）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
