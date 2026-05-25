@@ -5,12 +5,13 @@
 
 ## In progress
 
-- [ ] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：对比 ①自建 mobile ②第三方框架 ③飞书+voice，出 reports+research+ADR draft 给推荐路线。**user 出门，结论走飞书**
+（空 — 等 user 飞书拍 M14 路线，拍了就拆 sub-task 开干）
 
-> ✅ 终端输入框 bug：user 硬刷 300 行实测通过、关闭（9b63ae2）｜#7 已重启上线（endpoint 403 验证在；待 user 瞄 sidebar 底部状态条）
-> 📱 user 出门中，进展走飞书（chat oc_0d5e…，team feishu reply --chat）
+> ✅ 终端输入框 bug（300 行实测过、关闭 9b63ae2）｜#7 状态条已上线（待 user 瞄）｜idea-6 答题闭环实战活了（Q8）
+> 📱 user 出门中，进展走飞书（chat oc_0d5e…，team feishu reply --chat）；M14 推荐已发飞书等回复
 
 ## Open（user 回来决定）
+- [ ] **Q9 待答（已发飞书）**：M14 路线确认——赵云调研推荐先走「飞书 voice command MVP」（语音→转写→现有 team 协议，复用 M4 桥，最小改动验证语音控制多 agent；自建 mobile/实时框架二阶段）。ADR draft: `.hive/decisions/2026-05-25-m14-voice-path.md`。user 拍了就拆 sub-task
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
@@ -23,6 +24,7 @@
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **赵云** dispatch `d84d31fa` — M14 语音/移动选路 ADR 调研：三路横向对比（自建 mobile / 第三方框架 LiveKit-Vapi / 飞书+voice）+ ADR draft。**推荐先走飞书 voice command MVP**（语音→转写→现有 team 协议，复用 M4 桥，ROI 最高，自建/实时框架二阶段）。reports+research+ADR 配对，全 gate 1156 (`7983182`+`933eedc`)。结论已发 user 飞书，路线待拍（Q9）
 - [x] **关羽** dispatch `ea4054a2` — 修 orch 终端流式时底部输入框消失：根因 flex 链缺约束（orch PTY slot 修前 overflow visible/min-height auto/flex 0 1 auto → 修后 hidden/0/1 1 0%），OrchestratorPane root + portal slot + WorkspaceDetail 左 pane 补 min-h-0+overflow-hidden + 回归测试。**playwright 真浏览器量 DOM + 80 行流式验输入区全程可见**（top937/bottom954<1000）。纯前端不用重启，build:web 已跑。4 focused + 全量 1156 (`9b63ae2`)
 - [x] **赵云** dispatch `98ca899a` — **multica #7** runtime 状态条：GET /api/runtime/status（UI token 保护）返 port/pid/cwd/log_path/db_path/version + RuntimeStatusStrip 挂 sidebar 底部（独立 useRuntimeStatus hook，不动 api.ts；title 露全路径）+ i18n + 测试。不做心跳。全 gate 绿 1156 tests (`89acb07`)。⚠️新 endpoint merge 后需重启 4010；重启后张飞验收
 - [x] **关羽** dispatch `03e7da29` — idea-7：Cockpit 内嵌文档 viewer（CockpitDocumentViewer.tsx，reports 用 iframe / baseline-research-decisions 用 doc-file fetch + `<pre>`，Dialog Esc/遮罩关，i18n loading/error）。4 tab 打开按钮改内嵌不再 window.open。**纯前端不用重启**，build:web 已跑。18 focused + 全量 1153 (`5c7227e` + `8dba38e`)

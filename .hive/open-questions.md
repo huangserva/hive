@@ -10,6 +10,8 @@
 
 ### 🟠 medium — 影响下一步规划
 
+- [ ] **Q9** M14 语音路线确认？赵云选路调研推荐**先走「飞书 voice command MVP」**：语音/语音+文字 → 转写 → 现有 team send/approve/reply 协议，复用 M4 飞书桥，最小改动验证"语音控制多 agent"闭环；自建 mobile app / 实时框架（LiveKit 等）留二阶段。ADR draft `.hive/decisions/2026-05-25-m14-voice-path.md`（status=draft）。认可就拆 sub-task 开干（先验飞书语音消息事件 + 转写权限真 E2E）；想走别的路线/要实时双向语音也可改。已同步发 user 飞书。
+
 ### 🟢 low — 灰度区
 
 （暂无）
