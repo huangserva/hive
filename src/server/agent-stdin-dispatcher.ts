@@ -1,6 +1,7 @@
 import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
+import type { ParsedCockpit } from './cockpit-doc.js'
 import {
   buildWorkerReminderTail,
   ORCHESTRATOR_REMINDER_TAIL,
@@ -65,11 +66,32 @@ export const buildOrchestratorQuestionAnsweredPayload = (
     '',
   ].join('\n')
 
+export const buildWorkerCockpitSnapshot = (cockpit: ParsedCockpit): string => {
+  const phase = cockpit.plan.frontmatter.current_phase ?? cockpit.plan.currentPhase ?? 'unknown'
+  const activeMilestone =
+    cockpit.plan.milestones.find((milestone) => milestone.status === 'in_progress') ??
+    cockpit.plan.milestones.find((milestone) => milestone.status !== 'shipped')
+  const active = activeMilestone
+    ? `${activeMilestone.id} ${activeMilestone.title} (${activeMilestone.status})`
+    : 'none'
+  const openQuestions =
+    cockpit.questions.high.length + cockpit.questions.medium.length + cockpit.questions.low.length
+  const highAiActions = cockpit.aiActions.filter((action) => action.priority === 'high').length
+  const baseline = cockpit.baseline.staleHint ? 'stale' : 'fresh'
+  return [
+    '**Cockpit snapshot（dispatch 时）**',
+    `- phase: ${phase}; active: ${active}`,
+    `- open_questions: ${openQuestions} (high ${cockpit.questions.high.length}); high_ai_actions: ${highAiActions}; baseline: ${baseline}`,
+    '- PM co-maintain: pair reports with research; only stage your files; commit your own changes when asked.',
+  ].join('\n')
+}
+
 export const buildWorkerDispatchPayload = (
   fromAgentName: string,
   workerDescription: string,
   dispatchId: string,
-  text: string
+  text: string,
+  cockpitSnapshot?: string
 ): string =>
   [
     `[Hive 系统消息：来自 @${fromAgentName} 的派单]`,
@@ -87,6 +109,7 @@ export const buildWorkerDispatchPayload = (
     '',
     PM_DISPATCH_REMINDER,
     '',
+    ...(cockpitSnapshot?.trim() ? [cockpitSnapshot.trim(), ''] : []),
     buildWorkerReminderTail(dispatchId),
     '',
   ].join('\n')
@@ -193,12 +216,19 @@ export const createAgentStdinDispatcher = ({
       dispatchId: string,
       fromAgentName: string,
       workerDescription: string,
-      text: string
+      text: string,
+      cockpitSnapshot?: string
     ) {
       writeToActiveAgentRun(
         workspaceId,
         workerId,
-        buildWorkerDispatchPayload(fromAgentName, workerDescription, dispatchId, text),
+        buildWorkerDispatchPayload(
+          fromAgentName,
+          workerDescription,
+          dispatchId,
+          text,
+          cockpitSnapshot
+        ),
         { requireActiveRun: true }
       )
     },

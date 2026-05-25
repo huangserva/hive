@@ -110,12 +110,12 @@ last_review: 2026-05-25
 - [x] Reports tab 改为当前浏览器新 tab 打开 HTML，避免弹 OS 默认浏览器（本次提交）
 - Q2 答复：要做。优先级从 low 提升为正常队列
 
-### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+5) 2026-05-24
+### M13 · PM 体系团队共维护 5 层架构 · shipped (Layer 1+2+3+4+5) 2026-05-24
 - [x] Layer 1 dispatch prompt 自动注入 PM_DISPATCH_REMINDER（`7c95e2d` + `2432b09`）
 - [x] Layer 2 WORKER_RULES + ORCHESTRATOR_RULES + CLAUDE.md + AGENTS.md 明确 PM 文档共维护（`7c95e2d`）
 - [x] Layer 3 pre-commit hook 拦截 reports/*.html 缺同日 research/*.md（`7c95e2d` + hook fix `afe9148` + harden `cc529b9`）
 - [x] Layer 5 Cockpit orphan report detector → high priority aiAction（`7c95e2d` + nested recursion fix `cc529b9`）
-- [ ] Layer 4 Cockpit snapshot 注入所有 PTY agent · proposed（下个 dispatch）
+- [x] Layer 4 worker dispatch 注入紧凑 Cockpit snapshot（commit 见本 dispatch report）
 - 触发：paseo 调研（5/24）暴露 orch 误读"偏交付 / 偏笔记"为 XOR 而非 AND，连续派 worker 出 3 份 HTML 报告都没补 research note。user 明确要求从 reactive audit 升级为整个团队共同维护 Cockpit / PM 文档。
 - 实战首秀：关羽 PTY stuck → orch rescue v3 HTML 时 hook 真拦截 → fix bug → harden audit 6 类 edge cases（10 new tests），1077 tests passing 全绿
 - 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`

@@ -6,8 +6,10 @@ import {
   buildOrchestratorStatusPayload,
   buildOrchestratorUserInputPayload,
   buildWorkerCancelPayload,
+  buildWorkerCockpitSnapshot,
   buildWorkerDispatchPayload,
 } from '../../src/server/agent-stdin-dispatcher.js'
+import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
 import {
   buildWorkerReminderTail,
   ORCHESTRATOR_REMINDER_TAIL,
@@ -142,6 +144,75 @@ describe('buildWorkerDispatchPayload', () => {
     expect(reportRequirementIdx).toBeGreaterThan(pmReminderIdx)
     expect(researchRequirementIdx).toBeGreaterThan(pmReminderIdx)
     expect(workerTailIdx).toBeGreaterThan(pmReminderIdx)
+  })
+
+  test('can include a compact Cockpit snapshot before the worker reminder tail', () => {
+    const payload = buildWorkerDispatchPayload(
+      'orchestrator-1',
+      'Coder',
+      'disp-snapshot',
+      'fix the flaky test',
+      'Cockpit snapshot: phase=build; open_questions=2'
+    )
+
+    const pmReminderIdx = lineIndexOf(payload, 'PM 文档共维护')
+    const snapshotIdx = lineIndexOf(payload, 'Cockpit snapshot: phase=build')
+    const workerTailIdx = lineIndexOf(payload, '<hive-system-reminder>')
+
+    expect(snapshotIdx).toBeGreaterThan(pmReminderIdx)
+    expect(workerTailIdx).toBeGreaterThan(snapshotIdx)
+  })
+})
+
+describe('buildWorkerCockpitSnapshot', () => {
+  test('summarizes live PM state without dumping full Cockpit documents', () => {
+    const snapshot = buildWorkerCockpitSnapshot({
+      aiActions: [
+        {
+          action: '回答',
+          id: 'Q1',
+          priority: 'high',
+          targetTab: 'questions',
+          text: 'Need key',
+          type: 'question',
+        },
+        {
+          action: '查看',
+          id: 'baseline-stale',
+          priority: 'medium',
+          targetTab: 'baseline',
+          text: 'stale',
+          type: 'audit',
+        },
+      ],
+      baseline: { staleHint: 'baseline stale' },
+      plan: {
+        currentPhase: null,
+        frontmatter: { current_phase: 'M13 Layer 4' },
+        milestones: [
+          {
+            body: '',
+            doneCount: 0,
+            id: 'M13',
+            items: [],
+            progress: 0,
+            status: 'in_progress',
+            title: 'PM co-maintenance',
+            totalCount: 0,
+          },
+        ],
+      },
+      questions: { high: [{}], medium: [{}], low: [] },
+    } as unknown as ParsedCockpit)
+
+    expect(snapshot).toContain('Cockpit snapshot')
+    expect(snapshot).toContain('phase: M13 Layer 4')
+    expect(snapshot).toContain('active: M13 PM co-maintenance')
+    expect(snapshot).toContain('open_questions: 2')
+    expect(snapshot).toContain('high_ai_actions: 1')
+    expect(snapshot).toContain('baseline: stale')
+    expect(snapshot).toContain('only stage your files')
+    expect(snapshot.length).toBeLessThan(520)
   })
 })
 

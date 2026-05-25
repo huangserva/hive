@@ -136,6 +136,9 @@ describe('team send CLI side effects (R1.3)', () => {
         expect(run?.output).toContain('@Orchestrator')
         expect(run?.output).toContain('你的角色：')
         expect(run?.output).toContain('实现登录')
+        expect(run?.output).toContain('Cockpit snapshot')
+        expect(run?.output).toContain('phase: discovery')
+        expect(run?.output).toContain('PM co-maintain')
         expect(run?.output).toContain(`dispatch_id: ${dispatch?.id}`)
         expect(run?.output).toContain(`team report "<result>" --dispatch ${dispatch?.id}`)
         // The injected prompt may include the dispatch id so workers can report

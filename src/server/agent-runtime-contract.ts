@@ -64,7 +64,8 @@ export interface AgentRuntime {
     dispatchId: string,
     fromAgentName: string,
     workerDescription: string,
-    text: string
+    text: string,
+    cockpitSnapshot?: string
   ) => void
   writeCancelPrompt: (
     workspaceId: string,

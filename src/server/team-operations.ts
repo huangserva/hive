@@ -1,4 +1,6 @@
 import type { AgentRuntime } from './agent-runtime.js'
+import { buildWorkerCockpitSnapshot } from './agent-stdin-dispatcher.js'
+import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import { ConflictError, PtyInactiveError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
@@ -166,6 +168,10 @@ export const createTeamOperations = ({
         const sender = workspaceStore.getAgent(workspaceId, input.fromAgentId)
         await ensureWorkerRun(workspaceId, workerId, input.hivePort ?? '')
         const worker = workspaceStore.getWorker(workspaceId, workerId)
+        const workspacePath = getWorkspacePath(workspaceId)
+        const cockpitSnapshot = workspacePath
+          ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
+          : undefined
         markDispatchSubmitted(dispatch.id)
         agentRuntime.writeSendPrompt(
           workspaceId,
@@ -173,7 +179,8 @@ export const createTeamOperations = ({
           dispatch.id,
           sender.name,
           worker.description,
-          text
+          text,
+          cockpitSnapshot
         )
       }
 

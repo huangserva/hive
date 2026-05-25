@@ -148,14 +148,23 @@ export const createAgentRuntime = (
     writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input = {}) {
       stdinDispatcher.writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input)
     },
-    writeSendPrompt(workspaceId, workerId, dispatchId, fromAgentName, workerDescription, text) {
+    writeSendPrompt(
+      workspaceId,
+      workerId,
+      dispatchId,
+      fromAgentName,
+      workerDescription,
+      text,
+      cockpitSnapshot
+    ) {
       stdinDispatcher.writeSendPrompt(
         workspaceId,
         workerId,
         dispatchId,
         fromAgentName,
         workerDescription,
-        text
+        text,
+        cockpitSnapshot
       )
     },
     writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input = {}) {
