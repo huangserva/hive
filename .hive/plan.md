@@ -129,7 +129,7 @@ last_review: 2026-05-25
 - 核心使能模块：idea-1 (paseo expo-two-way-audio 双向音频，Q5 folded)
 - 其余候选 idea：idea-3 (provider catalog) + idea-4 (timeline 模型)
 - 开工时拆 sub-task + 起 ADR：自建 mobile vs 借第三方框架 vs 飞书 + voice plugin 第三路径
-- [x] 路线 ADR 调研 draft：推荐先走 Feishu voice command MVP，保留 self-built mobile / realtime framework 升级出口（commit 2ce84fe）
+- [x] 路线 ADR 调研 draft：推荐先走 Feishu voice command MVP，保留 self-built mobile / realtime framework 升级出口（commit 7983182）
 
 ### M15 · Cockpit Questions answer flow · shipped 2026-05-24
 - [x] Questions tab Answer button opens a Radix dialog with Q text + textarea
