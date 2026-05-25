@@ -5,7 +5,9 @@
 
 ## In progress
 
-（空 — idea-7 + #7 都收。⚠️ #7 有新 endpoint，待 user 重启 4010 才生效，重启后张飞验收 RuntimeStatusStrip 真显示）
+- [ ] **关羽** dispatch `ea4054a2` — Bug：orchestrator 终端流式输出时底部输入框消失、刷新才回。怀疑 portal slot(OrchestratorPane:155) flex 缺 min-h-0 / fit 时机。关羽用 playwright MCP 真浏览器复现+修+验（流式全程输入框可见）
+
+> ⚠️ 待 user 重启 4010：#7 RuntimeStatusStrip 新 endpoint 生效（重启后张飞验收）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
