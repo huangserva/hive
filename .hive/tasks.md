@@ -5,24 +5,23 @@
 
 ## In progress
 
-- [ ] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开（runtime 加 report-file 路由 serve text/html + path-traversal 防护，ReportsTab 改 window.open，不再 shell OS open）
+- [ ] **赵云** dispatch `b947680a` — M13 Layer 4（串行队列最后一个）：给 worker dispatch 注入紧凑 Cockpit 快照（current_phase + 活跃 milestone + open Q 数 + baseline stale + 共维护提醒），buildWorkerDispatchPayload append，务必紧凑
 
 ## Open（user 回来决定）
 
-- [ ] **③M13 Layer 4**（greenlit 串行队列最后一个；碰 cockpit-doc.ts，等赵云 M17 收完 tree 干净再派）：Cockpit snapshot 注入所有 PTY worker，治 worker 看不见 PM 状态
-- [ ] **收尾：刷 baseline**（user 同意 5/25）— Cockpit Baseline 标"过期"（module-map 等落后于今天大量新模块）。等本波 + Layer 4 全收完，一次性把 pm-reports-doc / reconnecting-websocket / preload-recovery / 5 playbook / report-file 路由 / cockpit-doc 扩展 / idea-6 注入等补进 module-map + runtime-flows，消除 staleness
+- [ ] **收尾：刷 baseline**（user 同意 5/25）— Cockpit Baseline 标"过期"（module-map 等落后于今天大量新模块）。等 Layer 4 收完，一次性把 pm-reports-doc / reconnecting-websocket / preload-recovery / 5 playbook / report-file 路由 / cockpit-doc 扩展 / idea-6 注入等补进 module-map + runtime-flows，消除 staleness
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
 - [ ] PM 体系 Phase C-3b（A4-A6 主动 trigger：milestone 完成自动 baseline 体检 / 月度 archive cron / cross-workspace drift）— 观察 1 周 LLM 自觉性后再决定（M8）
 - [ ] Marketplace 深度调研是否回灌（M11，独立于 PM 体系决定）
-- [ ] M13 Layer 4 Cockpit snapshot 注入所有 PTY agent（典韦 opencode preset 连续 2 次不 commit 暴露的洞）
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
 - [ ] multica #4 #5 #6 #7 #8 中优先级（UX 偏好性强）
 
 ## Done
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
+- [x] **关羽** dispatch `a3b4606e` — report 在同浏览器内打开：runtime 加 GET report-file 路由（只允许 .hive/reports/ 下 .html，path-traversal/非html/不存在分别拒）+ ReportsTab 改 window.open(_blank)，不再 shell OS open 弹默认浏览器。16 focused + 全量 1141 (`4e20c7f`)。⚠️新路由 merge 后需重启 4010
 - [x] **赵云** dispatch `73ebadd8` — **M17 收官**（5/5 playbook 全齐）：advisor + committee + epic 三模板 seed + ORCHESTRATOR_RULES 三段 + plan.md M17 标 shipped。advisor/committee/epic **故意不加 aiAction**（无干净触发信号，硬凑会污染 ActionBar，是 PM 主动选择型）。三 gate 绿 1141 tests + orch 复验 31/31 (`4304d2e`)。⚠️RULES merge 后需重启 4010
 - [x] **关羽** dispatch `c883244c` — M12 Cockpit Reports tab（第 9 个 tab）：新建 pm-reports-doc parseReportsDoc（扫 reports/*.html 抽 title/date/topic，mtime 倒序）+ cockpit-doc 聚合 + ReportsTab.tsx（镜像 ResearchTab，复用 open-file endpoint）+ i18n + 测试。全 gate 绿 1131 tests + orch 复验 27+3 (`a7c0860`)。⚠️cockpit-doc server 改动 merge 后需重启 4010 才出数据
 - [x] **赵云** dispatch `81b4df68` — M17 loop playbook（第 2 个）：playbook-loop 模板 seed + ORCHESTRATOR_RULES loop 段 + cockpit-doc loopPlaybookActions（保守启发式：只认带 verifier 语义的 failed/blocked，调研失败不触发，max 2）+ 测试。三 gate 绿 1121 tests + orch 复验 42/42 (`1fa7f2e`)。⚠️RULES merge 后需重启 4010
