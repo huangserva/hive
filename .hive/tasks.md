@@ -11,6 +11,7 @@
 ## Open（user 回来决定）
 
 - [ ] **③M13 Layer 4**（greenlit 串行队列最后一个；碰 cockpit-doc.ts，等赵云 M17 收完 tree 干净再派）：Cockpit snapshot 注入所有 PTY worker，治 worker 看不见 PM 状态
+- [ ] **收尾：刷 baseline**（user 同意 5/25）— Cockpit Baseline 标"过期"（module-map 等落后于今天大量新模块）。等本波 + Layer 4 全收完，一次性把 pm-reports-doc / reconnecting-websocket / preload-recovery / 5 playbook / report-file 路由 / cockpit-doc 扩展 / idea-6 注入等补进 module-map + runtime-flows，消除 staleness
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
 - [ ] HippoMind workspace 让那边 orch retrofit `.hive/plan.md`（runtime 重启后自动 seed stub）
 - [ ] 是否派关羽 export refactor（mouse normalization / port-in-use formatter / terminal-stream-hub binary 3 个私有函数）— 典韦点名要 export 才能直测
