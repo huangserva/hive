@@ -5,7 +5,7 @@
 
 ## In progress
 
-（空 — 本轮 greenlit 全收完 + baseline 已刷。等 user 最后一次重启 4010 激活所有 server 改动）
+- [ ] **关羽** dispatch `66b92abe` — 两个 Cockpit 修复：① ideas parser 子条目误当 idea（pm-ideas-doc:188 正则去 `\s*`，修虚高计数+ActionBar 噪音）② baseline/research/decisions 文件浏览器内可打开（复用 report-file 路由模式）
 
 ## Open（user 回来决定）
 - [ ] M14 mobile + voice（Q4 拍板 5/25 纳入 plan）— 排在 M17 之后，开工起 ADR
