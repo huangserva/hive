@@ -1,7 +1,12 @@
 import { execFileSync } from 'node:child_process'
 
 import type { TeamListItem, WorkspaceSummary } from '../shared/types.js'
+import { type ArchiveAuditFinding, createArchiveAuditTrigger } from './archive-audit-trigger.js'
 import { parseCockpit } from './cockpit-doc.js'
+import {
+  type CrossWorkspaceDriftFinding,
+  detectCrossWorkspaceDrift,
+} from './cross-workspace-drift.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { HiveLogger } from './logger.js'
 import { buildSentinelHeartbeatPayload } from './sentinel-guidance.js'
@@ -16,9 +21,11 @@ type ActiveRunRef = { runId: string } | undefined
 
 export interface SentinelHeartbeatOptions {
   buildCockpitSnapshot?: (workspacePath: string) => unknown
+  detectCrossWorkspaceDrift?: (workspaces: WorkspaceSummary[]) => CrossWorkspaceDriftFinding[]
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => ActiveRunRef
   getGitSummary?: (workspacePath: string) => string
   getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
+  inspectArchiveAudit?: (workspacePath: string) => ArchiveAuditFinding[]
   intervalMs?: number
   listOpenDispatches?: (workspaceId: string) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
@@ -79,9 +86,11 @@ const defaultGetGitSummary = (workspacePath: string): string => {
 
 export const createSentinelHeartbeat = ({
   buildCockpitSnapshot = defaultBuildCockpitSnapshot,
+  detectCrossWorkspaceDrift: detectCrossWorkspaceDriftForHeartbeat = detectCrossWorkspaceDrift,
   getActiveRunByAgentId,
   getGitSummary = defaultGetGitSummary,
   getWorkerConfig,
+  inspectArchiveAudit,
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
   listOpenDispatches = () => [],
   listWorkers,
@@ -92,6 +101,7 @@ export const createSentinelHeartbeat = ({
 }: SentinelHeartbeatOptions) => {
   let timer: NodeJS.Timeout | null = null
   const lastTickAt = new Map<string, number>()
+  const archiveAuditTrigger = createArchiveAuditTrigger()
 
   const getHeartbeatIntervalMs = (workspaceId: string, workerId: string) => {
     const configured = getWorkerConfig(workspaceId, workerId).heartbeat_interval_ms
@@ -130,7 +140,11 @@ export const createSentinelHeartbeat = ({
 
   const tick = async () => {
     const tickedAt = now()
-    for (const workspace of listWorkspaces()) {
+    const workspaces = listWorkspaces()
+    const crossWorkspaceDriftFindings = detectCrossWorkspaceDriftForHeartbeat(workspaces).map(
+      (finding) => finding.message
+    )
+    for (const workspace of workspaces) {
       const workers = listWorkers(workspace.id)
       const sentinels = workers.filter((worker) => worker.role === 'sentinel')
       for (const sentinel of sentinels) {
@@ -146,7 +160,12 @@ export const createSentinelHeartbeat = ({
             continue
           }
           const payload = buildSentinelHeartbeatPayload({
+            archiveAuditFindings: (inspectArchiveAudit
+              ? inspectArchiveAudit(workspace.path)
+              : archiveAuditTrigger.check(workspace.path)
+            ).map((finding) => finding.message),
             cockpitSummary: summarizeCockpit(buildCockpitSnapshot(workspace.path)),
+            crossWorkspaceDriftFindings,
             gitSummary: getGitSummary(workspace.path),
             orphanedDispatches: listOrphanedDispatches(workspace.id, workers, tickedAt),
             workspace,

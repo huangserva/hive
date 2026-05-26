@@ -230,4 +230,47 @@ describe('sentinel heartbeat', () => {
     expect(payload).toContain('Orphaned dispatches')
     expect(payload).toContain('Coder: dispatch dispatch-stale-working, submitted 35 min ago')
   })
+
+  test('includes archive audit and cross-workspace drift findings in heartbeat payload', async () => {
+    const writeRunInput = vi.fn()
+    const heartbeat = createSentinelHeartbeat({
+      detectCrossWorkspaceDrift: () => [
+        {
+          kind: 'schema-version',
+          message: 'schema version drift: Alpha=27, Beta=25',
+        },
+      ],
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({}),
+      inspectArchiveAudit: () => [
+        {
+          archiveMonth: '2026-05',
+          kind: 'tasks-done',
+          message: 'tasks.md Done 段已 201 行，建议归档到 .hive/archive/2026-05/',
+        },
+      ],
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+      ],
+      listWorkspaces: () => [
+        { id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' },
+        { id: 'workspace-2', name: 'Beta', path: '/tmp/beta' },
+      ],
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+
+    const payload = writeRunInput.mock.calls[0]?.[1] as string
+    expect(payload).toContain('[Hive 系统消息：archive audit]')
+    expect(payload).toContain('tasks.md Done 段已 201 行')
+    expect(payload).toContain('[Hive 系统消息：cross-workspace drift]')
+    expect(payload).toContain('schema version drift: Alpha=27, Beta=25')
+  })
 })

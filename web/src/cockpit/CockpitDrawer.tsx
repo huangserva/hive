@@ -17,6 +17,7 @@ import { QuestionsTab } from './tabs/QuestionsTab.js'
 import { ReportsTab } from './tabs/ReportsTab.js'
 import { ResearchTab } from './tabs/ResearchTab.js'
 import { TasksTab } from './tabs/TasksTab.js'
+import { TimelineTab } from './tabs/TimelineTab.js'
 
 type CockpitDrawerProps = {
   cockpit: ParsedCockpit | null
@@ -79,6 +80,7 @@ const renderTab = (
   if (activeTab === 'reports') {
     return <ReportsTab reports={cockpit.reports} workspaceId={workspaceId} />
   }
+  if (activeTab === 'timeline') return <TimelineTab workspaceId={workspaceId} />
   if (activeTab === 'baseline')
     return <BaselineTab baseline={cockpit.baseline} workspaceId={workspaceId} />
   return <ArchiveTab archive={cockpit.archive} />

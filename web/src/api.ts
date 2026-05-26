@@ -186,6 +186,38 @@ export interface FeishuBinding {
   workspaceId: string
 }
 
+export type DispatchState = 'queued' | 'submitted' | 'reported' | 'cancelled'
+
+export interface WorkspaceDispatch {
+  artifacts: string[]
+  createdAt: number
+  deliveredAt: number | null
+  fromAgentId: string | null
+  id: string
+  reportedAt: number | null
+  reportText: string | null
+  state: DispatchState
+  submittedAt: number | null
+  text: string
+  toAgentId: string
+  workspaceId: string
+}
+
+interface WorkspaceDispatchPayload {
+  artifacts: string[]
+  created_at: number
+  delivered_at: number | null
+  from_agent_id: string | null
+  id: string
+  reported_at: number | null
+  report_text: string | null
+  state: DispatchState
+  submitted_at: number | null
+  text: string
+  to_agent_id: string
+  workspace_id: string
+}
+
 export type PlanMilestoneStatus = 'shipped' | 'blocked' | 'proposed' | 'open' | 'in_progress'
 
 export interface ParsedMilestone {
@@ -360,6 +392,42 @@ export const listWorkers = async (workspaceId: string): Promise<TeamListItem[]> 
 
   const payload = (await response.json()) as TeamListItemPayload[]
   return payload.map(fromPayload)
+}
+
+const fromDispatchPayload = (payload: WorkspaceDispatchPayload): WorkspaceDispatch => ({
+  artifacts: payload.artifacts,
+  createdAt: payload.created_at,
+  deliveredAt: payload.delivered_at,
+  fromAgentId: payload.from_agent_id,
+  id: payload.id,
+  reportedAt: payload.reported_at,
+  reportText: payload.report_text,
+  state: payload.state,
+  submittedAt: payload.submitted_at,
+  text: payload.text,
+  toAgentId: payload.to_agent_id,
+  workspaceId: payload.workspace_id,
+})
+
+export const listWorkspaceDispatches = async (
+  workspaceId: string,
+  options: { limit?: number; offset?: number; state?: DispatchState } = {}
+): Promise<WorkspaceDispatch[]> => {
+  const params = new URLSearchParams()
+  if (options.limit !== undefined) params.set('limit', String(options.limit))
+  if (options.offset !== undefined) params.set('offset', String(options.offset))
+  if (options.state) params.set('state', options.state)
+  const query = params.size ? `?${params.toString()}` : ''
+  const response = await apiFetch(`/api/ui/workspaces/${workspaceId}/dispatches${query}`, {
+    mode: 'same-origin',
+  })
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load dispatches'))
+  }
+
+  const payload = (await response.json()) as WorkspaceDispatchPayload[]
+  return payload.map(fromDispatchPayload)
 }
 
 export const fetchFeishuTransportStatus = async (): Promise<FeishuTransportStatus> => {

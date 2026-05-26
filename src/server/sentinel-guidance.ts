@@ -33,12 +33,16 @@ export const buildSentinelStartupInstructions = ({
   ].join('\n')
 
 export const buildSentinelHeartbeatPayload = ({
+  archiveAuditFindings = [],
   cockpitSummary,
+  crossWorkspaceDriftFindings = [],
   gitSummary,
   orphanedDispatches = [],
   workspace,
 }: {
+  archiveAuditFindings?: string[]
   cockpitSummary: string
+  crossWorkspaceDriftFindings?: string[]
   gitSummary: string
   orphanedDispatches?: SentinelOrphanedDispatch[]
   workspace: WorkspaceSummary
@@ -62,6 +66,16 @@ export const buildSentinelHeartbeatPayload = ({
             (dispatch) =>
               `- ${dispatch.workerName}: dispatch ${dispatch.dispatchId}, submitted ${dispatch.minutesAgo} min ago`
           ),
+          '',
+        ]
+      : []),
+    ...(archiveAuditFindings.length > 0
+      ? ['[Hive 系统消息：archive audit]', ...archiveAuditFindings.map((item) => `- ${item}`), '']
+      : []),
+    ...(crossWorkspaceDriftFindings.length > 0
+      ? [
+          '[Hive 系统消息：cross-workspace drift]',
+          ...crossWorkspaceDriftFindings.map((item) => `- ${item}`),
           '',
         ]
       : []),

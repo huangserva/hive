@@ -6,6 +6,7 @@ import {
   ClipboardList,
   FileText,
   GitBranch,
+  History,
   Lightbulb,
   Map as MapIcon,
 } from 'lucide-react'
@@ -21,6 +22,7 @@ export type CockpitTab =
   | 'decisions'
   | 'research'
   | 'reports'
+  | 'timeline'
   | 'baseline'
   | 'archive'
 
@@ -36,6 +38,7 @@ const TABS: Array<{
   { icon: GitBranch, id: 'decisions', labelKey: 'cockpit.tabs.decisions' },
   { icon: BookOpen, id: 'research', labelKey: 'cockpit.tabs.research' },
   { icon: ClipboardList, id: 'reports', labelKey: 'cockpit.tabs.reports' },
+  { icon: History, id: 'timeline', labelKey: 'cockpit.tabs.timeline' },
   { icon: FileText, id: 'baseline', labelKey: 'cockpit.tabs.baseline' },
   { icon: Archive, id: 'archive', labelKey: 'cockpit.tabs.archive' },
 ]
