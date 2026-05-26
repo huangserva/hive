@@ -6,6 +6,13 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { TerminalView } from '../../web/src/terminal/TerminalView.js'
 
 let latestCustomKeyHandler: ((event: KeyboardEvent) => boolean) | undefined
+let latestTerminal:
+  | {
+      buffer: { active: { baseY: number; viewportY: number } }
+      scrollToBottom: () => void
+    }
+  | undefined
+let terminalScrollToBottomCount = 0
 let terminalWrites: string[] = []
 
 class MockWebSocket {
@@ -47,9 +54,13 @@ class MockResizeObserver {
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
+    buffer = { active: { baseY: 0, viewportY: 0 } }
     cols = 132
     rows = 43
     unicode = { activeVersion: '' }
+    constructor() {
+      latestTerminal = this
+    }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
       latestCustomKeyHandler = handler
     }
@@ -60,7 +71,12 @@ vi.mock('@xterm/xterm', () => ({
     open() {}
     write(chunk?: string, callback?: () => void) {
       if (chunk !== undefined) terminalWrites.push(chunk)
+      this.buffer.active.baseY += chunk?.split('\n').length ?? 0
       callback?.()
+    }
+    scrollToBottom() {
+      this.buffer.active.viewportY = this.buffer.active.baseY
+      terminalScrollToBottomCount += 1
     }
     dispose() {}
   },
@@ -78,6 +94,8 @@ afterEach(() => {
   MockWebSocket.instances = []
   MockResizeObserver.instances = []
   latestCustomKeyHandler = undefined
+  latestTerminal = undefined
+  terminalScrollToBottomCount = 0
   terminalWrites = []
   vi.unstubAllGlobals()
 })
@@ -201,6 +219,30 @@ describe('TerminalView', () => {
       type: 'output_ack',
       bytes: new TextEncoder().encode('live-after-attach').byteLength,
     })
+  })
+
+  test('keeps the terminal pinned to the prompt when live output arrives at bottom', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+    addPortalSlot('run-live-bottom')
+
+    render(<TerminalView runId="run-live-bottom" title="Alice" />)
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(latestTerminal).toBeDefined()
+    })
+    const [ioSocket, controlSocket] = MockWebSocket.instances
+    controlSocket?.onmessage?.({ data: JSON.stringify({ type: 'restore', snapshot: '' }) })
+    if (!latestTerminal) throw new Error('terminal missing')
+    latestTerminal.buffer.active.viewportY = latestTerminal.buffer.active.baseY
+
+    ioSocket?.onmessage?.({
+      data: Array.from({ length: 320 }, (_, index) => `line-${index}`).join('\n'),
+    })
+
+    expect(terminalWrites.at(-1)).toContain('line-319')
+    expect(terminalScrollToBottomCount).toBeGreaterThan(0)
+    expect(latestTerminal.buffer.active.viewportY).toBe(latestTerminal.buffer.active.baseY)
   })
 
   test('maps Shift+Enter to a modified Enter sequence instead of submit Enter', async () => {

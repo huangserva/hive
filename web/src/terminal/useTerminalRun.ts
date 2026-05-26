@@ -199,10 +199,15 @@ export const useTerminalRun = (runId: string, inputProfile: TerminalInputProfile
             setStatus('stopped')
           },
           onOutput(chunk, acknowledge) {
-            nextTerminal.write(chunk, () => acknowledge(new TextEncoder().encode(chunk).byteLength))
+            const wasAtBottom =
+              nextTerminal.buffer.active.viewportY >= nextTerminal.buffer.active.baseY - 1
+            nextTerminal.write(chunk, () => {
+              if (wasAtBottom) nextTerminal.scrollToBottom()
+              acknowledge(new TextEncoder().encode(chunk).byteLength)
+            })
           },
           onRestore(snapshot) {
-            nextTerminal.write(snapshot)
+            nextTerminal.write(snapshot, () => nextTerminal.scrollToBottom())
           },
           runId,
         })
