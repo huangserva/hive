@@ -136,6 +136,32 @@ describe('mobile API', () => {
     }
   })
 
+  test('registers Expo push token for an authenticated mobile device', async () => {
+    const server = await startTestServer()
+    try {
+      const { token } = await pairMobile(server.baseUrl)
+
+      const missing = await fetch(`${server.baseUrl}/api/mobile/push-token`, {
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        body: JSON.stringify({ push_token: 'ExponentPushToken[missing]' }),
+      })
+      expect(missing.status).toBe(401)
+
+      const registered = await fetch(`${server.baseUrl}/api/mobile/push-token`, {
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token }),
+        method: 'POST',
+        body: JSON.stringify({ push_token: 'ExponentPushToken[phone]' }),
+      })
+      expect(registered.status).toBe(200)
+      expect(await registered.json()).toEqual({ ok: true })
+
+      expect(server.store.listMobileDevices()[0]?.push_token).toBe('ExponentPushToken[phone]')
+    } finally {
+      await server.close()
+    }
+  })
+
   test('returns a compact dashboard aggregate for a paired mobile client', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()

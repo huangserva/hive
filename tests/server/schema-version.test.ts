@@ -191,6 +191,7 @@ describe('schema version', () => {
         'capabilities',
         'revoked_at',
         'device_type',
+        'push_token',
       ])
     )
     expect(mobilePairingCodesTable).toEqual({ name: 'mobile_pairing_codes' })

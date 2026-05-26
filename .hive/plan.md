@@ -190,6 +190,7 @@ last_review: 2026-05-25
   - [x] 子任务 4：Mobile relay transport — LAN→relay fallback + E2E handshake + JSON-RPC（赵云，7 tests）
 - [x] **M19d**：agent/terminal pane + task operations（worker transcript + dispatch task history）— `942cf9c`
 - [ ] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）
+  - [x] 子任务 1：Push notifications — server/mobile Expo push token 注册 + worker done/high aiAction 通知（赵云，8 tests）
 - [ ] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）
 - 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”后继续拍板“要原生、要最好”。
 

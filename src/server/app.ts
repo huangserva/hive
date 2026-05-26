@@ -4,12 +4,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { homedir } from 'node:os'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseCockpit } from './cockpit-doc.js'
 import type { FeishuOutboundTransport } from './feishu-transport.js'
 import { type PickFolderResponse, pickFolder } from './fs-pick-folder.js'
 import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import { createMobileDashboardWebSocketServer } from './mobile-dashboard-websocket-server.js'
+import { createHighAiActionNotifier, createMobilePushService } from './mobile-push.js'
 import type { RelayConnectorHandle } from './relay-connector.js'
 import type { RuntimeInfo } from './route-types.js'
 import { matchRoute } from './routes.js'
@@ -195,8 +197,16 @@ export const createApp = ({
   })
   createTerminalWebSocketServer(server, store, tasksFileService, logger)
   const mobileDashboardWss = createMobileDashboardWebSocketServer(server, store, logger)
+  const mobilePushService = createMobilePushService({ store })
+  const notifyHighAiActions = createHighAiActionNotifier(mobilePushService)
   const disposeMobileCockpitListener = store.registerCockpitListener((workspaceId) => {
     mobileDashboardWss.publish(workspaceId)
+    try {
+      const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
+      void notifyHighAiActions(workspaceId, parseCockpit(workspacePath).aiActions)
+    } catch (error) {
+      logger?.error('mobile high aiAction notification failed', error)
+    }
   })
   server.on('close', () => {
     disposeMobileCockpitListener()

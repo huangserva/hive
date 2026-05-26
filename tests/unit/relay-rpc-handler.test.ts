@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 
@@ -106,5 +106,28 @@ describe('relay RPC handler', () => {
       ],
       workspace_id: 'ws-1',
     })
+  })
+
+  it('registers push tokens over relay RPC for the authenticated device', async () => {
+    const updateMobilePushToken = vi.fn()
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: {
+        requireMobileCapability: (_device: unknown, capability: string) => {
+          if (capability !== 'read_dashboard') throw new Error(`wrong capability ${capability}`)
+        },
+        updateMobilePushToken,
+      },
+    })
+
+    await expect(
+      handler(
+        'device.register_push_token',
+        { push_token: 'ExponentPushToken[relay]' },
+        'device-1',
+        ['read_dashboard']
+      )
+    ).resolves.toEqual({ ok: true })
+    expect(updateMobilePushToken).toHaveBeenCalledWith('device-1', 'ExponentPushToken[relay]')
   })
 })

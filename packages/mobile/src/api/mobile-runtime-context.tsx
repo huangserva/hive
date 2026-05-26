@@ -10,6 +10,7 @@ import {
 } from 'react'
 
 import { encodeBase64, generateKeyPair } from '../../../relay-crypto/src/index.js'
+import { getExpoPushToken } from '../notifications'
 import {
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
@@ -60,6 +61,7 @@ interface MobileRuntimeContextValue {
   state: MobileRuntimeState
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
+  transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
   workspaces: MobileWorkspace[]
 }
 
@@ -162,6 +164,19 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [createRelay, host, token]
   )
 
+  const registerPushToken = useCallback(
+    async (nextClient = client) => {
+      const pushToken = await getExpoPushToken()
+      if (!pushToken) return
+      try {
+        await nextClient.registerPushToken(pushToken)
+      } catch {
+        // Push is best-effort; connection and pairing should still succeed without it.
+      }
+    },
+    [client]
+  )
+
   useEffect(() => {
     const unsubscribe = client.onConnectionModeChange((mode) =>
       setConnectionMode(mode as MobileConnectionMode)
@@ -226,6 +241,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         const nextDashboard = nextWorkspaceId
           ? await nextClient.getMobileDashboard(nextWorkspaceId)
           : null
+        await registerPushToken(nextClient)
 
         setHost(nextHost)
         setToken(trimmedToken)
@@ -251,7 +267,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
     },
-    [createRelay, relayConfig, selectedWorkspaceId]
+    [createRelay, registerPushToken, relayConfig, selectedWorkspaceId]
   )
 
   const redeemPairingCode = useCallback(
@@ -404,6 +420,25 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     }
   }, [client, selectedWorkspaceId])
 
+  const transcribeVoice = useCallback(
+    async (audioBase64: string, format = 'm4a') => {
+      setError(null)
+      try {
+        const result = await client.transcribeVoice(audioBase64, format)
+        if ('error' in result && result.error) {
+          setError(result.error as string)
+          return null
+        }
+        return result.text
+      } catch (voiceError) {
+        const message = voiceError instanceof Error ? voiceError.message : String(voiceError)
+        setError(message)
+        return null
+      }
+    },
+    [client]
+  )
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -483,6 +518,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       state,
       stopWorker,
       token,
+      transcribeVoice,
       workspaces,
     }),
     [
@@ -507,6 +543,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       state,
       stopWorker,
       token,
+      transcribeVoice,
       workspaces,
     ]
   )

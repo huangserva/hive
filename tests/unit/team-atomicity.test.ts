@@ -363,4 +363,63 @@ describe('team atomicity', () => {
       forwarded: false,
     })
   })
+
+  test('reportTask sends a mobile push notification after a dispatch is reported', () => {
+    const store = createRuntimeStore()
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const dispatch = {
+      artifacts: [],
+      createdAt: Date.now(),
+      deliveredAt: null,
+      fromAgentId: `${workspace.id}:orchestrator`,
+      id: 'dispatch-1',
+      reportedAt: null,
+      reportText: null,
+      sequence: 1,
+      status: 'queued',
+      submittedAt: null,
+      text: 'Implement login',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    } as const
+    const notifyWorkerDone = vi.fn(async () => {})
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt: vi.fn(),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(() => dispatch),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      markDispatchReportedByWorker: vi.fn(() => ({
+        ...dispatch,
+        reportedAt: Date.now(),
+        reportText: 'Done',
+        status: 'reported',
+      })),
+      markDispatchSubmitted: vi.fn(),
+      mobilePushService: {
+        notifyHighAiAction: vi.fn(),
+        notifyWorkerDone,
+      },
+      workspaceStore: {
+        getWorker: store.getWorker,
+        markTaskReported: vi.fn(),
+      } as never,
+    })
+
+    ops.reportTask(workspace.id, worker.id, {
+      dispatchId: 'dispatch-1',
+      status: 'success',
+      text: 'Done',
+    })
+
+    expect(notifyWorkerDone).toHaveBeenCalledWith(workspace.id, 'Alice', 'Done', 'dispatch-1')
+  })
 })

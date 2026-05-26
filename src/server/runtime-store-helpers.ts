@@ -9,6 +9,7 @@ import { createFeishuBindingsStore } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
 import { createMobileAuthStore } from './mobile-auth.js'
+import { createMobilePushService } from './mobile-push.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
@@ -34,6 +35,7 @@ export interface RuntimeStoreServices {
   feishuBindingsStore: ReturnType<typeof createFeishuBindingsStore>
   messageLogStore: ReturnType<typeof createMessageLogStore>
   mobileAuthStore: ReturnType<typeof createMobileAuthStore>
+  mobilePushService: ReturnType<typeof createMobilePushService>
   cockpitFileWatchCallbacks: Set<(workspaceId: string) => void>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
@@ -76,6 +78,12 @@ export const createRuntimeStoreServices = (
   const messageLogStore = createMessageLogStore(db)
   const mobileAuthStore = createMobileAuthStore(db)
   mobileAuthStore.ensureDefaultDevice()
+  const mobilePushService = createMobilePushService({
+    store: {
+      clearMobilePushToken: (pushToken) => mobileAuthStore.clearPushToken(pushToken),
+      listMobileDevices: () => mobileAuthStore.listDevices(),
+    },
+  })
   const dispatchLedgerStore = createDispatchLedgerStore(db)
   const approvalLedger = createApprovalLedger()
   const feishuBindingsStore = createFeishuBindingsStore(db)
@@ -179,6 +187,7 @@ export const createRuntimeStoreServices = (
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
+    mobilePushService,
     tasksFileService,
     workspaceStore,
   })
@@ -194,6 +203,7 @@ export const createRuntimeStoreServices = (
     feishuBindingsStore,
     messageLogStore,
     mobileAuthStore,
+    mobilePushService,
     cockpitFileWatchCallbacks,
     settings,
     shellRuntime,

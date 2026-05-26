@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { createLocalSttProvider } from './local-stt.js'
 import type { MobileCapability } from './mobile-auth.js'
 import type { RuntimeInfo } from './route-types.js'
 import {
@@ -29,6 +33,7 @@ interface RelayRpcHandlerDeps {
     | 'requireMobileCapability'
     | 'startAgent'
     | 'stopAgentRun'
+    | 'updateMobilePushToken'
   > &
     Partial<RuntimeStore>
 }
@@ -60,6 +65,7 @@ const requireCapability = (
       id: deviceId,
       last_seen_at: Date.now(),
       name: 'Relay device',
+      push_token: null,
       revoked_at: null,
       token: '',
     },
@@ -158,6 +164,34 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         hivePort: String(deps.runtimeInfo.port ?? ''),
       })
       return { ok: true, run_id: run.runId, worker_id: workerId, workspace_id: workspaceId }
+    }
+
+    if (method === 'device.register_push_token') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      const pushToken = readStringParam(params, 'push_token')
+      deps.store.updateMobilePushToken(deviceId, pushToken)
+      return { ok: true }
+    }
+
+    if (method === 'voice.transcribe') {
+      requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      const audioBase64 = readStringParam(params, 'audio')
+      const format = typeof params.format === 'string' ? params.format : 'm4a'
+      const sttProvider = createLocalSttProvider()
+      const cli = await sttProvider.detect()
+      if (!cli) return { error: 'stt_unavailable' }
+      const audioBuffer = Buffer.from(audioBase64, 'base64')
+      const ext = format ? `.${format}` : '.m4a'
+      const tmpDir = mkdtempSync(join(tmpdir(), 'hive-voice-'))
+      const audioPath = join(tmpDir, `voice${ext}`)
+      try {
+        writeFileSync(audioPath, audioBuffer)
+        const result = await sttProvider.transcribeAudioFile(audioPath)
+        if (!result) return { error: 'transcription_failed' }
+        return { text: result.text }
+      } finally {
+        rmSync(tmpDir, { force: true, recursive: true })
+      }
     }
 
     throw new Error(`Unknown relay RPC method: ${method}`)

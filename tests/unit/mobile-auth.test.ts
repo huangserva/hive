@@ -155,4 +155,21 @@ describe('mobile auth store', () => {
     expect(updated.name).toBe('Only name')
     expect(updated.capabilities).toEqual(['read_dashboard'])
   })
+
+  test('stores and clears an Expo push token for an authenticated device', () => {
+    const store = createStore()
+    const pairing = store.generatePairingCode('Phone', ['read_dashboard'], 300_000, 1_000)
+    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
+
+    const registered = store.updatePushToken(redeemed.device.id, 'ExponentPushToken[abc]')
+    expect(registered.push_token).toBe('ExponentPushToken[abc]')
+    expect(store.listDevices().find((device) => device.id === redeemed.device.id)?.push_token).toBe(
+      'ExponentPushToken[abc]'
+    )
+
+    store.clearPushToken('ExponentPushToken[abc]')
+    expect(store.listDevices().find((device) => device.id === redeemed.device.id)?.push_token).toBe(
+      null
+    )
+  })
 })

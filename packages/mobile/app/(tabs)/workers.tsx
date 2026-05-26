@@ -5,9 +5,11 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge } from '../../src/components/StatusBadge'
+import { VoiceRecordButton } from '../../src/components/VoiceRecordButton'
 
 export default function WorkersTab() {
-  const { dashboard, dispatchTask, error, restartWorker, state, stopWorker } = useMobileRuntime()
+  const { dashboard, dispatchTask, error, restartWorker, state, stopWorker, transcribeVoice } =
+    useMobileRuntime()
   const router = useRouter()
   const workers = dashboard?.workers ?? []
   const dispatchableWorkers = useMemo(
@@ -157,14 +159,21 @@ export default function WorkersTab() {
                 </Pressable>
               ))}
             </View>
-            <TextInput
-              multiline
-              onChangeText={setTaskText}
-              placeholder="Ask this worker to..."
-              placeholderTextColor="#6e7681"
-              style={styles.taskInput}
-              value={taskText}
-            />
+            <View style={styles.taskInputRow}>
+              <TextInput
+                multiline
+                onChangeText={setTaskText}
+                placeholder="Ask this worker to..."
+                placeholderTextColor="#6e7681"
+                style={[styles.taskInput, styles.taskInputWithMic]}
+                value={taskText}
+              />
+              <VoiceRecordButton
+                disabled={!selectedWorkerId}
+                onTranscript={(text) => setTaskText((prev) => (prev ? `${prev}\n${text}` : text))}
+                transcribeVoice={transcribeVoice}
+              />
+            </View>
             <Pressable
               accessibilityRole="button"
               disabled={isSubmitting}
@@ -278,11 +287,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     color: '#e6edf3',
+    flex: 1,
     fontSize: 15,
     minHeight: 100,
     paddingHorizontal: 14,
     paddingVertical: 12,
     textAlignVertical: 'top',
+  },
+  taskInputWithMic: {
+    flex: 1,
+  },
+  taskInputRow: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    gap: 8,
   },
   title: {
     color: '#e6edf3',

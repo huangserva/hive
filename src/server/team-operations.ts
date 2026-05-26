@@ -4,6 +4,7 @@ import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import { ConflictError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
+import type { MobilePushService } from './mobile-push.js'
 import {
   createReportMessage,
   createSendMessage,
@@ -43,6 +44,7 @@ export interface TeamOperationsInput {
     workspaceId: string
   }) => DispatchRecord | undefined
   markDispatchSubmitted: (dispatchId: string) => void
+  mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'>
   tasksFileService?: Pick<
     TasksFileService,
     'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
@@ -103,6 +105,7 @@ export const createTeamOperations = ({
   markDispatchCancelled,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
+  mobilePushService,
   tasksFileService = noopTasksFileService,
   workspaceStore,
 }: TeamOperationsInput) => {
@@ -312,6 +315,7 @@ export const createTeamOperations = ({
             dispatchId: dispatch.id,
           })
         }
+        void mobilePushService?.notifyWorkerDone(workspaceId, worker.name, text, dispatch.id)
         let forwardError: string | null = null
         let forwarded = false
         const orchActive =

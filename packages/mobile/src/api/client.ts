@@ -94,6 +94,10 @@ export interface MobileDispatchResponse {
   workspace_id?: string
 }
 
+export interface MobilePushTokenResponse {
+  ok: true
+}
+
 export interface MobileWorkerTranscript {
   lines: string[]
   status: string
@@ -267,6 +271,28 @@ export const createRuntimeClient = ({
         { task, worker_id: workerId, workspace_id: workspaceId },
         {
           body: { task, worker_id: workerId },
+          method: 'POST',
+        }
+      )
+    },
+    async transcribeVoice(audioBase64: string, format = 'm4a'): Promise<{ text: string }> {
+      return readMobileJson<{ text: string }>(
+        '/api/mobile/voice/transcribe',
+        'voice.transcribe',
+        { audio: audioBase64, format },
+        {
+          body: { audio: audioBase64, format },
+          method: 'POST',
+        }
+      )
+    },
+    async registerPushToken(pushToken: string): Promise<MobilePushTokenResponse> {
+      return readMobileJson<MobilePushTokenResponse>(
+        '/api/mobile/push-token',
+        'device.register_push_token',
+        { push_token: pushToken },
+        {
+          body: { push_token: pushToken },
           method: 'POST',
         }
       )

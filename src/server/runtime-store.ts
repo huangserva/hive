@@ -124,10 +124,12 @@ interface RuntimeStore {
   redeemMobilePairingCode: (code: string) => { device: MobileDeviceRecord; token: string }
   requireMobileCapability: (device: MobileDeviceRecord, capability: MobileCapability) => void
   revokeMobileDevice: (deviceId: string) => MobileDeviceRecord
+  clearMobilePushToken: (pushToken: string) => void
   updateMobileDevice: (
     deviceId: string,
     patch: { capabilities?: MobileCapability[]; name?: string }
   ) => MobileDeviceRecord
+  updateMobilePushToken: (deviceId: string, pushToken: string) => MobileDeviceRecord
   stopAgentRun: (runId: string) => void
   validateAgentToken: (agentId: string, token: string | undefined) => boolean
   validateUiToken: (token: string | undefined) => boolean
@@ -264,7 +266,10 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     requireMobileCapability: (device, capability) =>
       services.mobileAuthStore.requireCapability(device, capability),
     revokeMobileDevice: (deviceId) => services.mobileAuthStore.revokeDevice(deviceId),
+    clearMobilePushToken: (pushToken) => services.mobileAuthStore.clearPushToken(pushToken),
     updateMobileDevice: (deviceId, patch) => services.mobileAuthStore.updateDevice(deviceId, patch),
+    updateMobilePushToken: (deviceId, pushToken) =>
+      services.mobileAuthStore.updatePushToken(deviceId, pushToken),
     stopAgentRun: lifecycle.stopTerminalRun,
     validateAgentToken: (agentId, token) =>
       services.agentRuntime.validateAgentToken(agentId, token),

@@ -26,6 +26,7 @@ export interface MobileDeviceRecord {
   id: string
   last_seen_at: number | null
   name: string
+  push_token: string | null
   revoked_at: number | null
   token: string
 }
@@ -37,6 +38,7 @@ interface MobileDeviceRow {
   id: string
   last_seen_at: number | null
   name: string
+  push_token: string | null
   revoked_at: number | null
   token: string
 }
@@ -61,10 +63,12 @@ export interface MobileAuthStore {
   redeemPairingCode: (code: string, now?: number) => { device: MobileDeviceRecord; token: string }
   requireCapability: (device: MobileDeviceRecord, capability: MobileCapability) => void
   revokeDevice: (deviceId: string, now?: number) => MobileDeviceRecord
+  clearPushToken: (pushToken: string) => void
   updateDevice: (
     deviceId: string,
     patch: { capabilities?: MobileCapability[]; name?: string }
   ) => MobileDeviceRecord
+  updatePushToken: (deviceId: string, pushToken: string) => MobileDeviceRecord
   validateToken: (token: string | undefined) => boolean
 }
 
@@ -98,6 +102,7 @@ const mapDeviceRow = (row: MobileDeviceRow): MobileDeviceRecord => ({
   id: row.id,
   last_seen_at: row.last_seen_at,
   name: row.name,
+  push_token: row.push_token,
   revoked_at: row.revoked_at,
   token: row.token,
 })
@@ -137,7 +142,7 @@ export const requireMobileTokenFromRequest = (
 
 export const createMobileAuthStore = (db: Database): MobileAuthStore => {
   const selectDefault = db.prepare(
-    'SELECT id, token, name, capabilities, device_type, revoked_at, created_at, last_seen_at FROM mobile_devices ORDER BY created_at ASC LIMIT 1'
+    'SELECT id, token, name, capabilities, device_type, revoked_at, push_token, created_at, last_seen_at FROM mobile_devices ORDER BY created_at ASC LIMIT 1'
   )
   const insertDevice = db.prepare(
     `INSERT INTO mobile_devices (
@@ -146,16 +151,17 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
       name,
       capabilities,
       device_type,
+      push_token,
       revoked_at,
       created_at,
       last_seen_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
   const selectByToken = db.prepare(
-    'SELECT id, token, name, capabilities, device_type, revoked_at, created_at, last_seen_at FROM mobile_devices WHERE token = ?'
+    'SELECT id, token, name, capabilities, device_type, revoked_at, push_token, created_at, last_seen_at FROM mobile_devices WHERE token = ?'
   )
   const selectById = db.prepare(
-    'SELECT id, token, name, capabilities, device_type, revoked_at, created_at, last_seen_at FROM mobile_devices WHERE id = ?'
+    'SELECT id, token, name, capabilities, device_type, revoked_at, push_token, created_at, last_seen_at FROM mobile_devices WHERE id = ?'
   )
   const touchByToken = db.prepare('UPDATE mobile_devices SET last_seen_at = ? WHERE token = ?')
   const cleanupExpiredCodes = db.prepare(
@@ -171,11 +177,15 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
     'UPDATE mobile_pairing_codes SET redeemed_at = ?, redeemed_device_id = ? WHERE code = ?'
   )
   const selectDevices = db.prepare(
-    'SELECT id, token, name, capabilities, device_type, revoked_at, created_at, last_seen_at FROM mobile_devices ORDER BY created_at ASC'
+    'SELECT id, token, name, capabilities, device_type, revoked_at, push_token, created_at, last_seen_at FROM mobile_devices ORDER BY created_at ASC'
   )
   const updateRevokedAt = db.prepare('UPDATE mobile_devices SET revoked_at = ? WHERE id = ?')
   const updateName = db.prepare('UPDATE mobile_devices SET name = ? WHERE id = ?')
   const updateCapabilities = db.prepare('UPDATE mobile_devices SET capabilities = ? WHERE id = ?')
+  const updatePushTokenStmt = db.prepare('UPDATE mobile_devices SET push_token = ? WHERE id = ?')
+  const clearPushTokenStmt = db.prepare(
+    'UPDATE mobile_devices SET push_token = NULL WHERE push_token = ?'
+  )
 
   const getDeviceById = (deviceId: string) => {
     const row = selectById.get(deviceId) as MobileDeviceRow | undefined
@@ -212,6 +222,7 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
         id: randomUUID(),
         last_seen_at: null,
         name: 'M19a mobile device',
+        push_token: null,
         revoked_at: null,
         token: generateMobileToken(),
       }
@@ -221,6 +232,7 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
         record.name,
         JSON.stringify(record.capabilities),
         record.device_type,
+        record.push_token,
         record.revoked_at,
         record.created_at,
         record.last_seen_at
@@ -278,6 +290,7 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
         id: randomUUID(),
         last_seen_at: now,
         name: row.device_name,
+        push_token: null,
         revoked_at: null,
         token: generateMobileToken(),
       }
@@ -288,6 +301,7 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
           device.name,
           JSON.stringify(device.capabilities),
           device.device_type,
+          device.push_token,
           device.revoked_at,
           device.created_at,
           device.last_seen_at
@@ -305,6 +319,9 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
       updateRevokedAt.run(now, deviceId)
       return getDeviceById(deviceId)
     },
+    clearPushToken(pushToken) {
+      clearPushTokenStmt.run(pushToken)
+    },
     updateDevice(deviceId, patch) {
       if (patch.name !== undefined) {
         const trimmed = patch.name.trim()
@@ -314,6 +331,12 @@ export const createMobileAuthStore = (db: Database): MobileAuthStore => {
       if (patch.capabilities !== undefined) {
         updateCapabilities.run(JSON.stringify(normalizeCapabilities(patch.capabilities)), deviceId)
       }
+      return getDeviceById(deviceId)
+    },
+    updatePushToken(deviceId, pushToken) {
+      const trimmed = pushToken.trim()
+      if (!trimmed) throw new BadRequestError('push_token is required')
+      updatePushTokenStmt.run(trimmed, deviceId)
       return getDeviceById(deviceId)
     },
     validateToken(token) {

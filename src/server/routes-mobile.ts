@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
+import { createLocalSttProvider } from './local-stt.js'
 import {
   extractMobileToken,
   type MobileCapability,
@@ -255,6 +256,12 @@ export const mobileRoutes: RouteDefinition[] = [
       devices: store.listMobileDevices().map(mobileDeviceSummary),
     })
   }),
+  route('POST', '/api/mobile/push-token', async ({ request, response, store }) => {
+    const device = store.authenticateMobileDevice(extractMobileToken(request))
+    const body = await readJsonBody<{ push_token?: unknown }>(request)
+    store.updateMobilePushToken(device.id, readNonEmptyString(body.push_token, 'push_token'))
+    sendJson(response, 200, { ok: true })
+  }),
   route('PATCH', '/api/mobile/devices/:deviceId', async ({ params, request, response, store }) => {
     requireUiSessionOrMobileAdmin(request, store)
     const deviceId = getRequiredParam(response, params, 'deviceId', 'Device id is required')
@@ -470,4 +477,34 @@ export const mobileRoutes: RouteDefinition[] = [
       })
     }
   ),
+  route('POST', '/api/mobile/voice/transcribe', async ({ request, response, store }) => {
+    requireMobileCapability(request, store, 'send_prompt')
+    const body = await readJsonBody<{ audio?: unknown; format?: unknown }>(request, {
+      limitBytes: 20 * 1024 * 1024,
+    })
+    if (typeof body.audio !== 'string' || !body.audio.trim()) {
+      throw new BadRequestError('audio base64 string is required')
+    }
+    const sttProvider = createLocalSttProvider()
+    const cli = await sttProvider.detect()
+    if (!cli) {
+      sendJson(response, 200, { error: 'stt_unavailable' })
+      return
+    }
+    const audioBuffer = Buffer.from(body.audio, 'base64')
+    const ext = typeof body.format === 'string' && body.format ? `.${body.format}` : '.m4a'
+    const tmpDir = mkdtempSync(join(tmpdir(), 'hive-voice-'))
+    const audioPath = join(tmpDir, `voice${ext}`)
+    try {
+      writeFileSync(audioPath, audioBuffer)
+      const result = await sttProvider.transcribeAudioFile(audioPath)
+      if (!result) {
+        sendJson(response, 200, { error: 'transcription_failed' })
+        return
+      }
+      sendJson(response, 200, { text: result.text })
+    } finally {
+      rmSync(tmpDir, { force: true, recursive: true })
+    }
+  }),
 ]
