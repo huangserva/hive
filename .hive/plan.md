@@ -171,9 +171,11 @@ last_review: 2026-05-25
 - [x] 初版路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile（`2fa6425`，结论已被 user 覆写为原生-first）
 - [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
 - [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
-- [ ] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）
-  - [x] 子任务 1：现有 HTTP/WS 协议 audit + native app 稳定 API 缺口分析（report/research 已产出，commit 见 dispatch report）
-  - [x] 子任务 3：mobile API 层（单 token pairing + Bearer auth + dashboard aggregate + WS snapshot，commit 见 dispatch report）
+- [x] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）— shipped `59ea75a`→`1ef7b00`→`d237009`→`a263adf`
+  - [x] 子任务 1：现有 HTTP/WS 协议 audit + native app 稳定 API 缺口分析（`59ea75a`）
+  - [x] 子任务 2：Expo skeleton + LAN 连接 spike（`1ef7b00`）
+  - [x] 子任务 3：mobile API 层 — Bearer auth + dashboard aggregate + WS（`d237009`）
+  - [x] 子任务 4：Expo app 对接 mobile API — dashboard/workers/tasks 数据展示（`a263adf`）
 - [ ] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）
 - [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
 - [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）

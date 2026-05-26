@@ -5,10 +5,10 @@
 
 ## In progress
 
-（空 — M19 原生 app 方案出齐，等 user 飞书拍板开工 M19a）
-
-> 🎯 M19 原生 app 方案 done（e895380）：epic 锁不可变需求 + M19a-M19f 分阶段 + 远程接入层(配对/LAN/relay/设备 keypair 鉴权) + M14 语音收敛。**赵云推荐先开 M19a**（协议 audit + Expo skeleton + LAN 只读看板）。已发 user 飞书等拍。📱 chat oc_0d5e…
+> 🚀 **M19a 原生 app shipped**（5/25~26，4 commits）
 > 🎤 M14a 本地 STT done（0b4cf98）：待 user 装 whisper + 重启 → 真 E2E（user 定节奏）
+
+- [x] **关羽** dispatch `4facba3d` — 修复 orch 终端输入框再次消失（复发 bug）
 
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
@@ -21,6 +21,14 @@
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
 
 ## Done
+
+### 2026-05-26（M19a shipped + worker 启停 + 诊断）
+- [x] **赵云** dispatch `f9ad4fe2` — M19a 子任务 1：协议 audit（`59ea75a`）
+- [x] **关羽** dispatch `d9666c2d` — M19a 子任务 2：Expo skeleton + LAN spike（`1ef7b00`）
+- [x] **赵云** dispatch `24dd5f12` — M19a 子任务 3：mobile API 层 — Bearer auth + dashboard 聚合端点 + WS（`d237009`）
+- [x] **关羽** dispatch `b3482627` — M19a 子任务 4：Expo app 对接 mobile API — LAN 只读 dashboard（`a263adf`）
+- [x] **关羽** dispatch `01eb31e1` — Worker 一键启停功能（`de752ce`）
+- [x] **张飞** dispatch `ac3e5256` — 诊断 Cockpit Tasks 与 Todo 计数差异（结论：非 bug，Done 段 70 + In progress 段 5 = 总 75）
 
 ### 2026-05-24 ~ 25（Feishu e2e + paseo 调研 + Cockpit governance + MCP browser + 全 app E2E + M17 handoff）
 - [x] **赵云** dispatch `c8867a7c` — **M19 原生 app 架构方案**（epic）：锁不可变需求（真原生 iOS/Android、解决 loopback 外安全远程=host pairing+LAN+加密 relay、覆盖看板/Cockpit/终端/任务 + M14 语音收敛、relay 只转密文+capability/approval）+ M19a-M19f 阶段 + 技术选型（Expo/RN/Expo Router、设备 keypair+SecureStore、direct LAN 优先 relay E2E 加密）。回填 ADR + plan.md M19 confirmed epic。report 457 行+research，全 gate 1167 (`e895380`+`d1775e7`)。推荐先开 M19a

@@ -131,26 +131,6 @@ export const WorkersPane = ({
           <span className="font-medium text-pri">{t('worker.teamMembers')}</span>
           <span className="mono rounded bg-3 px-1.5 py-0.5 text-xs text-sec">{workers.length}</span>
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={() => runBulkAction('start', onStartAllWorkers)}
-            className="icon-btn icon-btn--tertiary"
-            aria-label={t('worker.startAll')}
-            disabled={!hasStoppedWorker || bulkBusy}
-            data-testid="start-all-workers"
-          >
-            <PlayCircle size={14} aria-hidden /> {t('worker.startAll')}
-          </button>
-          <button
-            type="button"
-            onClick={() => runBulkAction('stop', onStopAllWorkers)}
-            className="icon-btn icon-btn--tertiary"
-            aria-label={t('worker.stopAll')}
-            disabled={!hasActiveRun || bulkBusy}
-            data-testid="stop-all-workers"
-          >
-            <StopCircle size={14} aria-hidden /> {t('worker.stopAll')}
-          </button>
           {shellTerminalAvailable ? (
             <button
               type="button"
@@ -184,6 +164,31 @@ export const WorkersPane = ({
             <span className="inline-flex items-center gap-1.5">
               <span className="status-dot status-dot--stopped" aria-hidden />
               <span className="text-sec">{summary.stopped}</span> {t('common.stopped')}
+            </span>
+            <div className="flex-1" />
+            <span className="inline-flex items-center gap-1" title={t('worker.startAll')}>
+              <button
+                type="button"
+                onClick={() => runBulkAction('start', onStartAllWorkers)}
+                className="icon-btn icon-btn--tertiary"
+                aria-label={t('worker.startAll')}
+                disabled={!hasStoppedWorker || bulkBusy}
+                data-testid="start-all-workers"
+              >
+                <PlayCircle size={14} aria-hidden />
+              </button>
+            </span>
+            <span className="inline-flex items-center gap-1" title={t('worker.stopAll')}>
+              <button
+                type="button"
+                onClick={() => runBulkAction('stop', onStopAllWorkers)}
+                className="icon-btn icon-btn--tertiary"
+                aria-label={t('worker.stopAll')}
+                disabled={!hasActiveRun || bulkBusy}
+                data-testid="stop-all-workers"
+              >
+                <StopCircle size={14} aria-hidden />
+              </button>
             </span>
           </div>
         ) : null}
