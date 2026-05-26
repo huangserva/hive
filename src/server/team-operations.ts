@@ -2,7 +2,7 @@ import type { AgentRuntime } from './agent-runtime.js'
 import { buildWorkerCockpitSnapshot } from './agent-stdin-dispatcher.js'
 import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
-import { ConflictError, PtyInactiveError } from './http-errors.js'
+import { ConflictError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
 import {
   createReportMessage,
@@ -284,12 +284,6 @@ export const createTeamOperations = ({
       const status = input.status
       const artifacts = input.artifacts ?? []
       const worker = workspaceStore.getWorker(workspaceId, workerId)
-      if (
-        input.requireActiveRun === true &&
-        !agentRuntime.getActiveRunByAgentId(workspaceId, `${workspaceId}:orchestrator`)
-      ) {
-        throw new PtyInactiveError(`No active run for agent: ${workspaceId}:orchestrator`)
-      }
       const openDispatch = findOpenDispatch(workspaceId, workerId, input.dispatchId)
       if (!openDispatch && input.dispatchId) {
         throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
@@ -320,7 +314,10 @@ export const createTeamOperations = ({
         }
         let forwardError: string | null = null
         let forwarded = false
-        if (input.requireActiveRun === true) {
+        const orchActive =
+          input.requireActiveRun !== true ||
+          !!agentRuntime.getActiveRunByAgentId(workspaceId, `${workspaceId}:orchestrator`)
+        if (orchActive) {
           try {
             agentRuntime.writeReportPrompt(workspaceId, worker.name, workerId, text, artifacts, {
               requireActiveRun: input.requireActiveRun,
@@ -330,6 +327,8 @@ export const createTeamOperations = ({
             forwardError = reportForwardErrorMessage(error)
             console.error('[hive] swallowed:teamReport.forward', error)
           }
+        } else {
+          forwardError = 'Orchestrator PTY inactive, report recorded but not forwarded'
         }
         return { dispatch, forwardError, forwarded }
       } catch (error) {

@@ -198,47 +198,41 @@ describe('team atomicity', () => {
     expect(deleteMessage).toHaveBeenCalledWith({ sequence: 1 })
   })
 
-  test('reportTask with requireActiveRun throws and leaves pending count + messages untouched when orch run is absent', () => {
+  test('reportTask with requireActiveRun closes dispatch and decrements count even when orch run is absent', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    // Simulate PTY already running so dispatchTask can promote to working.
     store.getWorker(workspace.id, worker.id).status = 'idle'
 
-    // Dispatch first so pendingTaskCount rises to 1 — gives reportTask something to decrement.
     store.dispatchTask(workspace.id, worker.id, 'Implement login')
     expect(store.listDispatches(workspace.id)).toContainEqual(
       expect.objectContaining({ status: 'queued', text: 'Implement login' })
     )
     const beforeMessages = store.listMessagesForRecovery(workspace.id, 0).length
 
-    // Now request a report that REQUIRES an active orchestrator run. There is none,
-    // so writeReportPrompt will throw. Nothing downstream (insertMessage, markTaskReported)
-    // must run.
-    expect(() =>
-      store.reportTask(workspace.id, worker.id, {
-        status: 'success',
-        text: 'Done',
-        requireActiveRun: true,
-      })
-    ).toThrow()
+    const result = store.reportTask(workspace.id, worker.id, {
+      status: 'success',
+      text: 'Done',
+      requireActiveRun: true,
+    })
 
-    // pending count stays at 1 (no decrement), messages list unchanged.
     expect(store.listWorkers(workspace.id)).toContainEqual(
       expect.objectContaining({
         id: worker.id,
-        pendingTaskCount: 1,
-        status: 'working',
+        pendingTaskCount: 0,
+        status: 'idle',
       })
     )
-    expect(store.listMessagesForRecovery(workspace.id, 0).length).toBe(beforeMessages)
+    expect(store.listMessagesForRecovery(workspace.id, 0).length).toBe(beforeMessages + 1)
     expect(store.listDispatches(workspace.id)).toContainEqual(
       expect.objectContaining({
-        status: 'queued',
+        status: 'reported',
         text: 'Implement login',
-        reportText: null,
+        reportText: 'Done',
       })
     )
+    expect(result.forwarded).toBe(false)
+    expect(result.forwardError).toContain('Orchestrator PTY inactive')
   })
 
   test('reportTask does not write orchestrator stdin when dispatch ledger update fails', () => {
