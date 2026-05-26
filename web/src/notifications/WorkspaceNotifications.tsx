@@ -10,6 +10,7 @@ const ROLE_LABEL_KEYS: Record<WorkerRole, TranslationKey> = {
   coder: 'role.coder',
   custom: 'role.custom',
   reviewer: 'role.reviewer',
+  sentinel: 'role.sentinel',
   tester: 'role.tester',
 }
 

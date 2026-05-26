@@ -23,7 +23,9 @@ describe('tasks file service', () => {
 
     const service = createTasksFileService()
 
-    expect(service.readTasks(workspacePath)).toBe('')
+    const initial = service.readTasks(workspacePath)
+    expect(initial).toContain('## In progress')
+    expect(initial).toContain('## Done')
     expect(existsSync(tasksPath)).toBe(true)
     expect(existsSync(join(workspacePath, 'tasks.md'))).toBe(false)
 
@@ -39,16 +41,18 @@ describe('tasks file service', () => {
     tempDirs.push(workspacePath)
     const legacyPath = join(workspacePath, 'tasks.md')
     const hiveTasksPath = join(workspacePath, '.hive', 'tasks.md')
-    writeFileSync(legacyPath, '- [ ] legacy task\n', 'utf8')
+    writeFileSync(legacyPath, '## In progress\n\n- [ ] legacy task\n', 'utf8')
 
     const service = createTasksFileService()
 
-    expect(service.readTasks(workspacePath)).toBe('- [ ] legacy task\n')
-    expect(readFileSync(hiveTasksPath, 'utf8')).toBe('- [ ] legacy task\n')
+    const content = service.readTasks(workspacePath)
+    expect(content).toContain('- [ ] legacy task')
+    expect(content).toContain('## In progress')
+    expect(readFileSync(hiveTasksPath, 'utf8')).toContain('- [ ] legacy task')
 
     service.writeTasks(workspacePath, '- [x] new hive task\n')
 
     expect(readFileSync(hiveTasksPath, 'utf8')).toBe('- [x] new hive task\n')
-    expect(readFileSync(legacyPath, 'utf8')).toBe('- [ ] legacy task\n')
+    expect(readFileSync(legacyPath, 'utf8')).toBe('## In progress\n\n- [ ] legacy task\n')
   })
 })

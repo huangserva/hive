@@ -17,7 +17,7 @@ type CommandPresetBody = {
 
 type RoleTemplateBody = {
   name: string
-  role_type: 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom'
+  role_type: 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom' | 'sentinel'
   description: string
   default_command: string
   default_args: string[]

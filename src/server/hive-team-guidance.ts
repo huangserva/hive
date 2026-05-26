@@ -1,5 +1,7 @@
 import type { AgentSummary } from '../shared/types.js'
 
+import { SENTINEL_RULES } from './sentinel-guidance.js'
+
 /**
  * Tail reminder appended to every message that flows INTO the orchestrator
  * (worker reports, worker status updates, user chat input). Re-anchors the
@@ -84,7 +86,11 @@ const WORKER_RULES = [
 ]
 
 export const getHiveTeamRules = (agent: Pick<AgentSummary, 'role'>) =>
-  agent.role === 'orchestrator' ? ORCHESTRATOR_RULES : WORKER_RULES
+  agent.role === 'orchestrator'
+    ? ORCHESTRATOR_RULES
+    : agent.role === 'sentinel'
+      ? SENTINEL_RULES
+      : WORKER_RULES
 
 const renderRules = (rules: readonly string[]) =>
   rules

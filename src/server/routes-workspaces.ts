@@ -4,6 +4,7 @@ import {
   resolveCommandPresetLaunchConfig,
   resolveStartupCommandLaunchConfig,
 } from './agent-launch-resolver.js'
+import { ConflictError } from './http-errors.js'
 import { autostartAgent, autostartOrchestrator } from './orchestrator-autostart.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
@@ -152,11 +153,27 @@ export const workspaceRoutes: RouteDefinition[] = [
       requireUiTokenFromRequest(request, store.validateUiToken)
 
       const body = await readJsonBody<CreateWorkerBody>(request)
-      const presetId = body.command_preset_id ?? null
-      const startupCommand = typeof body.startup_command === 'string' ? body.startup_command : null
+      if (
+        body.role === 'sentinel' &&
+        store.listWorkers(workspaceId).some((worker) => worker.role === 'sentinel')
+      ) {
+        throw new ConflictError('Workspace already has a sentinel worker')
+      }
+      const workerBody: CreateWorkerBody =
+        body.role === 'sentinel'
+          ? {
+              ...body,
+              command_preset_id: 'claude',
+              startup_command: null,
+              thinking_level: null,
+            }
+          : body
+      const presetId = workerBody.command_preset_id ?? null
+      const startupCommand =
+        typeof workerBody.startup_command === 'string' ? workerBody.startup_command : null
       const thinkingLevel =
-        typeof body.thinking_level === 'string' && body.thinking_level.trim()
-          ? body.thinking_level.trim()
+        typeof workerBody.thinking_level === 'string' && workerBody.thinking_level.trim()
+          ? workerBody.thinking_level.trim()
           : null
       const launchConfig = startupCommand?.trim()
         ? resolveStartupCommandLaunchConfig(store.settings, startupCommand, presetId)
@@ -166,7 +183,7 @@ export const workspaceRoutes: RouteDefinition[] = [
       if (presetId && !startupCommand?.trim() && !launchConfig) {
         throw new Error(`Command preset not found: ${presetId}`)
       }
-      const worker = store.addWorker(workspaceId, body)
+      const worker = store.addWorker(workspaceId, workerBody)
       if (launchConfig) {
         try {
           store.configureAgentLaunch(workspaceId, worker.id, launchConfig)
@@ -177,7 +194,7 @@ export const workspaceRoutes: RouteDefinition[] = [
       }
 
       const agentStart =
-        body.autostart === true
+        workerBody.autostart === true
           ? await autostartAgent(store, workspaceId, worker.id, getRuntimePort(request), {
               missingConfigError: 'No worker launch config available',
             })

@@ -8,6 +8,7 @@ import { findRunByAgentId } from '../terminal/useTerminalRuns.js'
 import { Confirm } from '../ui/Confirm.js'
 import { EmptyState } from '../ui/EmptyState.js'
 import { RenameWorkerDialog } from './RenameWorkerDialog.js'
+import { SentinelCard } from './SentinelCard.js'
 import { WorkerCard, type WorkerCardActionKind } from './WorkerCard.js'
 import { presentWorkerStatus, type WorkerStatusKind } from './worker-status.js'
 
@@ -65,12 +66,17 @@ export const WorkersPane = ({
   workers,
 }: WorkersPaneProps) => {
   const { t } = useI18n()
-  const sections = useMemo(() => groupByWorkerStatus(workers), [workers])
+  const sentinelWorker = workers.find((worker) => worker.role === 'sentinel') ?? null
+  const regularWorkers = useMemo(
+    () => workers.filter((worker) => worker.role !== 'sentinel'),
+    [workers]
+  )
+  const sections = useMemo(() => groupByWorkerStatus(regularWorkers), [regularWorkers])
   const summary = useMemo(() => {
     const buckets = { idle: 0, working: 0, stopped: 0 }
-    for (const worker of workers) buckets[presentWorkerStatus(worker).kind]++
+    for (const worker of regularWorkers) buckets[presentWorkerStatus(worker).kind]++
     return buckets
-  }, [workers])
+  }, [regularWorkers])
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
   const [renameBusy, setRenameBusy] = useState(false)
@@ -129,7 +135,9 @@ export const WorkersPane = ({
       >
         <div className="flex items-center gap-2">
           <span className="font-medium text-pri">{t('worker.teamMembers')}</span>
-          <span className="mono rounded bg-3 px-1.5 py-0.5 text-xs text-sec">{workers.length}</span>
+          <span className="mono rounded bg-3 px-1.5 py-0.5 text-xs text-sec">
+            {regularWorkers.length}
+          </span>
           <div className="flex-1" />
           {shellTerminalAvailable ? (
             <button
@@ -151,7 +159,7 @@ export const WorkersPane = ({
             <UserPlus size={14} aria-hidden /> {t('addWorker.create')}
           </button>
         </div>
-        {workers.length > 0 ? (
+        {regularWorkers.length > 0 ? (
           <div className="flex items-center gap-3 text-xs text-ter">
             <span className="inline-flex items-center gap-1.5">
               <span className="status-dot status-dot--working" aria-hidden />
@@ -213,6 +221,21 @@ export const WorkersPane = ({
           />
         ) : (
           <div data-testid="worker-grid">
+            {sentinelWorker ? (
+              <section className="mb-3" data-testid="sentinel-section">
+                <div className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-ter">
+                  {t('worker.sentinelTitle')}
+                  <span className="mono ml-1.5 text-ter">1</span>
+                </div>
+                <SentinelCard
+                  hasRun={!!runIdFor(sentinelWorker)}
+                  isPending={startingWorkerId === sentinelWorker.id}
+                  onAction={handleAction}
+                  onClick={onOpenWorker}
+                  worker={sentinelWorker}
+                />
+              </section>
+            ) : null}
             {sections.map((section) => (
               <section key={section.kind} className="mb-3 last:mb-0">
                 <div className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-ter">

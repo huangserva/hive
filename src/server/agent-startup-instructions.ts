@@ -1,6 +1,7 @@
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
 
 import { getHiveTeamRules } from './hive-team-guidance.js'
+import { buildSentinelStartupInstructions } from './sentinel-guidance.js'
 import { TASKS_RELATIVE_PATH } from './tasks-file.js'
 
 export const buildAgentSessionBindingMarker = ({
@@ -54,6 +55,20 @@ export const buildAgentStartupInstructions = ({
       '取消未完成派单时必须使用 dispatch id。',
       '',
       'Hive worker 派单规则：',
+      ...getHiveTeamRules(agent)
+    )
+  } else if (agent.role === 'sentinel') {
+    lines.push(
+      buildSentinelStartupInstructions({ agent, workspace }),
+      '',
+      '可用 team 命令：',
+      '- team report "<巡检发现>" [--artifact <path>]    向 Orchestrator 汇报巡检发现',
+      '- team status "<当前状态>" [--artifact <path>]    简短状态更新',
+      '- team --help                                    仅查命令用法',
+      '',
+      '禁止使用 team send / team cancel / team approve / team feishu reply。',
+      '',
+      'Sentinel 边界：',
       ...getHiveTeamRules(agent)
     )
   } else {

@@ -63,7 +63,8 @@ describe('tasks api', () => {
     })
 
     expect(initialResponse.status).toBe(200)
-    await expect(initialResponse.json()).resolves.toEqual({ content: '' })
+    const initial = (await initialResponse.json()) as { content: string }
+    expect(initial.content).toContain('## In progress')
 
     const updateResponse = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/tasks`, {
       method: 'PUT',

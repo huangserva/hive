@@ -173,6 +173,15 @@ const updateTasksContent = (
   safeWriteTasksFile(workspacePath, nextLines.join('\n'), logger, operation)
 }
 
+const TASKS_SEED_TEMPLATE = `# Tasks
+
+## In progress
+
+## Done
+`
+
+const hasInProgressSection = (content: string) => /^##\s+In progress\s*$/im.test(content)
+
 export const ensureTasksFile = (workspacePath: string) => {
   ensureTasksDir(workspacePath)
   const tasksFilePath = getTasksFilePath(workspacePath)
@@ -181,7 +190,8 @@ export const ensureTasksFile = (workspacePath: string) => {
   }
 
   const legacyTasksFilePath = getLegacyTasksFilePath(workspacePath)
-  const content = existsSync(legacyTasksFilePath) ? readFileSync(legacyTasksFilePath, 'utf8') : ''
+  const legacy = existsSync(legacyTasksFilePath) ? readFileSync(legacyTasksFilePath, 'utf8') : ''
+  const content = legacy && hasInProgressSection(legacy) ? legacy : TASKS_SEED_TEMPLATE
   writeFileSync(tasksFilePath, content, 'utf8')
   return content
 }

@@ -4,7 +4,13 @@ import type { Database } from 'better-sqlite3'
 
 import { ConflictError } from './http-errors.js'
 
-export type RoleTemplateType = 'orchestrator' | 'coder' | 'reviewer' | 'tester' | 'custom'
+export type RoleTemplateType =
+  | 'orchestrator'
+  | 'coder'
+  | 'reviewer'
+  | 'tester'
+  | 'custom'
+  | 'sentinel'
 
 export interface RoleTemplateRecord {
   id: string

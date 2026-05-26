@@ -140,6 +140,64 @@ describe('team API authz (R1.4)', () => {
     }
   })
 
+  test('rejects sentinel that invokes /api/team/send (403)', async () => {
+    const ctx = await setupHive()
+    try {
+      const uiCookie = await getUiCookie(ctx.baseUrl)
+      const sentinelResponse = await fetch(
+        `${ctx.baseUrl}/api/workspaces/${ctx.workspaceId}/workers`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: uiCookie },
+          body: JSON.stringify({
+            command_preset_id: 'claude',
+            name: 'Sentinel',
+            role: 'sentinel',
+          }),
+        }
+      )
+      expect(sentinelResponse.status).toBe(201)
+      const sentinel = (await sentinelResponse.json()) as { id: string }
+      const passiveScript = join(tempDirs[0] ?? '', 'workspace', 'passive.js')
+      await fetch(`${ctx.baseUrl}/api/workspaces/${ctx.workspaceId}/agents/${sentinel.id}/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: uiCookie },
+        body: JSON.stringify({
+          command: '/bin/bash',
+          args: ['-lc', `"${process.execPath}" "${passiveScript}"`],
+        }),
+      })
+      await fetch(`${ctx.baseUrl}/api/workspaces/${ctx.workspaceId}/agents/${sentinel.id}/start`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: uiCookie },
+        body: JSON.stringify({ hive_port: String(ctx.hive.port) }),
+      })
+
+      const token = ctx.hive.store.peekAgentToken(sentinel.id)
+      if (!token) {
+        throw new Error('Expected sentinel token after start')
+      }
+      const response = await fetch(`${ctx.baseUrl}/api/team/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: ctx.workspaceId,
+          from_agent_id: sentinel.id,
+          token,
+          to: 'Alice',
+          text: 'sentinel must not dispatch',
+        }),
+      })
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toMatchObject({ error: expect.stringContaining('sentinel') })
+      const messages = ctx.hive.store.listMessagesForRecovery(ctx.workspaceId, 0)
+      expect(messages.filter((item) => item.type === 'send')).toEqual([])
+    } finally {
+      await ctx.hive.close()
+    }
+  })
+
   test('rejects anonymous caller that invokes CLI team list endpoint (401)', async () => {
     const ctx = await setupHive()
     try {

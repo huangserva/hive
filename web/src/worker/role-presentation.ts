@@ -15,6 +15,8 @@ export const getRolePresentation = (role: WorkerRole): RolePresentation => {
       return { badgeClass: 'role-badge--reviewer', label: 'Reviewer' }
     case 'custom':
       return { badgeClass: 'role-badge--custom', label: 'Custom' }
+    case 'sentinel':
+      return { badgeClass: 'role-badge--custom', label: 'Sentinel' }
     default:
       return { badgeClass: 'role-badge--custom', label: String(role) }
   }

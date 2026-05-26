@@ -18,6 +18,7 @@ const initialsByRole: Record<FullRole, string> = {
   reviewer: 'Re',
   tester: 'Te',
   custom: 'Cu',
+  sentinel: 'Se',
 }
 
 const colorByRole: Record<FullRole, string> = {
@@ -26,6 +27,7 @@ const colorByRole: Record<FullRole, string> = {
   reviewer: 'var(--status-purple)',
   tester: 'var(--status-orange)',
   custom: 'var(--text-secondary)',
+  sentinel: 'var(--status-green)',
 }
 
 const ringColorByStatus: Record<Exclude<StatusRing, 'none'>, string> = {

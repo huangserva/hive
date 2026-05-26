@@ -2,7 +2,7 @@ export const agentStatuses = ['idle', 'working', 'stopped'] as const
 
 export type AgentStatus = (typeof agentStatuses)[number]
 
-export type WorkerRole = 'coder' | 'reviewer' | 'tester' | 'custom'
+export type WorkerRole = 'coder' | 'reviewer' | 'tester' | 'custom' | 'sentinel'
 
 export interface ThinkingLevelOption {
   label: string

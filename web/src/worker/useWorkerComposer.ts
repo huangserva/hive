@@ -74,6 +74,14 @@ const fallbackRoleDescriptions: Record<UiLanguage, Record<WorkerRole, string>> =
       '- Record commands, results, key output, and uncovered scenarios.',
       'Report pass/fail/unverified separately, then suggest the next step.',
     ].join('\n'),
+    sentinel: [
+      'You are a Sentinel Worker. Periodically inspect workspace consistency.',
+      'Working style:',
+      '- Observe only; do not edit files, dispatch work, or notify the user.',
+      '- Review heartbeat snapshots, git state, PM docs, and runtime consistency.',
+      '- Report actionable findings to the Orchestrator with team report.',
+      'If nothing needs attention, wait for the next heartbeat.',
+    ].join('\n'),
   },
   zh: {
     coder: [
@@ -107,6 +115,14 @@ const fallbackRoleDescriptions: Record<UiLanguage, Record<WorkerRole, string>> =
       '- 优先跑真实命令或真实链路；必要时补充最小测试。',
       '- 记录命令、结果、关键输出和不能覆盖的场景。',
       '交付说明要区分通过、失败、未验证和建议下一步。',
+    ].join('\n'),
+    sentinel: [
+      '你是 Sentinel Worker，负责定时巡检 workspace 的状态一致性。',
+      '工作方式：',
+      '- 只观察和提醒，不修改文件、不派单、不通知 user。',
+      '- 阅读 heartbeat snapshot、git 状态、PM 文档和 runtime 状态。',
+      '- 发现 drift、阻塞或风险时，用 team report 汇报给 Orchestrator。',
+      '没有问题时等待下一次 heartbeat。',
     ].join('\n'),
   },
 }
@@ -222,6 +238,12 @@ export const useWorkerComposer = ({
     setWorkerRole(value)
     roleDescriptionEditedRef.current = false
     setRoleDescriptionState(getDefaultDescription(value, roleTemplates, language))
+    if (value === 'sentinel') {
+      setCommandPresetId('claude')
+      setCommandPresetTouched(false)
+      setStartupCommand('')
+      setThinkingLevel('')
+    }
   }
 
   const resetRoleDescription = () => {
@@ -239,13 +261,14 @@ export const useWorkerComposer = ({
     setCreating(true)
     setCreateWorkerError(null)
     const launchPresetId = startupCommand.trim() && !commandPresetTouched ? '' : commandPresetId
+    const sentinel = workerRole === 'sentinel'
     void createWorker({
-      commandPresetId: launchPresetId,
+      commandPresetId: sentinel ? 'claude' : launchPresetId,
       name: workerName,
       role: workerRole,
       roleDescription,
-      startupCommand,
-      thinkingLevel: startupCommand.trim() ? '' : thinkingLevel,
+      startupCommand: sentinel ? '' : startupCommand,
+      thinkingLevel: sentinel || startupCommand.trim() ? '' : thinkingLevel,
     })
       .then(({ error }) => {
         setWorkerName('')

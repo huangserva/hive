@@ -16,11 +16,12 @@ const ROLE_CARDS: RoleCardSpec[] = [
   { value: 'coder' },
   { value: 'reviewer' },
   { value: 'tester' },
+  { value: 'sentinel' },
   { value: 'custom', dashed: true },
 ]
 
 const roleLabelKey = (role: WorkerRole) =>
-  `role.${role}` as 'role.coder' | 'role.custom' | 'role.reviewer' | 'role.tester'
+  `role.${role}` as 'role.coder' | 'role.custom' | 'role.reviewer' | 'role.sentinel' | 'role.tester'
 
 export const SectionLabel = ({ children }: { children: ReactNode }) => (
   <span className="text-sm font-medium text-sec">{children}</span>

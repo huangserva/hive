@@ -22,6 +22,8 @@ describe('tasks file missing directory', () => {
     const workspacePath = join(rootDir, 'workspace-not-created-yet')
     const service = createTasksFileService()
 
-    expect(service.readTasks(workspacePath)).toBe('')
+    const content = service.readTasks(workspacePath)
+    expect(content).toContain('## In progress')
+    expect(content).toContain('## Done')
   })
 })

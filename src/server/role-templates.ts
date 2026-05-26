@@ -46,6 +46,15 @@ export const CUSTOM_ROLE_DESCRIPTION = [
   '- 完成标准：交付时需要说明哪些结果、风险和阻塞。',
 ].join('\n')
 
+export const SENTINEL_ROLE_DESCRIPTION = [
+  '你是 Sentinel Worker，负责定时巡检 workspace 的状态一致性。',
+  '工作方式：',
+  '- 只观察和提醒，不修改文件、不派单、不通知 user。',
+  '- 阅读 runtime 注入的 Cockpit snapshot、git summary 和项目上下文。',
+  '- 发现 drift、阻塞或风险时，用 team report 汇报给 Orchestrator。',
+  '- 没有问题时保持简短汇报或静默等待下一次巡检。',
+].join('\n')
+
 export const getDefaultRoleDescription = (role: WorkerRole | 'orchestrator') => {
   switch (role) {
     case 'orchestrator':
@@ -58,5 +67,7 @@ export const getDefaultRoleDescription = (role: WorkerRole | 'orchestrator') => 
       return TESTER_ROLE_DESCRIPTION
     case 'custom':
       return CUSTOM_ROLE_DESCRIPTION
+    case 'sentinel':
+      return SENTINEL_ROLE_DESCRIPTION
   }
 }

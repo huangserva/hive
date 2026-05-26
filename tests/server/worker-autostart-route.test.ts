@@ -84,6 +84,43 @@ const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25)
 }
 
 describe('POST /api/workspaces/:workspaceId/workers autostart', () => {
+  test('rejects a second sentinel worker in the same workspace', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+
+    const first = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        command_preset_id: 'claude',
+        name: 'Sentinel',
+        role: 'sentinel',
+      }),
+    })
+    expect(first.status).toBe(201)
+    await expect(first.json()).resolves.toMatchObject({
+      command_preset_id: 'claude',
+      role: 'sentinel',
+    })
+
+    const second = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        command_preset_id: 'claude',
+        name: 'Second Sentinel',
+        role: 'sentinel',
+      }),
+    })
+
+    expect(second.status).toBe(409)
+    await expect(second.json()).resolves.toEqual({
+      error: 'Workspace already has a sentinel worker',
+    })
+  })
+
   test('creates a worker, binds the selected command preset, and starts its PTY', async () => {
     const server = await startTestServer()
     servers.push(server)

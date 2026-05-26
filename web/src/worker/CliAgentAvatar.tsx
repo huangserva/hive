@@ -47,6 +47,7 @@ const initialsByRole: Record<WorkerRole, string> = {
   coder: 'Co',
   custom: 'Cu',
   reviewer: 'Re',
+  sentinel: 'Se',
   tester: 'Te',
 }
 
@@ -54,6 +55,7 @@ const colorByRole: Record<WorkerRole, string> = {
   coder: 'var(--status-blue)',
   custom: 'var(--text-secondary)',
   reviewer: 'var(--status-purple)',
+  sentinel: 'var(--status-green)',
   tester: 'var(--status-orange)',
 }
 

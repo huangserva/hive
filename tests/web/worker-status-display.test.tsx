@@ -120,6 +120,39 @@ describe('worker status presentation', () => {
     expect(screen.getByRole('button', { name: 'Stop all' })).toBeEnabled()
   })
 
+  test('workers pane renders sentinel in a separate top section', () => {
+    const sentinel = worker({
+      id: 'sentinel-worker',
+      name: 'watchtower',
+      role: 'sentinel',
+      status: 'idle',
+    })
+    const regular = worker({ id: 'coder-worker', name: 'coder-agent', status: 'idle' })
+
+    render(
+      <WorkersPane
+        onAddWorkerClick={vi.fn()}
+        onDeleteWorker={vi.fn()}
+        onOpenShellTerminal={vi.fn()}
+        onOpenWorker={vi.fn()}
+        onRenameWorker={vi.fn()}
+        onStartWorker={vi.fn()}
+        onStartAllWorkers={vi.fn()}
+        onStopAllWorkers={vi.fn()}
+        onStopWorker={vi.fn()}
+        startingWorkerId={null}
+        terminalRuns={[]}
+        workers={[regular, sentinel]}
+      />
+    )
+
+    const sentinelSection = screen.getByTestId('sentinel-section')
+    expect(within(sentinelSection).getByText('watchtower')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('list', { name: 'idle team members' })).queryByText('watchtower')
+    ).toBeNull()
+  })
+
   test('workers pane disables bulk buttons when no worker can be started or stopped', () => {
     render(
       <WorkersPane

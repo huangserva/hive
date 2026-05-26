@@ -10,9 +10,11 @@ import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
 import { createMobileAuthStore } from './mobile-auth.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
+import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
 import { buildRuntimeRestartPolicy } from './runtime-restart-policy.js'
+import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
 import { createSettingsStore } from './settings-store.js'
 import { createTasksFileService } from './tasks-file.js'
 import { createTasksFileWatcher } from './tasks-file-watcher.js'
@@ -36,6 +38,7 @@ export interface RuntimeStoreServices {
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
   planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
+  sentinelHeartbeat: ReturnType<typeof createSentinelHeartbeat> | null
   tasksFileWatcher: ReturnType<typeof createTasksFileWatcher>
   tasksFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   tasksFileService: ReturnType<typeof createTasksFileService>
@@ -130,6 +133,39 @@ export const createRuntimeStoreServices = (
     (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
     options.logger
   )
+  const sentinelHeartbeat = options.agentManager
+    ? createSentinelHeartbeat({
+        getActiveRunByAgentId: (workspaceId, agentId) =>
+          agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
+        listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
+        listWorkspaces: () => workspaceStore.listWorkspaces(),
+        ...(options.logger ? { logger: options.logger } : {}),
+        writeRunInput: (runId, input) => {
+          const activeAgent = workspaceStore
+            .listWorkspaces()
+            .flatMap((workspace) =>
+              workspaceStore
+                .getWorkspaceSnapshot(workspace.id)
+                .agents.map((agent) => ({ agent, workspaceId: workspace.id }))
+            )
+            .find(
+              ({ agent, workspaceId }) =>
+                agentRuntime.getActiveRunByAgentId(workspaceId, agent.id)?.runId === runId
+            )
+          const config = activeAgent
+            ? agentRuntime.peekAgentLaunchConfig(activeAgent.workspaceId, activeAgent.agent.id)
+            : undefined
+          if (options.agentManager && config) {
+            createPostStartInputWriter(
+              options.agentManager,
+              config.interactiveCommand ?? config.command
+            )(runId, input)
+            return
+          }
+          options.agentManager?.writeInput(runId, input)
+        },
+      })
+    : null
   const teamOps = createTeamOperations({
     agentRuntime,
     createDispatch: dispatchLedgerStore.createDispatch,
@@ -145,6 +181,7 @@ export const createRuntimeStoreServices = (
     workspaceStore,
   })
   startExistingWorkspaceWatches()
+  sentinelHeartbeat?.start()
 
   return {
     agentRunStore,
@@ -159,6 +196,7 @@ export const createRuntimeStoreServices = (
     settings,
     shellRuntime,
     planFileWatchCallbacks,
+    sentinelHeartbeat,
     tasksFileWatcher,
     tasksFileWatchCallbacks,
     tasksFileService,
@@ -235,6 +273,7 @@ export const createRuntimeStoreLifecycle = ({
 
   return {
     close: async () => {
+      services.sentinelHeartbeat?.close()
       services.shellRuntime.close()
       await services.agentRuntime.close()
       await services.tasksFileWatcher.close()
