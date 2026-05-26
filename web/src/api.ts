@@ -159,8 +159,12 @@ export interface ThinkingLevelOption {
 }
 
 export interface RoleTemplate {
+  defaultArgs: string[]
+  defaultCommand: string
+  defaultEnv: Record<string, string>
   description: string
   id: string
+  isBuiltin: boolean
   name: string
   roleType: WorkerRole | 'orchestrator'
 }
@@ -224,8 +228,12 @@ interface CommandPresetPayload {
 }
 
 interface RoleTemplatePayload {
+  default_args: string[]
+  default_command: string
+  default_env: Record<string, string>
   description: string
   id: string
+  is_builtin: boolean
   name: string
   role_type: WorkerRole | 'orchestrator'
 }
@@ -470,8 +478,12 @@ export const listRoleTemplates = async (): Promise<RoleTemplate[]> => {
 
   const payload = (await response.json()) as RoleTemplatePayload[]
   return payload.map((template) => ({
+    defaultArgs: template.default_args,
+    defaultCommand: template.default_command,
+    defaultEnv: template.default_env,
     description: template.description,
     id: template.id,
+    isBuiltin: template.is_builtin,
     name: template.name,
     roleType: template.role_type,
   }))

@@ -3,7 +3,7 @@ import { Dices } from 'lucide-react'
 import type { FormEvent } from 'react'
 
 import type { WorkerRole } from '../../../src/shared/types.js'
-import type { CommandPreset } from '../api.js'
+import type { CommandPreset, RoleTemplate } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { useToast } from '../ui/useToast.js'
@@ -28,10 +28,12 @@ type AddWorkerDialogProps = {
   onRoleDescriptionReset: () => void
   onRoleChange: (value: WorkerRole) => void
   onStartupCommandChange: (value: string) => void
+  onTemplateSelect: (template: RoleTemplate) => void
   onThinkingLevelChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   roleDescription: string
   roleDescriptionDefault: string
+  roleTemplates: Array<RoleTemplate & { roleType: WorkerRole }>
   startupCommand: string
   thinkingLevel: string
   workerName: string
@@ -50,10 +52,12 @@ export const AddWorkerDialog = ({
   onRoleDescriptionReset,
   onRoleChange,
   onStartupCommandChange,
+  onTemplateSelect,
   onThinkingLevelChange,
   onSubmit,
   roleDescription,
   roleDescriptionDefault,
+  roleTemplates,
   startupCommand,
   thinkingLevel,
   workerName,
@@ -151,6 +155,7 @@ export const AddWorkerDialog = ({
                   />
                 </label>
 
+                <TemplatePicker roleTemplates={roleTemplates} onTemplateSelect={onTemplateSelect} />
                 <RolePicker workerRole={workerRole} onRoleChange={onRoleChange} />
                 <RoleInstructionsField
                   modified={roleDescriptionModified}
@@ -199,5 +204,56 @@ export const AddWorkerDialog = ({
         </div>
       </Dialog.Portal>
     </Dialog.Root>
+  )
+}
+
+const roleLabelKey = (role: WorkerRole) =>
+  `role.${role}` as 'role.coder' | 'role.custom' | 'role.reviewer' | 'role.sentinel' | 'role.tester'
+
+const TemplatePicker = ({
+  onTemplateSelect,
+  roleTemplates,
+}: {
+  onTemplateSelect: (template: RoleTemplate) => void
+  roleTemplates: Array<RoleTemplate & { roleType: WorkerRole }>
+}) => {
+  const { t } = useI18n()
+  if (roleTemplates.length === 0) return null
+
+  return (
+    <section className="flex flex-col gap-2" aria-label={t('worker.fromTemplate')}>
+      <div className="flex items-baseline justify-between gap-2">
+        <SectionLabel>{t('worker.fromTemplate')}</SectionLabel>
+        <span className="text-xs text-ter">{t('worker.manualCreate')}</span>
+      </div>
+      <p className="text-sm text-ter">{t('worker.templatePicker')}</p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {roleTemplates.map((template) => {
+          const preview = template.description
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(' ')
+          return (
+            <button
+              key={template.id}
+              type="button"
+              className="selectable-card flex min-h-28 flex-col items-start gap-2 px-3 py-2 text-left"
+              onClick={() => onTemplateSelect(template)}
+            >
+              <span className="flex w-full items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-pri">{template.name}</span>
+                <span className="rounded border px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-ter">
+                  {t(roleLabelKey(template.roleType))}
+                </span>
+              </span>
+              <span className="line-clamp-2 text-xs leading-5 text-ter">{preview}</span>
+              <span className="mono text-[11px] text-muted">{template.defaultCommand}</span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
   )
 }

@@ -1,12 +1,7 @@
 import type { Database } from 'better-sqlite3'
 
 import { BUILTIN_COMMAND_PRESETS } from './command-preset-defaults.js'
-import {
-  CODER_ROLE_DESCRIPTION,
-  ORCHESTRATOR_ROLE_DESCRIPTION,
-  REVIEWER_ROLE_DESCRIPTION,
-  TESTER_ROLE_DESCRIPTION,
-} from './role-templates.js'
+import { BUILTIN_ROLE_TEMPLATES, ORCHESTRATOR_ROLE_DESCRIPTION } from './role-templates.js'
 
 export const applySchemaVersion7 = (db: Database) => {
   const now = Date.now()
@@ -68,13 +63,14 @@ export const applySchemaVersion7 = (db: Database) => {
     )
   }
 
-  db.prepare(
+  const insertRoleTemplate = db.prepare(
     `INSERT INTO role_templates (
        id, name, role_type, description, default_command, default_args, default_env,
        is_builtin, created_at, updated_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
      ON CONFLICT(id) DO NOTHING`
-  ).run(
+  )
+  insertRoleTemplate.run(
     'orchestrator',
     'Orchestrator',
     'orchestrator',
@@ -85,37 +81,19 @@ export const applySchemaVersion7 = (db: Database) => {
     now,
     now
   )
-  db.prepare(
-    `INSERT INTO role_templates (
-       id, name, role_type, description, default_command, default_args, default_env,
-       is_builtin, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-     ON CONFLICT(id) DO NOTHING`
-  ).run('coder', 'Coder', 'coder', CODER_ROLE_DESCRIPTION, 'claude', '[]', '{}', now, now)
-  db.prepare(
-    `INSERT INTO role_templates (
-       id, name, role_type, description, default_command, default_args, default_env,
-       is_builtin, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-     ON CONFLICT(id) DO NOTHING`
-  ).run(
-    'reviewer',
-    'Reviewer',
-    'reviewer',
-    REVIEWER_ROLE_DESCRIPTION,
-    'claude',
-    '[]',
-    '{}',
-    now,
-    now
-  )
-  db.prepare(
-    `INSERT INTO role_templates (
-       id, name, role_type, description, default_command, default_args, default_env,
-       is_builtin, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-     ON CONFLICT(id) DO NOTHING`
-  ).run('tester', 'Tester', 'tester', TESTER_ROLE_DESCRIPTION, 'claude', '[]', '{}', now, now)
+  for (const template of BUILTIN_ROLE_TEMPLATES) {
+    insertRoleTemplate.run(
+      template.id,
+      template.name,
+      template.roleType,
+      template.description,
+      template.defaultCommand,
+      JSON.stringify(template.defaultArgs),
+      JSON.stringify(template.defaultEnv),
+      now,
+      now
+    )
+  }
 
   db.prepare(
     `INSERT INTO app_state (key, value, updated_at)

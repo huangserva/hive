@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { AppProviders } from '../../web/src/AppProviders.js'
-import type { CommandPreset } from '../../web/src/api.js'
+import type { CommandPreset, RoleTemplate } from '../../web/src/api.js'
 import { AddWorkerDialog } from '../../web/src/worker/AddWorkerDialog.js'
 
 const presets: CommandPreset[] = [
@@ -28,6 +28,19 @@ const presets: CommandPreset[] = [
   },
 ]
 
+const roleTemplates: RoleTemplate[] = [
+  {
+    defaultArgs: [],
+    defaultCommand: 'opencode',
+    defaultEnv: {},
+    description: '你是前端专家。\n使用 team report 汇报。',
+    id: 'frontend-expert',
+    isBuiltin: true,
+    name: '前端专家',
+    roleType: 'coder',
+  },
+]
+
 const renderDialog = (
   overrides: Partial<{
     commandPresetId: string
@@ -41,6 +54,7 @@ const renderDialog = (
       <AddWorkerDialog
         commandPresets={presets}
         commandPresetId={overrides.commandPresetId ?? 'claude'}
+        onTemplateSelect={() => {}}
         onClose={() => {}}
         onNameChange={() => {}}
         onPresetChange={() => {}}
@@ -53,6 +67,7 @@ const renderDialog = (
         onThinkingLevelChange={onThinkingLevelChange}
         roleDescription="You are a Coder"
         roleDescriptionDefault="You are a Coder"
+        roleTemplates={[]}
         startupCommand=""
         thinkingLevel={overrides.thinkingLevel ?? ''}
         workerName="Alice"
@@ -94,5 +109,39 @@ describe('Add Worker thinking level picker', () => {
     fireEvent.change(picker, { target: { value: '' } })
 
     expect(onThinkingLevelChange).toHaveBeenCalledWith('')
+  })
+
+  test('template picker fills name, role description, and preset from the selected template', () => {
+    const onTemplateSelect = vi.fn()
+    render(
+      <AppProviders>
+        <AddWorkerDialog
+          commandPresets={presets}
+          commandPresetId="claude"
+          onClose={() => {}}
+          onNameChange={() => {}}
+          onPresetChange={() => {}}
+          onRandomName={() => {}}
+          onRoleChange={() => {}}
+          onRoleDescriptionChange={() => {}}
+          onRoleDescriptionReset={() => {}}
+          onStartupCommandChange={() => {}}
+          onSubmit={(event) => event.preventDefault()}
+          onTemplateSelect={onTemplateSelect}
+          onThinkingLevelChange={() => {}}
+          roleDescription="You are a Coder"
+          roleDescriptionDefault="You are a Coder"
+          roleTemplates={roleTemplates}
+          startupCommand=""
+          thinkingLevel=""
+          workerName=""
+          workerRole="coder"
+        />
+      </AppProviders>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /前端专家/ }))
+
+    expect(onTemplateSelect).toHaveBeenCalledWith(roleTemplates[0])
   })
 })

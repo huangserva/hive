@@ -208,8 +208,61 @@ describe('schema version', () => {
       .get('active_workspace_id') as { key: string; value: string | null } | undefined
 
     expect(presetCount.count).toBe(4)
-    expect(roleTemplateCount.count).toBe(4)
+    expect(roleTemplateCount.count).toBe(11)
     expect(appState).toEqual({ key: 'active_workspace_id', value: null })
+
+    db.close()
+  })
+
+  test('latest schema seeds ten HippoTeam worker role templates', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-hippoteam-role-templates-'))
+    tempDirs.push(dataDir)
+
+    stores.push(createRuntimeStore({ dataDir }))
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'), { readonly: true })
+    const rows = db
+      .prepare(
+        `SELECT id, name, role_type, description, default_command, default_args, default_env
+         FROM role_templates
+         WHERE is_builtin = 1 AND role_type != 'orchestrator'
+         ORDER BY id`
+      )
+      .all() as Array<{
+      default_args: string
+      default_command: string
+      default_env: string
+      description: string
+      id: string
+      name: string
+      role_type: string
+    }>
+
+    expect(rows).toHaveLength(10)
+    expect(rows.map((row) => row.name).sort()).toEqual(
+      [
+        'DevOps 工程师',
+        '代码审查员',
+        '全栈工程师',
+        '前端专家',
+        '后端专家',
+        '哨兵',
+        '技术文档员',
+        '测试工程师',
+        '调研员',
+        '通用助手',
+      ].sort()
+    )
+    for (const row of rows) {
+      expect(row.default_command).toBe('claude')
+      expect(JSON.parse(row.default_args)).toEqual([])
+      expect(JSON.parse(row.default_env)).toEqual({})
+      expect(row.description).toContain('team report')
+      expect(row.description).toContain('不要启动内置 subagent')
+    }
+    expect(rows.find((row) => row.name === '调研员')?.description).toContain('.hive/reports/')
+    expect(rows.find((row) => row.name === '调研员')?.description).toContain('.hive/research/')
+    expect(rows.find((row) => row.name === '哨兵')?.role_type).toBe('sentinel')
 
     db.close()
   })

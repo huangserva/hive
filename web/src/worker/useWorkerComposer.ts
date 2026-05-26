@@ -12,6 +12,19 @@ import type { UiLanguage } from '../uiLanguage.js'
 import { generateWorkerName } from './randomWorkerName.js'
 import type { WorkerActions } from './useWorkerActions.js'
 
+const HIPPO_TEMPLATE_ORDER = [
+  'coder',
+  'frontend-expert',
+  'backend-expert',
+  'reviewer',
+  'tester',
+  'researcher',
+  'technical-writer',
+  'devops-engineer',
+  'sentinel',
+  'general-assistant',
+]
+
 interface UseWorkerComposerInput {
   createWorker: WorkerActions['createWorker']
   open: boolean
@@ -24,10 +37,12 @@ export interface WorkerComposerState {
   creating: boolean
   roleDescription: string
   roleDescriptionDefault: string
+  roleTemplates: RoleTemplate[]
   startupCommand: string
   thinkingLevel: string
   workerName: string
   workerRole: WorkerRole
+  applyRoleTemplate: (template: RoleTemplate) => void
   setCommandPresetId: (value: string) => void
   setRoleDescription: (value: string) => void
   setStartupCommand: (value: string) => void
@@ -145,6 +160,7 @@ export const useWorkerComposer = ({
   const [workerName, setWorkerName] = useState('')
   const [workerRole, setWorkerRole] = useState<WorkerRole>('coder')
   const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([])
+  const [selectedRoleTemplateId, setSelectedRoleTemplateId] = useState<string | null>(null)
   const [roleDescription, setRoleDescriptionState] = useState(
     fallbackRoleDescriptions[language].coder
   )
@@ -157,7 +173,21 @@ export const useWorkerComposer = ({
   const [creating, setCreating] = useState(false)
   const workerNameGeneratedRef = useRef(false)
   const roleDescriptionEditedRef = useRef(false)
-  const roleDescriptionDefault = getDefaultDescription(workerRole, roleTemplates, language)
+  const selectedRoleTemplate = roleTemplates.find(
+    (template) => template.id === selectedRoleTemplateId
+  )
+  const roleDescriptionDefault =
+    selectedRoleTemplate?.description ?? getDefaultDescription(workerRole, roleTemplates, language)
+  const workerRoleTemplates = roleTemplates
+    .filter(
+      (template): template is RoleTemplate & { roleType: WorkerRole } =>
+        template.isBuiltin && template.roleType !== 'orchestrator'
+    )
+    .sort((left, right) => {
+      const leftIndex = HIPPO_TEMPLATE_ORDER.indexOf(left.id)
+      const rightIndex = HIPPO_TEMPLATE_ORDER.indexOf(right.id)
+      return (leftIndex === -1 ? 999 : leftIndex) - (rightIndex === -1 ? 999 : rightIndex)
+    })
 
   useEffect(() => {
     if (!open) return
@@ -194,7 +224,10 @@ export const useWorkerComposer = ({
         if (cancelled) return
         setRoleTemplates(templates)
         if (!roleDescriptionEditedRef.current) {
-          setRoleDescriptionState(getDefaultDescription(workerRole, templates, language))
+          const selected = templates.find((template) => template.id === selectedRoleTemplateId)
+          setRoleDescriptionState(
+            selected?.description ?? getDefaultDescription(workerRole, templates, language)
+          )
         }
       })
       .catch((error) => {
@@ -205,13 +238,13 @@ export const useWorkerComposer = ({
     return () => {
       cancelled = true
     }
-  }, [open, workerRole, language])
+  }, [open, workerRole, language, selectedRoleTemplateId])
 
   useEffect(() => {
     if (!roleDescriptionEditedRef.current) {
-      setRoleDescriptionState(getDefaultDescription(workerRole, roleTemplates, language))
+      setRoleDescriptionState(roleDescriptionDefault)
     }
-  }, [language, roleTemplates, workerRole])
+  }, [roleDescriptionDefault])
 
   const setRoleDescription = (value: string) => {
     roleDescriptionEditedRef.current = true
@@ -235,6 +268,7 @@ export const useWorkerComposer = ({
   }, [language])
 
   const selectWorkerRole = (value: WorkerRole) => {
+    setSelectedRoleTemplateId(null)
     setWorkerRole(value)
     roleDescriptionEditedRef.current = false
     setRoleDescriptionState(getDefaultDescription(value, roleTemplates, language))
@@ -256,6 +290,23 @@ export const useWorkerComposer = ({
     setCommandPresetId(value)
   }
 
+  const applyRoleTemplate = (template: RoleTemplate) => {
+    if (template.roleType === 'orchestrator') return
+    const nextRole = template.roleType
+    setSelectedRoleTemplateId(template.id)
+    setWorkerRole(nextRole)
+    roleDescriptionEditedRef.current = false
+    setRoleDescriptionState(template.description)
+    setCommandPresetId(nextRole === 'sentinel' ? 'claude' : template.defaultCommand)
+    setCommandPresetTouched(false)
+    setStartupCommand('')
+    setThinkingLevel('')
+    if (!workerName.trim() || workerNameGeneratedRef.current) {
+      workerNameGeneratedRef.current = false
+      setWorkerName(template.name)
+    }
+  }
+
   const submit = (event: FormEvent<HTMLFormElement>, onSuccess: () => void) => {
     event.preventDefault()
     setCreating(true)
@@ -273,6 +324,7 @@ export const useWorkerComposer = ({
       .then(({ error }) => {
         setWorkerName('')
         workerNameGeneratedRef.current = false
+        setSelectedRoleTemplateId(null)
         selectWorkerRole('coder')
         setCommandPresetId('claude')
         setCommandPresetTouched(false)
@@ -294,10 +346,12 @@ export const useWorkerComposer = ({
     creating,
     roleDescription,
     roleDescriptionDefault,
+    roleTemplates: workerRoleTemplates,
     startupCommand,
     thinkingLevel,
     workerName,
     workerRole,
+    applyRoleTemplate,
     setCommandPresetId: selectCommandPresetId,
     setRoleDescription,
     setStartupCommand,

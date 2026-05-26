@@ -38,6 +38,7 @@ describe('settings api', () => {
       yolo_args_template: string[] | null
     }>
     const templates = (await templatesResponse.json()) as Array<{
+      default_command: string
       id: string
       name: string
       role_type: string
@@ -83,16 +84,42 @@ describe('settings api', () => {
         yolo_args_template: ['--yolo'],
       }),
     ])
-    expect(templates).toEqual([
-      expect.objectContaining({
-        id: 'orchestrator',
-        name: 'Orchestrator',
-        role_type: 'orchestrator',
-      }),
-      expect.objectContaining({ id: 'coder', name: 'Coder', role_type: 'coder' }),
-      expect.objectContaining({ id: 'reviewer', name: 'Reviewer', role_type: 'reviewer' }),
-      expect.objectContaining({ id: 'tester', name: 'Tester', role_type: 'tester' }),
-    ])
+    expect(templates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'orchestrator',
+          name: 'Orchestrator',
+          role_type: 'orchestrator',
+        }),
+        expect.objectContaining({
+          default_command: 'claude',
+          id: 'coder',
+          name: '全栈工程师',
+          role_type: 'coder',
+        }),
+        expect.objectContaining({ id: 'frontend-expert', name: '前端专家', role_type: 'coder' }),
+        expect.objectContaining({ id: 'backend-expert', name: '后端专家', role_type: 'coder' }),
+        expect.objectContaining({
+          id: 'reviewer',
+          name: '代码审查员',
+          role_type: 'reviewer',
+        }),
+        expect.objectContaining({ id: 'tester', name: '测试工程师', role_type: 'tester' }),
+        expect.objectContaining({ id: 'researcher', name: '调研员', role_type: 'custom' }),
+        expect.objectContaining({
+          id: 'technical-writer',
+          name: '技术文档员',
+          role_type: 'custom',
+        }),
+        expect.objectContaining({
+          id: 'devops-engineer',
+          name: 'DevOps 工程师',
+          role_type: 'coder',
+        }),
+        expect.objectContaining({ id: 'sentinel', name: '哨兵', role_type: 'sentinel' }),
+        expect.objectContaining({ id: 'general-assistant', name: '通用助手', role_type: 'custom' }),
+      ])
+    )
     expect(appStateBefore).toEqual({ key: 'active_workspace_id', value: null })
 
     const updateResponse = await fetch(

@@ -161,6 +161,8 @@ const enMessages = {
   'worker.emptyDesc':
     'Add team members (Claude Code, Codex, Gemini, OpenCode) and the Orchestrator will route tasks to them.',
   'worker.emptyTitle': 'No team members yet',
+  'worker.fromTemplate': 'From template',
+  'worker.manualCreate': 'Manual setup remains available below',
   'worker.open': 'Open {name}',
   'worker.pendingResume': '{count} pending tasks will resume after restart.',
   'worker.rename': 'Rename',
@@ -185,6 +187,7 @@ const enMessages = {
   'worker.sentinelDesc': 'Periodic consistency watcher. It observes Cockpit, git, and PM drift.',
   'worker.sentinelTitle': 'Sentinel',
   'worker.teamMembers': 'Team members',
+  'worker.templatePicker': 'Choose a built-in operating contract to prefill the member.',
   'worker.terminalNotStarted': 'PTY not started yet — ',
   'worker.terminalStopped': 'PTY stopped — ',
   'worker.widthResize': 'Resize worker detail width',
@@ -648,6 +651,8 @@ const zhMessages: Record<TranslationKey, string> = {
   'worker.emptyDesc':
     '添加团队成员（Claude Code、Codex、Gemini、OpenCode），Orchestrator 会分派任务。',
   'worker.emptyTitle': '还没有团队成员',
+  'worker.fromTemplate': '从模板创建',
+  'worker.manualCreate': '也可以在下方手动配置',
   'worker.open': '打开 {name}',
   'worker.pendingResume': '重启后会继续 {count} 个排队任务。',
   'worker.rename': '重命名',
@@ -672,6 +677,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'worker.sentinelDesc': '定时巡检一致性的观察员。它只检查 Cockpit、git 和 PM drift。',
   'worker.sentinelTitle': '哨兵',
   'worker.teamMembers': '团队成员',
+  'worker.templatePicker': '选择一个内置角色契约，自动填充成员说明和 CLI 预设。',
   'worker.terminalNotStarted': '终端未启动 — ',
   'worker.terminalStopped': '终端已停止 — ',
   'worker.widthResize': '调整成员详情宽度',
