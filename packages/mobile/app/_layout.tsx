@@ -4,17 +4,21 @@ import { useEffect } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { MobileRuntimeProvider } from '../src/api/mobile-runtime-context'
+import { ErrorBoundary, OfflineBanner } from '../src/components/ErrorBoundary'
 import { installNotificationHandlers } from '../src/notifications'
 
 export default function RootLayout() {
   useEffect(() => installNotificationHandlers(), [])
 
   return (
-    <SafeAreaProvider>
-      <MobileRuntimeProvider>
-        <StatusBar style="light" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </MobileRuntimeProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <MobileRuntimeProvider>
+          <OfflineBanner />
+          <StatusBar style="light" />
+          <Stack screenOptions={{ headerShown: false }} />
+        </MobileRuntimeProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   )
 }

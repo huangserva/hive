@@ -1,6 +1,7 @@
+import { config } from '../config'
 import type { RelayTransport } from './relay-transport.js'
 
-export const DEFAULT_RUNTIME_HOST = '192.168.1.100:4010'
+export const DEFAULT_RUNTIME_HOST = `192.168.1.100:${config.defaultLanPort}`
 
 export interface RuntimeStatus {
   cwd?: string

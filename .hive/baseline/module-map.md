@@ -19,8 +19,8 @@
 - runtime-store.ts — RuntimeStore facade，组合 workspace/agent/team/feishu/PM 服务。
 - runtime-store-helpers.ts — 创建 stores、watcher、agentRuntime、lifecycle helpers。
 - runtime-database.ts — 打开 better-sqlite3 runtime.sqlite 并初始化 schema。
-- sqlite-schema.ts — 当前 schema v25 与迁移调度（v25 = mobile capabilities + pairing codes）。
-- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 adds mobile_pairing_codes + mobile_devices capabilities/revoked/device_type。
+- sqlite-schema.ts — 当前 schema v26 与迁移调度（v26 = mobile push_token）。
+- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 mobile pairing/capabilities；v26 Expo push token。
 - workspace-store.ts — workspace/worker 内存状态 facade。
 - workspace-store-contract.ts — workspace store 类型契约。
 - workspace-store-hydration.ts — runtime 启动时从 SQLite 恢复 workspace/worker。
@@ -132,12 +132,13 @@
 - routes-tasks.ts — tasks.md API。
 - routes-plan.ts — plan.md API。
 - routes-cockpit.ts — cockpit aggregate API + question answer（idea-6）+ report-file（同浏览器 serve reports/*.html，path-traversal 防护）。
-- routes-mobile.ts — M19 mobile API：legacy pair token、pair/generate、pair/redeem、device CRUD、runtime/workspace/dashboard、dispatch/approve/worker stop/restart control endpoints。
+- routes-mobile.ts — M19 mobile API：pairing/device CRUD、push-token、dashboard/tasks/transcript、voice、dispatch/approve/worker controls。
 - routes-fs.ts — file browser/picker endpoints。
 - routes-settings.ts — settings endpoints。
 - routes-ui.ts — UI session/bootstrap endpoints。
 - routes-version.ts — version info endpoint。
-- mobile-auth.ts — mobile device auth store：capability model、authenticateDevice、one-time pairing code、device list/update/revoke、30 天 inactivity expiry、legacy M19a token compatibility。
+- mobile-auth.ts — mobile auth store：capability model、pairing code、device CRUD/revoke/expiry、push_token、legacy M19a compatibility。
+- mobile-push.ts — Expo push best-effort sender；worker done/high aiAction 通知、invalid token 清理、dispatch/action 去重。
 - mobile-dashboard-websocket-server.ts — mobile dashboard WS 推送。
 - fs-browse.ts — server-side file browser。
 - fs-pick-folder.ts — native folder picker integration。
@@ -174,14 +175,15 @@
 - wizard/* — first-run wizard。
 - ui/* — shared Avatar/Confirm/EmptyState/Tooltip/toast primitives。
 - lib/* — utility helpers and swallowed-error logger。
-- i18n.tsx/uiLanguage.ts — EN/ZH copy and language state。
-- use*.ts(x) — app hooks for shortcuts, panes, version, workspace CRUD。
+- i18n.tsx/uiLanguage.ts + use*.ts(x) — EN/ZH copy, language state, shortcuts/panes/version/workspace hooks。
 
-## Mobile app (packages/mobile/)
+## Mobile / relay packages
 
-- app/(tabs)/* — Expo Router tabs；Dashboard/Tasks/Workers/Settings，含 pairing code UI 与 Stop/Restart/Dispatch controls。
-- src/api/client.ts + mobile-runtime-context.tsx — mobile runtime HTTP/WS client、SecureStore token、pair redeem、dashboard read、dispatch/stop/restart 封装。
-- src/components/* + app.config.ts/package.json — React Native Screen/StatusBadge 等轻量组件与 Expo 配置（含 expo-secure-store）。
+- packages/mobile/app/(tabs)/* — Expo Router native app；Dashboard/Tasks/Workers/Settings，含 pairing、voice、push、Stop/Restart/Dispatch。
+- packages/mobile/src/api/* — LAN-first HTTP/WS client、SecureStore token、relay fallback、E2E JSON-RPC、push-token 注册。
+- packages/mobile/src/components/* + app.config.ts/eas.json — RN UI primitives、ErrorBoundary/offline banner、Expo/EAS/TestFlight/internal distribution config。
+- packages/relay/* — lightweight WebSocket room relay；daemon outbound connector 的远程中转服务。
+- packages/relay-crypto/* — tweetnacl keypair/handshake/session channel helpers；mobile relay transport 与 daemon connector 共用。
 
 ## CLI (src/cli/)
 
@@ -195,5 +197,4 @@
 
 ## Tests
 
-- tests/server/mobile-routes.test.ts + mobile-pairing-integration.test.ts — mobile HTTP routes、true HTTP+SQLite pairing、capability/workspace isolation、revocation。
-- tests/unit/mobile-auth.test.ts — mobile-auth pure store：legacy migration、pairing code、capability、revoke/expiry、CRUD。
+- Mobile tests — mobile-routes/pairing/relay/voice/push/auth 覆盖 HTTP+SQLite、capability、revocation、transport 与 notification 边界。

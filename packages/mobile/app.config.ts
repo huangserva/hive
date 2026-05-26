@@ -1,15 +1,27 @@
 import type { ExpoConfig } from 'expo/config'
 
-const config: ExpoConfig = {
+type ExpoConfigWithSplash = ExpoConfig & {
+  splash?: {
+    backgroundColor: string
+    image: string
+    resizeMode: 'contain' | 'cover' | 'native'
+  }
+}
+
+const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
-  slug: 'hippoteam-mobile',
-  version: '1.0.0',
+  slug: 'hippoteam',
+  version: '0.1.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',
   userInterfaceStyle: 'automatic',
   ios: {
     bundleIdentifier: 'com.huangserva.hippoteam',
+    infoPlist: {
+      NSMicrophoneUsageDescription:
+        'HippoTeam uses the microphone to turn voice commands into agent tasks.',
+    },
     supportsTablet: true,
   },
   android: {
@@ -24,6 +36,8 @@ const config: ExpoConfig = {
   },
   plugins: [
     'expo-router',
+    'expo-notifications',
+    'expo-secure-store',
     [
       'expo-build-properties',
       {
@@ -33,6 +47,11 @@ const config: ExpoConfig = {
       },
     ],
   ],
+  splash: {
+    backgroundColor: '#0D1117',
+    image: './assets/splash.png',
+    resizeMode: 'contain',
+  },
   web: {
     favicon: './assets/favicon.png',
   },

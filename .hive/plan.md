@@ -123,9 +123,9 @@ last_review: 2026-05-25
 - 设计：`.hive/reports/team-pm-co-maintenance-design-2026-05-24.html`
 - ADR：`.hive/decisions/2026-05-24-team-pm-co-maintenance.md`
 
-### M14 · mobile + voice 扩张方向（paseo 借鉴） · confirmed (Q4 拍板 5/25)
-- [ ] Q4 答复：要纳入 plan.md 作为未来 milestone（user 明示"未来方向是语音控制多 agent 开发"）
-- [ ] 排序：skills playbook（M17）先做（独立、不依赖移动端），mobile + voice 作为后续大版本方向
+### M14 · mobile + voice 扩张方向（paseo 借鉴） · shipped (M14a) 2026-05-25
+- [x] Q4 答复：纳入 plan.md（user 明示"未来方向是语音控制多 agent 开发"）
+- [x] 路线拍板：Feishu voice command MVP 先行，self-built mobile 后续（→ M19 实现）
 - 核心使能模块：idea-1 (paseo expo-two-way-audio 双向音频，Q5 folded)
 - 其余候选 idea：idea-3 (provider catalog) + idea-4 (timeline 模型)
 - 开工时拆 sub-task + 起 ADR：自建 mobile vs 借第三方框架 vs 飞书 + voice plugin 第三路径
@@ -189,9 +189,10 @@ last_review: 2026-05-25
   - [x] 子任务 3：Runtime outbound connector — relay.json config + WS connect + heartbeat + backoff + RPC handler（关羽，10 tests）
   - [x] 子任务 4：Mobile relay transport — LAN→relay fallback + E2E handshake + JSON-RPC（赵云，7 tests）
 - [x] **M19d**：agent/terminal pane + task operations（worker transcript + dispatch task history）— `942cf9c`
-- [ ] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）
-  - [x] 子任务 1：Push notifications — server/mobile Expo push token 注册 + worker done/high aiAction 通知（赵云，8 tests）
-- [ ] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）
+- [x] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）`9b17101`
+  - [x] 子任务 1：Push notifications — schema v26 push_token + Expo push API + worker done/high aiAction triggers（赵云）
+  - [x] 子任务 2：Voice input — POST /api/mobile/voice/transcribe + VoiceRecordButton + expo-av recording（吕布，8 tests）
+- [x] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）— shipped（pending commit hash）
 - 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”后继续拍板“要原生、要最好”。
 
 ### M20 · Sentinel Worker · shipped 2026-05-26
