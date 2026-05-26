@@ -13,6 +13,9 @@ import {
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
   type MobileDashboard,
+  type MobileDeviceSummary,
+  type MobileDispatchResponse,
+  type MobilePairRedeemResponse,
   type MobilePairResponse,
   type MobileWorkspace,
   type RuntimeStatus,
@@ -27,9 +30,13 @@ export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 interface MobileRuntimeContextValue {
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
   dashboard: MobileDashboard | null
+  disconnect: () => Promise<void>
+  dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
   error: string | null
   host: string
   pairHost: (nextHost: string) => Promise<MobilePairResponse | null>
+  pairedDevice: MobileDeviceSummary | null
+  redeemPairingCode: (nextHost: string, code: string) => Promise<MobilePairRedeemResponse | null>
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
   runtimeStatus: RuntimeStatus | null
   selectWorkspace: (workspaceId: string) => Promise<void>
@@ -37,6 +44,8 @@ interface MobileRuntimeContextValue {
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
+  restartWorker: (workerId: string) => Promise<boolean>
+  stopWorker: (workerId: string) => Promise<boolean>
   token: string
   workspaces: MobileWorkspace[]
 }
@@ -59,6 +68,14 @@ const secureGet = async (key: string) => {
   }
 }
 
+const secureDelete = async (key: string) => {
+  try {
+    await SecureStore.deleteItemAsync(key)
+  } catch {
+    // SecureStore can be unavailable in web/simulator paths; in-memory state still works.
+  }
+}
+
 const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: string | null) =>
   workspaces.find((workspace) => workspace.id === preferredWorkspaceId)?.id ??
   workspaces[0]?.id ??
@@ -71,6 +88,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [workspaces, setWorkspaces] = useState<MobileWorkspace[]>([])
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
   const [dashboard, setDashboard] = useState<MobileDashboard | null>(null)
+  const [pairedDevice, setPairedDevice] = useState<MobileDeviceSummary | null>(null)
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -157,6 +175,25 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [selectedWorkspaceId]
   )
 
+  const redeemPairingCode = useCallback(
+    async (nextHost: string, code: string) => {
+      setState('checking')
+      setError(null)
+      try {
+        const redeemed = await createRuntimeClient({ host: nextHost }).redeemPairingCode(code)
+        setPairedDevice(redeemed.device)
+        await connect(nextHost, redeemed.token)
+        return redeemed
+      } catch (pairError) {
+        const message = pairError instanceof Error ? pairError.message : String(pairError)
+        setError(message)
+        setState('error')
+        return null
+      }
+    },
+    [connect]
+  )
+
   const selectWorkspace = useCallback(
     async (workspaceId: string) => {
       setSelectedWorkspaceId(workspaceId)
@@ -164,6 +201,79 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       await refreshDashboard(workspaceId)
     },
     [refreshDashboard]
+  )
+
+  const disconnect = useCallback(async () => {
+    setToken('')
+    setRuntimeStatus(null)
+    setDashboard(null)
+    setWorkspaces([])
+    setSelectedWorkspaceId(null)
+    setPairedDevice(null)
+    setState('idle')
+    setError(null)
+    await Promise.all([secureDelete(MOBILE_TOKEN_KEY), secureDelete(WORKSPACE_ID_KEY)])
+  }, [])
+
+  const stopWorker = useCallback(
+    async (workerId: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before controlling workers')
+        return false
+      }
+      setError(null)
+      try {
+        await client.stopWorker(selectedWorkspaceId, workerId)
+        await refreshDashboard(selectedWorkspaceId)
+        return true
+      } catch (stopError) {
+        const message = stopError instanceof Error ? stopError.message : String(stopError)
+        setError(message)
+        return false
+      }
+    },
+    [client, refreshDashboard, selectedWorkspaceId]
+  )
+
+  const restartWorker = useCallback(
+    async (workerId: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before controlling workers')
+        return false
+      }
+      setError(null)
+      try {
+        await client.restartWorker(selectedWorkspaceId, workerId)
+        await refreshDashboard(selectedWorkspaceId)
+        return true
+      } catch (restartError) {
+        const message = restartError instanceof Error ? restartError.message : String(restartError)
+        setError(message)
+        return false
+      }
+    },
+    [client, refreshDashboard, selectedWorkspaceId]
+  )
+
+  const dispatchTask = useCallback(
+    async (workerId: string, task: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before dispatching tasks')
+        return null
+      }
+      setError(null)
+      try {
+        const dispatch = await client.dispatchTask(selectedWorkspaceId, workerId, task)
+        await refreshDashboard(selectedWorkspaceId)
+        return dispatch
+      } catch (dispatchError) {
+        const message =
+          dispatchError instanceof Error ? dispatchError.message : String(dispatchError)
+        setError(message)
+        return null
+      }
+    },
+    [client, refreshDashboard, selectedWorkspaceId]
   )
 
   useEffect(() => {
@@ -220,9 +330,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     () => ({
       connect,
       dashboard,
+      disconnect,
+      dispatchTask,
       error,
       host,
       pairHost,
+      pairedDevice,
+      redeemPairingCode,
       refreshDashboard,
       runtimeStatus,
       selectWorkspace,
@@ -230,20 +344,28 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setHost,
       setToken,
       state,
+      restartWorker,
+      stopWorker,
       token,
       workspaces,
     }),
     [
       connect,
       dashboard,
+      disconnect,
+      dispatchTask,
       error,
       host,
       pairHost,
+      pairedDevice,
+      redeemPairingCode,
       refreshDashboard,
       runtimeStatus,
+      restartWorker,
       selectWorkspace,
       selectedWorkspaceId,
       state,
+      stopWorker,
       token,
       workspaces,
     ]

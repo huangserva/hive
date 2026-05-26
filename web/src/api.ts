@@ -753,6 +753,72 @@ export const probeFs = async (path: string): Promise<FsProbeResponse> => {
   return (await response.json()) as FsProbeResponse
 }
 
+export type MobileCapability =
+  | 'read_dashboard'
+  | 'read_terminal'
+  | 'send_prompt'
+  | 'approve_risk'
+  | 'admin_runtime'
+
+export interface MobileDevice {
+  capabilities: MobileCapability[]
+  created_at: string
+  device_type: string | null
+  id: string
+  last_seen_at: string | null
+  name: string
+  revoked_at: string | null
+}
+
+export interface PairingCodeResult {
+  capabilities: MobileCapability[]
+  code: string
+  device_name: string
+  expires_at: number
+}
+
+export const generatePairingCode = async (
+  deviceName: string,
+  capabilities: MobileCapability[]
+): Promise<PairingCodeResult> => {
+  const response = await apiFetch('/api/mobile/pair/generate', {
+    body: JSON.stringify({ capabilities, device_name: deviceName }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+  if (!response.ok)
+    throw new Error(await readErrorMessage(response, 'Failed to generate pairing code'))
+  return (await response.json()) as PairingCodeResult
+}
+
+export const listMobileDevices = async (): Promise<MobileDevice[]> => {
+  const response = await apiFetch('/api/mobile/devices')
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to load devices'))
+  const body = (await response.json()) as { devices: MobileDevice[] }
+  return body.devices
+}
+
+export const updateMobileDevice = async (
+  deviceId: string,
+  patch: { capabilities?: MobileCapability[]; name?: string }
+): Promise<MobileDevice> => {
+  const response = await apiFetch(`/api/mobile/devices/${encodeURIComponent(deviceId)}`, {
+    body: JSON.stringify(patch),
+    headers: { 'content-type': 'application/json' },
+    method: 'PATCH',
+  })
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to update device'))
+  const body = (await response.json()) as { device: MobileDevice }
+  return body.device
+}
+
+export const revokeMobileDevice = async (deviceId: string): Promise<void> => {
+  const response = await apiFetch(`/api/mobile/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to revoke device'))
+}
+
 export interface PickFolderResponse {
   canceled: boolean
   error: string | null

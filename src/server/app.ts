@@ -134,7 +134,10 @@ export const createApp = ({
     try {
       if (!isMobileApiPath(url.pathname)) {
         assertLocalRequest(request)
-      } else if (url.pathname === '/api/mobile/pair') {
+      } else if (
+        url.pathname === '/api/mobile/pair' ||
+        url.pathname === '/api/mobile/pair/generate'
+      ) {
         assertLocalRequest(request)
       }
 

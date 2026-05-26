@@ -112,6 +112,16 @@ describe('schema version', () => {
         (column) => column.name
       )
     )
+    const mobileDeviceColumns = new Set(
+      (db.prepare('PRAGMA table_info(mobile_devices)').all() as Array<{ name: string }>).map(
+        (column) => column.name
+      )
+    )
+    const mobilePairingCodesTable = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mobile_pairing_codes'"
+      )
+      .get() as { name: string } | undefined
 
     expect(workerColumns.has('last_session_id')).toBe(true)
     expect(agentRunColumns.has('pid')).toBe(true)
@@ -171,6 +181,19 @@ describe('schema version', () => {
         'artifacts',
       ])
     )
+    expect(mobileDeviceColumns).toEqual(
+      new Set([
+        'id',
+        'token',
+        'name',
+        'created_at',
+        'last_seen_at',
+        'capabilities',
+        'revoked_at',
+        'device_type',
+      ])
+    )
+    expect(mobilePairingCodesTable).toEqual({ name: 'mobile_pairing_codes' })
     expectDispatchSchema(db)
 
     const presetCount = db

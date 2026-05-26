@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
 
 import { startTestServer } from '../helpers/test-server.js'
+import { getUiCookie } from '../helpers/ui-session.js'
 
 const tempDirs: string[] = []
 
@@ -68,6 +69,13 @@ const pairMobile = async (baseUrl: string) => {
 const mobileHeaders = (token: string, host?: string) => ({
   authorization: `Bearer ${token}`,
   ...(host ? { host } : {}),
+})
+
+const jsonHeaders = (input: { cookie?: string; host?: string; token?: string } = {}) => ({
+  'content-type': 'application/json',
+  ...(input.cookie ? { cookie: input.cookie } : {}),
+  ...(input.token ? { authorization: `Bearer ${input.token}` } : {}),
+  ...(input.host ? { host: input.host } : {}),
 })
 
 const toWsUrl = (baseUrl: string, path: string) => baseUrl.replace('http://', 'ws://') + path
@@ -224,6 +232,334 @@ describe('mobile API', () => {
       expect(payload.payload.plan.current_phase).toBe('m19a-lan-dashboard')
 
       socket.close()
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('generates and redeems scoped pairing codes over mobile endpoints', async () => {
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const blocked = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: { origin: 'http://192.168.1.44:4010' },
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Phone' }),
+      })
+      expect(blocked.status).toBe(403)
+
+      const generated = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Phone' }),
+      })
+      const generatedBody = (await generated.json()) as { code: string; expires_at: number }
+      expect(generated.status).toBe(200)
+      expect(generatedBody.code).toMatch(/^\d{6}$/)
+
+      const redeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
+        method: 'POST',
+        body: JSON.stringify({ code: generatedBody.code }),
+      })
+      const redeemedBody = (await redeemed.json()) as {
+        device: { capabilities: string[]; name: string }
+        token: string
+      }
+      expect(redeemed.status).toBe(200)
+      expect(redeemedBody.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
+      expect(redeemedBody.device.name).toBe('Phone')
+      expect(redeemedBody.device.capabilities).toEqual(['read_dashboard'])
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('gates mobile device registry by admin_runtime capability and revokes tokens', async () => {
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const admin = await pairMobile(server.baseUrl)
+      const generated = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
+      })
+      const { code } = (await generated.json()) as { code: string }
+      const redeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      })
+      const reader = (await redeemed.json()) as { device: { id: string }; token: string }
+
+      const forbidden = await fetch(`${server.baseUrl}/api/mobile/devices`, {
+        headers: mobileHeaders(reader.token, '192.168.1.44:4010'),
+      })
+      expect(forbidden.status).toBe(403)
+
+      const patched = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device.id}`, {
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token: admin.token }),
+        method: 'PATCH',
+        body: JSON.stringify({ capabilities: ['read_dashboard', 'send_prompt'], name: 'Reader 2' }),
+      })
+      expect(patched.status).toBe(200)
+
+      const revoked = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device.id}`, {
+        headers: mobileHeaders(admin.token, '192.168.1.44:4010'),
+        method: 'DELETE',
+      })
+      expect(revoked.status).toBe(200)
+
+      const afterRevoke = await fetch(`${server.baseUrl}/api/mobile/workspaces`, {
+        headers: mobileHeaders(reader.token, '192.168.1.44:4010'),
+      })
+      expect(afterRevoke.status).toBe(410)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('allows UI session auth to manage mobile devices', async () => {
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const mobile = await pairMobile(server.baseUrl)
+
+      const listed = await fetch(`${server.baseUrl}/api/mobile/devices`, {
+        headers: jsonHeaders({ cookie }),
+      })
+      const listedBody = (await listed.json()) as { devices: Array<{ id: string; name: string }> }
+      expect(listed.status).toBe(200)
+      expect(listedBody.devices).toContainEqual(
+        expect.objectContaining({
+          id: expect.any(String),
+          name: 'M19a mobile device',
+        })
+      )
+
+      const deviceId = listedBody.devices[0]?.id
+      expect(deviceId).toEqual(expect.any(String))
+
+      const patched = await fetch(`${server.baseUrl}/api/mobile/devices/${deviceId}`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'PATCH',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], name: 'UI Managed Phone' }),
+      })
+      const patchedBody = (await patched.json()) as {
+        device: { capabilities: string[]; id: string; name: string }
+      }
+      expect(patched.status).toBe(200)
+      expect(patchedBody.device).toMatchObject({
+        capabilities: ['read_dashboard'],
+        id: deviceId,
+        name: 'UI Managed Phone',
+      })
+
+      const revoked = await fetch(`${server.baseUrl}/api/mobile/devices/${deviceId}`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'DELETE',
+      })
+      expect(revoked.status).toBe(200)
+
+      const afterRevoke = await fetch(`${server.baseUrl}/api/mobile/workspaces`, {
+        headers: mobileHeaders(mobile.token, '192.168.1.44:4010'),
+      })
+      expect(afterRevoke.status).toBe(410)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('requires send_prompt capability for mobile dispatch control', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Control')
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      const readOnly = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
+      })
+      const { code: readCode } = (await readOnly.json()) as { code: string }
+      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code: readCode }),
+      })
+      const reader = (await readRedeemed.json()) as { token: string }
+
+      const forbidden = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dispatch`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: reader.token }),
+          method: 'POST',
+          body: JSON.stringify({ task: 'Do mobile task', worker_id: worker.id }),
+        }
+      )
+      expect(forbidden.status).toBe(403)
+
+      const senderPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['send_prompt'], device_name: 'Sender' }),
+      })
+      const { code } = (await senderPair.json()) as { code: string }
+      const senderRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      })
+      const sender = (await senderRedeemed.json()) as { token: string }
+      const dispatched = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dispatch`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: sender.token }),
+          method: 'POST',
+          body: JSON.stringify({ task: 'Do mobile task', worker_id: worker.id }),
+        }
+      )
+      const body = (await dispatched.json()) as { dispatch_id: string; pending_task_count: number }
+
+      expect(dispatched.status).toBe(200)
+      expect(body.dispatch_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+      )
+      expect(body.pending_task_count).toBe(1)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('records mobile approval decisions with approve_risk capability', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Approval')
+      const approval = server.store.approvalLedger.create({
+        action: 'Remove generated files',
+        chatId: 'oc_mobile',
+        messageId: 'om_mobile',
+        orchAgentId: `${workspace.id}:orchestrator`,
+        risk: 'high',
+        target: null,
+        workspaceId: workspace.id,
+      })
+
+      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
+      })
+      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
+      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code: readCode }),
+      })
+      const reader = (await readRedeemed.json()) as { token: string }
+
+      const forbidden = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/approve/${approval.approvalId}`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: reader.token }),
+          method: 'POST',
+          body: JSON.stringify({ decision: 'allow' }),
+        }
+      )
+      expect(forbidden.status).toBe(403)
+
+      const approverPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['approve_risk'], device_name: 'Approver' }),
+      })
+      const { code } = (await approverPair.json()) as { code: string }
+      const approverRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      })
+      const approver = (await approverRedeemed.json()) as { token: string }
+
+      const decided = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/approve/${approval.approvalId}`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: approver.token }),
+          method: 'POST',
+          body: JSON.stringify({ decision: 'allow' }),
+        }
+      )
+      const body = (await decided.json()) as { approval_id: string; decision: string; ok: boolean }
+
+      expect(decided.status).toBe(200)
+      expect(body).toEqual({
+        approval_id: approval.approvalId,
+        decision: 'allow',
+        ok: true,
+        status: 'recorded',
+      })
+      expect(server.store.approvalLedger.get(approval.approvalId)).toBeNull()
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('requires admin_runtime capability for mobile worker stop control', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Stop')
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+
+      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
+      })
+      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
+      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code: readCode }),
+      })
+      const reader = (await readRedeemed.json()) as { token: string }
+
+      const forbidden = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/stop`,
+        {
+          headers: mobileHeaders(reader.token, '192.168.1.44:4010'),
+          method: 'POST',
+        }
+      )
+      expect(forbidden.status).toBe(403)
+
+      const admin = await pairMobile(server.baseUrl)
+      const stopped = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/stop`,
+        {
+          headers: mobileHeaders(admin.token, '192.168.1.44:4010'),
+          method: 'POST',
+        }
+      )
+      const body = (await stopped.json()) as {
+        ok: boolean
+        status: string
+        worker_id: string
+        workspace_id: string
+      }
+
+      expect(stopped.status).toBe(200)
+      expect(body).toEqual({
+        ok: true,
+        status: 'stopped',
+        worker_id: worker.id,
+        workspace_id: workspace.id,
+      })
     } finally {
       await server.close()
     }

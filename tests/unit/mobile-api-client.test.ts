@@ -106,4 +106,86 @@ describe('mobile runtime client', () => {
 
     expect(client.buildWebSocketUrl('/ws/cockpit/ws-1')).toBe('ws://10.0.0.2:4010/ws/cockpit/ws-1')
   })
+
+  test('redeems pairing codes through the mobile pairing endpoint', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          device: {
+            capabilities: ['read_dashboard'],
+            device_type: 'ios',
+            id: 'device-1',
+            name: 'iPhone',
+          },
+          token: 'redeemed-token',
+        }),
+      ok: true,
+    })
+    const client = createRuntimeClient({ fetchImpl, host: '10.0.0.2:4010' })
+
+    await expect(client.redeemPairingCode('123456')).resolves.toMatchObject({
+      token: 'redeemed-token',
+      device: { id: 'device-1', name: 'iPhone' },
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith('http://10.0.0.2:4010/api/mobile/pair/redeem', {
+      body: JSON.stringify({ code: '123456' }),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  })
+
+  test('sends worker control actions with bearer auth', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        json: () => Promise.resolve({ ok: true, status: 'stopped' }),
+        ok: true,
+      })
+      .mockResolvedValueOnce({
+        json: () => Promise.resolve({ ok: true, run_id: 'run-1' }),
+        ok: true,
+      })
+      .mockResolvedValueOnce({
+        json: () => Promise.resolve({ dispatch_id: 'dispatch-1', ok: true }),
+        ok: true,
+      })
+    const client = createRuntimeClient({ fetchImpl, host: '10.0.0.2:4010', token: 'mobile-token' })
+
+    await expect(client.stopWorker('workspace-1', 'worker-1')).resolves.toEqual(undefined)
+    await expect(client.restartWorker('workspace-1', 'worker-1')).resolves.toEqual(undefined)
+    await expect(
+      client.dispatchTask('workspace-1', 'worker-1', 'Run mobile smoke test')
+    ).resolves.toMatchObject({ dispatch_id: 'dispatch-1' })
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/stop',
+      {
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+        method: 'POST',
+      }
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/restart',
+      {
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+        method: 'POST',
+      }
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      3,
+      'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/dispatch',
+      {
+        body: JSON.stringify({ task: 'Run mobile smoke test', worker_id: 'worker-1' }),
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer mobile-token',
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      }
+    )
+  })
 })

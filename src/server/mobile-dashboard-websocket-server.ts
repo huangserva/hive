@@ -53,7 +53,10 @@ export const createMobileDashboardWebSocketServer = (
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       const workspaceId = matchMobileDashboardPath(url.pathname)
       if (!workspaceId) return
-      if (!store.validateMobileToken(url.searchParams.get('token') ?? undefined)) {
+      try {
+        const device = store.authenticateMobileDevice(url.searchParams.get('token') ?? undefined)
+        store.requireMobileCapability(device, 'read_dashboard')
+      } catch {
         rejectUpgrade(socket, '401 Unauthorized')
         return
       }

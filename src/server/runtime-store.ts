@@ -8,7 +8,7 @@ import type { FeishuBinding } from './feishu-bindings-store.js'
 import { NotFoundError } from './http-errors.js'
 import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
-import type { MobileDeviceRecord } from './mobile-auth.js'
+import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
@@ -113,6 +113,20 @@ interface RuntimeStore {
   writeRunInput: (runId: string, input: Buffer | string) => void
   getUiToken: () => string
   ensureMobileAccessToken: () => MobileDeviceRecord
+  authenticateMobileDevice: (token: string | undefined) => MobileDeviceRecord
+  generateMobilePairingCode: (
+    deviceName: string,
+    capabilities: MobileCapability[],
+    expiresInMs?: number
+  ) => { capabilities: MobileCapability[]; code: string; device_name: string; expires_at: number }
+  listMobileDevices: () => MobileDeviceRecord[]
+  redeemMobilePairingCode: (code: string) => { device: MobileDeviceRecord; token: string }
+  requireMobileCapability: (device: MobileDeviceRecord, capability: MobileCapability) => void
+  revokeMobileDevice: (deviceId: string) => MobileDeviceRecord
+  updateMobileDevice: (
+    deviceId: string,
+    patch: { capabilities?: MobileCapability[]; name?: string }
+  ) => MobileDeviceRecord
   stopAgentRun: (runId: string) => void
   validateAgentToken: (agentId: string, token: string | undefined) => boolean
   validateUiToken: (token: string | undefined) => boolean
@@ -239,6 +253,15 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     writeRunInput: lifecycle.writeRunInput,
     getUiToken: () => services.uiAuth.getToken(),
     ensureMobileAccessToken: () => services.mobileAuthStore.ensureDefaultDevice(),
+    authenticateMobileDevice: (token) => services.mobileAuthStore.authenticateDevice(token),
+    generateMobilePairingCode: (deviceName, capabilities, expiresInMs) =>
+      services.mobileAuthStore.generatePairingCode(deviceName, capabilities, expiresInMs),
+    listMobileDevices: () => services.mobileAuthStore.listDevices(),
+    redeemMobilePairingCode: (code) => services.mobileAuthStore.redeemPairingCode(code),
+    requireMobileCapability: (device, capability) =>
+      services.mobileAuthStore.requireCapability(device, capability),
+    revokeMobileDevice: (deviceId) => services.mobileAuthStore.revokeDevice(deviceId),
+    updateMobileDevice: (deviceId, patch) => services.mobileAuthStore.updateDevice(deviceId, patch),
     stopAgentRun: lifecycle.stopTerminalRun,
     validateAgentToken: (agentId, token) =>
       services.agentRuntime.validateAgentToken(agentId, token),

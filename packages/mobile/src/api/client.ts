@@ -24,6 +24,22 @@ export interface MobilePairResponse {
   token: string
 }
 
+export interface MobileDeviceSummary {
+  capabilities?: string[]
+  created_at?: string
+  device_type?: string
+  id: string
+  last_seen_at?: string | null
+  name: string
+  revoked_at?: string | null
+}
+
+export interface MobilePairRedeemResponse {
+  device: MobileDeviceSummary
+  expires_after_inactive_days?: number
+  token: string
+}
+
 export interface MobileWorkspace {
   id: string
   name: string
@@ -66,6 +82,14 @@ export interface MobileDashboard {
   workspace: MobileWorkspace
 }
 
+export interface MobileDispatchResponse {
+  dispatch_id: string
+  ok?: boolean
+  pending_task_count?: number
+  worker_id?: string
+  workspace_id?: string
+}
+
 export const normalizeRuntimeHost = (host: string) => {
   const trimmed = host.trim().replace(/\/+$/, '')
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed
@@ -78,8 +102,9 @@ export const createRuntimeClient = ({
   token = null,
 }: RuntimeClientOptions = {}) => {
   const baseUrl = normalizeRuntimeHost(host)
-  const jsonHeaders = (auth = false) => {
+  const jsonHeaders = (auth = false, hasBody = false) => {
     const headers: Record<string, string> = { Accept: 'application/json' }
+    if (hasBody) headers['Content-Type'] = 'application/json'
     if (auth) {
       if (!token) throw new Error('Mobile token is required')
       headers.Authorization = `Bearer ${token}`
@@ -87,9 +112,16 @@ export const createRuntimeClient = ({
     return headers
   }
 
-  const readJson = async <T>(path: string, auth = false): Promise<T> => {
+  const readJson = async <T>(
+    path: string,
+    auth = false,
+    init: { body?: unknown; method?: 'GET' | 'POST' | 'PATCH' | 'DELETE' } = {}
+  ): Promise<T> => {
+    const hasBody = init.body !== undefined
     const response = await fetchImpl(`${baseUrl}${path}`, {
-      headers: jsonHeaders(auth),
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      headers: jsonHeaders(auth, hasBody),
+      ...(init.method === undefined ? {} : { method: init.method }),
     })
     if (!response.ok) {
       throw new Error(`${path} failed: HTTP ${response.status}`)
@@ -100,6 +132,12 @@ export const createRuntimeClient = ({
   return {
     async pairMobile(): Promise<MobilePairResponse> {
       return readJson<MobilePairResponse>('/api/mobile/pair')
+    },
+    async redeemPairingCode(code: string): Promise<MobilePairRedeemResponse> {
+      return readJson<MobilePairRedeemResponse>('/api/mobile/pair/redeem', false, {
+        body: { code },
+        method: 'POST',
+      })
     },
     async getRuntimeStatus(): Promise<RuntimeStatus> {
       return readJson<RuntimeStatus>('/api/runtime/status')
@@ -114,6 +152,34 @@ export const createRuntimeClient = ({
       return readJson<MobileDashboard>(
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/dashboard`,
         true
+      )
+    },
+    async stopWorker(workspaceId: string, workerId: string): Promise<void> {
+      await readJson<{ ok: true }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/workers/${encodeURIComponent(workerId)}/stop`,
+        true,
+        { method: 'POST' }
+      )
+    },
+    async restartWorker(workspaceId: string, workerId: string): Promise<void> {
+      await readJson<{ ok: true }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/workers/${encodeURIComponent(workerId)}/restart`,
+        true,
+        { method: 'POST' }
+      )
+    },
+    async dispatchTask(
+      workspaceId: string,
+      workerId: string,
+      task: string
+    ): Promise<MobileDispatchResponse> {
+      return readJson<MobileDispatchResponse>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/dispatch`,
+        true,
+        {
+          body: { task, worker_id: workerId },
+          method: 'POST',
+        }
       )
     },
     buildWebSocketUrl(path: string) {

@@ -12,6 +12,7 @@ import {
   unbindFeishuChat,
 } from '../api.js'
 import { type TranslationKey, useI18n } from '../i18n.js'
+import { MobileDevicesSection } from './MobileDevicesSection.js'
 
 type WorkspaceSettingsProps = {
   onClose: () => void
@@ -239,6 +240,10 @@ export const WorkspaceSettings = ({ onClose, open, workspace }: WorkspaceSetting
                   {saving ? t('feishu.settings.binding') : t('feishu.settings.bind')}
                 </button>
               </form>
+
+              <div className="border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+                <MobileDevicesSection />
+              </div>
             </div>
           </Dialog.Content>
         </div>

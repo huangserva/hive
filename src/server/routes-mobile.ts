@@ -1,10 +1,17 @@
 import { join } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
-import { requireMobileTokenFromRequest } from './mobile-auth.js'
-import { getRequiredParam, route, sendJson } from './route-helpers.js'
+import { BadRequestError, NotFoundError } from './http-errors.js'
+import { getLocalRequestRejection } from './local-request-guard.js'
+import {
+  extractMobileToken,
+  type MobileCapability,
+  type MobileDeviceRecord,
+} from './mobile-auth.js'
+import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import { enrichTeamList } from './team-list-enrichment.js'
+import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
 const activeMilestone = (cockpit: ReturnType<typeof parseCockpit>) =>
   cockpit.plan.milestones.find((milestone) => milestone.status === 'in_progress') ??
@@ -78,6 +85,52 @@ const pairedHost = (requestHost: string | string[] | undefined) => {
   }
 }
 
+const requireMobileCapability = (
+  request: Parameters<RouteDefinition['handler']>[0]['request'],
+  store: Parameters<RouteDefinition['handler']>[0]['store'],
+  capability: MobileCapability
+): MobileDeviceRecord => {
+  const device = store.authenticateMobileDevice(extractMobileToken(request))
+  store.requireMobileCapability(device, capability)
+  return device
+}
+
+const requireUiSessionOrMobileAdmin = (
+  request: Parameters<RouteDefinition['handler']>[0]['request'],
+  store: Parameters<RouteDefinition['handler']>[0]['store']
+) => {
+  const cookieHeader = Array.isArray(request.headers.cookie)
+    ? request.headers.cookie.join('; ')
+    : request.headers.cookie
+  const uiToken = readCookie(cookieHeader, 'hive_ui_token')
+  if (!getLocalRequestRejection(request) && store.validateUiToken(uiToken)) {
+    return
+  }
+  requireMobileCapability(request, store, 'admin_runtime')
+}
+
+const mobileDeviceSummary = (device: MobileDeviceRecord) => ({
+  capabilities: device.capabilities,
+  created_at: new Date(device.created_at).toISOString(),
+  device_type: device.device_type,
+  id: device.id,
+  last_seen_at: device.last_seen_at === null ? null : new Date(device.last_seen_at).toISOString(),
+  name: device.name,
+  revoked_at: device.revoked_at === null ? null : new Date(device.revoked_at).toISOString(),
+})
+
+const readCapabilities = (value: unknown): MobileCapability[] => {
+  if (!Array.isArray(value)) throw new BadRequestError('capabilities must be an array')
+  return value as MobileCapability[]
+}
+
+const readNonEmptyString = (value: unknown, fieldName: string) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BadRequestError(`${fieldName} is required`)
+  }
+  return value.trim()
+}
+
 export const mobileRoutes: RouteDefinition[] = [
   route('GET', '/api/mobile/pair', ({ request, response, runtimeInfo, store }) => {
     const device = store.ensureMobileAccessToken()
@@ -87,11 +140,58 @@ export const mobileRoutes: RouteDefinition[] = [
       token: device.token,
     })
   }),
+  route('POST', '/api/mobile/pair/generate', async ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    const body = await readJsonBody<{ capabilities?: unknown; device_name?: unknown }>(request)
+    const pairing = store.generateMobilePairingCode(
+      readNonEmptyString(body.device_name, 'device_name'),
+      readCapabilities(body.capabilities)
+    )
+    sendJson(response, 200, pairing)
+  }),
+  route('POST', '/api/mobile/pair/redeem', async ({ request, response, store }) => {
+    const body = await readJsonBody<{ code?: unknown }>(request)
+    const redeemed = store.redeemMobilePairingCode(readNonEmptyString(body.code, 'code'))
+    sendJson(response, 200, {
+      device: mobileDeviceSummary(redeemed.device),
+      expires_after_inactive_days: 30,
+      token: redeemed.token,
+    })
+  }),
+  route('GET', '/api/mobile/devices', ({ request, response, store }) => {
+    requireUiSessionOrMobileAdmin(request, store)
+    sendJson(response, 200, {
+      devices: store.listMobileDevices().map(mobileDeviceSummary),
+    })
+  }),
+  route('PATCH', '/api/mobile/devices/:deviceId', async ({ params, request, response, store }) => {
+    requireUiSessionOrMobileAdmin(request, store)
+    const deviceId = getRequiredParam(response, params, 'deviceId', 'Device id is required')
+    if (!deviceId) return
+    const body = await readJsonBody<{ capabilities?: unknown; name?: unknown }>(request)
+    const patch: { capabilities?: MobileCapability[]; name?: string } = {}
+    if (body.name !== undefined) patch.name = readNonEmptyString(body.name, 'name')
+    if (body.capabilities !== undefined) patch.capabilities = readCapabilities(body.capabilities)
+    sendJson(response, 200, {
+      device: mobileDeviceSummary(store.updateMobileDevice(deviceId, patch)),
+    })
+  }),
+  route('DELETE', '/api/mobile/devices/:deviceId', ({ params, request, response, store }) => {
+    requireUiSessionOrMobileAdmin(request, store)
+    const deviceId = getRequiredParam(response, params, 'deviceId', 'Device id is required')
+    if (!deviceId) return
+    const device = store.revokeMobileDevice(deviceId)
+    sendJson(response, 200, {
+      device_id: device.id,
+      ok: true,
+      revoked_at: device.revoked_at,
+    })
+  }),
   route(
     'GET',
     '/api/mobile/runtime/status',
     async ({ request, response, runtimeInfo, store, versionService }) => {
-      requireMobileTokenFromRequest(request, store.validateMobileToken)
+      requireMobileCapability(request, store, 'read_dashboard')
       const version = await versionService.getVersionInfo()
       sendJson(response, 200, {
         port: runtimeInfo.port ?? 0,
@@ -104,14 +204,14 @@ export const mobileRoutes: RouteDefinition[] = [
     }
   ),
   route('GET', '/api/mobile/workspaces', ({ request, response, store }) => {
-    requireMobileTokenFromRequest(request, store.validateMobileToken)
+    requireMobileCapability(request, store, 'read_dashboard')
     sendJson(response, 200, store.listWorkspaces())
   }),
   route(
     'GET',
     '/api/mobile/workspaces/:workspaceId/dashboard',
     ({ params, request, response, store }) => {
-      requireMobileTokenFromRequest(request, store.validateMobileToken)
+      requireMobileCapability(request, store, 'read_dashboard')
       const workspaceId = getRequiredParam(
         response,
         params,
@@ -120,6 +220,127 @@ export const mobileRoutes: RouteDefinition[] = [
       )
       if (!workspaceId) return
       sendJson(response, 200, buildMobileDashboard(store, workspaceId))
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/dispatch',
+    async ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'send_prompt')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      const body = await readJsonBody<{ task?: unknown; worker_id?: unknown }>(request)
+      const workerId = readNonEmptyString(body.worker_id, 'worker_id')
+      const task = readNonEmptyString(body.task, 'task')
+      const worker = store.getWorker(workspaceId, workerId)
+      if (worker.role === 'sentinel') throw new BadRequestError('Cannot dispatch to sentinel')
+      const dispatch = await store.dispatchTask(workspaceId, workerId, task)
+      sendJson(response, 200, {
+        dispatch_id: dispatch.id,
+        ok: true,
+        pending_task_count: store.getWorker(workspaceId, workerId).pendingTaskCount,
+        worker_id: workerId,
+        workspace_id: workspaceId,
+      })
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/approve/:approvalId',
+    async ({ params, request, response, store }) => {
+      const device = requireMobileCapability(request, store, 'approve_risk')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      const approvalId = getRequiredParam(response, params, 'approvalId', 'Approval id is required')
+      if (!workspaceId || !approvalId) return
+      const approval = store.approvalLedger.get(approvalId)
+      if (!approval || approval.workspaceId !== workspaceId) {
+        throw new NotFoundError(`Approval not found: ${approvalId}`)
+      }
+      const body = await readJsonBody<{ decision?: unknown }>(request)
+      const decision = readNonEmptyString(body.decision, 'decision')
+      if (decision !== 'allow' && decision !== 'deny') {
+        throw new BadRequestError('decision must be allow or deny')
+      }
+      const resolved = store.approvalLedger.resolve(approvalId, decision, `mobile:${device.id}`)
+      if (!resolved) throw new BadRequestError(`Approval already resolved: ${approvalId}`)
+      sendJson(response, 200, {
+        approval_id: approvalId,
+        decision,
+        ok: true,
+        status: 'recorded',
+      })
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/workers/:workerId/stop',
+    ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'admin_runtime')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id and worker id are required'
+      )
+      const workerId = getRequiredParam(
+        response,
+        params,
+        'workerId',
+        'Workspace id and worker id are required'
+      )
+      if (!workspaceId || !workerId) return
+      store.getWorker(workspaceId, workerId)
+      const activeRun = store.getActiveRunByAgentId(workspaceId, workerId)
+      if (activeRun) store.stopAgentRun(activeRun.runId)
+      sendJson(response, 200, {
+        ok: true,
+        status: store.getWorker(workspaceId, workerId).status,
+        worker_id: workerId,
+        workspace_id: workspaceId,
+      })
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/workers/:workerId/restart',
+    async ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'admin_runtime')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id and worker id are required'
+      )
+      const workerId = getRequiredParam(
+        response,
+        params,
+        'workerId',
+        'Workspace id and worker id are required'
+      )
+      if (!workspaceId || !workerId) return
+      store.getWorker(workspaceId, workerId)
+      const activeRun = store.getActiveRunByAgentId(workspaceId, workerId)
+      if (activeRun) store.stopAgentRun(activeRun.runId)
+      const run = await store.startAgent(workspaceId, workerId, {
+        hivePort: String(request.socket.localPort ?? ''),
+      })
+      sendJson(response, 200, {
+        ok: true,
+        run_id: run.runId,
+        status: store.getWorker(workspaceId, workerId).status,
+        worker_id: workerId,
+        workspace_id: workspaceId,
+      })
     }
   ),
 ]

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
@@ -7,9 +7,12 @@ import { Screen } from '../../src/components/Screen'
 export default function SettingsTab() {
   const {
     connect,
+    disconnect,
     error,
     host,
     pairHost,
+    pairedDevice,
+    redeemPairingCode,
     runtimeStatus,
     selectWorkspace,
     selectedWorkspaceId,
@@ -20,7 +23,9 @@ export default function SettingsTab() {
     workspaces,
   } = useMobileRuntime()
   const [draftHost, setDraftHost] = useState(host)
+  const [draftPairingCode, setDraftPairingCode] = useState('')
   const [draftToken, setDraftToken] = useState(token)
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   useEffect(() => {
     setDraftHost(host)
@@ -36,10 +41,39 @@ export default function SettingsTab() {
     void connect(draftHost, draftToken)
   }
 
-  const onPair = async () => {
+  const onPairCode = async () => {
+    const code = draftPairingCode.replace(/\D/g, '')
+    if (code.length !== 6) {
+      Alert.alert('Invalid code', 'Enter the 6 digit pairing code shown in HippoTeam.')
+      return
+    }
+    setHost(draftHost)
+    const redeemed = await redeemPairingCode(draftHost, code)
+    if (redeemed) {
+      setDraftToken(redeemed.token)
+      setDraftPairingCode('')
+      Alert.alert('Paired', `Connected as ${redeemed.device.name}`)
+    }
+  }
+
+  const onFetchLegacyToken = async () => {
     setHost(draftHost)
     const pair = await pairHost(draftHost)
     if (pair) setDraftToken(pair.token)
+  }
+
+  const onDisconnect = () => {
+    Alert.alert('Disconnect device', 'Remove the saved mobile token from this app?', [
+      { style: 'cancel', text: 'Cancel' },
+      {
+        onPress: () => {
+          setDraftToken('')
+          void disconnect()
+        },
+        style: 'destructive',
+        text: 'Disconnect',
+      },
+    ])
   }
 
   return (
@@ -58,52 +92,56 @@ export default function SettingsTab() {
           value={draftHost}
         />
         <Text style={styles.hint}>
-          Pairing requires localhost. On device, open /api/mobile/pair on the computer and paste the
-          token below.
+          Generate a pairing code in HippoTeam on this runtime, then enter it here from the same
+          LAN.
         </Text>
 
-        <Text style={styles.label}>Mobile token</Text>
+        <Text style={styles.label}>Pairing code</Text>
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
-          onChangeText={setDraftToken}
-          placeholder="Paste token from /api/mobile/pair"
+          inputMode="numeric"
+          keyboardType="number-pad"
+          maxLength={6}
+          onChangeText={(value) => setDraftPairingCode(value.replace(/\D/g, '').slice(0, 6))}
+          placeholder="123456"
           placeholderTextColor="#6e7681"
-          secureTextEntry
-          style={styles.input}
-          value={draftToken}
+          style={styles.codeInput}
+          value={draftPairingCode}
         />
 
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
             disabled={state === 'checking'}
-            onPress={onPair}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              pressed || state === 'checking' ? styles.buttonPressed : null,
-            ]}
-          >
-            <Text style={styles.buttonText}>Fetch pair token</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={state === 'checking'}
-            onPress={onConnect}
+            onPress={onPairCode}
             style={({ pressed }) => [
               styles.button,
               pressed || state === 'checking' ? styles.buttonPressed : null,
             ]}
           >
-            <Text style={styles.buttonText}>
-              {state === 'checking' ? 'Connecting...' : 'Connect'}
-            </Text>
+            <Text style={styles.buttonText}>{state === 'checking' ? 'Pairing...' : 'Pair'}</Text>
           </Pressable>
+          {token ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={onDisconnect}
+              style={({ pressed }) => [styles.dangerButton, pressed ? styles.buttonPressed : null]}
+            >
+              <Text style={styles.buttonText}>Disconnect</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.card}>
           <Text style={styles.status}>Status: {state}</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
+          {pairedDevice ? (
+            <>
+              <Text style={styles.detail}>Device: {pairedDevice.name}</Text>
+              <Text style={styles.detail}>Device id: {pairedDevice.id}</Text>
+            </>
+          ) : null}
           {runtimeStatus ? (
             <>
               <Text style={styles.detail}>
@@ -113,6 +151,62 @@ export default function SettingsTab() {
             </>
           ) : null}
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setShowAdvanced((value) => !value)}
+          style={({ pressed }) => [styles.advancedToggle, pressed ? styles.buttonPressed : null]}
+        >
+          <Text style={styles.advancedToggleText}>
+            {showAdvanced ? 'Hide advanced' : 'Advanced'}
+          </Text>
+        </Pressable>
+
+        {showAdvanced ? (
+          <View style={styles.card}>
+            <Text style={styles.status}>Manual token fallback</Text>
+            <Text style={styles.hint}>
+              Use this only for development or when pairing code flow is unavailable.
+            </Text>
+            <Text style={styles.label}>Mobile token</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setDraftToken}
+              placeholder="Paste token"
+              placeholderTextColor="#6e7681"
+              secureTextEntry
+              style={styles.input}
+              value={draftToken}
+            />
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={state === 'checking'}
+                onPress={onFetchLegacyToken}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  pressed || state === 'checking' ? styles.buttonPressed : null,
+                ]}
+              >
+                <Text style={styles.buttonText}>Fetch legacy token</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={state === 'checking'}
+                onPress={onConnect}
+                style={({ pressed }) => [
+                  styles.button,
+                  pressed || state === 'checking' ? styles.buttonPressed : null,
+                ]}
+              >
+                <Text style={styles.buttonText}>
+                  {state === 'checking' ? 'Connecting...' : 'Connect'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.status}>Workspaces</Text>
@@ -149,6 +243,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  codeInput: {
+    backgroundColor: '#0d1117',
+    borderColor: '#58a6ff',
+    borderRadius: 14,
+    borderWidth: 1,
+    color: '#e6edf3',
+    fontSize: 34,
+    fontWeight: '800',
+    letterSpacing: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    textAlign: 'center',
+  },
+  advancedToggle: {
+    alignSelf: 'flex-start',
+    borderColor: '#30363d',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  advancedToggleText: {
+    color: '#58a6ff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   buttonPressed: {
     opacity: 0.75,
   },
@@ -168,6 +288,14 @@ const styles = StyleSheet.create({
   detail: {
     color: '#8b949e',
     fontSize: 14,
+  },
+  dangerButton: {
+    alignItems: 'center',
+    backgroundColor: '#da3633',
+    borderRadius: 10,
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   error: {
     color: '#ff7b72',
