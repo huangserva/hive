@@ -28,6 +28,7 @@ type WorkspaceDetailProps = {
   onDeleteWorker: (workerId: string) => Promise<void>
   onDeleteWorkspace: (workspace: WorkspaceSummary) => Promise<void>
   onStartWorker: (workerId: string) => Promise<{ error: string | null; runId: string | null }>
+  onStopWorkerRun: (runId: string) => Promise<{ error: string | null }>
   onOrchestratorResult: (workspaceId: string, result: OrchestratorStartResult) => void
   onRequestAddWorkspace: () => void
   onTryDemo?: () => void
@@ -44,6 +45,7 @@ export const WorkspaceDetail = ({
   onDeleteWorker,
   onDeleteWorkspace,
   onStartWorker,
+  onStopWorkerRun,
   onOrchestratorResult,
   onRequestAddWorkspace,
   onTryDemo,
@@ -64,6 +66,7 @@ export const WorkspaceDetail = ({
   const [shellStarting, setShellStarting] = useState(false)
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null)
   const [startingWorkerId, setStartingWorkerId] = useState<string | null>(null)
+  const [stoppingWorkerId, setStoppingWorkerId] = useState<string | null>(null)
   const toast = useToast()
   // Always derive the modal's worker from the latest workers prop so the
   // 500ms poll keeps it fresh — we never freeze a stale snapshot.
@@ -96,6 +99,7 @@ export const WorkspaceDetail = ({
     setShellStarting(false)
     setStartWorkerError(null)
     setStartingWorkerId(null)
+    setStoppingWorkerId(null)
   }, [workspace?.id])
   const orchestrator = useOrchestratorPaneState({
     workspaceId: workspace?.id ?? '',
@@ -147,6 +151,55 @@ export const WorkspaceDetail = ({
         setStartWorkerError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => setStartingWorkerId(null))
+  }
+
+  const handleStopWorker = (worker: TeamListItem) => {
+    const runId = findRunByAgentId(terminalRuns, worker.id)?.run_id
+    if (!runId) return
+    setStartWorkerError(null)
+    setStoppingWorkerId(worker.id)
+    void onStopWorkerRun(runId)
+      .then(({ error }) => {
+        if (error) setStartWorkerError(error)
+      })
+      .catch((error) => {
+        setStartWorkerError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => setStoppingWorkerId(null))
+  }
+
+  const handleStartAllWorkers = async () => {
+    setStartWorkerError(null)
+    const stoppedWorkers = workers.filter((worker) => worker.status === 'stopped')
+    try {
+      for (const worker of stoppedWorkers) {
+        const { error } = await onStartWorker(worker.id)
+        if (error) {
+          setStartWorkerError(error)
+          return
+        }
+      }
+    } catch (error) {
+      setStartWorkerError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const handleStopAllWorkers = async () => {
+    setStartWorkerError(null)
+    const runIds = workers
+      .map((worker) => findRunByAgentId(terminalRuns, worker.id)?.run_id ?? null)
+      .filter((runId): runId is string => runId !== null)
+    try {
+      for (const runId of runIds) {
+        const { error } = await onStopWorkerRun(runId)
+        if (error) {
+          setStartWorkerError(error)
+          return
+        }
+      }
+    } catch (error) {
+      setStartWorkerError(error instanceof Error ? error.message : String(error))
+    }
   }
 
   const handleRenameWorker = async (
@@ -240,8 +293,11 @@ export const WorkspaceDetail = ({
           onOpenShellTerminal={openShell}
           onOpenWorker={(worker) => setActiveWorkerId(worker.id)}
           onRenameWorker={handleRenameWorker}
+          onStartAllWorkers={handleStartAllWorkers}
           onStartWorker={handleStartWorker}
-          startingWorkerId={startingWorkerId}
+          onStopAllWorkers={handleStopAllWorkers}
+          onStopWorker={handleStopWorker}
+          startingWorkerId={startingWorkerId ?? stoppingWorkerId}
           terminalRuns={terminalRuns}
           workers={workers}
         />

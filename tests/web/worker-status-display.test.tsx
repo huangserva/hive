@@ -30,11 +30,12 @@ const terminalRun = (agentId: string): TerminalRunSummary => ({
 
 describe('worker status presentation', () => {
   test('worker card keeps an idle worker idle even when its PTY is running', () => {
+    const onAction = vi.fn()
     render(
       <WorkerCard
         hasRun
         onClick={vi.fn()}
-        onAction={vi.fn()}
+        onAction={onAction}
         worker={worker({ id: 'idle-worker', status: 'idle' })}
       />
     )
@@ -42,6 +43,22 @@ describe('worker status presentation', () => {
     expect(screen.getByRole('status')).toHaveTextContent('idle')
     expect(screen.getByTestId('worker-card-idle-worker')).toHaveAttribute('data-status', 'idle')
     expect(screen.queryByLabelText('Start ember-check-23')).toBeNull()
+    screen.getByLabelText('Stop ember-check-23').click()
+    expect(onAction).toHaveBeenCalledWith('stop', expect.objectContaining({ id: 'idle-worker' }))
+  })
+
+  test('worker card shows start only when no PTY run exists', () => {
+    render(
+      <WorkerCard
+        hasRun={false}
+        onClick={vi.fn()}
+        onAction={vi.fn()}
+        worker={worker({ id: 'stopped-worker', status: 'stopped' })}
+      />
+    )
+
+    expect(screen.getByLabelText('Start ember-check-23')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Stop ember-check-23')).toBeNull()
   })
 
   test('workers pane groups idle running PTYs separately from active work', () => {
@@ -61,6 +78,9 @@ describe('worker status presentation', () => {
         onOpenWorker={vi.fn()}
         onRenameWorker={vi.fn()}
         onStartWorker={vi.fn()}
+        onStartAllWorkers={vi.fn()}
+        onStopAllWorkers={vi.fn()}
+        onStopWorker={vi.fn()}
         startingWorkerId={null}
         terminalRuns={[terminalRun(idleWorker.id), terminalRun(activeWorker.id)]}
         workers={[idleWorker, activeWorker, stoppedWorker]}
@@ -73,5 +93,52 @@ describe('worker status presentation', () => {
 
     expect(within(idleList).getByText('idle-agent')).toBeInTheDocument()
     expect(within(idleList).queryByText('active-agent')).toBeNull()
+  })
+
+  test('workers pane enables bulk start and stop from worker/run state', () => {
+    render(
+      <WorkersPane
+        onAddWorkerClick={vi.fn()}
+        onDeleteWorker={vi.fn()}
+        onOpenShellTerminal={vi.fn()}
+        onOpenWorker={vi.fn()}
+        onRenameWorker={vi.fn()}
+        onStartWorker={vi.fn()}
+        onStartAllWorkers={vi.fn()}
+        onStopAllWorkers={vi.fn()}
+        onStopWorker={vi.fn()}
+        startingWorkerId={null}
+        terminalRuns={[terminalRun('idle-worker')]}
+        workers={[
+          worker({ id: 'idle-worker', name: 'idle-agent', status: 'idle' }),
+          worker({ id: 'stopped-worker', name: 'stopped-agent', status: 'stopped' }),
+        ]}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Start all' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Stop all' })).toBeEnabled()
+  })
+
+  test('workers pane disables bulk buttons when no worker can be started or stopped', () => {
+    render(
+      <WorkersPane
+        onAddWorkerClick={vi.fn()}
+        onDeleteWorker={vi.fn()}
+        onOpenShellTerminal={vi.fn()}
+        onOpenWorker={vi.fn()}
+        onRenameWorker={vi.fn()}
+        onStartWorker={vi.fn()}
+        onStartAllWorkers={vi.fn()}
+        onStopAllWorkers={vi.fn()}
+        onStopWorker={vi.fn()}
+        startingWorkerId={null}
+        terminalRuns={[]}
+        workers={[worker({ id: 'idle-worker', name: 'idle-agent', status: 'idle' })]}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Start all' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop all' })).toBeDisabled()
   })
 })

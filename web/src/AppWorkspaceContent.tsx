@@ -56,6 +56,7 @@ export const AppWorkspaceContent = ({
         onDeleteWorker={workerActions.deleteWorker}
         onDeleteWorkspace={onDeleteWorkspace}
         onStartWorker={workerActions.startWorker}
+        onStopWorkerRun={workerActions.stopWorkerRun}
         onOrchestratorResult={recordOrchestratorResult}
         onRequestAddWorkspace={onRequestAddWorkspace}
         onTryDemo={onTryDemo}

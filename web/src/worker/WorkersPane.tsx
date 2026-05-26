@@ -1,4 +1,4 @@
-import { Terminal, UserPlus } from 'lucide-react'
+import { PlayCircle, StopCircle, Terminal, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
@@ -17,7 +17,10 @@ type WorkersPaneProps = {
   onOpenShellTerminal: () => void
   onOpenWorker: (worker: TeamListItem) => void
   onRenameWorker: (worker: TeamListItem, newName: string) => Promise<{ error: string | null }>
+  onStartAllWorkers: () => Promise<void>
   onStartWorker: (worker: TeamListItem) => void
+  onStopAllWorkers: () => Promise<void>
+  onStopWorker: (worker: TeamListItem) => void
   shellTerminalAvailable?: boolean
   startingWorkerId: string | null
   terminalRuns: TerminalRunSummary[]
@@ -52,7 +55,10 @@ export const WorkersPane = ({
   onOpenShellTerminal,
   onOpenWorker,
   onRenameWorker,
+  onStartAllWorkers,
   onStartWorker,
+  onStopAllWorkers,
+  onStopWorker,
   shellTerminalAvailable = true,
   startingWorkerId,
   terminalRuns,
@@ -68,13 +74,21 @@ export const WorkersPane = ({
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
   const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
   const [renameBusy, setRenameBusy] = useState(false)
+  const [bulkAction, setBulkAction] = useState<'start' | 'stop' | null>(null)
 
   const runIdFor = (worker: TeamListItem): string | null =>
     findRunByAgentId(terminalRuns, worker.id)?.run_id ?? null
+  const hasStoppedWorker = workers.some((worker) => worker.status === 'stopped')
+  const hasActiveRun = workers.some((worker) => runIdFor(worker) !== null)
+  const bulkBusy = bulkAction !== null
 
   const handleAction = (kind: WorkerCardActionKind, worker: TeamListItem) => {
     if (kind === 'start') {
       onStartWorker(worker)
+      return
+    }
+    if (kind === 'stop') {
+      onStopWorker(worker)
       return
     }
     if (kind === 'rename') {
@@ -100,6 +114,11 @@ export const WorkersPane = ({
     })
   }
 
+  const runBulkAction = (kind: 'start' | 'stop', action: () => Promise<void>) => {
+    setBulkAction(kind)
+    void action().finally(() => setBulkAction(null))
+  }
+
   return (
     <div className="flex min-w-0 flex-1 flex-col" style={{ background: 'var(--bg-2)' }}>
       <div
@@ -112,6 +131,26 @@ export const WorkersPane = ({
           <span className="font-medium text-pri">{t('worker.teamMembers')}</span>
           <span className="mono rounded bg-3 px-1.5 py-0.5 text-xs text-sec">{workers.length}</span>
           <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => runBulkAction('start', onStartAllWorkers)}
+            className="icon-btn icon-btn--tertiary"
+            aria-label={t('worker.startAll')}
+            disabled={!hasStoppedWorker || bulkBusy}
+            data-testid="start-all-workers"
+          >
+            <PlayCircle size={14} aria-hidden /> {t('worker.startAll')}
+          </button>
+          <button
+            type="button"
+            onClick={() => runBulkAction('stop', onStopAllWorkers)}
+            className="icon-btn icon-btn--tertiary"
+            aria-label={t('worker.stopAll')}
+            disabled={!hasActiveRun || bulkBusy}
+            data-testid="stop-all-workers"
+          >
+            <StopCircle size={14} aria-hidden /> {t('worker.stopAll')}
+          </button>
           {shellTerminalAvailable ? (
             <button
               type="button"

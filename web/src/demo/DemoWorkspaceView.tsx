@@ -58,7 +58,10 @@ export const DemoWorkspaceView = ({ onExit }: DemoWorkspaceViewProps) => {
           onOpenShellTerminal={() => {}}
           onOpenWorker={() => {}}
           onRenameWorker={() => Promise.resolve({ error: null })}
+          onStartAllWorkers={() => Promise.resolve()}
           onStartWorker={() => {}}
+          onStopAllWorkers={() => Promise.resolve()}
+          onStopWorker={() => {}}
           shellTerminalAvailable={false}
           startingWorkerId={null}
           terminalRuns={[]}
