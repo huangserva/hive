@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router'
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 
@@ -7,6 +8,7 @@ import { StatusBadge } from '../../src/components/StatusBadge'
 
 export default function WorkersTab() {
   const { dashboard, dispatchTask, error, restartWorker, state, stopWorker } = useMobileRuntime()
+  const router = useRouter()
   const workers = dashboard?.workers ?? []
   const dispatchableWorkers = useMemo(
     () => workers.filter((worker) => worker.role !== 'sentinel'),
@@ -88,7 +90,12 @@ export default function WorkersTab() {
           <Text style={styles.body}>No workers found.</Text>
         ) : null}
         {workers.map((worker) => (
-          <View key={worker.id} style={styles.card}>
+          <Pressable
+            accessibilityRole="button"
+            key={worker.id}
+            onPress={() => router.push({ pathname: '/agent/[id]', params: { id: worker.id } })}
+            style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
+          >
             <View style={styles.cardHeader}>
               <View style={styles.workerTitle}>
                 <Text style={styles.name}>{worker.name}</Text>
@@ -97,6 +104,7 @@ export default function WorkersTab() {
               <StatusBadge status={worker.status} />
             </View>
             <Text style={styles.meta}>Preset: {worker.preset ?? 'none'}</Text>
+            <Text style={styles.meta}>Tap card for transcript and task history.</Text>
             <View style={styles.workerActions}>
               <Pressable
                 accessibilityRole="button"
@@ -121,7 +129,7 @@ export default function WorkersTab() {
                 <Text style={styles.buttonText}>Restart</Text>
               </Pressable>
             </View>
-          </View>
+          </Pressable>
         ))}
         {dashboard ? (
           <View style={styles.dispatchCard}>
@@ -195,6 +203,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
+  },
+  cardPressed: {
+    borderColor: '#58a6ff',
+    opacity: 0.85,
   },
   buttonPressed: {
     opacity: 0.75,

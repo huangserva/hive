@@ -94,6 +94,27 @@ export interface MobileDispatchResponse {
   workspace_id?: string
 }
 
+export interface MobileWorkerTranscript {
+  lines: string[]
+  status: string
+  truncated: boolean
+  worker_id: string
+  worker_name: string
+}
+
+export interface MobileWorkspaceTask {
+  created_at: string
+  id: string
+  status: 'pending' | 'done' | 'cancelled'
+  task_summary: string
+  worker_name: string
+}
+
+export interface MobileWorkspaceTasks {
+  dispatches: MobileWorkspaceTask[]
+  workspace_id: string
+}
+
 export interface MobileRelayConfig {
   daemon_public_key: string
   relay_url: string
@@ -199,6 +220,23 @@ export const createRuntimeClient = ({
       return readMobileJson<MobileDashboard>(
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/dashboard`,
         'workspace.dashboard.get',
+        { workspace_id: workspaceId }
+      )
+    },
+    async getWorkerTranscript(
+      workspaceId: string,
+      workerId: string
+    ): Promise<MobileWorkerTranscript> {
+      return readMobileJson<MobileWorkerTranscript>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/workers/${encodeURIComponent(workerId)}/transcript`,
+        'worker.transcript',
+        { worker_id: workerId, workspace_id: workspaceId }
+      )
+    },
+    async getWorkspaceTasks(workspaceId: string): Promise<MobileWorkspaceTasks> {
+      return readMobileJson<MobileWorkspaceTasks>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/tasks`,
+        'workspace.tasks',
         { workspace_id: workspaceId }
       )
     },

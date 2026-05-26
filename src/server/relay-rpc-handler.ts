@@ -1,7 +1,11 @@
 import { join } from 'node:path'
 import type { MobileCapability } from './mobile-auth.js'
 import type { RuntimeInfo } from './route-types.js'
-import { buildMobileDashboard } from './routes-mobile.js'
+import {
+  buildMobileDashboard,
+  buildMobileWorkerTranscript,
+  buildMobileWorkspaceTasks,
+} from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 export type RelayRpcHandler = (
@@ -18,7 +22,9 @@ interface RelayRpcHandlerDeps {
     | 'approvalLedger'
     | 'dispatchTask'
     | 'getActiveRunByAgentId'
+    | 'getPtySnapshotForAgent'
     | 'getWorker'
+    | 'listDispatches'
     | 'listWorkspaces'
     | 'requireMobileCapability'
     | 'startAgent'
@@ -83,6 +89,23 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
     if (method === 'workspace.dashboard.get') {
       requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
       return buildMobileDashboard(
+        deps.store as RuntimeStore,
+        readStringParam(params, 'workspace_id')
+      )
+    }
+
+    if (method === 'worker.transcript') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      return buildMobileWorkerTranscript(
+        deps.store as RuntimeStore,
+        readStringParam(params, 'workspace_id'),
+        readStringParam(params, 'worker_id')
+      )
+    }
+
+    if (method === 'workspace.tasks') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      return buildMobileWorkspaceTasks(
         deps.store as RuntimeStore,
         readStringParam(params, 'workspace_id')
       )

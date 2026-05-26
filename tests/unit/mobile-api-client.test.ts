@@ -188,4 +188,95 @@ describe('mobile runtime client', () => {
       }
     )
   })
+
+  test('fetches worker transcript and workspace task history over LAN', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        json: () =>
+          Promise.resolve({
+            lines: ['one', 'two'],
+            status: 'working',
+            truncated: false,
+            worker_id: 'worker-1',
+            worker_name: 'Alice',
+          }),
+        ok: true,
+      })
+      .mockResolvedValueOnce({
+        json: () =>
+          Promise.resolve({
+            dispatches: [
+              {
+                created_at: '2026-05-26T00:00:00.000Z',
+                id: 'dispatch-1',
+                status: 'pending',
+                task_summary: 'Run smoke',
+                worker_name: 'Alice',
+              },
+            ],
+            workspace_id: 'workspace-1',
+          }),
+        ok: true,
+      })
+    const client = createRuntimeClient({ fetchImpl, host: '10.0.0.2:4010', token: 'mobile-token' })
+
+    await expect(client.getWorkerTranscript('workspace-1', 'worker-1')).resolves.toMatchObject({
+      lines: ['one', 'two'],
+      worker_name: 'Alice',
+    })
+    await expect(client.getWorkspaceTasks('workspace-1')).resolves.toMatchObject({
+      dispatches: [{ id: 'dispatch-1', status: 'pending' }],
+    })
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/transcript',
+      { headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' } }
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/tasks',
+      { headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' } }
+    )
+  })
+
+  test('falls back to relay RPC for transcript and task history when LAN is unavailable', async () => {
+    const relayCalls: Array<{ method: string; params: unknown }> = []
+    const relayTransport = {
+      call: async <T>(method: string, params: unknown) => {
+        relayCalls.push({ method, params })
+        return (
+          method === 'worker.transcript'
+            ? { lines: ['relay'], status: 'idle', truncated: false, worker_id: 'worker-1' }
+            : { dispatches: [], workspace_id: 'workspace-1' }
+        ) as T
+      },
+      connect: async () => {},
+      status: () => 'ready' as const,
+    }
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 503 })
+    const client = createRuntimeClient({
+      fetchImpl,
+      host: '10.0.0.2:4010',
+      relayTransport,
+      token: 'mobile-token',
+    })
+
+    await expect(client.getWorkerTranscript('workspace-1', 'worker-1')).resolves.toMatchObject({
+      lines: ['relay'],
+    })
+    await expect(client.getWorkspaceTasks('workspace-1')).resolves.toMatchObject({
+      dispatches: [],
+    })
+
+    expect(relayCalls).toEqual([
+      {
+        method: 'worker.transcript',
+        params: { worker_id: 'worker-1', workspace_id: 'workspace-1' },
+      },
+      { method: 'workspace.tasks', params: { workspace_id: 'workspace-1' } },
+    ])
+    expect(client.connectionMode()).toBe('relay')
+  })
 })

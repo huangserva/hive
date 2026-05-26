@@ -20,7 +20,9 @@ import {
   type MobilePairRedeemResponse,
   type MobilePairResponse,
   type MobileRelayConfig,
+  type MobileWorkerTranscript,
   type MobileWorkspace,
+  type MobileWorkspaceTasks,
   type RuntimeStatus,
 } from './client'
 import { createRelayTransport, type RelayTransportConfig } from './relay-transport'
@@ -41,6 +43,8 @@ interface MobileRuntimeContextValue {
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
   error: string | null
+  getWorkerTranscript: (workerId: string) => Promise<MobileWorkerTranscript | null>
+  getWorkspaceTasks: () => Promise<MobileWorkspaceTasks | null>
   host: string
   pairHost: (nextHost: string) => Promise<MobilePairResponse | null>
   pairedDevice: MobileDeviceSummary | null
@@ -366,6 +370,40 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client, refreshDashboard, selectedWorkspaceId]
   )
 
+  const getWorkerTranscript = useCallback(
+    async (workerId: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before reading worker output')
+        return null
+      }
+      setError(null)
+      try {
+        return await client.getWorkerTranscript(selectedWorkspaceId, workerId)
+      } catch (transcriptError) {
+        const message =
+          transcriptError instanceof Error ? transcriptError.message : String(transcriptError)
+        setError(message)
+        return null
+      }
+    },
+    [client, selectedWorkspaceId]
+  )
+
+  const getWorkspaceTasks = useCallback(async () => {
+    if (!selectedWorkspaceId) {
+      setError('Select a workspace before reading tasks')
+      return null
+    }
+    setError(null)
+    try {
+      return await client.getWorkspaceTasks(selectedWorkspaceId)
+    } catch (tasksError) {
+      const message = tasksError instanceof Error ? tasksError.message : String(tasksError)
+      setError(message)
+      return null
+    }
+  }, [client, selectedWorkspaceId])
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -428,6 +466,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       disconnect,
       dispatchTask,
       error,
+      getWorkerTranscript,
+      getWorkspaceTasks,
       host,
       pairHost,
       pairedDevice,
@@ -452,6 +492,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       disconnect,
       dispatchTask,
       error,
+      getWorkerTranscript,
+      getWorkspaceTasks,
       host,
       pairHost,
       pairedDevice,

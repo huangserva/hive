@@ -183,12 +183,12 @@ last_review: 2026-05-25
   - [x] 子任务 4：Expo app 配对流程 + SecureStore + control actions（赵云）
   - [x] 子任务 5：集成测试验证 7 tests（典韦）
   - [x] 补丁：devices endpoints UI auth 支持（关羽）
-- [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
-  - [x] 子任务 1：独立 Node.js WebSocket room relay package（关羽，6 tests）`414cbae`
-  - [x] 子任务 2：shared E2E encrypted channel — tweetnacl NaCl box + handshake（吕布，17 tests）`414cbae`
-  - [x] 子任务 3：Runtime outbound connector — relay.json config + WS connect + heartbeat + backoff + RPC handler（关羽，10 tests）— pending commit
+- [x] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）`414cbae` `71730bb`
+  - [x] 子任务 1：独立 Node.js WebSocket room relay package（关羽，6 tests）
+  - [x] 子任务 2：shared E2E encrypted channel — tweetnacl NaCl box + handshake（吕布，17 tests）
+  - [x] 子任务 3：Runtime outbound connector — relay.json config + WS connect + heartbeat + backoff + RPC handler（关羽，10 tests）
   - [x] 子任务 4：Mobile relay transport — LAN→relay fallback + E2E handshake + JSON-RPC（赵云，7 tests）
-- [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）
+- [x] **M19d**：agent/terminal pane + task operations（worker transcript + dispatch task history）— `0095a41`
 - [ ] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）
 - [ ] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）
 - 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”后继续拍板“要原生、要最好”。

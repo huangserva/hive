@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
+import type { DispatchRecord } from './dispatch-ledger-store.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import {
@@ -13,6 +14,7 @@ import {
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import { enrichTeamList } from './team-list-enrichment.js'
+import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
 const activeMilestone = (cockpit: ReturnType<typeof parseCockpit>) =>
@@ -75,6 +77,61 @@ export const buildMobileDashboard = (
     workspace: workspace.summary,
   }
 }
+
+const MAX_TRANSCRIPT_LINES = 100
+const MAX_TASK_SUMMARY_LENGTH = 80
+
+const transcriptLinesFromSnapshot = (snapshot: string | null) => {
+  if (!snapshot) return { lines: [] as string[], truncated: false }
+  const lines = stripTerminalAnsi(snapshot)
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+  return {
+    lines: lines.slice(-MAX_TRANSCRIPT_LINES),
+    truncated: lines.length > MAX_TRANSCRIPT_LINES,
+  }
+}
+
+export const buildMobileWorkerTranscript = async (
+  store: Parameters<RouteDefinition['handler']>[0]['store'],
+  workspaceId: string,
+  workerId: string
+) => {
+  const worker = store.getWorker(workspaceId, workerId)
+  const snapshot = await store.getPtySnapshotForAgent(workspaceId, workerId)
+  const transcript = transcriptLinesFromSnapshot(snapshot)
+  return {
+    lines: transcript.lines,
+    status: worker.status,
+    truncated: transcript.truncated,
+    worker_id: worker.id,
+    worker_name: worker.name,
+  }
+}
+
+const mobileDispatchStatus = (status: DispatchRecord['status']) => {
+  if (status === 'reported') return 'done'
+  if (status === 'cancelled') return 'cancelled'
+  return 'pending'
+}
+
+const compactTaskSummary = (text: string) => text.trim().slice(0, MAX_TASK_SUMMARY_LENGTH)
+
+export const buildMobileWorkspaceTasks = (
+  store: Parameters<RouteDefinition['handler']>[0]['store'],
+  workspaceId: string
+) => ({
+  dispatches: store.listDispatches(workspaceId).map((dispatch) => ({
+    created_at: new Date(dispatch.createdAt).toISOString(),
+    id: dispatch.id,
+    status: mobileDispatchStatus(dispatch.status),
+    task_summary: compactTaskSummary(dispatch.text),
+    worker_name: store.getWorker(workspaceId, dispatch.toAgentId).name,
+  })),
+  workspace_id: workspaceId,
+})
 
 const pairedHost = (requestHost: string | string[] | undefined) => {
   const host = Array.isArray(requestHost) ? requestHost[0] : requestHost
@@ -254,6 +311,42 @@ export const mobileRoutes: RouteDefinition[] = [
       )
       if (!workspaceId) return
       sendJson(response, 200, buildMobileDashboard(store, workspaceId))
+    }
+  ),
+  route(
+    'GET',
+    '/api/mobile/workspaces/:workspaceId/workers/:workerId/transcript',
+    async ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'read_dashboard')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id and worker id are required'
+      )
+      const workerId = getRequiredParam(
+        response,
+        params,
+        'workerId',
+        'Workspace id and worker id are required'
+      )
+      if (!workspaceId || !workerId) return
+      sendJson(response, 200, await buildMobileWorkerTranscript(store, workspaceId, workerId))
+    }
+  ),
+  route(
+    'GET',
+    '/api/mobile/workspaces/:workspaceId/tasks',
+    ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'read_dashboard')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      sendJson(response, 200, buildMobileWorkspaceTasks(store, workspaceId))
     }
   ),
   route(

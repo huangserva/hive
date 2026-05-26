@@ -66,6 +66,7 @@ interface RuntimeStore {
   listDispatches: (workspaceId: string, options?: ListDispatchesOptions) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
   getLastPtyLineForAgent: (workspaceId: string, agentId: string) => string | null
+  getPtySnapshotForAgent: (workspaceId: string, agentId: string) => Promise<string | null>
   getWorkspaceSnapshot: (workspaceId: string) => WorkspaceRecord
   getWorker: (workspaceId: string, workerId: string) => AgentSummary
   getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
@@ -221,6 +222,8 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     listWorkers: (workspaceId) => services.workspaceStore.listWorkers(workspaceId),
     getLastPtyLineForAgent: (workspaceId, agentId) =>
       services.workerOutputTracker?.getLastPtyLine(workspaceId, agentId) ?? null,
+    getPtySnapshotForAgent: (workspaceId, agentId) =>
+      services.workerOutputTracker?.getSnapshot(workspaceId, agentId) ?? Promise.resolve(null),
     getWorkspaceSnapshot: (workspaceId) =>
       services.workspaceStore.getWorkspaceSnapshot(workspaceId),
     getWorker: (workspaceId, workerId) => services.workspaceStore.getWorker(workspaceId, workerId),

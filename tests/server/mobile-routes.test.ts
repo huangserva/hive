@@ -564,4 +564,109 @@ describe('mobile API', () => {
       await server.close()
     }
   })
+
+  test('returns a stripped worker transcript for a paired mobile client', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Transcript')
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      server.store.configureAgentLaunch(workspace.id, worker.id, {
+        command: process.execPath,
+        args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      })
+      const run = await server.store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+      const output = Array.from(
+        { length: 105 },
+        (_item, index) => `\u001b[31mline-${String(index + 1).padStart(3, '0')}\u001b[0m\n`
+      ).join('')
+      server.store.getPtyOutputBus().publish(run.runId, output)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      const { token } = await pairMobile(server.baseUrl)
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/transcript`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        lines: string[]
+        status: string
+        truncated: boolean
+        worker_id: string
+        worker_name: string
+      }
+
+      expect(response.status).toBe(200)
+      expect(body.worker_id).toBe(worker.id)
+      expect(body.worker_name).toBe('Alice')
+      expect(body.status).toBe('idle')
+      expect(body.truncated).toBe(true)
+      expect(body.lines).toHaveLength(100)
+      expect(body.lines[0]).toBe('line-006')
+      expect(body.lines.at(-1)).toBe('line-105')
+      expect(body.lines.join('\n')).not.toContain('\u001b[')
+    } finally {
+      await server.close()
+    }
+  }, 15000)
+
+  test('returns mobile dispatch task history with compact summaries', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Tasks')
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      const pending = await server.store.dispatchTask(
+        workspace.id,
+        worker.id,
+        'Investigate the mobile task list endpoint and keep the summary compact enough for a phone screen'
+      )
+      const done = await server.store.dispatchTask(workspace.id, worker.id, 'Report completed work')
+      server.store.reportTask(workspace.id, worker.id, {
+        dispatchId: done.id,
+        reportText: 'done',
+      })
+      const cancelled = await server.store.dispatchTask(workspace.id, worker.id, 'Cancel me')
+      server.store.cancelTask(workspace.id, cancelled.id, {
+        fromAgentId: worker.id,
+        reason: 'not needed',
+      })
+
+      const { token } = await pairMobile(server.baseUrl)
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/tasks`,
+        {
+          headers: mobileHeaders(token, '192.168.1.44:4010'),
+        }
+      )
+      const body = (await response.json()) as {
+        dispatches: Array<{
+          created_at: string
+          id: string
+          status: string
+          task_summary: string
+          worker_name: string
+        }>
+        workspace_id: string
+      }
+
+      expect(response.status).toBe(200)
+      expect(body.workspace_id).toBe(workspace.id)
+      expect(body.dispatches.map((dispatch) => dispatch.id)).toEqual([
+        pending.id,
+        done.id,
+        cancelled.id,
+      ])
+      expect(body.dispatches.map((dispatch) => dispatch.status)).toEqual([
+        'pending',
+        'done',
+        'cancelled',
+      ])
+      expect(body.dispatches[0].worker_name).toBe('Alice')
+      expect(body.dispatches[0].task_summary.length).toBeLessThanOrEqual(80)
+      expect(new Date(body.dispatches[0].created_at).toString()).not.toBe('Invalid Date')
+    } finally {
+      await server.close()
+    }
+  })
 })
