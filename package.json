@@ -1,6 +1,6 @@
 {
   "name": "@huangserva/hippoteam",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Browser-native team workspace for CLI coding agents — Claude Code, Codex, Gemini, and OpenCode collaborate as real PTY processes via a team protocol.",
   "type": "module",
   "packageManager": "pnpm@10.30.3",
