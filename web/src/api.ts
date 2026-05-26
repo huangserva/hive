@@ -102,6 +102,27 @@ export const listWorkspaces = async (): Promise<WorkspaceSummary[]> => {
   return (await response.json()) as WorkspaceSummary[]
 }
 
+export interface DashboardWorkspace {
+  id: string
+  name: string
+  cwd: string
+  workerCount: number
+  activeWorkerCount: number
+  recentDispatchCount: number
+  openDispatchCount: number
+  lastActivityAt: number | null
+}
+
+export const fetchDashboard = async (): Promise<DashboardWorkspace[]> => {
+  const response = await apiFetch('/api/ui/dashboard')
+
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load dashboard'))
+  }
+
+  return (await response.json()) as DashboardWorkspace[]
+}
+
 export interface VersionInfo {
   currentVersion: string
   installHint: string

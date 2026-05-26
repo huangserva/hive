@@ -5,6 +5,7 @@ import { AppOverlays } from './AppOverlays.js'
 import { AppProviders } from './AppProviders.js'
 import { AppWorkspaceContent } from './AppWorkspaceContent.js'
 import { useCockpit } from './cockpit/useCockpit.js'
+import { DashboardPage } from './dashboard/DashboardPage.js'
 import { DEMO_TASKS_MD } from './demo/demo-fixture.js'
 import { useDemoMode } from './demo/useDemoMode.js'
 import { useEffectiveWorkspaceState } from './demo/useEffectiveWorkspaceState.js'
@@ -35,6 +36,7 @@ const AppInner = () => {
   const [addDialogTrigger, setAddDialogTrigger] = useState(0)
   const [cockpitOpen, setCockpitOpen] = useState(false)
   const [taskGraphOpen, setTaskGraphOpen] = useState(false)
+  const [dashboardOpen, setDashboardOpen] = useState(false)
   const [settingsWorkspace, setSettingsWorkspace] = useState<WorkspaceSummary | null>(null)
   const toast = useToast()
   const { wizardOpen, closeWizard } = useFirstRunWizard(workspaces)
@@ -105,32 +107,46 @@ const AppInner = () => {
         <Sidebar
           activeWorkspaceId={eff.effectiveActiveWorkspaceId}
           createDisabledReason={bootstrapError ?? undefined}
+          dashboardActive={dashboardOpen}
           onCreateClick={triggerAddDialog}
           onDeleteWorkspace={deleteWorkspace}
           onOpenWorkspaceSettings={setSettingsWorkspace}
-          onSelectWorkspace={selectWorkspace}
+          onSelectWorkspace={(id) => {
+            selectWorkspace(id)
+            setDashboardOpen(false)
+          }}
+          onToggleDashboard={() => setDashboardOpen((v) => !v)}
           workersByWorkspaceId={eff.effectiveWorkersByWorkspaceId}
           workspaces={eff.effectiveWorkspaces}
         />
       }
     >
-      <AppWorkspaceContent
-        activeId={activeId}
-        activeWorkspace={eff.effectiveActiveWorkspace}
-        bootstrapError={bootstrapError}
-        demoMode={demoMode}
-        onDeleteWorkspace={deleteWorkspace}
-        onExitDemo={exitDemo}
-        onRequestAddWorkspace={triggerAddDialog}
-        onTryDemo={enableDemo}
-        optimisticRunsByWorkspaceId={terms.optimisticRunsByWorkspaceId}
-        orchestratorAutostartErrors={wsCreate.orchestratorAutostartErrors}
-        orchestratorAutostartRunIds={wsCreate.orchestratorAutostartRunIds}
-        recordOrchestratorResult={wsCreate.recordOrchestratorResult}
-        terminalRuns={terms.terminalRuns}
-        workerActions={workerActions}
-        workers={activeWorkers}
-      />
+      {dashboardOpen ? (
+        <DashboardPage
+          onSelectWorkspace={(id) => {
+            selectWorkspace(id)
+            setDashboardOpen(false)
+          }}
+        />
+      ) : (
+        <AppWorkspaceContent
+          activeId={activeId}
+          activeWorkspace={eff.effectiveActiveWorkspace}
+          bootstrapError={bootstrapError}
+          demoMode={demoMode}
+          onDeleteWorkspace={deleteWorkspace}
+          onExitDemo={exitDemo}
+          onRequestAddWorkspace={triggerAddDialog}
+          onTryDemo={enableDemo}
+          optimisticRunsByWorkspaceId={terms.optimisticRunsByWorkspaceId}
+          orchestratorAutostartErrors={wsCreate.orchestratorAutostartErrors}
+          orchestratorAutostartRunIds={wsCreate.orchestratorAutostartRunIds}
+          recordOrchestratorResult={wsCreate.recordOrchestratorResult}
+          terminalRuns={terms.terminalRuns}
+          workerActions={workerActions}
+          workers={activeWorkers}
+        />
+      )}
       <AppOverlays
         addDialogTrigger={addDialogTrigger}
         cockpitFile={cockpitFile}

@@ -9,6 +9,7 @@ import type {
   WorkerRole,
 } from './route-types.js'
 import { cockpitRoutes } from './routes-cockpit.js'
+import { dashboardRoutes } from './routes-dashboard.js'
 import { dispatchRoutes } from './routes-dispatches.js'
 import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
@@ -24,6 +25,7 @@ import { workspaceRoutes } from './routes-workspaces.js'
 
 const routes: RouteDefinition[] = [
   ...workspaceRoutes,
+  ...dashboardRoutes,
   ...dispatchRoutes,
   ...versionRoutes,
   ...uiRoutes,

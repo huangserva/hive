@@ -1,4 +1,4 @@
-import { FolderPlus, Plus, Settings, Trash2, X } from 'lucide-react'
+import { FolderPlus, LayoutDashboard, Plus, Settings, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../../src/shared/types.js'
@@ -13,10 +13,12 @@ import { WorkspaceAvatar } from './WorkspaceAvatar.js'
 type SidebarProps = {
   activeWorkspaceId: string | null
   createDisabledReason?: string
+  dashboardActive?: boolean
   onCreateClick: () => void
   onDeleteWorkspace: (workspace: WorkspaceSummary) => void | Promise<void>
   onOpenWorkspaceSettings: (workspace: WorkspaceSummary) => void
   onSelectWorkspace: (workspaceId: string) => void
+  onToggleDashboard?: () => void
   workersByWorkspaceId: Record<string, TeamListItem[]>
   workspaces: WorkspaceSummary[] | null
 }
@@ -51,10 +53,12 @@ const readGithubDismissed = (): boolean => {
 export const Sidebar = ({
   activeWorkspaceId,
   createDisabledReason,
+  dashboardActive = false,
   onCreateClick,
   onDeleteWorkspace,
   onOpenWorkspaceSettings,
   onSelectWorkspace,
+  onToggleDashboard,
   workersByWorkspaceId,
   workspaces,
 }: SidebarProps) => {
@@ -132,6 +136,18 @@ export const Sidebar = ({
         style={{ boxShadow: 'inset 0 -1px 0 var(--border)' }}
       >
         <div className="flex min-w-0 items-center gap-2">
+          <Tooltip label={t('dashboard.title')}>
+            <button
+              type="button"
+              onClick={onToggleDashboard}
+              aria-pressed={dashboardActive}
+              aria-label={t('dashboard.title')}
+              data-testid="sidebar-dashboard-btn"
+              className={`flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-3${dashboardActive ? ' text-accent' : ' text-ter'}`}
+            >
+              <LayoutDashboard size={14} aria-hidden />
+            </button>
+          </Tooltip>
           <span
             className="ws-sidebar-title__text text-xs font-medium text-ter"
             data-testid="workspace-sidebar-title"
