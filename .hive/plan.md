@@ -100,9 +100,10 @@ last_review: 2026-05-25
 - [x] 17 个 i18n 测试（完整性 + 切换 + 组件级）
 - 详见 `2b3e2ed` + `7be5d22`
 
-### M11 · Upstream marketplace 评估 · open
-- [ ] 关羽深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）
-- [ ] 决定回灌 / 借鉴概念 / 跳过
+### M11 · HippoTeam-native template catalog · shipped 2026-05-26
+- [x] 赵云深度调研 upstream 99d3821 marketplace（429 文件 / 114k 行）— 推荐 B 借鉴概念
+- [x] user 确认方案 B：10 个 builtin templates + Add Worker 模板选择器
+- [x] 关羽实现：schema v27 seed 10 templates + TemplatePicker UI + governance 纪律内嵌 `9398e09`
 
 ### M12 · Cockpit Reports tab · shipped 2026-05-25
 - [x] `.hive/reports/*.html` 列表 + 一键打开（复用现有 `open-file` endpoint）
