@@ -55,7 +55,9 @@ export const markAgentStopped = (
   workspaceId: string,
   agentId: string
 ) => {
-  getAgentRecord(workspaces, workspaceId, agentId).status = 'stopped'
+  const agent = getAgentRecord(workspaces, workspaceId, agentId)
+  agent.status = 'stopped'
+  agent.pendingTaskCount = 0
 }
 
 export const markTaskDispatched = (

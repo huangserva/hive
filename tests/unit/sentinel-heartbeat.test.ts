@@ -179,4 +179,55 @@ describe('sentinel heartbeat', () => {
     expect(payload).not.toContain('Orphaned dispatches')
     expect(payload).not.toContain('dispatch-running')
   })
+
+  test('reports stale dispatches to working worker after 30 minutes', async () => {
+    const writeRunInput = vi.fn()
+    const now = 1_700_001_000_000
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({}),
+      listOpenDispatches: () => [
+        {
+          artifacts: [],
+          createdAt: now - 35 * 60 * 1000,
+          deliveredAt: null,
+          fromAgentId: 'workspace-1:orchestrator',
+          id: 'dispatch-stale-working',
+          reportedAt: null,
+          reportText: null,
+          sequence: 1,
+          status: 'submitted',
+          submittedAt: now - 35 * 60 * 1000,
+          text: 'long running task',
+          toAgentId: 'workspace-1:coder',
+          workspaceId: 'workspace-1',
+        },
+      ],
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+        {
+          id: 'workspace-1:coder',
+          name: 'Coder',
+          pendingTaskCount: 1,
+          role: 'coder',
+          status: 'working',
+        },
+      ],
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' }],
+      now: () => now,
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+
+    const payload = writeRunInput.mock.calls[0]?.[1] as string
+    expect(payload).toContain('Orphaned dispatches')
+    expect(payload).toContain('Coder: dispatch dispatch-stale-working, submitted 35 min ago')
+  })
 })

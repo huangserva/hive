@@ -10,6 +10,7 @@ import type { WorkerConfig } from './workspace-store.js'
 const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
 const DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STALE_SUBMITTED_DISPATCH_MS = 15 * 60 * 1000
+const STALE_WORKING_DISPATCH_MS = 30 * 60 * 1000
 
 type ActiveRunRef = { runId: string } | undefined
 
@@ -108,8 +109,14 @@ export const createSentinelHeartbeat = ({
     return listOpenDispatches(workspaceId)
       .filter((dispatch) => {
         if (dispatch.submittedAt === null) return false
-        if (tickedAt - dispatch.submittedAt < STALE_SUBMITTED_DISPATCH_MS) return false
-        return workersById.get(dispatch.toAgentId)?.status === 'stopped'
+        const workerStatus = workersById.get(dispatch.toAgentId)?.status
+        if (workerStatus === 'stopped') {
+          return tickedAt - dispatch.submittedAt >= STALE_SUBMITTED_DISPATCH_MS
+        }
+        if (workerStatus === 'working' || workerStatus === 'idle') {
+          return tickedAt - dispatch.submittedAt >= STALE_WORKING_DISPATCH_MS
+        }
+        return false
       })
       .map((dispatch) => {
         const worker = workersById.get(dispatch.toAgentId)
