@@ -10,8 +10,14 @@ last_review: {{YYYY-MM-DD}}
 （一句话项目目标）
 
 ## 里程碑
-- [ ] M1: {{milestone_description}}
-- [ ] M2: ...
+
+### M1 · {{milestone_description}} · open
+- [ ] {{sub_task_1}}
+- [ ] {{sub_task_2}}
+
+### M2 · {{milestone_description}} · open
+- [ ] {{sub_task_1}}
+- [ ] {{sub_task_2}}
 
 ## Scope
 - in: ...
