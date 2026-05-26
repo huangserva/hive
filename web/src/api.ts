@@ -44,12 +44,16 @@ import {
 const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   id: payload.id,
   name: payload.name,
+  ...(payload.description ? { description: payload.description } : {}),
   role: payload.role,
   status: payload.status,
   pendingTaskCount: payload.pending_task_count,
   ...(payload.last_pty_line ? { lastPtyLine: payload.last_pty_line } : {}),
   ...(payload.command_preset_id ? { commandPresetId: payload.command_preset_id } : {}),
   ...(payload.thinking_level ? { thinkingLevel: payload.thinking_level } : {}),
+  ...(payload.sentinel_interval_ms !== null
+    ? { sentinelIntervalMs: payload.sentinel_interval_ms }
+    : {}),
 })
 
 const readErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -527,21 +531,33 @@ export const deleteWorker = async (workspaceId: string, workerId: string): Promi
   }
 }
 
-export const renameWorker = async (
+export const updateWorker = async (
   workspaceId: string,
   workerId: string,
-  name: string
+  patch: {
+    command_preset_id?: string
+    description?: string
+    name?: string
+    sentinel_interval_ms?: number
+    thinking_level?: string | null
+  }
 ): Promise<void> => {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/workers/${workerId}`, {
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(patch),
     headers: { 'content-type': 'application/json' },
     method: 'PATCH',
   })
 
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, 'Failed to rename worker'))
+    throw new Error(await readErrorMessage(response, 'Failed to update worker'))
   }
 }
+
+export const renameWorker = async (
+  workspaceId: string,
+  workerId: string,
+  name: string
+): Promise<void> => updateWorker(workspaceId, workerId, { name })
 
 export const getWorkspaceTasks = async (workspaceId: string): Promise<{ content: string }> => {
   const response = await apiFetch(`/api/workspaces/${workspaceId}/tasks`)

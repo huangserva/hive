@@ -259,6 +259,7 @@ describe('team API authz (R1.4)', () => {
       await expect(response.json()).resolves.toEqual([
         {
           command_preset_id: null,
+          description: expect.any(String),
           id: ctx.worker.id,
           last_pty_line: null,
           name: 'Alice',
@@ -266,6 +267,7 @@ describe('team API authz (R1.4)', () => {
           role: 'coder',
           status: 'idle',
           thinking_level: null,
+          sentinel_interval_ms: null,
         },
       ])
     } finally {

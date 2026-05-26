@@ -57,7 +57,7 @@ export const DemoWorkspaceView = ({ onExit }: DemoWorkspaceViewProps) => {
           onDeleteWorker={() => {}}
           onOpenShellTerminal={() => {}}
           onOpenWorker={() => {}}
-          onRenameWorker={() => Promise.resolve({ error: null })}
+          onUpdateWorker={() => Promise.resolve({ error: null })}
           onStartAllWorkers={() => Promise.resolve()}
           onStartWorker={() => {}}
           onStopAllWorkers={() => Promise.resolve()}

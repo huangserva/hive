@@ -4,7 +4,7 @@ import {
   resolveCommandPresetLaunchConfig,
   resolveStartupCommandLaunchConfig,
 } from './agent-launch-resolver.js'
-import { ConflictError } from './http-errors.js'
+import { BadRequestError, ConflictError } from './http-errors.js'
 import { autostartAgent, autostartOrchestrator } from './orchestrator-autostart.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
@@ -33,6 +33,38 @@ const getSerializedWorker = (workspaceId: string, workerId: string, store: Runti
 }
 
 const getRuntimePort = (request: IncomingMessage) => String(request.socket.localPort ?? '')
+
+interface PatchWorkerBody {
+  command_preset_id?: unknown
+  description?: unknown
+  name?: unknown
+  sentinel_interval_ms?: unknown
+  thinking_level?: unknown
+}
+
+const getPatchedThinkingLevel = (value: unknown): string | null | undefined => {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value !== 'string') throw new BadRequestError('thinking_level must be a string')
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+const getPatchedCommandPresetId = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new BadRequestError('command_preset_id must be a non-empty string')
+  }
+  return value.trim()
+}
+
+const getPatchedSentinelIntervalMs = (value: unknown): number | undefined => {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    throw new BadRequestError('sentinel_interval_ms must be a positive number')
+  }
+  return Math.floor(value)
+}
 
 export const workspaceRoutes: RouteDefinition[] = [
   route('GET', '/api/workspaces', ({ request, response, store }) => {
@@ -253,12 +285,57 @@ export const workspaceRoutes: RouteDefinition[] = [
       }
 
       requireUiTokenFromRequest(request, store.validateUiToken)
-      const body = await readJsonBody<{ name?: string }>(request)
-      if (typeof body.name !== 'string') {
-        sendJson(response, 400, { error: 'name is required' })
-        return
+      const body = await readJsonBody<PatchWorkerBody>(request)
+      const worker = store.getWorker(workspaceId, workerId)
+      const commandPresetId = getPatchedCommandPresetId(body.command_preset_id)
+      const thinkingLevel = getPatchedThinkingLevel(body.thinking_level)
+      const sentinelIntervalMs = getPatchedSentinelIntervalMs(body.sentinel_interval_ms)
+
+      if (typeof body.name === 'string') {
+        store.renameWorker(workspaceId, workerId, body.name)
+      } else if (body.name !== undefined) {
+        throw new BadRequestError('name must be a string')
       }
-      store.renameWorker(workspaceId, workerId, body.name)
+
+      if (typeof body.description === 'string') {
+        store.updateWorkerDescription(workspaceId, workerId, body.description)
+      } else if (body.description !== undefined) {
+        throw new BadRequestError('description must be a string')
+      }
+
+      if (sentinelIntervalMs !== undefined) {
+        if (worker.role !== 'sentinel') {
+          throw new BadRequestError('sentinel_interval_ms can only be set on sentinel workers')
+        }
+        store.updateWorkerConfig(workspaceId, workerId, {
+          heartbeat_interval_ms: sentinelIntervalMs,
+        })
+      }
+
+      if (commandPresetId !== undefined || thinkingLevel !== undefined) {
+        const currentConfig = store.peekAgentLaunchConfig(workspaceId, workerId)
+        if (commandPresetId !== undefined) {
+          if (worker.role === 'sentinel' && commandPresetId !== 'claude') {
+            throw new BadRequestError('sentinel workers must use the claude command preset')
+          }
+          const nextConfig = resolveCommandPresetLaunchConfig(
+            store.settings,
+            commandPresetId,
+            thinkingLevel === undefined ? (currentConfig?.thinkingLevel ?? null) : thinkingLevel
+          )
+          if (!nextConfig) throw new BadRequestError(`Command preset not found: ${commandPresetId}`)
+          store.configureAgentLaunch(workspaceId, workerId, nextConfig)
+        } else {
+          if (!currentConfig) {
+            throw new BadRequestError(`Worker launch config not found: ${workerId}`)
+          }
+          store.configureAgentLaunch(workspaceId, workerId, {
+            ...currentConfig,
+            thinkingLevel: thinkingLevel ?? null,
+          })
+        }
+      }
+
       sendJson(response, 200, getSerializedWorker(workspaceId, workerId, store))
     }
   ),

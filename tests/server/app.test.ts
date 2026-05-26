@@ -240,12 +240,14 @@ describe('runtime http app', () => {
       {
         id: worker.id,
         name: 'Alice',
+        description: expect.any(String),
         role: 'coder',
         status: 'working',
         pending_task_count: 1,
         last_pty_line: null,
         command_preset_id: null,
         thinking_level: null,
+        sentinel_interval_ms: null,
       },
     ])
   })
@@ -329,17 +331,20 @@ describe('runtime http app', () => {
       agent_start: { ok: false, error: null, run_id: null },
       id: expect.any(String),
       name: 'Alice',
+      description: expect.any(String),
       role: 'coder',
       status: 'stopped',
       pending_task_count: 0,
       last_pty_line: null,
       command_preset_id: null,
       thinking_level: null,
+      sentinel_interval_ms: null,
     })
     expect(store.listWorkers(workspace.id)).toEqual([
       {
         id: expect.any(String),
         name: 'Alice',
+        description: expect.any(String),
         role: 'coder',
         status: 'stopped',
         pendingTaskCount: 0,

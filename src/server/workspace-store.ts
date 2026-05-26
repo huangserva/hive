@@ -4,7 +4,13 @@ import type { Database } from 'better-sqlite3'
 import type { AgentSummary } from '../shared/types.js'
 import { ConflictError } from './http-errors.js'
 import { getDefaultRoleDescription } from './role-templates.js'
-import type { WorkerInput, WorkspaceRecord, WorkspaceStore } from './workspace-store-contract.js'
+import type {
+  WorkerConfig,
+  WorkerConfigPatch,
+  WorkerInput,
+  WorkspaceRecord,
+  WorkspaceStore,
+} from './workspace-store-contract.js'
 import { hydrateWorkspaceFromDb, seedWorkspacesFromDb } from './workspace-store-hydration.js'
 import {
   getAgentRecord,
@@ -22,13 +28,47 @@ import {
   type MessageKindRecord,
 } from './workspace-store-support.js'
 
-export type { WorkerInput, WorkspaceRecord, WorkspaceStore }
+export type { WorkerConfig, WorkerConfigPatch, WorkerInput, WorkspaceRecord, WorkspaceStore }
 
 const normalizeWorkerName = (name: string) => {
   const trimmed = name.trim()
   if (!trimmed) throw new Error('Worker name must not be empty')
   if (trimmed.length > 64) throw new Error('Worker name must be 64 characters or fewer')
   return trimmed
+}
+
+const parseWorkerConfig = (value: string | null): WorkerConfig => {
+  if (!value) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value) as unknown
+  } catch {
+    return {}
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const config: WorkerConfig = {}
+  const heartbeatInterval = (parsed as Record<string, unknown>).heartbeat_interval_ms
+  if (typeof heartbeatInterval === 'number' && Number.isFinite(heartbeatInterval)) {
+    config.heartbeat_interval_ms = heartbeatInterval
+  }
+  return config
+}
+
+const getWorkerConfigFromDb = (db: Database, workspaceId: string, workerId: string) => {
+  const row = db
+    .prepare('SELECT config_json FROM workers WHERE workspace_id = ? AND id = ?')
+    .get(workspaceId, workerId) as { config_json: string | null } | undefined
+  if (!row) throw new Error(`Worker not found: ${workerId}`)
+  return parseWorkerConfig(row.config_json)
+}
+
+const mergeWorkerConfig = (current: WorkerConfig, patch: WorkerConfigPatch): WorkerConfig => {
+  const next: WorkerConfig = { ...current }
+  if (Object.hasOwn(patch, 'heartbeat_interval_ms')) {
+    if (patch.heartbeat_interval_ms === undefined) delete next.heartbeat_interval_ms
+    else next.heartbeat_interval_ms = patch.heartbeat_interval_ms
+  }
+  return next
 }
 
 export const createWorkspaceStore = (
@@ -140,6 +180,7 @@ export const createWorkspaceStore = (
     getWorker: (workspaceId, workerId) => getWorkerRecord(workspaces, workspaceId, workerId),
     getWorkerByName: (workspaceId, workerName) =>
       getWorkerByNameRecord(workspaces, workspaceId, workerName),
+    getWorkerConfig: (workspaceId, workerId) => getWorkerConfigFromDb(db, workspaceId, workerId),
     getWorkspaceSnapshot: getWorkspace,
     hasAgent(workspaceId, agentId) {
       hydrateWorkspaceFromDb(db, workspaces, messageKinds, workspaceId)
@@ -148,9 +189,10 @@ export const createWorkspaceStore = (
     listWorkers(workspaceId) {
       return getWorkspace(workspaceId)
         .agents.filter(isWorkerAgent)
-        .map(({ id, name, role, status, pendingTaskCount }) => ({
+        .map(({ id, name, description, role, status, pendingTaskCount }) => ({
           id,
           name,
+          description,
           role,
           status,
           pendingTaskCount,
@@ -167,5 +209,25 @@ export const createWorkspaceStore = (
       markTaskDispatched(workspaces, workspaceId, workerId),
     markTaskReported: (workspaceId, workerId) =>
       markTaskReported(workspaces, workspaceId, workerId),
+    updateWorkerConfig(workspaceId, workerId, configPatch) {
+      getWorkerRecord(workspaces, workspaceId, workerId)
+      const next = mergeWorkerConfig(getWorkerConfigFromDb(db, workspaceId, workerId), configPatch)
+      db.prepare('UPDATE workers SET config_json = ? WHERE workspace_id = ? AND id = ?').run(
+        JSON.stringify(next),
+        workspaceId,
+        workerId
+      )
+      return next
+    },
+    updateWorkerDescription(workspaceId, workerId, description) {
+      const worker = getWorkerRecord(workspaces, workspaceId, workerId)
+      db.prepare('UPDATE workers SET description = ? WHERE workspace_id = ? AND id = ?').run(
+        description,
+        workspaceId,
+        workerId
+      )
+      worker.description = description
+      return worker
+    },
   }
 }

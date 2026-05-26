@@ -28,6 +28,7 @@ export interface AgentSummary {
 export interface TeamListItem {
   id: string
   name: string
+  description?: string
   role: WorkerRole
   status: AgentStatus
   pendingTaskCount: number
@@ -45,6 +46,7 @@ export interface TeamListItem {
    */
   commandPresetId?: string
   thinkingLevel?: string
+  sentinelIntervalMs?: number
 }
 
 /**
@@ -55,10 +57,12 @@ export interface TeamListItem {
 export interface TeamListItemPayload {
   id: string
   name: string
+  description: string | null
   role: WorkerRole
   status: AgentStatus
   pending_task_count: number
   last_pty_line: string | null
   command_preset_id: string | null
   thinking_level: string | null
+  sentinel_interval_ms: number | null
 }

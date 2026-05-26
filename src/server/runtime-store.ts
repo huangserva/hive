@@ -20,7 +20,12 @@ import type {
   StatusTaskInput,
 } from './team-operations.js'
 import type { TerminalRunSummary } from './terminal-input-profile.js'
-import type { WorkerInput, WorkspaceRecord } from './workspace-store.js'
+import type {
+  WorkerConfig,
+  WorkerConfigPatch,
+  WorkerInput,
+  WorkspaceRecord,
+} from './workspace-store.js'
 
 interface RuntimeStore {
   close: () => Promise<void>
@@ -31,6 +36,16 @@ interface RuntimeStore {
   addWorker: (workspaceId: string, input: WorkerInput) => AgentSummary
   deleteWorker: (workspaceId: string, workerId: string) => void
   renameWorker: (workspaceId: string, workerId: string, name: string) => AgentSummary
+  updateWorkerDescription: (
+    workspaceId: string,
+    workerId: string,
+    description: string
+  ) => AgentSummary
+  updateWorkerConfig: (
+    workspaceId: string,
+    workerId: string,
+    configPatch: WorkerConfigPatch
+  ) => WorkerConfig
   recordUserInput: (workspaceId: string, orchestratorId: string, text: string) => void
   notifyQuestionAnswered: (workspaceId: string, questionId: string, answer: string) => void
   dispatchTask: (
@@ -53,6 +68,7 @@ interface RuntimeStore {
   getLastPtyLineForAgent: (workspaceId: string, agentId: string) => string | null
   getWorkspaceSnapshot: (workspaceId: string) => WorkspaceRecord
   getWorker: (workspaceId: string, workerId: string) => AgentSummary
+  getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
   getAgent: (workspaceId: string, agentId: string) => AgentSummary
   getPtyOutputBus: () => PtyOutputBus
   listTerminalRuns: (workspaceId: string) => TerminalRunSummary[]
@@ -165,6 +181,10 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     addWorker: (workspaceId, input) => services.workspaceStore.addWorker(workspaceId, input),
     renameWorker: (workspaceId, workerId, name) =>
       services.workspaceStore.renameWorker(workspaceId, workerId, name),
+    updateWorkerDescription: (workspaceId, workerId, description) =>
+      services.workspaceStore.updateWorkerDescription(workspaceId, workerId, description),
+    updateWorkerConfig: (workspaceId, workerId, configPatch) =>
+      services.workspaceStore.updateWorkerConfig(workspaceId, workerId, configPatch),
     deleteWorker: (workspaceId, workerId) => {
       const activeRun = services.agentRuntime.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) services.agentRuntime.stopAgentRun(activeRun.runId)
@@ -190,6 +210,8 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     getWorkspaceSnapshot: (workspaceId) =>
       services.workspaceStore.getWorkspaceSnapshot(workspaceId),
     getWorker: (workspaceId, workerId) => services.workspaceStore.getWorker(workspaceId, workerId),
+    getWorkerConfig: (workspaceId, workerId) =>
+      services.workspaceStore.getWorkerConfig(workspaceId, workerId),
     getAgent: (workspaceId, agentId) => services.workspaceStore.getAgent(workspaceId, agentId),
     getPtyOutputBus: lifecycle.getPtyOutputBus,
     listTerminalRuns: lifecycle.listTerminalRuns,

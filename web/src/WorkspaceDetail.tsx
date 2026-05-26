@@ -5,9 +5,9 @@ import {
   closeWorkspaceShell,
   isWorkspaceShellRun,
   type OrchestratorStartResult,
-  renameWorker,
   startWorkspaceShell,
   type TerminalRunSummary,
+  updateWorker,
 } from './api.js'
 import { useI18n } from './i18n.js'
 import { WorkspaceNotifications } from './notifications/WorkspaceNotifications.js'
@@ -202,20 +202,22 @@ export const WorkspaceDetail = ({
     }
   }
 
-  const handleRenameWorker = async (
+  const handleUpdateWorker = async (
     worker: TeamListItem,
-    newName: string
+    patch: Record<string, unknown>
   ): Promise<{ error: string | null }> => {
     try {
-      await renameWorker(workspace.id, worker.id, newName)
-      toast.show({
-        kind: 'success',
-        message: t('worker.renameSuccess', { name: newName }),
-      })
+      await updateWorker(workspace.id, worker.id, patch as Parameters<typeof updateWorker>[2])
+      if (patch.name && typeof patch.name === 'string') {
+        toast.show({
+          kind: 'success',
+          message: t('worker.renameSuccess', { name: patch.name }),
+        })
+      }
       return { error: null }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      toast.show({ kind: 'error', message: t('worker.renameFailed', { message }) })
+      toast.show({ kind: 'error', message })
       return { error: message }
     }
   }
@@ -292,7 +294,7 @@ export const WorkspaceDetail = ({
           onDeleteWorker={handleDeleteWorker}
           onOpenShellTerminal={openShell}
           onOpenWorker={(worker) => setActiveWorkerId(worker.id)}
-          onRenameWorker={handleRenameWorker}
+          onUpdateWorker={handleUpdateWorker}
           onStartAllWorkers={handleStartAllWorkers}
           onStartWorker={handleStartWorker}
           onStopAllWorkers={handleStopAllWorkers}

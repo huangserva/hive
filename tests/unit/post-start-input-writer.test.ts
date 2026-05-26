@@ -17,6 +17,7 @@ describe('post-start input writer', () => {
     expect(
       hasInteractivePromptReady('Gemini CLI\n* Type your message or @path/to/file', 'gemini')
     ).toBe(true)
+    expect(hasInteractivePromptReady('OpenCode\nAsk anything...', 'opencode')).toBe(true)
     expect(hasInteractivePromptReady('booting only')).toBe(false)
   })
 

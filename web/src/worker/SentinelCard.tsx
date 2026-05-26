@@ -1,4 +1,4 @@
-import { Pencil, Play, ShieldCheck, Square, Trash2 } from 'lucide-react'
+import { Play, Settings, ShieldCheck, Square, Trash2 } from 'lucide-react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
@@ -82,12 +82,12 @@ export const SentinelCard = ({
           </SentinelActionButton>
         )}
         <SentinelActionButton
-          ariaLabel={t('worker.renameAria', { name: worker.name })}
+          ariaLabel={t('worker.settingsAria', { name: worker.name })}
           disabled={isPending}
-          label={t('worker.rename')}
-          onClick={handleAction('rename')}
+          label={t('worker.settings')}
+          onClick={handleAction('settings')}
         >
-          <Pencil size={12} aria-hidden />
+          <Settings size={12} aria-hidden />
         </SentinelActionButton>
         <SentinelActionButton
           ariaLabel={t('worker.deleteAria', { name: worker.name })}

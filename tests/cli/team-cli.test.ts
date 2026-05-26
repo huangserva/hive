@@ -141,10 +141,12 @@ describe('team cli with real server', () => {
         id: expect.any(String),
         last_pty_line: null,
         name: 'Alice',
+        description: expect.any(String),
         pending_task_count: 0,
         role: 'coder',
         status: 'idle',
         thinking_level: null,
+        sentinel_interval_ms: null,
       },
     ])
     logSpy.mockRestore()

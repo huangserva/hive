@@ -4,8 +4,10 @@ import type { TeamListItem, WorkspaceSummary } from '../shared/types.js'
 import { parseCockpit } from './cockpit-doc.js'
 import type { HiveLogger } from './logger.js'
 import { buildSentinelHeartbeatPayload } from './sentinel-guidance.js'
+import type { WorkerConfig } from './workspace-store.js'
 
-const DEFAULT_SENTINEL_INTERVAL_MS = 30 * 60 * 1000
+const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
+const DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 
 type ActiveRunRef = { runId: string } | undefined
 
@@ -13,10 +15,12 @@ export interface SentinelHeartbeatOptions {
   buildCockpitSnapshot?: (workspacePath: string) => unknown
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => ActiveRunRef
   getGitSummary?: (workspacePath: string) => string
+  getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
   intervalMs?: number
   listWorkers: (workspaceId: string) => TeamListItem[]
   listWorkspaces: () => WorkspaceSummary[]
   logger?: HiveLogger
+  now?: () => number
   writeRunInput: (runId: string, input: string) => void
 }
 
@@ -73,27 +77,47 @@ export const createSentinelHeartbeat = ({
   buildCockpitSnapshot = defaultBuildCockpitSnapshot,
   getActiveRunByAgentId,
   getGitSummary = defaultGetGitSummary,
-  intervalMs = DEFAULT_SENTINEL_INTERVAL_MS,
+  getWorkerConfig,
+  intervalMs = DEFAULT_CHECK_INTERVAL_MS,
   listWorkers,
   listWorkspaces,
   logger,
+  now = Date.now,
   writeRunInput,
 }: SentinelHeartbeatOptions) => {
   let timer: NodeJS.Timeout | null = null
+  const lastTickAt = new Map<string, number>()
+
+  const getHeartbeatIntervalMs = (workspaceId: string, workerId: string) => {
+    const configured = getWorkerConfig(workspaceId, workerId).heartbeat_interval_ms
+    return typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+      ? configured
+      : DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS
+  }
 
   const tick = async () => {
+    const tickedAt = now()
     for (const workspace of listWorkspaces()) {
       const sentinels = listWorkers(workspace.id).filter((worker) => worker.role === 'sentinel')
       for (const sentinel of sentinels) {
         const run = getActiveRunByAgentId(workspace.id, sentinel.id)
         if (!run) continue
         try {
+          const heartbeatKey = `${workspace.id}:${sentinel.id}`
+          const previousTickAt = lastTickAt.get(heartbeatKey)
+          if (
+            previousTickAt !== undefined &&
+            tickedAt - previousTickAt < getHeartbeatIntervalMs(workspace.id, sentinel.id)
+          ) {
+            continue
+          }
           const payload = buildSentinelHeartbeatPayload({
             cockpitSummary: summarizeCockpit(buildCockpitSnapshot(workspace.path)),
             gitSummary: getGitSummary(workspace.path),
             workspace,
           })
           writeRunInput(run.runId, payload)
+          lastTickAt.set(heartbeatKey, tickedAt)
         } catch (error) {
           logger?.warn(
             `sentinel heartbeat failed workspace_id=${workspace.id} agent_id=${sentinel.id}`,

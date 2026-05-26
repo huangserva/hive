@@ -137,6 +137,8 @@ export const createRuntimeStoreServices = (
     ? createSentinelHeartbeat({
         getActiveRunByAgentId: (workspaceId, agentId) =>
           agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
+        getWorkerConfig: (workspaceId, workerId) =>
+          workspaceStore.getWorkerConfig(workspaceId, workerId),
         listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
         listWorkspaces: () => workspaceStore.listWorkspaces(),
         ...(options.logger ? { logger: options.logger } : {}),

@@ -7,9 +7,9 @@ import { useI18n } from '../i18n.js'
 import { findRunByAgentId } from '../terminal/useTerminalRuns.js'
 import { Confirm } from '../ui/Confirm.js'
 import { EmptyState } from '../ui/EmptyState.js'
-import { RenameWorkerDialog } from './RenameWorkerDialog.js'
 import { SentinelCard } from './SentinelCard.js'
 import { WorkerCard, type WorkerCardActionKind } from './WorkerCard.js'
+import { WorkerSettingsDialog } from './WorkerSettingsDialog.js'
 import { presentWorkerStatus, type WorkerStatusKind } from './worker-status.js'
 
 type WorkersPaneProps = {
@@ -17,11 +17,14 @@ type WorkersPaneProps = {
   onDeleteWorker: (worker: TeamListItem) => void
   onOpenShellTerminal: () => void
   onOpenWorker: (worker: TeamListItem) => void
-  onRenameWorker: (worker: TeamListItem, newName: string) => Promise<{ error: string | null }>
   onStartAllWorkers: () => Promise<void>
   onStartWorker: (worker: TeamListItem) => void
   onStopAllWorkers: () => Promise<void>
   onStopWorker: (worker: TeamListItem) => void
+  onUpdateWorker: (
+    worker: TeamListItem,
+    patch: Record<string, unknown>
+  ) => Promise<{ error: string | null }>
   shellTerminalAvailable?: boolean
   startingWorkerId: string | null
   terminalRuns: TerminalRunSummary[]
@@ -55,11 +58,11 @@ export const WorkersPane = ({
   onDeleteWorker,
   onOpenShellTerminal,
   onOpenWorker,
-  onRenameWorker,
   onStartAllWorkers,
   onStartWorker,
   onStopAllWorkers,
   onStopWorker,
+  onUpdateWorker,
   shellTerminalAvailable = true,
   startingWorkerId,
   terminalRuns,
@@ -78,8 +81,8 @@ export const WorkersPane = ({
     return buckets
   }, [regularWorkers])
   const [pendingDelete, setPendingDelete] = useState<TeamListItem | null>(null)
-  const [renameTarget, setRenameTarget] = useState<TeamListItem | null>(null)
-  const [renameBusy, setRenameBusy] = useState(false)
+  const [settingsTarget, setSettingsTarget] = useState<TeamListItem | null>(null)
+  const [settingsBusy, setSettingsBusy] = useState(false)
   const [bulkAction, setBulkAction] = useState<'start' | 'stop' | null>(null)
 
   const runIdFor = (worker: TeamListItem): string | null =>
@@ -97,8 +100,8 @@ export const WorkersPane = ({
       onStopWorker(worker)
       return
     }
-    if (kind === 'rename') {
-      setRenameTarget(worker)
+    if (kind === 'settings') {
+      setSettingsTarget(worker)
       return
     }
     if (kind === 'delete') {
@@ -112,11 +115,13 @@ export const WorkersPane = ({
     setPendingDelete(null)
   }
 
-  const submitRename = (worker: TeamListItem, newName: string) => {
-    setRenameBusy(true)
-    void onRenameWorker(worker, newName).finally(() => {
-      setRenameBusy(false)
-      setRenameTarget(null)
+  const submitSettings = (workerId: string, patch: Record<string, unknown>) => {
+    const worker = workers.find((w) => w.id === workerId)
+    if (!worker) return
+    setSettingsBusy(true)
+    void onUpdateWorker(worker, patch).finally(() => {
+      setSettingsBusy(false)
+      setSettingsTarget(null)
     })
   }
 
@@ -277,11 +282,11 @@ export const WorkersPane = ({
         confirmKind="danger"
         onConfirm={confirmDelete}
       />
-      <RenameWorkerDialog
-        worker={renameTarget}
-        busy={renameBusy}
-        onClose={() => setRenameTarget(null)}
-        onSubmit={submitRename}
+      <WorkerSettingsDialog
+        worker={settingsTarget}
+        busy={settingsBusy}
+        onClose={() => setSettingsTarget(null)}
+        onSubmit={submitSettings}
       />
     </div>
   )

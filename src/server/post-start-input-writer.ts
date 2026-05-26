@@ -4,7 +4,7 @@ import type { AgentManager } from './agent-manager.js'
 
 const INTERACTIVE_COMMANDS = new Set(['claude', 'codex', 'gemini', 'opencode'])
 const READY_CHECK_INTERVAL_MS = 50
-const READY_TIMEOUT_MS = 3000
+const READY_TIMEOUT_MS = 8000
 const MIN_SUBMIT_AFTER_PASTE_DELAY_MS = 600
 const MAX_SUBMIT_AFTER_PASTE_DELAY_MS = 1500
 const PASTE_CHARS_PER_DELAY_MS = 4
@@ -27,12 +27,14 @@ export const isInteractiveAgentCommand = (command: string) =>
 const getCommandName = (command: string) => basename(command).toLowerCase()
 
 const hasGeminiPromptReady = (output: string) => /\bType your message\b/u.test(output)
+const hasOpenCodePromptReady = (output: string) => /Ask anything/u.test(output)
 
 export const hasInteractivePromptReady = (output: string, command = '') => {
   const commandName = getCommandName(command)
   return (
     /(?:^|[\r\n])\s*[❯›]\s*/u.test(output) ||
-    (commandName === 'gemini' && hasGeminiPromptReady(output))
+    (commandName === 'gemini' && hasGeminiPromptReady(output)) ||
+    (commandName === 'opencode' && hasOpenCodePromptReady(output))
   )
 }
 

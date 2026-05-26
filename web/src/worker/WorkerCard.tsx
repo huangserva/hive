@@ -1,4 +1,4 @@
-import { Pencil, Play, Square, Trash2 } from 'lucide-react'
+import { Play, Settings, Square, Trash2 } from 'lucide-react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 
 import type { TeamListItem } from '../../../src/shared/types.js'
@@ -20,7 +20,7 @@ const statusKey = (status: WorkerStatusKind) => {
   return 'common.stopped'
 }
 
-export type WorkerCardActionKind = 'start' | 'stop' | 'rename' | 'delete'
+export type WorkerCardActionKind = 'start' | 'stop' | 'settings' | 'delete'
 
 type WorkerCardProps = {
   hasRun: boolean
@@ -120,13 +120,13 @@ export const WorkerCard = ({
             </CardActionBtn>
           )}
           <CardActionBtn
-            title={t('worker.rename')}
-            onClick={handleAction('rename')}
+            title={t('worker.settings')}
+            onClick={handleAction('settings')}
             disabled={isPending}
-            testId={`worker-card-rename-${worker.id}`}
-            ariaLabel={t('worker.renameAria', { name: worker.name })}
+            testId={`worker-card-settings-${worker.id}`}
+            ariaLabel={t('worker.settingsAria', { name: worker.name })}
           >
-            <Pencil size={12} aria-hidden />
+            <Settings size={12} aria-hidden />
           </CardActionBtn>
           <CardActionBtn
             title={t('common.delete')}

@@ -3,7 +3,7 @@ import type { RuntimeStore } from './runtime-store.js'
 
 export type TeamListEnrichmentStore = Pick<
   RuntimeStore,
-  'getLastPtyLineForAgent' | 'peekAgentLaunchConfig' | 'settings'
+  'getLastPtyLineForAgent' | 'getWorkerConfig' | 'peekAgentLaunchConfig' | 'settings'
 >
 
 /**
@@ -46,9 +46,14 @@ export const enrichTeamList = (
     const line = store.getLastPtyLineForAgent(workspaceId, worker.id)
     const presetId = resolveCommandPresetId(store, workspaceId, worker.id)
     const thinkingLevel = store.peekAgentLaunchConfig(workspaceId, worker.id)?.thinkingLevel
+    const workerConfig =
+      worker.role === 'sentinel' ? store.getWorkerConfig(workspaceId, worker.id) : {}
     const next: TeamListItem = { ...worker }
     if (line !== null) next.lastPtyLine = line
     if (presetId !== null) next.commandPresetId = presetId
     if (thinkingLevel) next.thinkingLevel = thinkingLevel
+    if (worker.role === 'sentinel' && typeof workerConfig.heartbeat_interval_ms === 'number') {
+      next.sentinelIntervalMs = workerConfig.heartbeat_interval_ms
+    }
     return next
   })

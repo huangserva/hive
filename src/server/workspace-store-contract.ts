@@ -11,6 +11,12 @@ export interface WorkerInput {
   role: WorkerRole
 }
 
+export interface WorkerConfig {
+  heartbeat_interval_ms?: number
+}
+
+export type WorkerConfigPatch = Partial<WorkerConfig>
+
 export interface WorkspaceStore {
   addWorker: (workspaceId: string, input: WorkerInput) => AgentSummary
   createWorkspace: (path: string, name: string) => WorkspaceSummary
@@ -20,6 +26,7 @@ export interface WorkspaceStore {
   getAgent: (workspaceId: string, agentId: string) => AgentSummary
   getWorker: (workspaceId: string, workerId: string) => AgentSummary
   getWorkerByName: (workspaceId: string, workerName: string) => AgentSummary
+  getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
   getWorkspaceSnapshot: (workspaceId: string) => WorkspaceRecord
   hasAgent: (workspaceId: string, agentId: string) => boolean
   listWorkers: (workspaceId: string) => TeamListItem[]
@@ -29,4 +36,14 @@ export interface WorkspaceStore {
   markTaskCancelled: (workspaceId: string, workerId: string) => void
   markTaskDispatched: (workspaceId: string, workerId: string) => void
   markTaskReported: (workspaceId: string, workerId: string) => void
+  updateWorkerConfig: (
+    workspaceId: string,
+    workerId: string,
+    configPatch: WorkerConfigPatch
+  ) => WorkerConfig
+  updateWorkerDescription: (
+    workspaceId: string,
+    workerId: string,
+    description: string
+  ) => AgentSummary
 }
