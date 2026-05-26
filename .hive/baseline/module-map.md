@@ -19,8 +19,8 @@
 - runtime-store.ts — RuntimeStore facade，组合 workspace/agent/team/feishu/PM 服务。
 - runtime-store-helpers.ts — 创建 stores、watcher、agentRuntime、lifecycle helpers。
 - runtime-database.ts — 打开 better-sqlite3 runtime.sqlite 并初始化 schema。
-- sqlite-schema.ts — 当前 schema v26 与迁移调度（v26 = mobile push_token）。
-- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 mobile pairing/capabilities；v26 Expo push token。
+- sqlite-schema.ts — 当前 schema v27 与迁移调度（v27 = template catalog seed）。
+- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 mobile pairing/capabilities；v26 Expo push token；v27 builtin role_templates seed。
 - workspace-store.ts — workspace/worker 内存状态 facade。
 - workspace-store-contract.ts — workspace store 类型契约。
 - workspace-store-hydration.ts — runtime 启动时从 SQLite 恢复 workspace/worker。
@@ -71,6 +71,7 @@
 - team-list-serializer.ts — team list snake_case 输出契约。
 - dispatch-ledger-store.ts — dispatches 表 CRUD/状态迁移。
 - dispatch-ledger-serializer.ts — dispatch record 序列化。
+- orphaned-dispatch-nudge.ts — L1 worker 退出时检测 orphaned dispatch，注入 nudge 到 orch PTY。
 - runtime-message-builders.ts — send/report/user_input 系统消息文本。
 - message-log-store.ts — messages 表 CRUD/恢复窗口。
 - system-message.ts — 系统消息格式 helper。
@@ -105,6 +106,9 @@
 - pm-research-doc.ts — research/*.md 列表 parser（Cockpit Research tab）。
 - pm-tasks-doc.ts — tasks.md structured parser（Cockpit Tasks tab）。
 - pm-reports-orphan-detector.ts — 检测 reports/ 无 research/ 对应的孤儿文件。
+- tasks-narrative-nudge.ts — L1 post-dispatch nudge：检测新 milestone dispatch 后 tasks.md 缺 narrative，提醒 orch 补写。
+- milestone-completion-trigger.ts — L1 milestone shipped 检测：commit 后对比 plan.md 发现新 shipped milestone 触发事件。
+- milestone-completion-nudge.ts — L1 milestone shipped nudge payload builder：聚合 baseline staleness + handoff 提醒注入 orch。
 - hive-team-guidance.ts — ORCHESTRATOR_RULES/REMINDER/PROTOCOL builder。
 - session-start-review-message.ts — session-start PM review system message。
 
@@ -139,6 +143,9 @@
 - routes-version.ts — version info endpoint。
 - mobile-auth.ts — mobile auth store：capability model、pairing code、device CRUD/revoke/expiry、push_token、legacy M19a compatibility。
 - mobile-push.ts — Expo push best-effort sender；worker done/high aiAction 通知、invalid token 清理、dispatch/action 去重。
+- relay-connector.ts — daemon→relay outbound WebSocket connector；E2E 加密握手、room join、auto-reconnect。
+- relay-rpc-handler.ts — relay inbound JSON-RPC handler：dashboard/tasks/transcript/voice/dispatch/approve 代理到本地 runtime API。
+- relay-config.ts — ~/.config/hive/relay.json keypair 持久化与 relay URL 配置。
 - mobile-dashboard-websocket-server.ts — mobile dashboard WS 推送。
 - fs-browse.ts — server-side file browser。
 - fs-pick-folder.ts — native folder picker integration。
