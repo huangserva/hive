@@ -66,6 +66,9 @@ export const buildOrchestratorQuestionAnsweredPayload = (
     '',
   ].join('\n')
 
+export const buildOrchestratorTasksNarrativeNudgePayload = (message: string): string =>
+  [message, '', ORCHESTRATOR_REMINDER_TAIL, ''].join('\n')
+
 export const buildWorkerCockpitSnapshot = (cockpit: ParsedCockpit): string => {
   const phase = cockpit.plan.frontmatter.current_phase ?? cockpit.plan.currentPhase ?? 'unknown'
   const activeMilestone =
@@ -207,6 +210,18 @@ export const createAgentStdinDispatcher = ({
         workspaceId,
         `${workspaceId}:orchestrator`,
         buildOrchestratorQuestionAnsweredPayload(questionId, answer),
+        input
+      )
+    },
+    writeTasksNarrativeNudgePrompt(
+      workspaceId: string,
+      message: string,
+      input: { requireActiveRun?: boolean } = {}
+    ) {
+      writeToActiveAgentRun(
+        workspaceId,
+        `${workspaceId}:orchestrator`,
+        buildOrchestratorTasksNarrativeNudgePayload(message),
         input
       )
     },

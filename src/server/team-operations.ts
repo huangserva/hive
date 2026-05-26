@@ -1,3 +1,5 @@
+import { existsSync, statSync } from 'node:fs'
+
 import type { AgentRuntime } from './agent-runtime.js'
 import { buildWorkerCockpitSnapshot } from './agent-stdin-dispatcher.js'
 import { parseCockpit } from './cockpit-doc.js'
@@ -11,7 +13,11 @@ import {
   createStatusMessage,
   createUserInputMessage,
 } from './runtime-message-builders.js'
-import type { TasksFileService } from './tasks-file.js'
+import { getTasksFilePath, type TasksFileService } from './tasks-file.js'
+import {
+  checkTasksNarrativeNudge,
+  type TasksNarrativeNudgeResult,
+} from './tasks-narrative-nudge.js'
 import type { WorkspaceStore } from './workspace-store.js'
 
 export interface TeamOperationsInput {
@@ -94,6 +100,25 @@ const noopTasksFileService: Pick<
   recordDispatchSent: () => {},
 }
 
+interface TasksNarrativeState {
+  count: number
+  lastRuntimeMtime: number | null
+  narrativeMtime: number | null
+}
+
+const readTasksMtime = (workspacePath: string) => {
+  const tasksFilePath = getTasksFilePath(workspacePath)
+  if (!existsSync(tasksFilePath)) return null
+  return statSync(tasksFilePath).mtimeMs
+}
+
+const buildNudgeDedupeKey = (result: TasksNarrativeNudgeResult) => {
+  if (result.rule === null || result.reason === null) return null
+  if (result.rule === 2) return 'rule:2:dispatch-backlog'
+  const milestone = result.reason.match(/\bM\d+[a-z]?\b/iu)?.[0]?.toLowerCase() ?? 'unknown'
+  return `rule:${result.rule}:${milestone}`
+}
+
 export const createTeamOperations = ({
   agentRuntime,
   createDispatch,
@@ -109,11 +134,66 @@ export const createTeamOperations = ({
   tasksFileService = noopTasksFileService,
   workspaceStore,
 }: TeamOperationsInput) => {
+  const triggeredTasksNarrativeNudges = new Set<string>()
+  const tasksNarrativeStates = new Map<string, TasksNarrativeState>()
+
   const getWorkspacePath = (workspaceId: string) => {
     if (tasksFileService === noopTasksFileService) {
       return null
     }
     return workspaceStore.getWorkspaceSnapshot(workspaceId).summary.path
+  }
+
+  const incrementRecentDispatchCount = (workspaceId: string, workspacePath: string) => {
+    const currentMtime = readTasksMtime(workspacePath)
+    const existing = tasksNarrativeStates.get(workspaceId)
+    const externallyChanged =
+      existing &&
+      currentMtime !== null &&
+      existing.lastRuntimeMtime !== null &&
+      currentMtime !== existing.lastRuntimeMtime
+
+    const state =
+      existing && !externallyChanged
+        ? existing
+        : {
+            count: 0,
+            lastRuntimeMtime: null,
+            narrativeMtime: currentMtime,
+          }
+    state.count += 1
+    tasksNarrativeStates.set(workspaceId, state)
+    return state
+  }
+
+  const updateRuntimeTasksMtime = (workspaceId: string, workspacePath: string) => {
+    const state = tasksNarrativeStates.get(workspaceId)
+    if (!state) return
+    state.lastRuntimeMtime = readTasksMtime(workspacePath)
+  }
+
+  const maybeNudgeTasksNarrative = (
+    workspaceId: string,
+    workspacePath: string,
+    taskText: string,
+    recentDispatchState: TasksNarrativeState | null
+  ) => {
+    if (!recentDispatchState) return
+    const result = checkTasksNarrativeNudge(
+      taskText,
+      workspacePath,
+      recentDispatchState.count,
+      recentDispatchState.narrativeMtime
+    )
+    if (!result.shouldNudge || result.reason === null) return
+    const dedupeKey = buildNudgeDedupeKey(result)
+    if (dedupeKey && triggeredTasksNarrativeNudges.has(dedupeKey)) return
+    if (dedupeKey) triggeredTasksNarrativeNudges.add(dedupeKey)
+    try {
+      agentRuntime.writeTasksNarrativeNudgePrompt(workspaceId, result.reason)
+    } catch (error) {
+      console.error('[hive] swallowed:tasksNarrativeNudge.forward', error)
+    }
   }
 
   const ensureWorkerRun = async (workspaceId: string, workerId: string, hivePort: string) => {
@@ -191,11 +271,17 @@ export const createTeamOperations = ({
       const worker = workspaceStore.getWorker(workspaceId, workerId)
       const workspacePath = getWorkspacePath(workspaceId)
       if (workspacePath) {
+        const recentDispatchState =
+          worker.role === 'sentinel'
+            ? null
+            : incrementRecentDispatchCount(workspaceId, workspacePath)
         tasksFileService.recordDispatchSent(workspacePath, {
           dispatchId: dispatch.id,
           taskFirstLine: text,
           workerName: worker.name,
         })
+        updateRuntimeTasksMtime(workspaceId, workspacePath)
+        maybeNudgeTasksNarrative(workspaceId, workspacePath, text, recentDispatchState)
       }
       return dispatch
     } catch (error) {

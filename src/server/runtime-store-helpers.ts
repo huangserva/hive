@@ -8,6 +8,7 @@ import { createApprovalLedger } from './feishu-approval-ledger.js'
 import { createFeishuBindingsStore } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
+import { createMilestoneCompletionTrigger } from './milestone-completion-trigger.js'
 import { createMobileAuthStore } from './mobile-auth.js'
 import { createMobilePushService } from './mobile-push.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
@@ -141,6 +142,15 @@ export const createRuntimeStoreServices = (
     (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
     options.logger
   )
+  const milestoneCompletionTrigger = createMilestoneCompletionTrigger({
+    getWorkspacePath: (workspaceId) =>
+      workspaceStore.getWorkspaceSnapshot(workspaceId).summary.path,
+    injectNudge: (workspaceId, message) =>
+      agentRuntime.writeTasksNarrativeNudgePrompt(workspaceId, message),
+  })
+  planFileWatchCallbacks.add((workspaceId, content) => {
+    milestoneCompletionTrigger.handlePlanUpdated(workspaceId, content)
+  })
   const sentinelHeartbeat = options.agentManager
     ? createSentinelHeartbeat({
         getActiveRunByAgentId: (workspaceId, agentId) =>

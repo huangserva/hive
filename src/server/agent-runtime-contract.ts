@@ -58,6 +58,11 @@ export interface AgentRuntime {
     answer: string,
     input?: { requireActiveRun?: boolean }
   ) => void
+  writeTasksNarrativeNudgePrompt: (
+    workspaceId: string,
+    message: string,
+    input?: { requireActiveRun?: boolean }
+  ) => void
   writeSendPrompt: (
     workspaceId: string,
     workerId: string,

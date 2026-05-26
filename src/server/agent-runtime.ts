@@ -148,6 +148,9 @@ export const createAgentRuntime = (
     writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input = {}) {
       stdinDispatcher.writeQuestionAnsweredPrompt(workspaceId, questionId, answer, input)
     },
+    writeTasksNarrativeNudgePrompt(workspaceId, message, input = {}) {
+      stdinDispatcher.writeTasksNarrativeNudgePrompt(workspaceId, message, input)
+    },
     writeSendPrompt(
       workspaceId,
       workerId,
