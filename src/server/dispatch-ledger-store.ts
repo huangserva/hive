@@ -202,6 +202,33 @@ export const createDispatchLedgerStore = (db: Database) => {
     return row ? toRecord(row) : undefined
   }
 
+  const listOpenDispatchesForWorker = (workspaceId: string, workerId: string) =>
+    (
+      db
+        .prepare(
+          `SELECT *
+           FROM dispatches
+           WHERE workspace_id = ?
+             AND to_agent_id = ?
+             AND status IN ('queued', 'submitted')
+           ORDER BY sequence ASC`
+        )
+        .all(workspaceId, workerId) as DispatchRow[]
+    ).map(toRecord)
+
+  const listOpenDispatchesForWorkspace = (workspaceId: string) =>
+    (
+      db
+        .prepare(
+          `SELECT *
+           FROM dispatches
+           WHERE workspace_id = ?
+             AND status IN ('queued', 'submitted')
+           ORDER BY sequence ASC`
+        )
+        .all(workspaceId) as DispatchRow[]
+    ).map(toRecord)
+
   const markReportedByWorker = (input: ReportDispatchInput) => {
     const dispatch = findOpenDispatch(input.workspaceId, input.toAgentId, input.dispatchId)
     if (!dispatch) {
@@ -311,6 +338,8 @@ export const createDispatchLedgerStore = (db: Database) => {
     deleteWorkspaceDispatches,
     findOpenDispatch,
     findOpenDispatchById,
+    listOpenDispatchesForWorker,
+    listOpenDispatchesForWorkspace,
     listOpenDispatchKinds,
     listWorkspaceDispatches,
     markCancelled,

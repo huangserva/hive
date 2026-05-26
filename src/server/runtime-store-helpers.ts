@@ -12,6 +12,7 @@ import { createMilestoneCompletionTrigger } from './milestone-completion-trigger
 import { createMobileAuthStore } from './mobile-auth.js'
 import { createMobilePushService } from './mobile-push.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
+import { notifyOrphanedDispatchesOnWorkerExit } from './orphaned-dispatch-nudge.js'
 import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
@@ -136,7 +137,22 @@ export const createRuntimeStoreServices = (
     (workspaceId, agentId) => {
       workerOutputTracker?.detach(workspaceId, agentId)
       if (!workspaceStore.hasAgent(workspaceId, agentId)) return
+      const worker = workspaceStore.getAgent(workspaceId, agentId)
       workspaceStore.markAgentStopped(workspaceId, agentId)
+      try {
+        notifyOrphanedDispatchesOnWorkerExit({
+          injectNudge: (targetWorkspaceId, message) =>
+            agentRuntime.writeTasksNarrativeNudgePrompt(targetWorkspaceId, message),
+          listOpenDispatchesForWorker: dispatchLedgerStore.listOpenDispatchesForWorker,
+          worker,
+          workspaceId,
+        })
+      } catch (error) {
+        options.logger?.warn(
+          `orphaned dispatch nudge failed workspace_id=${workspaceId} agent_id=${agentId}`,
+          error
+        )
+      }
     },
     restartPolicy,
     (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
@@ -157,6 +173,8 @@ export const createRuntimeStoreServices = (
           agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
         getWorkerConfig: (workspaceId, workerId) =>
           workspaceStore.getWorkerConfig(workspaceId, workerId),
+        listOpenDispatches: (workspaceId) =>
+          dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
         listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
         listWorkspaces: () => workspaceStore.listWorkspaces(),
         ...(options.logger ? { logger: options.logger } : {}),

@@ -2,12 +2,14 @@ import { execFileSync } from 'node:child_process'
 
 import type { TeamListItem, WorkspaceSummary } from '../shared/types.js'
 import { parseCockpit } from './cockpit-doc.js'
+import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { HiveLogger } from './logger.js'
 import { buildSentinelHeartbeatPayload } from './sentinel-guidance.js'
 import type { WorkerConfig } from './workspace-store.js'
 
 const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
 const DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
+const STALE_SUBMITTED_DISPATCH_MS = 15 * 60 * 1000
 
 type ActiveRunRef = { runId: string } | undefined
 
@@ -17,6 +19,7 @@ export interface SentinelHeartbeatOptions {
   getGitSummary?: (workspacePath: string) => string
   getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
   intervalMs?: number
+  listOpenDispatches?: (workspaceId: string) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
   listWorkspaces: () => WorkspaceSummary[]
   logger?: HiveLogger
@@ -79,6 +82,7 @@ export const createSentinelHeartbeat = ({
   getGitSummary = defaultGetGitSummary,
   getWorkerConfig,
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
+  listOpenDispatches = () => [],
   listWorkers,
   listWorkspaces,
   logger,
@@ -95,10 +99,33 @@ export const createSentinelHeartbeat = ({
       : DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS
   }
 
+  const listOrphanedDispatches = (
+    workspaceId: string,
+    workers: TeamListItem[],
+    tickedAt: number
+  ) => {
+    const workersById = new Map(workers.map((worker) => [worker.id, worker]))
+    return listOpenDispatches(workspaceId)
+      .filter((dispatch) => {
+        if (dispatch.submittedAt === null) return false
+        if (tickedAt - dispatch.submittedAt < STALE_SUBMITTED_DISPATCH_MS) return false
+        return workersById.get(dispatch.toAgentId)?.status === 'stopped'
+      })
+      .map((dispatch) => {
+        const worker = workersById.get(dispatch.toAgentId)
+        return {
+          dispatchId: dispatch.id,
+          minutesAgo: Math.floor((tickedAt - (dispatch.submittedAt ?? tickedAt)) / 60_000),
+          workerName: worker?.name ?? dispatch.toAgentId,
+        }
+      })
+  }
+
   const tick = async () => {
     const tickedAt = now()
     for (const workspace of listWorkspaces()) {
-      const sentinels = listWorkers(workspace.id).filter((worker) => worker.role === 'sentinel')
+      const workers = listWorkers(workspace.id)
+      const sentinels = workers.filter((worker) => worker.role === 'sentinel')
       for (const sentinel of sentinels) {
         const run = getActiveRunByAgentId(workspace.id, sentinel.id)
         if (!run) continue
@@ -114,6 +141,7 @@ export const createSentinelHeartbeat = ({
           const payload = buildSentinelHeartbeatPayload({
             cockpitSummary: summarizeCockpit(buildCockpitSnapshot(workspace.path)),
             gitSummary: getGitSummary(workspace.path),
+            orphanedDispatches: listOrphanedDispatches(workspace.id, workers, tickedAt),
             workspace,
           })
           writeRunInput(run.runId, payload)

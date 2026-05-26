@@ -1,5 +1,11 @@
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
 
+export interface SentinelOrphanedDispatch {
+  dispatchId: string
+  minutesAgo: number
+  workerName: string
+}
+
 export const SENTINEL_RULES = [
   'Sentinel worker rules:',
   '- Observe only. Do not edit files, run destructive commands, dispatch work, or notify the user.',
@@ -29,10 +35,12 @@ export const buildSentinelStartupInstructions = ({
 export const buildSentinelHeartbeatPayload = ({
   cockpitSummary,
   gitSummary,
+  orphanedDispatches = [],
   workspace,
 }: {
   cockpitSummary: string
   gitSummary: string
+  orphanedDispatches?: SentinelOrphanedDispatch[]
   workspace: WorkspaceSummary
 }) =>
   [
@@ -47,5 +55,15 @@ export const buildSentinelHeartbeatPayload = ({
     'Git summary:',
     gitSummary,
     '',
+    ...(orphanedDispatches.length > 0
+      ? [
+          'Orphaned dispatches (worker stopped but dispatch still open):',
+          ...orphanedDispatches.map(
+            (dispatch) =>
+              `- ${dispatch.workerName}: dispatch ${dispatch.dispatchId}, submitted ${dispatch.minutesAgo} min ago`
+          ),
+          '',
+        ]
+      : []),
     '请巡检状态一致性。如果发现 drift、阻塞或风险，用 team report 汇报给 Orchestrator；没有发现问题则继续等待下一次 heartbeat。',
   ].join('\n')
