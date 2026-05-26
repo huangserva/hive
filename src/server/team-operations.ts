@@ -320,7 +320,9 @@ export const createTeamOperations = ({
         if (orchActive) {
           try {
             agentRuntime.writeReportPrompt(workspaceId, worker.name, workerId, text, artifacts, {
-              requireActiveRun: input.requireActiveRun,
+              ...(input.requireActiveRun === undefined
+                ? {}
+                : { requireActiveRun: input.requireActiveRun }),
             })
             forwarded = true
           } catch (error) {

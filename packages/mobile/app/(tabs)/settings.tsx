@@ -7,11 +7,13 @@ import { Screen } from '../../src/components/Screen'
 export default function SettingsTab() {
   const {
     connect,
+    connectionMode,
     disconnect,
     error,
     host,
     pairHost,
     pairedDevice,
+    relayConfig,
     redeemPairingCode,
     runtimeStatus,
     selectWorkspace,
@@ -135,6 +137,8 @@ export default function SettingsTab() {
 
         <View style={styles.card}>
           <Text style={styles.status}>Status: {state}</Text>
+          <Text style={styles.detail}>Connection: {connectionMode.toUpperCase()}</Text>
+          {relayConfig ? <Text style={styles.detail}>Relay: {relayConfig.relay_url}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           {pairedDevice ? (
             <>

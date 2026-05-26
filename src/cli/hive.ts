@@ -16,6 +16,9 @@ import {
 import { FeishuTransport } from '../server/feishu-transport.js'
 import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
+import { loadRelayConfig } from '../server/relay-config.js'
+import { createRelayConnector, type RelayConnectorHandle } from '../server/relay-connector.js'
+import { createRelayRpcHandler } from '../server/relay-rpc-handler.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
 
@@ -172,6 +175,26 @@ export const runHiveCommand = async (
     dataDir,
     logger,
   })
+  let relayConnector: RelayConnectorHandle | null = null
+  try {
+    const relayConfig = await loadRelayConfig({ dataDir })
+    if (relayConfig.enabled) {
+      relayConnector = createRelayConnector(
+        relayConfig,
+        createRelayRpcHandler({ runtimeInfo: { dataDir, port }, store }),
+        {
+          authenticateDevice: (token) => store.authenticateMobileDevice(token),
+        }
+      )
+      logger.info(
+        `relay connector enabled relay_url=${relayConfig.relay_url} room_id=${relayConfig.room_id}`
+      )
+    } else {
+      logger.info('relay connector disabled')
+    }
+  } catch (error) {
+    logger.error('relay connector config invalid, relay disabled', error)
+  }
   const feishuTransport = feishuCredentials
     ? new FeishuTransport({
         credentials: feishuCredentials,
@@ -181,6 +204,7 @@ export const runHiveCommand = async (
     : null
   const app = createApp({
     feishuTransport,
+    relayConnector,
     store,
     logger,
     runtimeInfo: { dataDir, port },
@@ -197,6 +221,7 @@ export const runHiveCommand = async (
     ])
   } catch (error) {
     await feishuTransport?.stop()
+    relayConnector?.close()
     await app.store.close()
     await logger.close()
     unregisterFatalLoggers()
@@ -227,6 +252,7 @@ export const runHiveCommand = async (
       process.off('SIGINT', gracefulShutdown)
       unregisterFatalLoggers()
       await feishuTransport?.stop()
+      relayConnector?.close()
       await new Promise<void>((resolve, reject) => {
         app.server.close((error) => {
           if (error) {

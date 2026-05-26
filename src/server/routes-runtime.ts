@@ -148,4 +148,19 @@ export const runtimeRoutes: RouteDefinition[] = [
 
     sendJson(response, 200, store.getLiveRun(runId))
   }),
+  route('GET', '/api/relay/status', ({ relayConnector, request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    sendJson(
+      response,
+      200,
+      relayConnector?.status() ?? {
+        connected_at: null,
+        last_error: null,
+        last_heartbeat_at: null,
+        mode: 'disabled',
+        relay_url: null,
+        room_id: null,
+      }
+    )
+  }),
 ]

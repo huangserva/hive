@@ -4,6 +4,7 @@ import type { WorkerRole } from '../shared/types.js'
 import type { FeishuOutboundTransport } from './feishu-transport.js'
 import type { PickFolderResponse } from './fs-pick-folder.js'
 import type { HiveLogger } from './logger.js'
+import type { RelayConnectorHandle } from './relay-connector.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { TasksFileService } from './tasks-file.js'
 import type { VersionService } from './version-service.js'
@@ -70,6 +71,7 @@ export interface ConfigureAgentLaunchBody {
 
 export interface RouteContext {
   feishuTransport?: FeishuOutboundTransport | null
+  relayConnector?: RelayConnectorHandle | null
   logger: HiveLogger | undefined
   request: IncomingMessage
   response: ServerResponse

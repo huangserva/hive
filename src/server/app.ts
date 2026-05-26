@@ -10,6 +10,7 @@ import { HttpError } from './http-errors.js'
 import { assertLocalRequest } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import { createMobileDashboardWebSocketServer } from './mobile-dashboard-websocket-server.js'
+import type { RelayConnectorHandle } from './relay-connector.js'
 import type { RuntimeInfo } from './route-types.js'
 import { matchRoute } from './routes.js'
 import type { RuntimeStore } from './runtime-store.js'
@@ -20,6 +21,7 @@ import { createVersionService, type VersionService } from './version-service.js'
 interface CreateAppOptions {
   store: RuntimeStore
   feishuTransport?: FeishuOutboundTransport | null
+  relayConnector?: RelayConnectorHandle | null
   pickFolderService?: () => Promise<PickFolderResponse>
   tasksFileService?: TasksFileService
   versionService?: VersionService
@@ -116,6 +118,7 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown) =
 
 export const createApp = ({
   feishuTransport = null,
+  relayConnector = null,
   store,
   pickFolderService = pickFolder,
   tasksFileService = createTasksFileService(),
@@ -152,6 +155,7 @@ export const createApp = ({
           response,
           store,
           feishuTransport,
+          relayConnector,
           logger,
           runtimeInfo: {
             dataDir,

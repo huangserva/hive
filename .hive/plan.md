@@ -184,7 +184,10 @@ last_review: 2026-05-25
   - [x] 子任务 5：集成测试验证 7 tests（典韦）
   - [x] 补丁：devices endpoints UI auth 支持（关羽）
 - [ ] **M19c**：encrypted relay remote access（daemon outbound connector + app relay transport + E2E encryption）
-  - [x] 子任务 1：独立 Node.js WebSocket room relay package（daemon/device join + opaque data forwarding + heartbeat + room cleanup）— pending commit
+  - [x] 子任务 1：独立 Node.js WebSocket room relay package（关羽，6 tests）`414cbae`
+  - [x] 子任务 2：shared E2E encrypted channel — tweetnacl NaCl box + handshake（吕布，17 tests）`414cbae`
+  - [x] 子任务 3：Runtime outbound connector — relay.json config + WS connect + heartbeat + backoff + RPC handler（关羽，10 tests）— pending commit
+  - [x] 子任务 4：Mobile relay transport — LAN→relay fallback + E2E handshake + JSON-RPC（赵云，7 tests）
 - [ ] **M19d**：agent/terminal pane + task operations（transcript first，terminal input later）
 - [ ] **M19e**：voice + push convergence（M14 voice command 迁入原生 app，push worker done/high aiAction）
 - [ ] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）

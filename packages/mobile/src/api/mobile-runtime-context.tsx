@@ -9,26 +9,34 @@ import {
   useState,
 } from 'react'
 
+import { encodeBase64, generateKeyPair } from '../../../relay-crypto/src/index.js'
 import {
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
+  type MobileConnectionMode,
   type MobileDashboard,
   type MobileDeviceSummary,
   type MobileDispatchResponse,
   type MobilePairRedeemResponse,
   type MobilePairResponse,
+  type MobileRelayConfig,
   type MobileWorkspace,
   type RuntimeStatus,
 } from './client'
+import { createRelayTransport, type RelayTransportConfig } from './relay-transport'
 
 const RUNTIME_HOST_KEY = 'hippoteam.runtimeHost'
 const MOBILE_TOKEN_KEY = 'hippoteam.mobileToken'
 const WORKSPACE_ID_KEY = 'hippoteam.mobileWorkspaceId'
+const RELAY_CONFIG_KEY = 'hippoteam.mobileRelayConfig'
 
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 
+interface StoredRelayConfig extends Omit<RelayTransportConfig, 'device_token'> {}
+
 interface MobileRuntimeContextValue {
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
+  connectionMode: MobileConnectionMode
   dashboard: MobileDashboard | null
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
@@ -36,15 +44,16 @@ interface MobileRuntimeContextValue {
   host: string
   pairHost: (nextHost: string) => Promise<MobilePairResponse | null>
   pairedDevice: MobileDeviceSummary | null
+  relayConfig: StoredRelayConfig | null
   redeemPairingCode: (nextHost: string, code: string) => Promise<MobilePairRedeemResponse | null>
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
+  restartWorker: (workerId: string) => Promise<boolean>
   runtimeStatus: RuntimeStatus | null
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
-  restartWorker: (workerId: string) => Promise<boolean>
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
   workspaces: MobileWorkspace[]
@@ -81,6 +90,43 @@ const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: st
   workspaces[0]?.id ??
   null
 
+const buildStoredRelayConfig = (
+  relay: MobileRelayConfig,
+  device: MobileDeviceSummary
+): StoredRelayConfig => {
+  const keypair = generateKeyPair()
+  return {
+    capabilities: device.capabilities ?? [],
+    daemon_public_key: relay.daemon_public_key,
+    device_id: device.id,
+    device_keypair: {
+      publicKey: encodeBase64(keypair.publicKey),
+      secretKey: encodeBase64(keypair.secretKey),
+    },
+    relay_url: relay.relay_url,
+    room_id: relay.room_id,
+  }
+}
+
+const parseStoredRelayConfig = (value: string | null): StoredRelayConfig | null => {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(value) as StoredRelayConfig
+    if (
+      typeof parsed.relay_url !== 'string' ||
+      typeof parsed.room_id !== 'string' ||
+      typeof parsed.daemon_public_key !== 'string' ||
+      typeof parsed.device_id !== 'string' ||
+      !Array.isArray(parsed.capabilities)
+    ) {
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [host, setHost] = useState(DEFAULT_RUNTIME_HOST)
   const [token, setToken] = useState('')
@@ -89,13 +135,37 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
   const [dashboard, setDashboard] = useState<MobileDashboard | null>(null)
   const [pairedDevice, setPairedDevice] = useState<MobileDeviceSummary | null>(null)
+  const [relayConfig, setRelayConfig] = useState<StoredRelayConfig | null>(null)
+  const [connectionMode, setConnectionMode] = useState<MobileConnectionMode>('disconnected')
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
 
-  const client = useMemo(
-    () => createRuntimeClient({ host, token: token.trim() || null }),
-    [host, token]
+  const createRelay = useCallback(
+    (nextToken: string, nextRelayConfig = relayConfig) =>
+      nextRelayConfig
+        ? createRelayTransport({ ...nextRelayConfig, device_token: nextToken.trim() })
+        : null,
+    [relayConfig]
   )
+
+  const client = useMemo(
+    () =>
+      createRuntimeClient({
+        host,
+        relayTransport: token.trim() ? createRelay(token) : null,
+        token: token.trim() || null,
+      }),
+    [createRelay, host, token]
+  )
+
+  useEffect(() => {
+    const unsubscribe = client.onConnectionModeChange((mode) =>
+      setConnectionMode(mode as MobileConnectionMode)
+    )
+    return () => {
+      unsubscribe()
+    }
+  }, [client])
 
   const pairHost = useCallback(async (nextHost: string) => {
     setState('checking')
@@ -134,12 +204,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const connect = useCallback(
-    async (nextHost: string, nextToken: string) => {
+    async (nextHost: string, nextToken: string, nextRelayConfig = relayConfig) => {
       const trimmedToken = nextToken.trim()
       setState('checking')
       setError(null)
       try {
-        const nextClient = createRuntimeClient({ host: nextHost, token: trimmedToken })
+        const nextClient = createRuntimeClient({
+          host: nextHost,
+          relayTransport: createRelay(trimmedToken, nextRelayConfig),
+          token: trimmedToken,
+        })
         const [nextStatus, nextWorkspaces] = await Promise.all([
           nextClient.getMobileRuntimeStatus(),
           nextClient.listMobileWorkspaces(),
@@ -155,6 +229,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setWorkspaces(nextWorkspaces)
         setSelectedWorkspaceId(nextWorkspaceId)
         setDashboard(nextDashboard)
+        setConnectionMode(nextClient.connectionMode())
         setState('connected')
 
         await Promise.all([
@@ -172,7 +247,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
     },
-    [selectedWorkspaceId]
+    [createRelay, relayConfig, selectedWorkspaceId]
   )
 
   const redeemPairingCode = useCallback(
@@ -181,8 +256,17 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setError(null)
       try {
         const redeemed = await createRuntimeClient({ host: nextHost }).redeemPairingCode(code)
+        const nextRelayConfig = redeemed.relay
+          ? buildStoredRelayConfig(redeemed.relay, redeemed.device)
+          : null
         setPairedDevice(redeemed.device)
-        await connect(nextHost, redeemed.token)
+        setRelayConfig(nextRelayConfig)
+        if (nextRelayConfig) {
+          await secureSet(RELAY_CONFIG_KEY, JSON.stringify(nextRelayConfig))
+        } else {
+          await secureDelete(RELAY_CONFIG_KEY)
+        }
+        await connect(nextHost, redeemed.token, nextRelayConfig)
         return redeemed
       } catch (pairError) {
         const message = pairError instanceof Error ? pairError.message : String(pairError)
@@ -210,9 +294,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setWorkspaces([])
     setSelectedWorkspaceId(null)
     setPairedDevice(null)
+    setRelayConfig(null)
+    setConnectionMode('disconnected')
     setState('idle')
     setError(null)
-    await Promise.all([secureDelete(MOBILE_TOKEN_KEY), secureDelete(WORKSPACE_ID_KEY)])
+    await Promise.all([
+      secureDelete(MOBILE_TOKEN_KEY),
+      secureDelete(WORKSPACE_ID_KEY),
+      secureDelete(RELAY_CONFIG_KEY),
+    ])
   }, [])
 
   const stopWorker = useCallback(
@@ -282,14 +372,17 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       secureGet(RUNTIME_HOST_KEY),
       secureGet(MOBILE_TOKEN_KEY),
       secureGet(WORKSPACE_ID_KEY),
-    ]).then(([storedHost, storedToken, storedWorkspaceId]) => {
+      secureGet(RELAY_CONFIG_KEY),
+    ]).then(([storedHost, storedToken, storedWorkspaceId, storedRelay]) => {
       if (cancelled) return
       const nextHost = storedHost || DEFAULT_RUNTIME_HOST
+      const nextRelayConfig = parseStoredRelayConfig(storedRelay)
       setHost(nextHost)
       if (storedToken) setToken(storedToken)
       if (storedWorkspaceId) setSelectedWorkspaceId(storedWorkspaceId)
+      if (nextRelayConfig) setRelayConfig(nextRelayConfig)
       if (storedToken) {
-        void connect(nextHost, storedToken)
+        void connect(nextHost, storedToken, nextRelayConfig)
       }
     })
     return () => {
@@ -298,6 +391,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [connect])
 
   useEffect(() => {
+    if (connectionMode === 'relay') return
     if (state !== 'connected' || !selectedWorkspaceId || !token.trim()) return
     const socket = new WebSocket(client.buildMobileDashboardWebSocketUrl(selectedWorkspaceId))
     socket.onmessage = (event) => {
@@ -324,11 +418,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     return () => {
       socket.close()
     }
-  }, [client, selectedWorkspaceId, state, token])
+  }, [client, connectionMode, selectedWorkspaceId, state, token])
 
   const value = useMemo<MobileRuntimeContextValue>(
     () => ({
       connect,
+      connectionMode,
       dashboard,
       disconnect,
       dispatchTask,
@@ -336,21 +431,23 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       host,
       pairHost,
       pairedDevice,
+      relayConfig,
       redeemPairingCode,
       refreshDashboard,
+      restartWorker,
       runtimeStatus,
       selectWorkspace,
       selectedWorkspaceId,
       setHost,
       setToken,
       state,
-      restartWorker,
       stopWorker,
       token,
       workspaces,
     }),
     [
       connect,
+      connectionMode,
       dashboard,
       disconnect,
       dispatchTask,
@@ -358,10 +455,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       host,
       pairHost,
       pairedDevice,
+      relayConfig,
       redeemPairingCode,
       refreshDashboard,
-      runtimeStatus,
       restartWorker,
+      runtimeStatus,
       selectWorkspace,
       selectedWorkspaceId,
       state,

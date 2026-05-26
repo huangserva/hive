@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
@@ -131,6 +133,34 @@ const readNonEmptyString = (value: unknown, fieldName: string) => {
   return value.trim()
 }
 
+const readRelayPairingConfig = () => {
+  const relayPath = join(homedir(), '.config', 'hive', 'relay.json')
+  if (!existsSync(relayPath)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(relayPath, 'utf8')) as {
+      daemon_public_key?: unknown
+      enabled?: unknown
+      relay_url?: unknown
+      room_id?: unknown
+    }
+    if (
+      parsed.enabled !== true ||
+      typeof parsed.relay_url !== 'string' ||
+      typeof parsed.room_id !== 'string' ||
+      typeof parsed.daemon_public_key !== 'string'
+    ) {
+      return null
+    }
+    return {
+      daemon_public_key: parsed.daemon_public_key,
+      relay_url: parsed.relay_url,
+      room_id: parsed.room_id,
+    }
+  } catch {
+    return null
+  }
+}
+
 export const mobileRoutes: RouteDefinition[] = [
   route('GET', '/api/mobile/pair', ({ request, response, runtimeInfo, store }) => {
     const device = store.ensureMobileAccessToken()
@@ -147,7 +177,10 @@ export const mobileRoutes: RouteDefinition[] = [
       readNonEmptyString(body.device_name, 'device_name'),
       readCapabilities(body.capabilities)
     )
-    sendJson(response, 200, pairing)
+    sendJson(response, 200, {
+      ...pairing,
+      relay: readRelayPairingConfig(),
+    })
   }),
   route('POST', '/api/mobile/pair/redeem', async ({ request, response, store }) => {
     const body = await readJsonBody<{ code?: unknown }>(request)
@@ -155,6 +188,7 @@ export const mobileRoutes: RouteDefinition[] = [
     sendJson(response, 200, {
       device: mobileDeviceSummary(redeemed.device),
       expires_after_inactive_days: 30,
+      relay: readRelayPairingConfig(),
       token: redeemed.token,
     })
   }),
