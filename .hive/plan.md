@@ -81,11 +81,11 @@ last_review: 2026-05-25
 - [x] reaction 两阶段反馈 GLANCE → OK（`63c4228` + `9498f96`，飞书肉眼验过）
 - [ ] 审批卡片 ✅/❌ 真按一次（未触发 high-risk action，待真实场景）
 
-### M8 · PM 体系 Phase C-3b（A4-A6 主动 trigger）· proposed
-- [ ] A4: milestone 完成时自动跑 baseline 体检（plan.md 文件 watch + change detector）
+### M8 · PM 体系 Phase C-3b（A4-A6 主动 trigger）· partial (A4 shipped 5/26)
+- [x] A4: milestone 完成时自动跑 baseline 体检（plan.md chokidar watch + detectNewlyShippedMilestones + housekeeping nudge）`5f4c3bd`
+- [x] A7: post-dispatch conditional nudge（3 条规则：新 milestone 首次 dispatch / dispatch 堆积 / narrative 引用已 shipped）`5f4c3bd`
 - [ ] A5: 月度 archive audit cron / 文件大小 watcher
 - [ ] A6: cross-workspace drift 检测（每天 1 次扫描）
-- 前提：先观察 1-2 周 LLM 在 C-1 RULES 引导下 A2-A6 自觉性是否足够
 
 ### M9 · PM 体系完整性补全 · shipped 2026-05-24
 - [x] Cockpit 加 Tasks tab + Research tab（8 tabs 总计）(`973c4f6`)
