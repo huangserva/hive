@@ -6,11 +6,6 @@
 
 ### 2026-05-24 paseo 调研产出 4 条候选借鉴
 
-- **idea-4 paseo Timeline seq/epoch/gap 模型借鉴**（事件流方向）
-  - 给 Cockpit / TaskLog / agent run history 加可恢复事件流（断线重连 / replay / finalize）
-  - 价值：未来如果做 mobile/voice 需要、现在做 web Cockpit 也可加
-  - 成熟度：🟡 中，依赖具体用例
-
 ### 2026-05-25 张飞全 app 巡检发现
 
 - **idea-5 已存在 worker 改 thinking_level** → **shipped M20**（`575e003`，5/26）
@@ -31,3 +26,5 @@
 - **idea-3 paseo Provider catalog manifest 借鉴**（preset 方向）→ **M18**（Q8 user 答"同意" promote 5/25）
   - preset 加详细能力声明（mode / risk / unattended / feature），让 orch 派单时按能力路由，取代当前 4 preset 平铺枚举
   - 🟡 需先做 scoping spike：看现有 preset 设计有多少真痛点、orch 派单实际需要哪些能力维度，再决定实现范围。见 plan.md M18
+
+- ~~**idea-4 paseo Timeline seq/epoch/gap 模型借鉴**（事件流方向）~~ → promoted to question

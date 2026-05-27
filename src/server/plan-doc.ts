@@ -98,26 +98,27 @@ const parseStatus = (heading: string): PlanMilestoneStatus => {
 }
 
 const parseMilestoneHeading = (heading: string) => {
-  const idMatch = /\b(M\d+[a-z]?)\b/i.exec(heading)
+  const idMatch = /\b(M\d+(?:\.\d+)?[a-z]?)\b/i.exec(heading)
   const rawId = idMatch?.[1] ?? heading.split(/\s+/)[0] ?? 'M?'
   const id = rawId.replace(
-    /^m(\d+)([a-z]?)$/i,
+    /^m(\d+(?:\.\d+)?)([a-z]?)$/i,
     (_match, digits: string, suffix: string) => `M${digits}${suffix.toLowerCase()}`
   )
   const status = parseStatus(heading)
   const date = /\b\d{4}-\d{2}-\d{2}\b/.exec(heading)?.[0]
+  const idPattern = /\bM\d+(?:\.\d+)?[a-z]?\b/i
   const titleParts = heading
     .split('·')
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => !/\b(shipped|blocked|proposed|open)\b/i.test(part))
-    .map((part, index) => (index === 0 ? part.replace(/\bM\d+[a-z]?\b/i, '').trim() : part))
+    .map((part, index) => (index === 0 ? part.replace(idPattern, '').trim() : part))
     .filter(Boolean)
   return {
     date,
     id,
     status,
-    title: titleParts.join(' · ') || heading.replace(/\bM\d+\b/i, '').trim() || id,
+    title: titleParts.join(' · ') || heading.replace(idPattern, '').trim() || id,
   }
 }
 

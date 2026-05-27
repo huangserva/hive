@@ -10,6 +10,21 @@ const GROUPS: Array<{ labelKey: TranslationKey; status: PlanMilestoneStatus }> =
   { labelKey: 'plan.milestone.open', status: 'open' },
 ]
 
+const milestoneNumericKey = (id: string) => {
+  const match = /^M(\d+)(?:\.(\d+))?([a-z])?$/i.exec(id)
+  if (!match) return [Infinity, 0, 0] as const
+  const major = Number(match[1])
+  const minor = match[2] ? Number(match[2]) : 0
+  const suffix = match[3] ? match[3].charCodeAt(0) : 0
+  return [major, minor, suffix] as const
+}
+
+const compareMilestones = (a: ParsedMilestone, b: ParsedMilestone) => {
+  const [aMaj, aMin, aSuf] = milestoneNumericKey(a.id)
+  const [bMaj, bMin, bSuf] = milestoneNumericKey(b.id)
+  return aMaj - bMaj || aMin - bMin || aSuf - bSuf
+}
+
 export const MilestoneList = ({ milestones }: { milestones: ParsedMilestone[] }) => {
   const { t } = useI18n()
   if (!milestones.length) {
@@ -25,7 +40,9 @@ export const MilestoneList = ({ milestones }: { milestones: ParsedMilestone[] })
   return (
     <div className="space-y-4">
       {GROUPS.map(({ labelKey, status }) => {
-        const group = milestones.filter((milestone) => milestone.status === status)
+        const group = milestones
+          .filter((milestone) => milestone.status === status)
+          .sort(compareMilestones)
         if (!group.length) return null
         return (
           <section key={status}>
