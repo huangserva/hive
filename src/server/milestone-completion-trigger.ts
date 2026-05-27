@@ -27,7 +27,7 @@ const extractHeadingByMilestone = (content: string) => {
   const headings = new Map<string, string>()
   for (const match of content.matchAll(MILESTONE_HEADING_RE)) {
     const heading = match[1] ?? ''
-    const id = /\b(M\d+[a-z]?)\b/i.exec(heading)?.[1]
+    const id = /\b(M\d+(?:\.\d+)?[a-z]?)\b/i.exec(heading)?.[1]
     if (id) headings.set(normalizeMilestoneId(id), heading)
   }
   return headings

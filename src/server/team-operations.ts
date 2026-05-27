@@ -115,7 +115,8 @@ const readTasksMtime = (workspacePath: string) => {
 const buildNudgeDedupeKey = (result: TasksNarrativeNudgeResult) => {
   if (result.rule === null || result.reason === null) return null
   if (result.rule === 2) return 'rule:2:dispatch-backlog'
-  const milestone = result.reason.match(/\bM\d+[a-z]?\b/iu)?.[0]?.toLowerCase() ?? 'unknown'
+  const milestone =
+    result.reason.match(/\bM\d+(?:\.\d+)?[a-z]?\b/iu)?.[0]?.toLowerCase() ?? 'unknown'
   return `rule:${result.rule}:${milestone}`
 }
 

@@ -7,8 +7,8 @@ export interface TasksNarrativeNudgeResult {
   rule: number | null
 }
 
-const MILESTONE_DISPATCH_RE = /\b(M\d+[a-z]?)[-:：]/iu
-const MILESTONE_ID_RE = /\bM\d+[a-z]?\b/giu
+const MILESTONE_DISPATCH_RE = /\b(M\d+(?:\.\d+)?[a-z]?)[-:：]/iu
+const MILESTONE_ID_RE = /\bM\d+(?:\.\d+)?[a-z]?\b/giu
 const STALE_TASKS_MTIME_MS = 30 * 60 * 1000
 const DISPATCH_BACKLOG_THRESHOLD = 3
 
@@ -19,7 +19,7 @@ const noNudge = (): TasksNarrativeNudgeResult => ({
 })
 
 const normalizeMilestone = (value: string) => {
-  const match = value.match(/^M(\d+)([a-z]?)$/iu)
+  const match = value.match(/^M(\d+(?:\.\d+)?)([a-z]?)$/iu)
   if (!match) return value
   return `M${match[1]}${match[2]?.toLowerCase() ?? ''}`
 }
