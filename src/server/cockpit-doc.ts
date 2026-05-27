@@ -18,7 +18,13 @@ import { type ParsedResearch, parseResearchDoc } from './pm-research-doc.js'
 import { type ParsedTasks, parseTasksDoc } from './pm-tasks-doc.js'
 import { ensurePmDocs, HIVE_DIR_NAME } from './tasks-file.js'
 
-export type AIActionType = 'question' | 'promote' | 'decision' | 'audit' | 'playbook'
+export type AIActionType =
+  | 'question'
+  | 'promote'
+  | 'decision'
+  | 'audit'
+  | 'playbook'
+  | 'missing_impl_milestone'
 export type CockpitTargetTab =
   | 'tasks'
   | 'questions'
@@ -27,6 +33,7 @@ export type CockpitTargetTab =
   | 'baseline'
   | 'research'
   | 'reports'
+  | 'plan'
 
 export interface AIAction {
   action: string
@@ -127,13 +134,51 @@ const loopPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
   return actions.slice(0, 2)
 }
 
+const designKeywordPattern = /spec|design|设计|mockup|详细设计/iu
+const milestoneIdPrefixPattern = /^(M\d+)/i
+
+const missingImplMilestoneActions = (plan: ParsedPlan): AIAction[] => {
+  const shippedDesign = plan.milestones.filter(
+    (ms) => ms.status === 'shipped' && designKeywordPattern.test(ms.title)
+  )
+  if (shippedDesign.length === 0) return []
+
+  const nonShipped = plan.milestones.filter(
+    (ms) => ms.status === 'open' || ms.status === 'in_progress' || ms.status === 'proposed'
+  )
+
+  const actions: AIAction[] = []
+  for (const design of shippedDesign) {
+    const prefix = milestoneIdPrefixPattern.exec(design.id)?.[1]
+    const hasImpl = nonShipped.some((ms) => {
+      if (prefix) {
+        const msPrefix = milestoneIdPrefixPattern.exec(ms.id)?.[1]
+        if (msPrefix && msPrefix === prefix) return true
+      }
+      return false
+    })
+    if (!hasImpl) {
+      actions.push({
+        action: '开实施',
+        id: `missing-impl:${design.id}`,
+        priority: 'high',
+        targetTab: 'plan',
+        text: `${design.id} 设计已 shipped，缺对应实施 milestone。PM 应立即开设实施 milestone 并拆任务。`,
+        type: 'missing_impl_milestone',
+      })
+    }
+  }
+  return actions
+}
+
 const buildAiActions = (
   questions: ParsedQuestions,
   ideas: ParsedIdeas,
   baseline: ParsedBaseline,
   decisions: ParsedDecisions,
   tasks: ParsedTasks,
-  orphanReports: OrphanReport[] = []
+  orphanReports: OrphanReport[] = [],
+  plan: ParsedPlan
 ): AIAction[] => {
   const actions: AIAction[] = [
     ...questions.high.map(questionAction),
@@ -173,6 +218,7 @@ const buildAiActions = (
     })),
     ...handoffPlaybookActions(tasks),
     ...loopPlaybookActions(tasks),
+    ...missingImplMilestoneActions(plan),
   ]
   if (baseline.staleHint) {
     actions.push({
@@ -203,7 +249,7 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
   const orphanReports = detectOrphanReports(hiveDir)
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
   return {
-    aiActions: buildAiActions(questions, ideas, baseline, decisions, tasks, orphanReports),
+    aiActions: buildAiActions(questions, ideas, baseline, decisions, tasks, orphanReports, plan),
     archive,
     baseline,
     decisions,

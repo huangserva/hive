@@ -1,12 +1,14 @@
 import { StyleSheet, Text, View } from 'react-native'
 
+import { colors } from '../theme'
+
 const statusColors: Record<string, string> = {
-  idle: '#3fb950',
-  stopped: '#ff7b72',
-  working: '#d29922',
+  idle: colors.success,
+  stopped: colors.error,
+  working: colors.warning,
 }
 
-export const statusColor = (status: string) => statusColors[status] ?? '#8b949e'
+export const statusColor = (status: string) => statusColors[status] ?? colors.muted
 
 export const StatusBadge = ({ status }: { status: string }) => (
   <View style={[styles.badge, { borderColor: statusColor(status) }]}>
@@ -19,6 +21,7 @@ const styles = StyleSheet.create({
   badge: {
     alignItems: 'center',
     alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
@@ -32,7 +35,7 @@ const styles = StyleSheet.create({
     width: 7,
   },
   text: {
-    color: '#e6edf3',
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',

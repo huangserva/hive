@@ -1,7 +1,6 @@
-import { config } from '../config'
 import type { RelayTransport } from './relay-transport.js'
 
-export const DEFAULT_RUNTIME_HOST = `192.168.1.100:${config.defaultLanPort}`
+export const DEFAULT_RUNTIME_HOST = '192.168.110.155:4010'
 
 export interface RuntimeStatus {
   cwd?: string
@@ -126,6 +125,18 @@ export interface MobileRelayConfig {
   room_id: string
 }
 
+export interface ChatMessage {
+  id: string
+  direction: 'inbound' | 'outbound'
+  message_type: 'user_text' | 'orch_reply' | 'worker_report' | 'approval_request' | 'system_event'
+  content_json: string
+  created_at: number
+}
+
+export interface ChatMessagesResponse {
+  messages: ChatMessage[]
+}
+
 export type MobileConnectionMode = 'disconnected' | 'lan' | 'relay'
 
 export const normalizeRuntimeHost = (host: string) => {
@@ -172,7 +183,12 @@ export const createRuntimeClient = ({
       ...(init.method === undefined ? {} : { method: init.method }),
     })
     if (!response.ok) {
-      throw new Error(`${path} failed: HTTP ${response.status}`)
+      let serverMessage = ''
+      try {
+        const body = (await response.json()) as { error?: string }
+        if (body.error) serverMessage = body.error
+      } catch {}
+      throw new Error(serverMessage || `${path} failed: HTTP ${response.status}`)
     }
     return (await response.json()) as T
   }
@@ -287,6 +303,17 @@ export const createRuntimeClient = ({
         }
       )
     },
+    async sendPromptToOrchestrator(workspaceId: string, text: string): Promise<{ ok: boolean }> {
+      return readMobileJson<{ ok: boolean }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/prompt`,
+        'workspace.prompt',
+        { text, workspace_id: workspaceId },
+        {
+          body: { text },
+          method: 'POST',
+        }
+      )
+    },
     async registerPushToken(pushToken: string): Promise<MobilePushTokenResponse> {
       return readMobileJson<MobilePushTokenResponse>(
         '/api/mobile/push-token',
@@ -296,6 +323,31 @@ export const createRuntimeClient = ({
           body: { push_token: pushToken },
           method: 'POST',
         }
+      )
+    },
+    async getChatMessages(
+      workspaceId: string,
+      since?: number,
+      limit = 50
+    ): Promise<ChatMessagesResponse> {
+      const params = new URLSearchParams({ limit: String(limit) })
+      if (since !== undefined) params.set('since', String(since))
+      return readMobileJson<ChatMessagesResponse>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/chat/messages?${params}`,
+        'workspace.chat.messages',
+        { limit, since, workspace_id: workspaceId }
+      )
+    },
+    async approveRequest(
+      workspaceId: string,
+      approvalId: string,
+      decision: 'allow' | 'deny'
+    ): Promise<{ ok: boolean }> {
+      return readMobileJson<{ ok: boolean }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/approve/${encodeURIComponent(approvalId)}`,
+        'workspace.approve',
+        { approval_id: approvalId, decision, workspace_id: workspaceId },
+        { body: { decision }, method: 'POST' }
       )
     },
     connectionMode() {

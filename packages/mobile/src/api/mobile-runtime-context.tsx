@@ -1,3 +1,4 @@
+import { encodeBase64, generateKeyPair } from '@huangserva/hippoteam-relay-crypto'
 import * as SecureStore from 'expo-secure-store'
 import {
   createContext,
@@ -6,12 +7,12 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
-
-import { encodeBase64, generateKeyPair } from '../../../relay-crypto/src/index.js'
 import { getExpoPushToken } from '../notifications'
 import {
+  type ChatMessage,
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
   type MobileConnectionMode,
@@ -38,12 +39,15 @@ export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 interface StoredRelayConfig extends Omit<RelayTransportConfig, 'device_token'> {}
 
 interface MobileRuntimeContextValue {
+  approveRequest: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
+  chatMessages: ChatMessage[]
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
   connectionMode: MobileConnectionMode
   dashboard: MobileDashboard | null
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
   error: string | null
+  fetchChatMessages: () => Promise<void>
   getWorkerTranscript: (workerId: string) => Promise<MobileWorkerTranscript | null>
   getWorkspaceTasks: () => Promise<MobileWorkspaceTasks | null>
   host: string
@@ -56,6 +60,7 @@ interface MobileRuntimeContextValue {
   runtimeStatus: RuntimeStatus | null
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
+  sendPromptToOrchestrator: (text: string) => Promise<boolean>
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
@@ -145,6 +150,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [connectionMode, setConnectionMode] = useState<MobileConnectionMode>('disconnected')
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const chatSinceRef = useRef<number | undefined>(undefined)
 
   const createRelay = useCallback(
     (nextToken: string, nextRelayConfig = relayConfig) =>
@@ -274,6 +281,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     async (nextHost: string, code: string) => {
       setState('checking')
       setError(null)
+      await secureSet(RUNTIME_HOST_KEY, nextHost)
       try {
         const redeemed = await createRuntimeClient({ host: nextHost }).redeemPairingCode(code)
         const nextRelayConfig = redeemed.relay
@@ -439,6 +447,63 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client]
   )
 
+  const sendPromptToOrchestrator = useCallback(
+    async (text: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before sending prompts')
+        return false
+      }
+      setError(null)
+      try {
+        await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
+        return true
+      } catch (promptError) {
+        const message = promptError instanceof Error ? promptError.message : String(promptError)
+        setError(message)
+        return false
+      }
+    },
+    [client, selectedWorkspaceId]
+  )
+
+  const fetchChatMessages = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    try {
+      const res = await client.getChatMessages(selectedWorkspaceId, chatSinceRef.current)
+      if (res.messages.length > 0) {
+        setChatMessages((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id))
+          const newMessages = res.messages.filter((m) => !existingIds.has(m.id))
+          if (newMessages.length === 0) return prev
+          return [...prev, ...newMessages].sort((a, b) => a.created_at - b.created_at)
+        })
+        const latest = res.messages[res.messages.length - 1]
+        if (latest) chatSinceRef.current = latest.created_at
+      }
+    } catch {}
+  }, [client, selectedWorkspaceId])
+
+  const approveRequest = useCallback(
+    async (approvalId: string, decision: 'allow' | 'deny') => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before approving')
+        return false
+      }
+      try {
+        await client.approveRequest(selectedWorkspaceId, approvalId, decision)
+        return true
+      } catch (approveError) {
+        const message = approveError instanceof Error ? approveError.message : String(approveError)
+        setError(message)
+        return false
+      }
+    },
+    [client, selectedWorkspaceId]
+  )
+
+  const connectRef = useRef(connect)
+  connectRef.current = connect
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -455,13 +520,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (storedWorkspaceId) setSelectedWorkspaceId(storedWorkspaceId)
       if (nextRelayConfig) setRelayConfig(nextRelayConfig)
       if (storedToken) {
-        void connect(nextHost, storedToken, nextRelayConfig)
+        void connectRef.current(nextHost, storedToken, nextRelayConfig)
       }
     })
     return () => {
       cancelled = true
     }
-  }, [connect])
+  }, [])
 
   useEffect(() => {
     if (connectionMode === 'relay') return
@@ -493,14 +558,24 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     }
   }, [client, connectionMode, selectedWorkspaceId, state, token])
 
+  useEffect(() => {
+    if (state !== 'connected' || !selectedWorkspaceId) return
+    void fetchChatMessages()
+    const interval = setInterval(() => void fetchChatMessages(), 5000)
+    return () => clearInterval(interval)
+  }, [fetchChatMessages, selectedWorkspaceId, state])
+
   const value = useMemo<MobileRuntimeContextValue>(
     () => ({
+      approveRequest,
+      chatMessages,
       connect,
       connectionMode,
       dashboard,
       disconnect,
       dispatchTask,
       error,
+      fetchChatMessages,
       getWorkerTranscript,
       getWorkspaceTasks,
       host,
@@ -513,6 +588,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       runtimeStatus,
       selectWorkspace,
       selectedWorkspaceId,
+      sendPromptToOrchestrator,
       setHost,
       setToken,
       state,
@@ -522,12 +598,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       workspaces,
     }),
     [
+      approveRequest,
+      chatMessages,
       connect,
       connectionMode,
       dashboard,
       disconnect,
       dispatchTask,
       error,
+      fetchChatMessages,
       getWorkerTranscript,
       getWorkspaceTasks,
       host,
@@ -540,6 +619,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       runtimeStatus,
       selectWorkspace,
       selectedWorkspaceId,
+      sendPromptToOrchestrator,
       state,
       stopWorker,
       token,

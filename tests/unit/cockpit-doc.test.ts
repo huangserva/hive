@@ -286,4 +286,60 @@ describe('parseCockpit tasks and research integration', () => {
     expect(playbookActions).toEqual([])
     expect(researchActions).toEqual([])
   })
+
+  describe('missing_impl_milestone aiAction', () => {
+    test('generates action when shipped design milestone has no matching impl milestone', () => {
+      const dir = setupWorkspace({
+        'plan.md': `---
+title: Test
+---
+## 目标
+
+Goal.
+
+## 里程碑
+
+### M19i · spec 设计 · shipped
+
+- [x] Write design doc
+
+### M22 · unrelated feature · open
+
+- [ ] Do something
+`,
+      })
+      const result = parseCockpit(dir)
+      const implActions = result.aiActions.filter((a) => a.type === 'missing_impl_milestone')
+      expect(implActions).toHaveLength(1)
+      expect(implActions[0]?.id).toBe('missing-impl:M19i')
+      expect(implActions[0]?.priority).toBe('high')
+      expect(implActions[0]?.targetTab).toBe('plan')
+      expect(implActions[0]?.text).toContain('M19i')
+    })
+
+    test('does not generate action when matching impl milestone exists', () => {
+      const dir = setupWorkspace({
+        'plan.md': `---
+title: Test
+---
+## 目标
+
+Goal.
+
+## 里程碑
+
+### M19i · spec 设计 · shipped
+
+- [x] Write design doc
+
+### M19j · impl implementation · open
+
+- [ ] Implement it
+`,
+      })
+      const result = parseCockpit(dir)
+      const implActions = result.aiActions.filter((a) => a.type === 'missing_impl_milestone')
+      expect(implActions).toHaveLength(0)
+    })
+  })
 })

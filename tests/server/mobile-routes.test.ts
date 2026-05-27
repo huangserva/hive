@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -14,7 +14,7 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
-const createWorkspaceFixture = () => {
+const createWorkspaceFixture = (options: { withQuestion?: boolean } = {}) => {
   const workspacePath = mkdtempSync(join(tmpdir(), 'hive-mobile-workspace-'))
   tempDirs.push(workspacePath)
   mkdirSync(join(workspacePath, '.hive'), { recursive: true })
@@ -53,6 +53,30 @@ m19a-lan-dashboard
 `,
     'utf8'
   )
+  if (options.withQuestion) {
+    writeFileSync(
+      join(workspacePath, '.hive', 'open-questions.md'),
+      `# Open Questions
+
+### 🔴 high — 阻塞当前执行
+
+- [ ] **Q1** Should mobile answer this question?
+
+### 🟠 medium — 影响下一步规划
+
+（暂无）
+
+### 🟢 low — 可稍后处理
+
+（暂无）
+
+## 已答（archive 留追溯）
+
+（暂无）
+`,
+      'utf8'
+    )
+  }
   return workspacePath
 }
 
@@ -215,6 +239,149 @@ describe('mobile API', () => {
       expect(body.cockpit.high_ai_actions).toBeGreaterThanOrEqual(0)
       expect(typeof body.cockpit.baseline_stale).toBe('boolean')
       expect(new Date(body.generated_at).toString()).not.toBe('Invalid Date')
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('returns full cockpit data for a paired mobile client', async () => {
+    const workspacePath = createWorkspaceFixture({ withQuestion: true })
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Cockpit')
+      const { token } = await pairMobile(server.baseUrl)
+
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        aiActions: unknown[]
+        ideas: unknown
+        plan: { currentPhase: string | null }
+        questions: { high: Array<{ id: string; text: string }> }
+        tasks: { totalDone: number; totalOpen: number }
+      }
+
+      expect(response.status).toBe(200)
+      expect(body.plan.currentPhase).toBe('m19a-lan-dashboard')
+      expect(body.tasks).toEqual(expect.objectContaining({ totalDone: 1, totalOpen: 1 }))
+      expect(body.questions.high).toContainEqual(
+        expect.objectContaining({
+          id: 'Q1',
+          text: 'Should mobile answer this question?',
+        })
+      )
+      expect(body.ideas).toEqual(expect.any(Object))
+      expect(body.aiActions).toEqual(expect.any(Array))
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('answers cockpit questions with send_prompt mobile capability', async () => {
+    const workspacePath = createWorkspaceFixture({ withQuestion: true })
+    const server = await startTestServer()
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Questions')
+      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
+      })
+      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
+      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
+        method: 'POST',
+        body: JSON.stringify({ code: readCode }),
+      })
+      const reader = (await readRedeemed.json()) as { token: string }
+
+      const forbidden = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/questions/Q1/answer`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: reader.token }),
+          method: 'POST',
+          body: JSON.stringify({ answer: 'Read-only devices cannot answer.' }),
+        }
+      )
+      expect(forbidden.status).toBe(403)
+
+      const senderPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['send_prompt'], device_name: 'Sender' }),
+      })
+      const { code } = (await senderPair.json()) as { code: string }
+      const senderRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      })
+      const sender = (await senderRedeemed.json()) as { token: string }
+
+      const answered = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/questions/Q1/answer`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: sender.token }),
+          method: 'POST',
+          body: JSON.stringify({ answer: 'Yes, ship mobile cockpit.' }),
+        }
+      )
+
+      expect(answered.status).toBe(200)
+      expect(await answered.json()).toEqual({ ok: true })
+      const questionsFile = readFileSync(join(workspacePath, '.hive', 'open-questions.md'), 'utf8')
+      expect(questionsFile).toContain('**Q1** Should mobile answer this question?')
+      expect(questionsFile).toContain('Yes, ship mobile cockpit.')
+      expect(questionsFile).toContain('**answered')
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('serves cockpit doc files inside .hive to paired mobile clients', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Docs')
+      mkdirSync(join(workspacePath, '.hive', 'reports'), { recursive: true })
+      writeFileSync(join(workspacePath, '.hive', 'notes.md'), '# Mobile Note\n', 'utf8')
+      writeFileSync(
+        join(workspacePath, '.hive', 'reports', 'mobile.html'),
+        '<!doctype html><h1>Mobile Report</h1>',
+        'utf8'
+      )
+      const { token } = await pairMobile(server.baseUrl)
+
+      const markdown = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+          '.hive/notes.md'
+        )}`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      expect(markdown.status).toBe(200)
+      expect(markdown.headers.get('content-type')).toContain('text/plain')
+      expect(await markdown.text()).toContain('# Mobile Note')
+
+      const html = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+          '.hive/reports/mobile.html'
+        )}`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      expect(html.status).toBe(200)
+      expect(html.headers.get('content-type')).toContain('text/html')
+      expect(await html.text()).toContain('Mobile Report')
+
+      const traversal = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
+          '.hive/../package.json'
+        )}`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      expect(traversal.status).toBe(400)
     } finally {
       await server.close()
     }

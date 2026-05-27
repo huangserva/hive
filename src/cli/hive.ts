@@ -212,7 +212,7 @@ export const runHiveCommand = async (
   })
 
   try {
-    app.server.listen(port, '127.0.0.1')
+    app.server.listen(port, '0.0.0.0')
     await Promise.race([
       once(app.server, 'listening'),
       once(app.server, 'error').then(([error]) => {

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "main": "dist/src/index.js",
+  "source": "src/index.ts",
   "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
@@ -12,11 +12,13 @@ import {
   type MobileCapability,
   type MobileDeviceRecord,
 } from './mobile-auth.js'
+import { answerQuestionInFile } from './pm-questions-doc.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import { getOrchestratorId } from './workspace-store-support.js'
 
 const activeMilestone = (cockpit: ReturnType<typeof parseCockpit>) =>
   cockpit.plan.milestones.find((milestone) => milestone.status === 'in_progress') ??
@@ -191,6 +193,44 @@ const readNonEmptyString = (value: unknown, fieldName: string) => {
   return value.trim()
 }
 
+const isInside = (root: string, candidate: string) => {
+  const relative = candidate.slice(root.length)
+  return candidate === root || relative.startsWith(sep)
+}
+
+const hasParentTraversal = (requestedPath: string) =>
+  requestedPath.split(/[\\/]+/).some((segment) => segment === '..')
+
+const readWorkspaceMobileCockpitDocFile = (workspacePath: string, requestedPath: string) => {
+  const trimmed = requestedPath.trim()
+  if (!trimmed) throw new BadRequestError('path must not be empty')
+  const lower = trimmed.toLowerCase()
+  if (!lower.endsWith('.md') && !lower.endsWith('.html')) {
+    throw new BadRequestError('doc path must be a .md or .html file')
+  }
+  if (!trimmed.startsWith('.hive/')) {
+    throw new BadRequestError('doc path must stay inside .hive')
+  }
+  if (hasParentTraversal(trimmed)) {
+    throw new BadRequestError('doc path must stay inside .hive')
+  }
+
+  const workspaceRoot = resolve(workspacePath)
+  const hiveRoot = resolve(workspaceRoot, '.hive')
+  const candidate = resolve(workspaceRoot, trimmed)
+  if (!isInside(hiveRoot, candidate)) {
+    throw new BadRequestError('doc path must stay inside .hive')
+  }
+  if (!existsSync(candidate) || !statSync(candidate).isFile()) {
+    throw new NotFoundError(`Document not found: ${requestedPath}`)
+  }
+
+  return {
+    content: readFileSync(candidate, 'utf8'),
+    contentType: lower.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+  }
+}
+
 const readRelayPairingConfig = () => {
   const relayPath = join(homedir(), '.config', 'hive', 'relay.json')
   if (!existsSync(relayPath)) return null
@@ -322,6 +362,78 @@ export const mobileRoutes: RouteDefinition[] = [
   ),
   route(
     'GET',
+    '/api/mobile/workspaces/:workspaceId/cockpit',
+    ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'read_dashboard')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      const cockpit = parseCockpit(workspace.summary.path)
+      sendJson(response, 200, {
+        aiActions: cockpit.aiActions,
+        ideas: cockpit.ideas,
+        plan: cockpit.plan,
+        questions: cockpit.questions,
+        tasks: cockpit.tasks,
+      })
+    }
+  ),
+  route(
+    'GET',
+    '/api/mobile/workspaces/:workspaceId/cockpit/doc-file',
+    ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'read_dashboard')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      const docPath = url.searchParams.get('path')
+      if (!docPath) throw new BadRequestError('path is required')
+
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      const doc = readWorkspaceMobileCockpitDocFile(workspace.summary.path, docPath)
+      response.statusCode = 200
+      response.setHeader('content-type', doc.contentType)
+      response.end(doc.content)
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/cockpit/questions/:questionId/answer',
+    async ({ logger, params, request, response, store }) => {
+      requireMobileCapability(request, store, 'send_prompt')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      const questionId = getRequiredParam(response, params, 'questionId', 'Question id is required')
+      if (!workspaceId || !questionId) return
+      const body = await readJsonBody<{ answer?: unknown }>(request)
+      if (typeof body.answer !== 'string') throw new BadRequestError('answer must be a string')
+
+      const workspace = store.getWorkspaceSnapshot(workspaceId)
+      answerQuestionInFile(workspace.summary.path, questionId, body.answer)
+      try {
+        store.notifyQuestionAnswered(workspaceId, questionId, body.answer)
+      } catch (error) {
+        logger?.warn(`mobile cockpit question answer nudge failed question_id=${questionId}`, error)
+      }
+      sendJson(response, 200, { ok: true })
+    }
+  ),
+  route(
+    'GET',
     '/api/mobile/workspaces/:workspaceId/workers/:workerId/transcript',
     async ({ params, request, response, store }) => {
       requireMobileCapability(request, store, 'read_dashboard')
@@ -381,6 +493,30 @@ export const mobileRoutes: RouteDefinition[] = [
         worker_id: workerId,
         workspace_id: workspaceId,
       })
+    }
+  ),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/prompt',
+    async ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'send_prompt')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      const body = await readJsonBody<{ text?: unknown }>(request)
+      const text = readNonEmptyString(body.text, 'text')
+      const orchId = getOrchestratorId(workspaceId)
+      const activeRun = store.getActiveRunByAgentId(workspaceId, orchId)
+      if (!activeRun) {
+        throw new BadRequestError('Orchestrator is not running')
+      }
+      const formatted = `[来自手机 Mobile App]\n---\n${text}`
+      store.recordUserInput(workspaceId, orchId, formatted)
+      sendJson(response, 200, { ok: true, workspace_id: workspaceId })
     }
   ),
   route(

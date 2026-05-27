@@ -1,41 +1,37 @@
+import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
-import { useEffect, useMemo, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useCallback, useMemo, useState } from 'react'
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
-import { StatusBadge } from '../../src/components/StatusBadge'
-import { VoiceRecordButton } from '../../src/components/VoiceRecordButton'
+import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
+import { colors, radius, spacing } from '../../src/theme'
 
-export default function WorkersTab() {
-  const { dashboard, dispatchTask, error, restartWorker, state, stopWorker, transcribeVoice } =
+export default function StatusTab() {
+  const { dashboard, error, refreshDashboard, restartWorker, state, stopWorker } =
     useMobileRuntime()
   const router = useRouter()
-  const workers = dashboard?.workers ?? []
-  const dispatchableWorkers = useMemo(
-    () => workers.filter((worker) => worker.role !== 'sentinel'),
-    [workers]
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const activeWorkers = useMemo(
+    () => dashboard?.workers.filter((worker) => worker.status !== 'stopped').length ?? 0,
+    [dashboard]
   )
-  const [selectedWorkerId, setSelectedWorkerId] = useState('')
-  const [taskText, setTaskText] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
-    if (!selectedWorkerId && dispatchableWorkers[0]) {
-      setSelectedWorkerId(dispatchableWorkers[0].id)
-      return
-    }
-    if (selectedWorkerId && !dispatchableWorkers.some((worker) => worker.id === selectedWorkerId)) {
-      setSelectedWorkerId(dispatchableWorkers[0]?.id ?? '')
-    }
-  }, [dispatchableWorkers, selectedWorkerId])
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await refreshDashboard()
+    setRefreshing(false)
+  }, [refreshDashboard])
 
-  const confirmStop = (workerId: string, workerName: string) => {
-    Alert.alert('Stop worker', `Stop ${workerName}?`, [
+  const confirmStop = (worker: MobileDashboardWorker) => {
+    Alert.alert('Stop worker', `Stop ${worker.name}?`, [
       { style: 'cancel', text: 'Cancel' },
       {
         onPress: () => {
-          void stopWorker(workerId)
+          void stopWorker(worker.id)
         },
         style: 'destructive',
         text: 'Stop',
@@ -43,300 +39,530 @@ export default function WorkersTab() {
     ])
   }
 
-  const confirmRestart = (workerId: string, workerName: string) => {
-    Alert.alert('Restart worker', `Restart ${workerName}?`, [
+  const confirmRestart = (worker: MobileDashboardWorker) => {
+    Alert.alert('Restart worker', `Restart ${worker.name}?`, [
       { style: 'cancel', text: 'Cancel' },
       {
         onPress: () => {
-          void restartWorker(workerId)
+          void restartWorker(worker.id)
         },
         text: 'Restart',
       },
     ])
   }
 
-  const confirmDispatch = () => {
-    const task = taskText.trim()
-    if (!selectedWorkerId || !task) {
-      Alert.alert('Dispatch task', 'Choose a worker and enter a task.')
-      return
-    }
-    const workerName =
-      dispatchableWorkers.find((worker) => worker.id === selectedWorkerId)?.name ?? 'worker'
-    Alert.alert('Dispatch task', `Send this task to ${workerName}?`, [
-      { style: 'cancel', text: 'Cancel' },
-      {
-        onPress: () => {
-          setIsSubmitting(true)
-          void dispatchTask(selectedWorkerId, task).then((result) => {
-            setIsSubmitting(false)
-            if (result) {
-              setTaskText('')
-              Alert.alert('Dispatched', `Dispatch ${result.dispatch_id} queued.`)
-            }
-          })
-        },
-        text: 'Dispatch',
-      },
-    ])
+  if (!dashboard) {
+    return (
+      <Screen>
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyIcon}>
+            <Ionicons color={colors.accent} name="pulse-outline" size={34} />
+          </View>
+          <Text style={styles.emptyTitle}>Status appears after pairing</Text>
+          <Text style={styles.emptyBody}>
+            Connect in Settings to see orchestrator state, worker health, plan progress, and pending
+            questions.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/settings')}
+            style={styles.primaryButton}
+          >
+            <Text style={styles.primaryButtonText}>Open Settings</Text>
+          </Pressable>
+          <Text style={styles.stateText}>State: {state}</Text>
+        </View>
+      </Screen>
+    )
   }
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Workers</Text>
-        {!dashboard ? (
-          <Text style={styles.body}>Connect in Settings first. State: {state}</Text>
-        ) : null}
-        {workers.length === 0 && dashboard ? (
-          <Text style={styles.body}>No workers found.</Text>
-        ) : null}
-        {workers.map((worker) => (
-          <Pressable
-            accessibilityRole="button"
-            key={worker.id}
-            onPress={() => router.push({ pathname: '/agent/[id]', params: { id: worker.id } })}
-            style={({ pressed }) => [styles.card, pressed ? styles.cardPressed : null]}
-          >
-            <View style={styles.cardHeader}>
-              <View style={styles.workerTitle}>
-                <Text style={styles.name}>{worker.name}</Text>
-                <Text style={styles.body}>{worker.role}</Text>
-              </View>
-              <StatusBadge status={worker.status} />
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.eyebrow}>Command status</Text>
+            <Text style={styles.title}>{dashboard.workspace.name}</Text>
+          </View>
+          <View style={styles.connectedPill}>
+            <View style={styles.connectedDot} />
+            <Text style={styles.connectedText}>Live</Text>
+          </View>
+        </View>
+
+        <View style={styles.overviewCard}>
+          <View style={styles.overviewTop}>
+            <View>
+              <Text style={styles.cardLabel}>Current phase</Text>
+              <Text style={styles.phase}>{dashboard.plan.current_phase ?? 'Unknown'}</Text>
             </View>
-            <Text style={styles.meta}>Preset: {worker.preset ?? 'none'}</Text>
-            <Text style={styles.meta}>Tap card for transcript and task history.</Text>
-            <View style={styles.workerActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={worker.status === 'stopped'}
-                onPress={() => confirmStop(worker.id, worker.name)}
-                style={({ pressed }) => [
-                  styles.dangerButton,
-                  pressed ? styles.buttonPressed : null,
-                  worker.status === 'stopped' ? styles.disabledButton : null,
-                ]}
-              >
-                <Text style={styles.buttonText}>Stop</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => confirmRestart(worker.id, worker.name)}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  pressed ? styles.buttonPressed : null,
-                ]}
-              >
-                <Text style={styles.buttonText}>Restart</Text>
-              </Pressable>
-            </View>
-          </Pressable>
-        ))}
-        {dashboard ? (
-          <View style={styles.dispatchCard}>
-            <Text style={styles.sectionTitle}>Dispatch task</Text>
-            <Text style={styles.body}>Choose a worker and send a task to the runtime.</Text>
-            <View style={styles.workerPicker}>
-              {dispatchableWorkers.map((worker) => (
-                <Pressable
-                  accessibilityRole="button"
-                  key={worker.id}
-                  onPress={() => setSelectedWorkerId(worker.id)}
-                  style={[
-                    styles.workerChip,
-                    selectedWorkerId === worker.id ? styles.workerChipSelected : null,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.workerChipText,
-                      selectedWorkerId === worker.id ? styles.workerChipTextSelected : null,
-                    ]}
-                  >
-                    {worker.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.taskInputRow}>
-              <TextInput
-                multiline
-                onChangeText={setTaskText}
-                placeholder="Ask this worker to..."
-                placeholderTextColor="#6e7681"
-                style={[styles.taskInput, styles.taskInputWithMic]}
-                value={taskText}
-              />
-              <VoiceRecordButton
-                disabled={!selectedWorkerId}
-                onTranscript={(text) => setTaskText((prev) => (prev ? `${prev}\n${text}` : text))}
-                transcribeVoice={transcribeVoice}
-              />
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              disabled={isSubmitting}
-              onPress={confirmDispatch}
-              style={({ pressed }) => [
-                styles.dispatchButton,
-                pressed || isSubmitting ? styles.buttonPressed : null,
-              ]}
-            >
-              <Text style={styles.buttonText}>{isSubmitting ? 'Dispatching...' : 'Dispatch'}</Text>
-            </Pressable>
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Text style={styles.generatedAt}>
+              {new Date(dashboard.generated_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View
+              style={[styles.progressFill, { width: `${Math.min(activeWorkers * 25, 100)}%` }]}
+            />
+          </View>
+          <View style={styles.metricRow}>
+            <Metric label="Active" value={activeWorkers} />
+            <Metric label="Open Q" value={dashboard.cockpit.open_questions} />
+            <Metric label="Tasks" value={dashboard.tasks.total_open} />
+          </View>
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Workers</Text>
+          <Text style={styles.sectionMeta}>{dashboard.workers.length} total</Text>
+        </View>
+
+        {dashboard.workers.length === 0 ? (
+          <View style={styles.card}>
+            <Text style={styles.body}>No workers in this workspace yet.</Text>
           </View>
         ) : null}
+
+        {dashboard.workers.map((worker) => (
+          <WorkerCard
+            expanded={expandedWorkerId === worker.id}
+            key={worker.id}
+            onOpenAgent={() => router.push({ pathname: '/agent/[id]', params: { id: worker.id } })}
+            onRestart={() => confirmRestart(worker)}
+            onStop={() => confirmStop(worker)}
+            onToggle={() =>
+              setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
+            }
+            worker={worker}
+          />
+        ))}
+
+        <View style={styles.footerCard}>
+          <View style={styles.footerRow}>
+            <Ionicons color={colors.accent} name="git-branch-outline" size={18} />
+            <View style={styles.footerText}>
+              <Text style={styles.footerTitle}>
+                {dashboard.plan.active_milestone ?? 'No milestone'}
+              </Text>
+              <Text style={styles.footerMeta}>Active milestone</Text>
+            </View>
+          </View>
+          <View style={styles.footerRow}>
+            <Ionicons
+              color={dashboard.cockpit.baseline_stale ? colors.warning : colors.success}
+              name="shield-checkmark-outline"
+              size={18}
+            />
+            <View style={styles.footerText}>
+              <Text style={styles.footerTitle}>
+                Baseline {dashboard.cockpit.baseline_stale ? 'stale' : 'fresh'}
+              </Text>
+              <Text style={styles.footerMeta}>
+                {dashboard.cockpit.high_ai_actions} high-priority action
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
     </Screen>
   )
 }
 
+const Metric = ({ label, value }: { label: string; value: number }) => (
+  <View style={styles.metric}>
+    <Text style={styles.metricValue}>{value}</Text>
+    <Text style={styles.metricLabel}>{label}</Text>
+  </View>
+)
+
+const WorkerCard = ({
+  expanded,
+  onOpenAgent,
+  onRestart,
+  onStop,
+  onToggle,
+  worker,
+}: {
+  expanded: boolean
+  onOpenAgent: () => void
+  onRestart: () => void
+  onStop: () => void
+  onToggle: () => void
+  worker: MobileDashboardWorker
+}) => (
+  <Pressable accessibilityRole="button" onPress={onToggle} style={styles.card}>
+    <View style={styles.workerHeader}>
+      <View style={styles.workerLeft}>
+        <View style={[styles.workerAvatar, { borderColor: statusColor(worker.status) }]}>
+          <Text style={styles.workerAvatarText}>{worker.name.slice(0, 1)}</Text>
+        </View>
+        <View style={styles.workerText}>
+          <Text style={styles.workerName}>{worker.name}</Text>
+          <Text style={styles.workerMeta}>
+            {worker.role} · {worker.preset ?? 'no preset'}
+          </Text>
+        </View>
+      </View>
+      <StatusBadge status={worker.status} />
+    </View>
+    <Text style={styles.workerTask}>{currentTaskFor(worker)}</Text>
+    {expanded ? (
+      <View style={styles.expanded}>
+        <View style={styles.dispatchPreview}>
+          <Text style={styles.dispatchTitle}>Recent dispatch</Text>
+          <Text style={styles.dispatchBody}>{dispatchPreviewFor(worker)}</Text>
+        </View>
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenAgent}
+            style={styles.secondaryButton}
+          >
+            <Text style={styles.secondaryButtonText}>Details</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={onRestart} style={styles.secondaryButton}>
+            <Text style={styles.secondaryButtonText}>Restart</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={worker.status === 'stopped'}
+            onPress={onStop}
+            style={[styles.dangerButton, worker.status === 'stopped' ? styles.disabled : null]}
+          >
+            <Text style={styles.dangerButtonText}>Stop</Text>
+          </Pressable>
+        </View>
+      </View>
+    ) : null}
+  </Pressable>
+)
+
+const currentTaskFor = (worker: MobileDashboardWorker) => {
+  if (worker.status === 'working') return 'Working on the latest assigned dispatch.'
+  if (worker.status === 'idle') return 'Ready for a quick follow-up.'
+  return 'Stopped. Restart when this role is needed.'
+}
+
+const dispatchPreviewFor = (worker: MobileDashboardWorker) => {
+  if (worker.status === 'working') return 'Running verification and preparing a concise report.'
+  if (worker.status === 'idle') return 'No open dispatch detected for this worker.'
+  return 'Last run is stopped; transcript remains available in details.'
+}
+
 const styles = StyleSheet.create({
+  actions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
   body: {
-    color: '#8b949e',
+    color: colors.muted,
     fontSize: 15,
     lineHeight: 22,
   },
   card: {
-    backgroundColor: '#161b22',
-    borderColor: '#30363d',
-    borderRadius: 14,
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    gap: 12,
-    padding: 16,
+    gap: spacing.sm,
+    padding: spacing.md,
   },
-  cardHeader: {
-    alignItems: 'flex-start',
+  cardLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  connectedDot: {
+    backgroundColor: colors.success,
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  connectedPill: {
+    alignItems: 'center',
+    backgroundColor: colors.successSoft,
+    borderColor: 'rgba(63, 185, 80, 0.34)',
+    borderRadius: 999,
+    borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  cardPressed: {
-    borderColor: '#58a6ff',
-    opacity: 0.85,
-  },
-  buttonPressed: {
-    opacity: 0.75,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+  connectedText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
   },
   dangerButton: {
     alignItems: 'center',
-    backgroundColor: '#da3633',
-    borderRadius: 10,
+    backgroundColor: colors.error,
+    borderRadius: radius.sm,
     flex: 1,
-    paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  disabledButton: {
+  dangerButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  disabled: {
     opacity: 0.45,
   },
-  dispatchButton: {
-    alignItems: 'center',
-    backgroundColor: '#238636',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+  dispatchBody: {
+    color: colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 3,
   },
-  dispatchCard: {
-    backgroundColor: '#0f1a24',
-    borderColor: '#58a6ff',
-    borderRadius: 14,
+  dispatchPreview: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+  },
+  dispatchTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  emptyBody: {
+    color: colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    maxWidth: 330,
+    textAlign: 'center',
+  },
+  emptyIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderColor: 'rgba(88, 166, 255, 0.24)',
+    borderRadius: 28,
     borderWidth: 1,
-    gap: 12,
-    padding: 16,
+    height: 82,
+    justifyContent: 'center',
+    width: 82,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    flex: 1,
+    gap: spacing.md,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
   },
   error: {
-    color: '#ff7b72',
+    color: colors.error,
     fontSize: 14,
   },
-  meta: {
-    color: '#8b949e',
-    fontSize: 13,
+  expanded: {
+    borderTopColor: colors.borderMuted,
+    borderTopWidth: 1,
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
   },
-  name: {
-    color: '#e6edf3',
-    fontSize: 20,
+  eyebrow: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  footerCard: {
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  footerMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  footerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  footerText: {
+    flex: 1,
+    gap: 2,
+  },
+  footerTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  generatedAt: {
+    color: colors.muted,
+    fontSize: 12,
     fontWeight: '700',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  metric: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: radius.sm,
+    flex: 1,
+    padding: spacing.sm,
+  },
+  metricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  metricRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  metricValue: {
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  overviewCard: {
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  overviewTop: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  phase: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  primaryButton: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+  },
+  primaryButtonText: {
+    color: colors.background,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  progressFill: {
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    height: '100%',
+  },
+  progressTrack: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 999,
+    height: 8,
+    overflow: 'hidden',
+  },
+  scroll: {
+    gap: spacing.sm,
+    paddingBottom: spacing.lg,
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#30363d',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
     flex: 1,
-    paddingHorizontal: 14,
     paddingVertical: 10,
   },
-  sectionTitle: {
-    color: '#e6edf3',
-    fontSize: 18,
-    fontWeight: '700',
+  secondaryButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
   },
-  scroll: {
-    gap: 14,
-    paddingBottom: 24,
-  },
-  taskInput: {
-    backgroundColor: '#0d1117',
-    borderColor: '#30363d',
-    borderRadius: 10,
-    borderWidth: 1,
-    color: '#e6edf3',
-    flex: 1,
-    fontSize: 15,
-    minHeight: 100,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    textAlignVertical: 'top',
-  },
-  taskInputWithMic: {
-    flex: 1,
-  },
-  taskInputRow: {
-    alignItems: 'flex-end',
+  sectionHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginTop: spacing.xs,
+  },
+  sectionMeta: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  stateText: {
+    color: colors.muted2,
+    fontSize: 13,
   },
   title: {
-    color: '#e6edf3',
-    fontSize: 26,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
   },
-  workerActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  workerChip: {
-    borderColor: '#30363d',
-    borderRadius: 999,
+  workerAvatar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: radius.sm,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
   },
-  workerChipSelected: {
-    backgroundColor: '#1f6feb',
-    borderColor: '#58a6ff',
+  workerAvatarText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
   },
-  workerChipText: {
-    color: '#8b949e',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  workerChipTextSelected: {
-    color: '#ffffff',
-  },
-  workerPicker: {
+  workerHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'space-between',
   },
-  workerTitle: {
+  workerLeft: {
+    alignItems: 'center',
     flex: 1,
-    gap: 4,
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  workerMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  workerName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  workerTask: {
+    color: colors.textSoft,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  workerText: {
+    flex: 1,
+    gap: 3,
   },
 })

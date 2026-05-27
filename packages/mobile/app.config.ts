@@ -11,7 +11,7 @@ type ExpoConfigWithSplash = ExpoConfig & {
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '0.1.0',
+  version: '0.2.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',
@@ -36,7 +36,6 @@ const config: ExpoConfigWithSplash = {
   },
   plugins: [
     'expo-router',
-    'expo-notifications',
     'expo-secure-store',
     [
       'expo-build-properties',
@@ -54,6 +53,11 @@ const config: ExpoConfigWithSplash = {
   },
   web: {
     favicon: './assets/favicon.png',
+  },
+  extra: {
+    eas: {
+      projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
+    },
   },
 }
 

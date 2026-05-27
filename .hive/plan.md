@@ -201,6 +201,9 @@ last_review: 2026-05-25
   - [x] 子任务 1：Push notifications — schema v26 push_token + Expo push API + worker done/high aiAction triggers（赵云）
   - [x] 子任务 2：Voice input — POST /api/mobile/voice/transcribe + VoiceRecordButton + expo-av recording（吕布，8 tests）
 - [x] **M19f**：beta hardening + distribution（EAS internal/TestFlight/Android internal + docs + baseline 回填）— shipped（pending commit hash）
+- [x] **M19g**：mobile command center UI redesign（3-tab Chat / Status / Settings，Chat 本地 mock + Status 真实 dashboard，version 0.2.0）— pending commit hash
+- [x] **M19h**：mobile app 完整视觉设计 spec（6 组基础手机框架 mockup + mobile Cockpit Plan/Tasks/Questions/Ideas/Actions 补充 + navigation / token / component / API mapping）— `.hive/reports/mobile-app-design-spec-2026-05-27.html`
+- [x] **M19i**：mobile app 产品级 v2 设计 spec（12 张 image-generated 手机界面 mockup + Chat/Status/Settings/Worker/Cockpit/Approval/Error 全覆盖 + chat 协议 / mobile cockpit auth / push / offline 实施规范）— `.hive/reports/mobile-app-design-v2-2026-05-27.html`
 - 触发：user 问“Paseo 是有 APP 端的，我们是不是可以为 HippoTeam 做一个前端 APP？这样所有任务看起来很方便，也可以有面板。”后继续拍板“要原生、要最好”。
 
 ### M20 · Sentinel Worker · shipped 2026-05-26
@@ -211,6 +214,19 @@ last_review: 2026-05-25
 - [x] Workers 面板顶部独立展示 Sentinel 卡片，不混入普通 worker status 分组
 - [x] backend 支持编辑 worker description / preset / thinking_level / sentinel heartbeat interval
 - [x] tests: heartbeat 注入、创建唯一性、authz 拒绝 send、UI 独立区域
+
+### M24 · Mobile App 产品化实现 · open
+- [ ] **Phase 1**：Chat 双向消息后端（mobile_chat_messages 表 + orch 输出捕获 → 写表 + WS push + REST history endpoint）
+- [ ] **Phase 2**：Chat UI 重做（message renderer: text/report/approval/system cards + 双向实时流 + local composer）
+- [ ] **Phase 3**：Mobile Cockpit（4 tab 导航改造 + /api/mobile/workspaces/:id/cockpit 端点 + Plan/Tasks/Questions/Ideas/Actions 5 个子页面）
+- [ ] **Phase 4**：Worker Detail + Status 增强（terminal preview + dispatch history + Cockpit entry card）
+- [ ] **Phase 5**：Push Notification + Approval（deep link + approval card lifecycle + Expo push 触发）
+- [ ] **Phase 6**：Error resilience + 离线缓存（LAN/relay fallback UI + offline outbox + 增量同步）
+- [ ] **L1 机制**：设计 milestone shipped → 自动检测缺实施 milestone（扩展 milestone completion trigger，Cockpit ActionBar 出 high action）
+- 设计文档：`.hive/reports/mobile-app-design-v2-2026-05-27.html`
+- 决策：`.hive/decisions/design-to-impl-milestone-trigger.md`
+- 前置：M19i 设计 spec 已完成
+- 可并行：Phase 1 后端 + Phase 2 前端可同时开工
 
 ### M23 · Agent Run Timeline 可恢复事件流 · open
 - [ ] 设计 AgentRunTimelineEvent schema + AgentRunTimelineStore（SQLite durable，seq/epoch/gap 三概念）

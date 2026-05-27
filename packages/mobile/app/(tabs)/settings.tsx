@@ -1,8 +1,10 @@
+import { Ionicons } from '@expo/vector-icons'
 import { useEffect, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
+import { colors, radius, spacing } from '../../src/theme'
 
 export default function SettingsTab() {
   const {
@@ -37,12 +39,6 @@ export default function SettingsTab() {
     setDraftToken(token)
   }, [token])
 
-  const onConnect = () => {
-    setHost(draftHost)
-    setToken(draftToken)
-    void connect(draftHost, draftToken)
-  }
-
   const onPairCode = async () => {
     const code = draftPairingCode.replace(/\D/g, '')
     if (code.length !== 6) {
@@ -56,6 +52,12 @@ export default function SettingsTab() {
       setDraftPairingCode('')
       Alert.alert('Paired', `Connected as ${redeemed.device.name}`)
     }
+  }
+
+  const onConnect = () => {
+    setHost(draftHost)
+    setToken(draftToken)
+    void connect(draftHost, draftToken)
   }
 
   const onFetchLegacyToken = async () => {
@@ -80,72 +82,81 @@ export default function SettingsTab() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.label}>Runtime host</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          inputMode="url"
-          onChangeText={setDraftHost}
-          placeholder="192.168.1.100:4010"
-          placeholderTextColor="#6e7681"
-          style={styles.input}
-          value={draftHost}
-        />
-        <Text style={styles.hint}>
-          Generate a pairing code in HippoTeam on this runtime, then enter it here from the same
-          LAN.
-        </Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.eyebrow}>Device setup</Text>
+            <Text style={styles.title}>Settings</Text>
+          </View>
+          <ConnectionBadge mode={connectionMode} state={state} />
+        </View>
 
-        <Text style={styles.label}>Pairing code</Text>
-        <TextInput
-          autoCapitalize="none"
-          autoCorrect={false}
-          inputMode="numeric"
-          keyboardType="number-pad"
-          maxLength={6}
-          onChangeText={(value) => setDraftPairingCode(value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="123456"
-          placeholderTextColor="#6e7681"
-          style={styles.codeInput}
-          value={draftPairingCode}
-        />
+        <View style={styles.heroCard}>
+          <View style={styles.heroIcon}>
+            <Ionicons color={colors.accent} name="lock-closed-outline" size={22} />
+          </View>
+          <View style={styles.heroText}>
+            <Text style={styles.heroTitle}>Pair with your desktop runtime</Text>
+            <Text style={styles.heroBody}>
+              Generate a pairing code in HippoTeam on your computer, then enter it here from the
+              same network.
+            </Text>
+          </View>
+        </View>
 
-        <View style={styles.actions}>
+        <View style={styles.card}>
+          <Text style={styles.label}>Runtime host</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            inputMode="url"
+            onChangeText={setDraftHost}
+            placeholder="192.168.1.100:4010"
+            placeholderTextColor={colors.muted2}
+            style={styles.input}
+            value={draftHost}
+          />
+
+          <Text style={styles.label}>Pairing code</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            inputMode="numeric"
+            keyboardType="number-pad"
+            maxLength={6}
+            onChangeText={(value) => setDraftPairingCode(value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            placeholderTextColor={colors.muted2}
+            style={styles.codeInput}
+            value={draftPairingCode}
+          />
+
           <Pressable
             accessibilityRole="button"
             disabled={state === 'checking'}
             onPress={onPairCode}
-            style={({ pressed }) => [
-              styles.button,
-              pressed || state === 'checking' ? styles.buttonPressed : null,
-            ]}
+            style={[styles.primaryButton, state === 'checking' ? styles.disabled : null]}
           >
-            <Text style={styles.buttonText}>{state === 'checking' ? 'Pairing...' : 'Pair'}</Text>
+            <Text style={styles.primaryButtonText}>
+              {state === 'checking' ? 'Pairing...' : 'Pair'}
+            </Text>
           </Pressable>
-          {token ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={onDisconnect}
-              style={({ pressed }) => [styles.dangerButton, pressed ? styles.buttonPressed : null]}
-            >
-              <Text style={styles.buttonText}>Disconnect</Text>
-            </Pressable>
-          ) : null}
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.status}>Status: {state}</Text>
-          <Text style={styles.detail}>Connection: {connectionMode.toUpperCase()}</Text>
+        <View style={styles.statusCard}>
+          <View style={styles.statusRow}>
+            <Ionicons
+              color={state === 'connected' ? colors.success : colors.warning}
+              name={state === 'connected' ? 'checkmark-circle-outline' : 'alert-circle-outline'}
+              size={20}
+            />
+            <View style={styles.statusText}>
+              <Text style={styles.statusTitle}>Runtime {state}</Text>
+              <Text style={styles.statusMeta}>Connection: {connectionMode.toUpperCase()}</Text>
+            </View>
+          </View>
           {relayConfig ? <Text style={styles.detail}>Relay: {relayConfig.relay_url}</Text> : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          {pairedDevice ? (
-            <>
-              <Text style={styles.detail}>Device: {pairedDevice.name}</Text>
-              <Text style={styles.detail}>Device id: {pairedDevice.id}</Text>
-            </>
-          ) : null}
+          {pairedDevice ? <Text style={styles.detail}>Device: {pairedDevice.name}</Text> : null}
           {runtimeStatus ? (
             <>
               <Text style={styles.detail}>
@@ -154,67 +165,22 @@ export default function SettingsTab() {
               <Text style={styles.detail}>cwd: {String(runtimeStatus.cwd ?? 'unknown')}</Text>
             </>
           ) : null}
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {token ? (
+            <Pressable accessibilityRole="button" onPress={onDisconnect} style={styles.disconnect}>
+              <Text style={styles.disconnectText}>Disconnect this device</Text>
+            </Pressable>
+          ) : null}
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => setShowAdvanced((value) => !value)}
-          style={({ pressed }) => [styles.advancedToggle, pressed ? styles.buttonPressed : null]}
-        >
-          <Text style={styles.advancedToggleText}>
-            {showAdvanced ? 'Hide advanced' : 'Advanced'}
-          </Text>
-        </Pressable>
-
-        {showAdvanced ? (
-          <View style={styles.card}>
-            <Text style={styles.status}>Manual token fallback</Text>
-            <Text style={styles.hint}>
-              Use this only for development or when pairing code flow is unavailable.
-            </Text>
-            <Text style={styles.label}>Mobile token</Text>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setDraftToken}
-              placeholder="Paste token"
-              placeholderTextColor="#6e7681"
-              secureTextEntry
-              style={styles.input}
-              value={draftToken}
-            />
-            <View style={styles.actions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={state === 'checking'}
-                onPress={onFetchLegacyToken}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  pressed || state === 'checking' ? styles.buttonPressed : null,
-                ]}
-              >
-                <Text style={styles.buttonText}>Fetch legacy token</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={state === 'checking'}
-                onPress={onConnect}
-                style={({ pressed }) => [
-                  styles.button,
-                  pressed || state === 'checking' ? styles.buttonPressed : null,
-                ]}
-              >
-                <Text style={styles.buttonText}>
-                  {state === 'checking' ? 'Connecting...' : 'Connect'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
         <View style={styles.card}>
-          <Text style={styles.status}>Workspaces</Text>
-          {workspaces.length === 0 ? <Text style={styles.detail}>No workspaces loaded</Text> : null}
+          <View style={styles.cardHeader}>
+            <Text style={styles.sectionTitle}>Workspace</Text>
+            <Text style={styles.sectionMeta}>{workspaces.length} available</Text>
+          </View>
+          {workspaces.length === 0 ? (
+            <Text style={styles.detail}>No workspaces loaded yet. Pair or connect first.</Text>
+          ) : null}
           {workspaces.map((workspace) => (
             <Pressable
               accessibilityRole="button"
@@ -225,142 +191,352 @@ export default function SettingsTab() {
                 selectedWorkspaceId === workspace.id ? styles.workspaceRowSelected : null,
               ]}
             >
-              <Text style={styles.workspaceName}>{workspace.name}</Text>
-              <Text style={styles.detail}>{workspace.path}</Text>
+              <View style={styles.workspaceIcon}>
+                <Text style={styles.workspaceInitial}>{workspace.name.slice(0, 1)}</Text>
+              </View>
+              <View style={styles.workspaceText}>
+                <Text style={styles.workspaceName}>{workspace.name}</Text>
+                <Text numberOfLines={1} style={styles.detail}>
+                  {workspace.path}
+                </Text>
+              </View>
+              {selectedWorkspaceId === workspace.id ? (
+                <Ionicons color={colors.success} name="checkmark-circle" size={20} />
+              ) : null}
             </Pressable>
           ))}
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setShowAdvanced((value) => !value)}
+          style={styles.advancedToggle}
+        >
+          <Text style={styles.advancedToggleText}>
+            {showAdvanced ? 'Hide advanced token fallback' : 'Advanced token fallback'}
+          </Text>
+        </Pressable>
+
+        {showAdvanced ? (
+          <View style={styles.card}>
+            <Text style={styles.label}>Mobile token</Text>
+            <TextInput
+              autoCapitalize="none"
+              autoCorrect={false}
+              onChangeText={setDraftToken}
+              placeholder="Paste token"
+              placeholderTextColor={colors.muted2}
+              secureTextEntry
+              style={styles.input}
+              value={draftToken}
+            />
+            <View style={styles.advancedActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={state === 'checking'}
+                onPress={onFetchLegacyToken}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>Fetch legacy</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={state === 'checking'}
+                onPress={onConnect}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.secondaryButtonText}>Connect</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </Screen>
   )
 }
 
+const ConnectionBadge = ({
+  mode,
+  state,
+}: {
+  mode: string
+  state: 'idle' | 'checking' | 'connected' | 'error'
+}) => {
+  const isConnected = state === 'connected'
+  return (
+    <View style={[styles.badge, isConnected ? styles.badgeConnected : styles.badgeIdle]}>
+      <View
+        style={[styles.badgeDot, isConnected ? styles.badgeDotConnected : styles.badgeDotIdle]}
+      />
+      <Text style={styles.badgeText}>{isConnected ? mode.toUpperCase() : state}</Text>
+    </View>
+  )
+}
+
 const styles = StyleSheet.create({
-  actions: {
+  advancedActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.xs,
   },
-  button: {
+  advancedToggle: {
+    alignSelf: 'flex-start',
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  advancedToggleText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  badge: {
     alignItems: 'center',
-    backgroundColor: '#238636',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  badgeConnected: {
+    backgroundColor: colors.successSoft,
+    borderColor: 'rgba(63, 185, 80, 0.34)',
+  },
+  badgeDot: {
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  badgeDotConnected: {
+    backgroundColor: colors.success,
+  },
+  badgeDotIdle: {
+    backgroundColor: colors.warning,
+  },
+  badgeIdle: {
+    backgroundColor: colors.warningSoft,
+    borderColor: 'rgba(210, 153, 34, 0.34)',
+  },
+  badgeText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  cardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   codeInput: {
-    backgroundColor: '#0d1117',
-    borderColor: '#58a6ff',
-    borderRadius: 14,
+    backgroundColor: colors.background,
+    borderColor: colors.accent,
+    borderRadius: radius.md,
     borderWidth: 1,
-    color: '#e6edf3',
-    fontSize: 34,
-    fontWeight: '800',
-    letterSpacing: 8,
+    color: colors.text,
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: 7,
     paddingHorizontal: 18,
     paddingVertical: 14,
     textAlign: 'center',
   },
-  advancedToggle: {
-    alignSelf: 'flex-start',
-    borderColor: '#30363d',
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  advancedToggleText: {
-    color: '#58a6ff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  buttonPressed: {
-    opacity: 0.75,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  card: {
-    backgroundColor: '#161b22',
-    borderColor: '#30363d',
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 8,
-    padding: 16,
-  },
   detail: {
-    color: '#8b949e',
-    fontSize: 14,
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  dangerButton: {
+  disabled: {
+    opacity: 0.6,
+  },
+  disconnect: {
     alignItems: 'center',
-    backgroundColor: '#da3633',
-    borderRadius: 10,
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderColor: 'rgba(248, 81, 73, 0.34)',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: spacing.xs,
+    paddingVertical: 11,
+  },
+  disconnectText: {
+    color: colors.error,
+    fontSize: 14,
+    fontWeight: '800',
   },
   error: {
-    color: '#ff7b72',
+    color: colors.error,
+    fontSize: 13,
+  },
+  eyebrow: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  heroBody: {
+    color: colors.textSoft,
     fontSize: 14,
+    lineHeight: 20,
+  },
+  heroCard: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  heroIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  heroText: {
+    flex: 1,
+    gap: 5,
+  },
+  heroTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '800',
   },
   input: {
-    backgroundColor: '#0d1117',
-    borderColor: '#30363d',
-    borderRadius: 10,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
-    color: '#e6edf3',
-    fontSize: 16,
+    color: colors.text,
+    fontSize: 15,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   label: {
-    color: '#8b949e',
-    fontSize: 13,
-    fontWeight: '700',
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
     textTransform: 'uppercase',
   },
-  hint: {
-    color: '#8b949e',
-    fontSize: 13,
-    lineHeight: 19,
+  primaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    paddingVertical: 13,
+  },
+  primaryButtonText: {
+    color: colors.background,
+    fontSize: 15,
+    fontWeight: '900',
   },
   scroll: {
-    gap: 16,
-    paddingBottom: 24,
+    gap: spacing.sm,
+    paddingBottom: spacing.lg,
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: '#30363d',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 11,
   },
-  status: {
-    color: '#e6edf3',
+  secondaryButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sectionMeta: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  statusCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.md,
+  },
+  statusMeta: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  statusRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  statusText: {
+    flex: 1,
+    gap: 2,
+  },
+  statusTitle: {
+    color: colors.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
+    textTransform: 'capitalize',
   },
   title: {
-    color: '#e6edf3',
-    fontSize: 26,
-    fontWeight: '700',
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  workspaceIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.sm,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  workspaceInitial: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
   },
   workspaceName: {
-    color: '#e6edf3',
+    color: colors.text,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   workspaceRow: {
-    borderColor: '#30363d',
-    borderRadius: 10,
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 4,
-    padding: 12,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.sm,
   },
   workspaceRowSelected: {
-    borderColor: '#58a6ff',
+    borderColor: colors.accent,
+  },
+  workspaceText: {
+    flex: 1,
+    gap: 3,
   },
 })

@@ -5,7 +5,7 @@ import {
   type EncryptedChannel,
   encodeJson,
   type KeyPair,
-} from '../../../relay-crypto/src/index.js'
+} from '@huangserva/hippoteam-relay-crypto'
 
 export interface RelayTransportConfig {
   capabilities: string[]
