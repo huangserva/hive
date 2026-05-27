@@ -30,6 +30,7 @@ export type CockpitTargetTab =
 
 export interface AIAction {
   action: string
+  href?: string
   id: string
   priority: PMQuestionPriority
   targetTab: CockpitTargetTab
@@ -143,6 +144,7 @@ const buildAiActions = (
         orphan.suggestedResearchPath.split('/').pop() ?? orphan.suggestedResearchPath
       return {
         action: '补 note',
+        href: `.hive/reports/${reportFilename}`,
         id: `orphan-report:${reportFilename}`,
         priority: 'high' as const,
         targetTab: 'research' as const,
