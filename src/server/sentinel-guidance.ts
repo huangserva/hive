@@ -1,4 +1,5 @@
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
+import type { CockpitFidelityFinding } from './cockpit-fidelity-audit.js'
 
 export interface SentinelOrphanedDispatch {
   dispatchId: string
@@ -35,6 +36,7 @@ export const buildSentinelStartupInstructions = ({
 export const buildSentinelHeartbeatPayload = ({
   archiveAuditFindings = [],
   cockpitSummary,
+  cockpitFidelityFindings = [],
   crossWorkspaceDriftFindings = [],
   gitSummary,
   orphanedDispatches = [],
@@ -42,6 +44,7 @@ export const buildSentinelHeartbeatPayload = ({
 }: {
   archiveAuditFindings?: string[]
   cockpitSummary: string
+  cockpitFidelityFindings?: CockpitFidelityFinding[]
   crossWorkspaceDriftFindings?: string[]
   gitSummary: string
   orphanedDispatches?: SentinelOrphanedDispatch[]
@@ -71,6 +74,15 @@ export const buildSentinelHeartbeatPayload = ({
       : []),
     ...(archiveAuditFindings.length > 0
       ? ['[Hive 系统消息：archive audit]', ...archiveAuditFindings.map((item) => `- ${item}`), '']
+      : []),
+    ...(cockpitFidelityFindings.length > 0
+      ? [
+          '⚠️ Cockpit 保真度问题：',
+          ...cockpitFidelityFindings.map(
+            (finding) => `- [${finding.type}] ${finding.file} ${finding.detail}`
+          ),
+          '',
+        ]
       : []),
     ...(crossWorkspaceDriftFindings.length > 0
       ? [

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import type { TeamListItem, WorkspaceSummary } from '../shared/types.js'
 import { type ArchiveAuditFinding, createArchiveAuditTrigger } from './archive-audit-trigger.js'
 import { parseCockpit } from './cockpit-doc.js'
+import { auditCockpitFidelity, type CockpitFidelityFindings } from './cockpit-fidelity-audit.js'
 import {
   type CrossWorkspaceDriftFinding,
   detectCrossWorkspaceDrift,
@@ -25,6 +26,7 @@ export interface SentinelHeartbeatOptions {
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => ActiveRunRef
   getGitSummary?: (workspacePath: string) => string
   getWorkerConfig: (workspaceId: string, workerId: string) => WorkerConfig
+  inspectCockpitFidelity?: (workspacePath: string) => CockpitFidelityFindings
   inspectArchiveAudit?: (workspacePath: string) => ArchiveAuditFinding[]
   intervalMs?: number
   listOpenDispatches?: (workspaceId: string) => DispatchRecord[]
@@ -90,6 +92,7 @@ export const createSentinelHeartbeat = ({
   getActiveRunByAgentId,
   getGitSummary = defaultGetGitSummary,
   getWorkerConfig,
+  inspectCockpitFidelity = auditCockpitFidelity,
   inspectArchiveAudit,
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
   listOpenDispatches = () => [],
@@ -164,6 +167,7 @@ export const createSentinelHeartbeat = ({
               ? inspectArchiveAudit(workspace.path)
               : archiveAuditTrigger.check(workspace.path)
             ).map((finding) => finding.message),
+            cockpitFidelityFindings: inspectCockpitFidelity(workspace.path).findings,
             cockpitSummary: summarizeCockpit(buildCockpitSnapshot(workspace.path)),
             crossWorkspaceDriftFindings,
             gitSummary: getGitSummary(workspace.path),

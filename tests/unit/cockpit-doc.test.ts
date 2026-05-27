@@ -29,8 +29,7 @@ const setupWorkspace = (overrides: Record<string, string> = {}) => {
     'plan.md': '---\ntitle: Test\n---\n## 目标\n\nGoal.',
     'open-questions.md':
       '# Open Questions\n\n### 🔴 high\n\n- [ ] **Q1** Urgent question\n\n### 🟠 medium\n\n- [ ] **Q2** Medium question\n\n### 🟢 low\n\n- [ ] **Q3** Low question',
-    'ideas/inbox.md':
-      '# Ideas Inbox\n\n## inbox\n\n### 2026-05-20\n\n- 🤔 idea: Cool idea\n\n## promoted\n',
+    'ideas/inbox.md': `# Ideas Inbox\n\n## inbox\n\n### ${new Date().toISOString().slice(0, 10)}\n\n- 🤔 idea: Cool idea\n\n## promoted\n`,
     'baseline/README.md': '# Baseline · Test',
     'baseline/module-map.md': '# Module Map\n\nReal content here.',
     'tasks.md': '## In progress\n\n- [ ] Task A\n- [x] Task B\n',

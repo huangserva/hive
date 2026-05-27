@@ -273,4 +273,50 @@ describe('sentinel heartbeat', () => {
     expect(payload).toContain('[Hive 系统消息：cross-workspace drift]')
     expect(payload).toContain('schema version drift: Alpha=27, Beta=25')
   })
+
+  test('includes cockpit fidelity findings in heartbeat payload', async () => {
+    const writeRunInput = vi.fn()
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({}),
+      inspectCockpitFidelity: () => ({
+        checkedAt: 1_700_000_000_000,
+        findings: [
+          {
+            detail: 'm20-dashboard.html is missing paired research note in .hive/research.',
+            file: 'm20-dashboard.html',
+            type: 'report_missing_research',
+          },
+          {
+            detail:
+              '2026-05-26-ui-quality-standard.md uses YAML frontmatter without inline metadata.',
+            file: '2026-05-26-ui-quality-standard.md',
+            type: 'decision_format_warning',
+          },
+        ],
+      }),
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+      ],
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' }],
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+
+    const payload = writeRunInput.mock.calls[0]?.[1] as string
+    expect(payload).toContain('⚠️ Cockpit 保真度问题：')
+    expect(payload).toContain(
+      '- [report_missing_research] m20-dashboard.html m20-dashboard.html is missing paired research note'
+    )
+    expect(payload).toContain(
+      '- [decision_format_warning] 2026-05-26-ui-quality-standard.md 2026-05-26-ui-quality-standard.md uses YAML frontmatter'
+    )
+  })
 })
