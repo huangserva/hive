@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Modal,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -13,6 +15,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 
 import type { MobileWorkerTranscript, MobileWorkspaceTasks } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
@@ -222,6 +225,11 @@ export default function AgentDetailScreen() {
   const [dispatchText, setDispatchText] = useState('')
   const [dispatching, setDispatching] = useState(false)
   const [dispatchOpen, setDispatchOpen] = useState(false)
+  const [terminalFullscreenOpen, setTerminalFullscreenOpen] = useState(false)
+  const [fullscreenAutoScroll, setFullscreenAutoScroll] = useState(true)
+  const terminalScrollRef = useRef<ScrollView>(null)
+  const fullscreenTerminalScrollRef = useRef<ScrollView>(null)
+  const fullscreenNearBottomRef = useRef(true)
 
   const load = useCallback(async () => {
     if (!workerId || !selectedWorkspaceId) return
@@ -335,6 +343,31 @@ export default function AgentDetailScreen() {
     if (detailAgent) Alert.alert('Copied', detailAgent.id)
   }
 
+  const openTerminalFullscreen = () => {
+    fullscreenNearBottomRef.current = true
+    setFullscreenAutoScroll(true)
+    setTerminalFullscreenOpen(true)
+    setTimeout(() => fullscreenTerminalScrollRef.current?.scrollToEnd({ animated: false }), 80)
+  }
+
+  const handleFullscreenTerminalScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { nativeEvent } = event
+    const distanceFromBottom =
+      nativeEvent.contentSize.height -
+      (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height)
+    fullscreenNearBottomRef.current = distanceFromBottom <= 80
+  }
+
+  const terminalLines = transcript?.lines ?? []
+  const terminalLineItems = useMemo(() => {
+    const seen = new Map<string, number>()
+    return terminalLines.map((line) => {
+      const count = seen.get(line) ?? 0
+      seen.set(line, count + 1)
+      return { key: `${line || 'blank'}-${count}`, line }
+    })
+  }, [terminalLines])
+
   return (
     <Screen>
       <ScrollView
@@ -440,21 +473,38 @@ export default function AgentDetailScreen() {
                   <View style={styles.liveDot} />
                   <Text style={styles.sectionTitle}>Terminal (Live)</Text>
                 </View>
-                <View style={styles.autoScrollRow}>
-                  <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
-                  <Switch
-                    onValueChange={setAutoScroll}
-                    thumbColor="#fff"
-                    trackColor={{ false: colors.border, true: colors.accent }}
-                    value={autoScroll}
-                  />
+                <View style={styles.terminalHeaderActions}>
+                  <View style={styles.autoScrollRow}>
+                    <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
+                    <Switch
+                      onValueChange={setAutoScroll}
+                      thumbColor="#fff"
+                      trackColor={{ false: colors.border, true: colors.accent }}
+                      value={autoScroll}
+                    />
+                  </View>
+                  <Pressable
+                    accessibilityLabel="Expand terminal"
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={openTerminalFullscreen}
+                    style={styles.expandButton}
+                  >
+                    <Ionicons color={colors.accent} name="expand-outline" size={18} />
+                  </Pressable>
                 </View>
               </View>
               <View style={styles.terminal}>
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  {transcript?.lines.length ? (
-                    transcript.lines.map((line) => (
-                      <Text key={line} style={[styles.termLine, termLineColor(line)]}>
+                <ScrollView
+                  onContentSizeChange={() => {
+                    if (autoScroll) terminalScrollRef.current?.scrollToEnd({ animated: false })
+                  }}
+                  ref={terminalScrollRef}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {terminalLineItems.length ? (
+                    terminalLineItems.map(({ key, line }) => (
+                      <Text key={key} style={[styles.termLine, termLineColor(line)]}>
                         {line}
                       </Text>
                     ))
@@ -514,6 +564,59 @@ export default function AgentDetailScreen() {
         visible={dispatchOpen}
         workerName={worker?.name ?? 'worker'}
       />
+      <Modal animationType="slide" visible={terminalFullscreenOpen}>
+        <SafeAreaView style={styles.fullscreenSafeArea}>
+          <View style={styles.fullscreenHeader}>
+            <View style={styles.terminalTitleRow}>
+              <View style={styles.liveDot} />
+              <View>
+                <Text style={styles.fullscreenTitle}>Terminal (Live)</Text>
+                <Text style={styles.fullscreenSubtitle}>{detailAgent?.name ?? 'Agent'}</Text>
+              </View>
+            </View>
+            <Pressable
+              accessibilityLabel="Close terminal"
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={() => setTerminalFullscreenOpen(false)}
+              style={styles.closeButton}
+            >
+              <Ionicons color={colors.text} name="close" size={22} />
+            </Pressable>
+          </View>
+          <View style={styles.fullscreenControls}>
+            <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
+            <Switch
+              onValueChange={setFullscreenAutoScroll}
+              thumbColor="#fff"
+              trackColor={{ false: colors.border, true: colors.accent }}
+              value={fullscreenAutoScroll}
+            />
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.fullscreenTerminalContent}
+            onContentSizeChange={() => {
+              if (fullscreenAutoScroll && fullscreenNearBottomRef.current) {
+                fullscreenTerminalScrollRef.current?.scrollToEnd({ animated: false })
+              }
+            }}
+            onScroll={handleFullscreenTerminalScroll}
+            ref={fullscreenTerminalScrollRef}
+            scrollEventThrottle={16}
+            style={styles.fullscreenTerminal}
+          >
+            {terminalLineItems.length ? (
+              terminalLineItems.map(({ key, line }) => (
+                <Text key={key} style={[styles.fullscreenTermLine, termLineColor(line)]}>
+                  {line}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.fullscreenTermLine}>No terminal output yet.</Text>
+            )}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </Screen>
   )
 }
@@ -666,6 +769,16 @@ const styles = StyleSheet.create({
     color: colors.error,
     fontSize: 14,
   },
+  closeButton: {
+    alignItems: 'center',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
   idRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -691,6 +804,62 @@ const styles = StyleSheet.create({
   infoValue: {
     color: colors.text,
     fontSize: 13,
+    fontWeight: '800',
+  },
+  expandButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderColor: 'rgba(88, 166, 255, 0.35)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  fullscreenControls: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  fullscreenHeader: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
+  fullscreenSafeArea: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  fullscreenSubtitle: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  fullscreenTermLine: {
+    color: colors.textSoft,
+    fontFamily: 'Courier',
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  fullscreenTerminal: {
+    backgroundColor: '#010409',
+    flex: 1,
+  },
+  fullscreenTerminalContent: {
+    padding: spacing.md,
+  },
+  fullscreenTitle: {
+    color: colors.text,
+    fontSize: 18,
     fontWeight: '800',
   },
   liveDot: {
@@ -858,6 +1027,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  terminalHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   terminalTitleRow: {
     alignItems: 'center',
