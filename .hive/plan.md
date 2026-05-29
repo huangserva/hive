@@ -231,13 +231,14 @@ last_review: 2026-05-25
 - 前置：M19i 设计 spec 已完成
 
 ### M23 · Agent Run Timeline 可恢复事件流 · open
-- [ ] 设计 AgentRunTimelineEvent schema + AgentRunTimelineStore（SQLite durable，seq/epoch/gap 三概念）
-- [ ] 实现 tail/before/after cursor fetch API（支持断线重连 catch-up）
+- [x] 设计 AgentRunTimelineEvent schema + AgentRunTimelineStore（SQLite durable，seq/epoch/gap 三概念）
+- [x] 实现 tail/before/after cursor fetch API（支持断线重连 catch-up）
 - [ ] live event reconciliation（WebSocket 推增量 + gap 检测触发 reset）
 - [ ] M22 dispatch row drill down 到 run timeline 视图
 - [ ] 调研报告：`.hive/reports/idea-4-timeline-comparison-2026-05-27.html`
 - 定位：Terminal/PTY 层的可恢复事件流，补充现有全量 snapshot 模式的缺口
 - 来源：idea-4 promote（user 拍板 2026-05-27），paseo seq/epoch/gap 模型借鉴
+- Phase 1 后端基础：schema/store/API 已完成（2026-05-29，待 commit hash 回填）
 - 前置：不依赖其他 milestone，可独立开工
 
 ## Scope

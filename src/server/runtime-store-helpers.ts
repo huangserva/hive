@@ -1,5 +1,6 @@
 import type { AgentManager } from './agent-manager.js'
 import { type AgentLaunchConfigInput, createAgentRunStore } from './agent-run-store.js'
+import { createAgentRunTimelineStore } from './agent-run-timeline-store.js'
 import { createAgentRuntime } from './agent-runtime.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
@@ -37,6 +38,7 @@ import { createWorkspaceStore } from './workspace-store.js'
 
 export interface RuntimeStoreServices {
   agentRunStore: ReturnType<typeof createAgentRunStore>
+  agentRunTimelineStore: ReturnType<typeof createAgentRunTimelineStore>
   agentRuntime: ReturnType<typeof createAgentRuntime>
   approvalLedger: ReturnType<typeof createApprovalLedger>
   db: ReturnType<typeof openRuntimeDatabase>
@@ -118,6 +120,7 @@ export const createRuntimeStoreServices = (
   const approvalLedger = createApprovalLedger()
   const feishuBindingsStore = createFeishuBindingsStore(db)
   const agentRunStore = createAgentRunStore(db)
+  const agentRunTimelineStore = createAgentRunTimelineStore(db)
   const agentSessionStore = createAgentSessionStore(db)
   const settings = createSettingsStore(db)
   const tasksFileService = createTasksFileService(
@@ -264,6 +267,7 @@ export const createRuntimeStoreServices = (
 
   return {
     agentRunStore,
+    agentRunTimelineStore,
     agentRuntime,
     approvalLedger,
     db,

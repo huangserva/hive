@@ -1,6 +1,12 @@
 import type { AgentSummary, TeamListItem, WorkspaceSummary } from '../shared/types.js'
 import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput, PersistedAgentRun } from './agent-run-store.js'
+import type {
+  AgentRunTimelineEvent,
+  AgentRunTimelineWindow,
+  AppendAgentRunTimelineEventInput,
+  FetchAgentRunTimelineWindowInput,
+} from './agent-run-timeline-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
 import type { ApprovalLedger } from './feishu-approval-ledger.js'
@@ -113,6 +119,12 @@ interface RuntimeStore {
   registerPlanListener: (listener: (workspaceId: string, content: string) => void) => () => void
   registerTasksListener: (listener: (workspaceId: string, content: string) => void) => () => void
   listAgentRuns: (agentId: string) => PersistedAgentRun[]
+  appendAgentRunTimelineEvent: (input: AppendAgentRunTimelineEventInput) => AgentRunTimelineEvent
+  fetchAgentRunTimelineWindow: (
+    runId: string,
+    input: FetchAgentRunTimelineWindowInput
+  ) => AgentRunTimelineWindow
+  listAgentRunTimelineEvents: (runId: string) => AgentRunTimelineEvent[]
   listMessagesForRecovery: (workspaceId: string, sinceMs: number) => RecoveryMessage[]
   peekAgentToken: (agentId: string) => string | undefined
   pauseTerminalRun: (runId: string) => void
@@ -266,6 +278,10 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     registerPlanListener: lifecycle.registerPlanListener,
     registerTasksListener: lifecycle.registerTasksListener,
     listAgentRuns: (agentId) => services.agentRuntime.listAgentRuns(agentId),
+    appendAgentRunTimelineEvent: (input) => services.agentRunTimelineStore.appendEvent(input),
+    fetchAgentRunTimelineWindow: (runId, input) =>
+      services.agentRunTimelineStore.fetchWindow(runId, input),
+    listAgentRunTimelineEvents: (runId) => services.agentRunTimelineStore.listEvents(runId),
     listMessagesForRecovery: (workspaceId, sinceMs) =>
       services.messageLogStore.listMessagesForRecovery(workspaceId, sinceMs),
     peekAgentToken: (agentId) => services.agentRuntime.peekAgentToken(agentId),

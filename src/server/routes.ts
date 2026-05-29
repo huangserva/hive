@@ -15,6 +15,7 @@ import { feishuRoutes } from './routes-feishu.js'
 import { fsRoutes } from './routes-fs.js'
 import { mobileRoutes } from './routes-mobile.js'
 import { planRoutes } from './routes-plan.js'
+import { runTimelineRoutes } from './routes-run-timeline.js'
 import { runtimeRoutes } from './routes-runtime.js'
 import { settingsRoutes } from './routes-settings.js'
 import { taskRoutes } from './routes-tasks.js'
@@ -32,6 +33,7 @@ const routes: RouteDefinition[] = [
   ...settingsRoutes,
   ...taskRoutes,
   ...planRoutes,
+  ...runTimelineRoutes,
   ...mobileRoutes,
   ...cockpitRoutes,
   ...runtimeRoutes,
