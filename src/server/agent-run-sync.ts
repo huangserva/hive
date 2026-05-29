@@ -39,15 +39,20 @@ export const syncPersistedRun = (
     return run
   }
 
+  // 终态时复用首次记录的 endedAt；只有从未记录过才用当前时间。这样重复轮询不会把结束时间往后推（bug #1）。
+  const isTerminal = nextStatus === 'exited' || nextStatus === 'error'
+  const endedAt = isTerminal ? (run.endedAt ?? Date.now()) : null
+
   run.status = nextStatus
   run.output = output
   run.exitCode = snapshot.exitCode
   run.errorTail = snapshot.errorTail ?? null
+  if (endedAt !== null) run.endedAt = endedAt
   store.updatePersistedRun(
     run.runId,
     nextStatus,
     snapshot.exitCode,
-    nextStatus === 'exited' || nextStatus === 'error' ? Date.now() : null,
+    endedAt,
     nextStatus === 'error' ? (snapshot.errorTail ?? null) : undefined
   )
   return run
@@ -61,5 +66,7 @@ export const completeLiveRun = (
 ) => {
   run.status = exitCode === 0 ? 'exited' : 'error'
   run.exitCode = exitCode
+  // 记录首次结束时间，供后续 syncPersistedRun 复用而非反复刷新（bug #1）。
+  run.endedAt = endedAt
   store.updatePersistedRun(run.runId, run.status, exitCode, endedAt, run.errorTail)
 }

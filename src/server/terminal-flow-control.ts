@@ -84,8 +84,9 @@ export const createTerminalOutputFlow = (
   }
 
   const afterSend = (bytes: number) => {
-    if (closed || paused) return
+    if (closed) return
     unackedBytes += bytes
+    if (paused) return
     if (shouldPause()) {
       paused = true
       onBackpressureChange(true)

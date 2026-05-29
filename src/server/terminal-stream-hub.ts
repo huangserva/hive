@@ -204,9 +204,11 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
         }
       })
       socket.on('close', () => {
-        if (viewer.ioSocket === socket) viewer.ioSocket = null
-        viewer.flowState?.close()
-        viewer.flowState = null
+        if (viewer.ioSocket === socket) {
+          viewer.ioSocket = null
+          viewer.flowState?.close()
+          viewer.flowState = null
+        }
         cleanupViewer(runId, state, clientId)
       })
     },

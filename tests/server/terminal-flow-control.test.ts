@@ -430,4 +430,72 @@ describe('terminal flow control', () => {
       manager.stopRun(run.runId)
     }
   }, 15000)
+
+  test('T6 counts chunks sent while paused before deciding whether to resume', async () => {
+    Object.assign(FLOW_CONTROL, {
+      BATCH_INTERVAL_MS: 1,
+      LOW_LATENCY_THRESHOLD_BYTES: 20 * 1024,
+      UNACKED_HIGH_WATER: 10,
+      UNACKED_LOW_WATER: 5,
+      WS_BUFFERED_HIGH_WATER: Number.MAX_SAFE_INTEGER,
+      WS_BUFFERED_LOW_WATER: Number.MAX_SAFE_INTEGER,
+    })
+    const wss = new WebSocketServer({ port: 0 })
+    const backpressureChanges: boolean[] = []
+    let flow: ReturnType<typeof createTerminalOutputFlow> | undefined
+    const sentChunks: string[] = []
+    const socketReady = new Promise<void>((resolve) => {
+      wss.once('connection', (socket) => {
+        const originalSend = socket.send.bind(socket)
+        vi.spyOn(socket, 'send').mockImplementation((chunk, callback?: (err?: Error) => void) => {
+          sentChunks.push(chunk.toString())
+          return originalSend(chunk, callback)
+        })
+        flow = createTerminalOutputFlow(socket, {
+          onBackpressureChange(backpressured) {
+            backpressureChanges.push(backpressured)
+          },
+        })
+        resolve()
+      })
+    })
+
+    const port = (wss.address() as { port: number }).port
+    const client = new WebSocket(`ws://127.0.0.1:${port}`)
+    await new Promise<void>((resolve, reject) => {
+      client.once('open', () => resolve())
+      client.once('error', reject)
+    })
+    await socketReady
+
+    try {
+      flow?.enqueue('first-pauses')
+
+      await waitFor(() => {
+        expect(backpressureChanges).toEqual([true])
+        expect(sentChunks).toEqual(['first-pauses'])
+      })
+
+      flow?.enqueue('second-in-flight')
+
+      await waitFor(() => {
+        expect(sentChunks).toEqual(['first-pauses', 'second-in-flight'])
+      })
+
+      flow?.ack(Buffer.byteLength('first-pauses', 'utf8'))
+      await new Promise((resolve) => setTimeout(resolve, 40))
+
+      expect(backpressureChanges).toEqual([true])
+
+      flow?.ack(Buffer.byteLength('second-in-flight', 'utf8'))
+
+      await waitFor(() => {
+        expect(backpressureChanges).toEqual([true, false])
+      })
+    } finally {
+      flow?.close()
+      client.close()
+      await new Promise<void>((resolve) => wss.close(() => resolve()))
+    }
+  })
 })

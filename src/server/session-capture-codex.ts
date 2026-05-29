@@ -1,8 +1,19 @@
-import { closeSync, existsSync, openSync, readdirSync, readSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { captureSessionIdWithCoordinator } from './claude-session-coordinator.js'
+
+// 身份判别符：用 session 文件内容里是否含指定标记串来区分“这个 session 属于哪个 agent”，
+// 防止同 workspace 同 cwd 下多个 codex agent 互相抢到对方的 session id。
+interface CodexSessionCaptureDiscriminator {
+  contentIncludes?: string | readonly string[]
+}
+
+const includesAny = (content: string, needles: string | readonly string[]) => {
+  const normalizedNeedles = Array.isArray(needles) ? needles : [needles]
+  return normalizedNeedles.some((needle) => content.includes(needle))
+}
 
 const CODEX_SESSION_FILE = /^rollout-.*\.jsonl$/i
 const CODEX_HEADER_READ_CHUNK_BYTES = 4096
@@ -86,22 +97,53 @@ const parseCodexSession = (filePath: string) => {
   return id && cwd ? { cwd, id } : null
 }
 
-const listSessionIds = (cwd: string, codexHome = getDefaultCodexHome()) => {
+// 同时返回 session id 与其源文件路径，供身份判别符按内容过滤时定位文件。
+const listSessionEntries = (cwd: string, codexHome = getDefaultCodexHome()) => {
   const sessionsRoot = join(codexHome, 'sessions')
   return walkSessionFiles(sessionsRoot)
     .flatMap((filePath) => {
       try {
         const session = parseCodexSession(filePath)
-        return session?.cwd === cwd ? [session.id] : []
+        return session?.cwd === cwd ? [{ filePath, id: session.id }] : []
       } catch {
         return []
       }
     })
-    .sort((left, right) => left.localeCompare(right))
+    .sort((left, right) => left.id.localeCompare(right.id))
 }
 
-export const hasCodexSession = (cwd: string, sessionId: string, pattern?: string) =>
-  listSessionIds(cwd, getCodexHome(pattern)).includes(sessionId)
+const listSessionIds = (cwd: string, codexHome = getDefaultCodexHome()) =>
+  listSessionEntries(cwd, codexHome).map((entry) => entry.id)
+
+// codex rollout 文件名不等于 session id（id 在 payload 里），所以要先按 id 找到源文件，
+// 再整文件读内容判断是否含本 agent 的判别符标记，仿 session-capture-claude.ts 的 sessionFileContainsAny。
+const sessionFileContainsAny = (
+  cwd: string,
+  codexHome: string,
+  sessionId: string,
+  contentIncludes: string | readonly string[]
+) => {
+  const entry = listSessionEntries(cwd, codexHome).find((candidate) => candidate.id === sessionId)
+  if (!entry) return false
+  try {
+    return includesAny(readFileSync(entry.filePath, 'utf8'), contentIncludes)
+  } catch {
+    return false
+  }
+}
+
+export const hasCodexSession = (
+  cwd: string,
+  sessionId: string,
+  pattern?: string,
+  discriminator: CodexSessionCaptureDiscriminator = {}
+) => {
+  const codexHome = getCodexHome(pattern)
+  if (!listSessionIds(cwd, codexHome).includes(sessionId)) return false
+  return discriminator.contentIncludes
+    ? sessionFileContainsAny(cwd, codexHome, sessionId, discriminator.contentIncludes)
+    : true
+}
 
 export const snapshotCodexSessionIds = (cwd: string, codexHome = getDefaultCodexHome()) =>
   new Set(listSessionIds(cwd, codexHome))
@@ -112,8 +154,10 @@ export const captureCodexSessionId = async (
   onCapture: (sessionId: string) => void,
   timeoutMs = 5000,
   intervalMs = 100,
-  codexHome = getDefaultCodexHome()
+  codexHome = getDefaultCodexHome(),
+  discriminator: CodexSessionCaptureDiscriminator = {}
 ) => {
+  const contentIncludes = discriminator.contentIncludes
   await captureSessionIdWithCoordinator({
     intervalMs,
     knownSessionIds,
@@ -121,6 +165,12 @@ export const captureCodexSessionId = async (
     onCapture,
     projectKey: join(codexHome, 'sessions', cwd),
     timeoutMs,
+    ...(contentIncludes
+      ? {
+          matchesSessionId: (sessionId: string) =>
+            sessionFileContainsAny(cwd, codexHome, sessionId, contentIncludes),
+        }
+      : {}),
   })
 }
 

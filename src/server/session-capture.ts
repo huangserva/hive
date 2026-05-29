@@ -83,6 +83,7 @@ export const snapshotSessionIdsForCapture = (
       env: { CODEX_HOME: codexHome },
       knownSessionIds: snapshotCodexSessionIds(cwd, codexHome),
       root: codexHome,
+      ...(discriminator ? { discriminator } : {}),
     }
   }
   if (capture.source === 'gemini_session_json_dir') {
@@ -91,6 +92,7 @@ export const snapshotSessionIdsForCapture = (
       env: { HIVE_GEMINI_HOME: geminiHome },
       knownSessionIds: snapshotGeminiSessionIds(cwd, geminiHome),
       root: geminiHome,
+      ...(discriminator ? { discriminator } : {}),
     }
   }
   if (capture.source === 'opencode_session_db') {
@@ -134,7 +136,8 @@ export const captureSessionIdForCapture = async (
       onCapture,
       timeoutMs,
       intervalMs,
-      snapshot.root
+      snapshot.root,
+      snapshot.discriminator
     )
   }
   if (capture.source === 'gemini_session_json_dir') {
@@ -144,7 +147,8 @@ export const captureSessionIdForCapture = async (
       onCapture,
       timeoutMs,
       intervalMs,
-      snapshot.root
+      snapshot.root,
+      snapshot.discriminator
     )
   }
   if (capture.source === 'opencode_session_db') {
@@ -169,10 +173,10 @@ export const doesCapturedSessionExist = (
     return hasClaudeSessionFile(cwd, sessionId, capture.pattern, discriminator)
   }
   if (capture.source === 'codex_session_jsonl_dir') {
-    return hasCodexSession(cwd, sessionId, capture.pattern)
+    return hasCodexSession(cwd, sessionId, capture.pattern, discriminator)
   }
   if (capture.source === 'gemini_session_json_dir') {
-    return hasGeminiSession(cwd, sessionId, capture.pattern)
+    return hasGeminiSession(cwd, sessionId, capture.pattern, discriminator)
   }
   if (capture.source === 'opencode_session_db') {
     return hasOpenCodeSession(cwd, sessionId, capture.pattern)
