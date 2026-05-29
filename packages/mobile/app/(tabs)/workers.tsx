@@ -87,6 +87,19 @@ const STATUS_RANK: Record<string, number> = {
 
 const statusRank = (status: string) => STATUS_RANK[status] ?? 99
 
+const stripInlineMarkdown = (value: string | null | undefined) => {
+  if (!value) return ''
+  return value
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .trim()
+}
+
 export default function StatusTab() {
   const {
     connect,
@@ -248,7 +261,7 @@ export default function StatusTab() {
                     numberOfLines={phaseExpanded ? undefined : 2}
                     style={styles.colValue}
                   >
-                    {dashboard.plan.current_phase ?? 'Unknown'}
+                    {stripInlineMarkdown(dashboard.plan.current_phase) || 'Unknown'}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -265,7 +278,7 @@ export default function StatusTab() {
                 <View style={styles.colItem}>
                   <Text style={styles.colLabel}>{t('status.activeMilestone')}</Text>
                   <Text ellipsizeMode="tail" numberOfLines={2} style={styles.colValue}>
-                    {dashboard.plan.active_milestone ?? 'No active milestone'}
+                    {stripInlineMarkdown(dashboard.plan.active_milestone) || 'No active milestone'}
                   </Text>
                 </View>
               </View>
@@ -306,8 +319,8 @@ export default function StatusTab() {
             </>
           ) : (
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.overviewSummary}>
-              {dashboard.plan.active_milestone ??
-                dashboard.plan.current_phase ??
+              {stripInlineMarkdown(dashboard.plan.active_milestone) ||
+                stripInlineMarkdown(dashboard.plan.current_phase) ||
                 'No active milestone'}
             </Text>
           )}
