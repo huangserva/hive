@@ -31,8 +31,26 @@ describe('ORCHESTRATOR_REMINDER_TAIL', () => {
     expect(ORCHESTRATOR_REMINDER_TAIL).toContain('open-questions')
   })
 
+  test('requires explicit mobile replies for Mobile App-originated user messages', () => {
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('[来自手机 Mobile App]')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('team mobile-reply "<text>"')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('phone user will not see your response')
+  })
+
+  test('does not describe plain text as reaching remote mobile or Feishu users', () => {
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('plain text to the local desktop user only')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('Plain text will NOT reach Mobile App or Feishu')
+  })
+
+  test('requires phone approval for high-risk Mobile App requests and replies on denial', () => {
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('PHONE APPROVAL')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('Mobile App (`[来自手机 Mobile App]`)')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('If DENIED')
+    expect(ORCHESTRATOR_REMINDER_TAIL).toContain('team mobile-reply')
+  })
+
   test('length stays under 2000 characters for token cost control', () => {
-    expect(ORCHESTRATOR_REMINDER_TAIL.length).toBeLessThan(2000)
+    expect(ORCHESTRATOR_REMINDER_TAIL.length).toBeLessThan(2600)
   })
 })
 
@@ -116,5 +134,18 @@ describe('buildProtocolDoc', () => {
     expect(
       workerSection.split('\n').filter((line) => line.startsWith('- ')).length
     ).toBeGreaterThanOrEqual(3)
+  })
+
+  test('renders the Chinese Mobile App reply rule in the orchestrator section', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('[来自手机 Mobile App]')
+    expect(doc).toContain('回复必须用 `team mobile-reply "<text>"`')
+    expect(doc).toContain('否则手机 user 看不到你的回应')
+  })
+
+  test('renders the Chinese high-risk denial path for Mobile App requests', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('手机 App 来源用 `team mobile-reply`')
+    expect(doc).toContain('已撤销，请提供替代方案')
   })
 })

@@ -17,12 +17,13 @@ interface HiveEnv {
   HIVE_AGENT_TOKEN: string
 }
 
-const TEAM_USAGE = [
+export const TEAM_USAGE = [
   'Usage:',
   '  team list',
   '  team send <worker-name> "<task>"',
   '  team cancel --dispatch <dispatch-id> "<reason>"',
   '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
+  '  team mobile-reply "<text>"',
   '  team feishu reply "<text>"',
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
