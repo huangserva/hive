@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Dimensions,
   FlatList,
   Image,
   Keyboard,
@@ -108,6 +109,7 @@ export default function ChatTab() {
   const forceScrollToEndRef = useRef(false)
   const scrollFrameRef = useRef<number | null>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dimensionSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardInsetRef = useRef(0)
   const viewportHeightRef = useRef(0)
@@ -330,6 +332,7 @@ export default function ChatTab() {
   const handleContentSizeChange = useCallback(
     (_width: number, height: number) => {
       updateContentFit(height, viewportHeightRef.current)
+      if (isDraggingRef.current) return
       maybeAutoScrollToEnd(false, 'content')
     },
     [maybeAutoScrollToEnd, updateContentFit]
@@ -338,7 +341,9 @@ export default function ChatTab() {
   const handleChatScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-      updateContentFit(contentSize.height, layoutMeasurement.height)
+      if (!isDraggingRef.current) {
+        updateContentFit(contentSize.height, layoutMeasurement.height)
+      }
       const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height)
       isNearBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX
     },
@@ -366,6 +371,9 @@ export default function ChatTab() {
 
   useEffect(
     () => () => {
+      if (dimensionSettleTimeoutRef.current) {
+        clearTimeout(dimensionSettleTimeoutRef.current)
+      }
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current)
       }
@@ -375,6 +383,29 @@ export default function ChatTab() {
     },
     []
   )
+
+  useEffect(() => {
+    const scheduleDimensionSettle = () => {
+      contentFitsViewportRef.current = false
+      cancelScheduledScroll()
+      if (dimensionSettleTimeoutRef.current) {
+        clearTimeout(dimensionSettleTimeoutRef.current)
+      }
+      dimensionSettleTimeoutRef.current = setTimeout(() => {
+        dimensionSettleTimeoutRef.current = null
+        updateContentFit(contentHeightRef.current, viewportHeightRef.current)
+      }, 240)
+    }
+
+    const subscription = Dimensions.addEventListener('change', scheduleDimensionSettle)
+    return () => {
+      subscription.remove()
+      if (dimensionSettleTimeoutRef.current) {
+        clearTimeout(dimensionSettleTimeoutRef.current)
+        dimensionSettleTimeoutRef.current = null
+      }
+    }
+  }, [cancelScheduledScroll, updateContentFit])
 
   useEffect(() => {
     const setMeasuredKeyboardInset = (nextInset: number) => {
@@ -506,7 +537,6 @@ export default function ChatTab() {
           contentContainerStyle={styles.messages}
           style={styles.messageList}
           showsVerticalScrollIndicator={false}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleMessageListLayout}
           onMomentumScrollEnd={handleMomentumScrollEnd}
