@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { AppState, type AppStateStatus } from 'react-native'
 import { DEMO_CHAT_MESSAGES, DEMO_DASHBOARD } from '../demo-data'
 import { getExpoPushToken } from '../notifications'
 import {
@@ -25,6 +26,7 @@ import {
   type MobileWorkspaceTasks,
   type RuntimeStatus,
 } from './client'
+import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import { createRelayTransport, type RelayTransportConfig } from './relay-transport'
 
 const RUNTIME_HOST_KEY = 'hippoteam.runtimeHost'
@@ -33,6 +35,7 @@ const WORKSPACE_ID_KEY = 'hippoteam.mobileWorkspaceId'
 const RELAY_CONFIG_KEY = 'hippoteam.mobileRelayConfig'
 
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
+type RuntimeClient = ReturnType<typeof createRuntimeClient>
 
 interface StoredRelayConfig extends Omit<RelayTransportConfig, 'device_token'> {}
 
@@ -48,7 +51,7 @@ interface MobileRuntimeContextValue {
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
   enableDemoMode: () => void
   error: string | null
-  fetchChatMessages: () => Promise<void>
+  fetchChatMessages: (options?: { resetSince?: boolean }) => Promise<void>
   getCockpit: () => Promise<MobileCockpitData | null>
   getWorkerTranscript: (workerId: string) => Promise<MobileWorkerTranscript | null>
   getWorkspaceTasks: () => Promise<MobileWorkspaceTasks | null>
@@ -140,6 +143,22 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [error, setError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const chatSinceRef = useRef<number | undefined>(undefined)
+  const chatFetchFailureCountRef = useRef(0)
+  const reconnectAttemptRef = useRef(0)
+  const reconnectInFlightRef = useRef(false)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const hostRef = useRef(host)
+  const tokenRef = useRef(token)
+  const relayConfigRef = useRef(relayConfig)
+  const selectedWorkspaceIdRef = useRef(selectedWorkspaceId)
+  const stateRef = useRef(state)
+
+  hostRef.current = host
+  tokenRef.current = token
+  relayConfigRef.current = relayConfig
+  selectedWorkspaceIdRef.current = selectedWorkspaceId
+  stateRef.current = state
 
   const createRelay = useCallback(
     (nextToken: string, nextRelayConfig = relayConfig) =>
@@ -170,6 +189,31 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       }
     },
     [client]
+  )
+
+  const mergeChatMessages = useCallback((messages: ChatMessage[]) => {
+    if (messages.length === 0) return
+    setChatMessages((prev) => {
+      const byId = new Map(prev.map((message) => [message.id, message]))
+      for (const message of messages) byId.set(message.id, message)
+      return [...byId.values()].sort((a, b) => a.created_at - b.created_at)
+    })
+    const latest = messages.at(-1)
+    if (latest) chatSinceRef.current = latest.created_at
+  }, [])
+
+  const syncChatMessages = useCallback(
+    async (
+      nextClient: RuntimeClient,
+      workspaceId: string,
+      options: { resetSince?: boolean } = {}
+    ) => {
+      if (options.resetSince) chatSinceRef.current = undefined
+      const res = await nextClient.getChatMessages(workspaceId, chatSinceRef.current)
+      mergeChatMessages(res.messages)
+      chatFetchFailureCountRef.current = 0
+    },
+    [mergeChatMessages]
   )
 
   useEffect(() => {
@@ -230,12 +274,21 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setDashboard(nextDashboard)
         setConnectionMode(nextClient.connectionMode())
         setState('connected')
+        reconnectAttemptRef.current = 0
+        chatFetchFailureCountRef.current = 0
 
         await Promise.all([
           secureSet(RUNTIME_HOST_KEY, nextHost),
           secureSet(MOBILE_TOKEN_KEY, trimmedToken),
           nextWorkspaceId ? secureSet(WORKSPACE_ID_KEY, nextWorkspaceId) : Promise.resolve(),
         ])
+        if (nextWorkspaceId) {
+          try {
+            await syncChatMessages(nextClient, nextWorkspaceId, { resetSince: true })
+          } catch {
+            // Chat catch-up is retried by the poller/reconnect loop; do not fail a healthy connect.
+          }
+        }
         return nextStatus
       } catch (connectError) {
         const message = connectError instanceof Error ? connectError.message : String(connectError)
@@ -246,8 +299,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
     },
-    [createRelay, registerPushToken, relayConfig, selectedWorkspaceId]
+    [createRelay, registerPushToken, relayConfig, selectedWorkspaceId, syncChatMessages]
   )
+  const connectRef = useRef(connect)
+  connectRef.current = connect
 
   const selectWorkspace = useCallback(
     async (workspaceId: string) => {
@@ -259,6 +314,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const disconnect = useCallback(async () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    reconnectAttemptRef.current = 0
+    chatFetchFailureCountRef.current = 0
     setToken('')
     setRuntimeStatus(null)
     setDashboard(null)
@@ -434,6 +495,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setError(null)
       try {
         await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
+        if (stateRef.current !== 'connected') setState('connected')
+        chatFetchFailureCountRef.current = 0
+        void syncChatMessages(client, selectedWorkspaceId, { resetSince: true })
         return true
       } catch (promptError) {
         const message = promptError instanceof Error ? promptError.message : String(promptError)
@@ -441,7 +505,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
     },
-    [client, selectedWorkspaceId]
+    [client, selectedWorkspaceId, syncChatMessages]
   )
 
   const uploadMedia = useCallback(
@@ -463,22 +527,82 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client, selectedWorkspaceId]
   )
 
-  const fetchChatMessages = useCallback(async () => {
-    if (!selectedWorkspaceId) return
-    try {
-      const res = await client.getChatMessages(selectedWorkspaceId, chatSinceRef.current)
-      if (res.messages.length > 0) {
-        setChatMessages((prev) => {
-          const existingIds = new Set(prev.map((m) => m.id))
-          const newMessages = res.messages.filter((m) => !existingIds.has(m.id))
-          if (newMessages.length === 0) return prev
-          return [...prev, ...newMessages].sort((a, b) => a.created_at - b.created_at)
-        })
-        const latest = res.messages[res.messages.length - 1]
-        if (latest) chatSinceRef.current = latest.created_at
+  const attemptReconnect = useCallback(
+    async (options: { forceFullSync?: boolean } = {}) => {
+      const nextHost = hostRef.current
+      const nextToken = tokenRef.current.trim()
+      if (!nextToken || reconnectInFlightRef.current) return false
+      reconnectInFlightRef.current = true
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
       }
-    } catch {}
-  }, [client, selectedWorkspaceId])
+      try {
+        const status = await connectRef.current(nextHost, nextToken, relayConfigRef.current)
+        reconnectInFlightRef.current = false
+        if (!status) {
+          reconnectAttemptRef.current += 1
+          return false
+        }
+        reconnectAttemptRef.current = 0
+        const workspaceId = selectedWorkspaceIdRef.current
+        if (options.forceFullSync && workspaceId) {
+          await syncChatMessages(client, workspaceId, { resetSince: true })
+        }
+        return true
+      } catch (reconnectError) {
+        reconnectInFlightRef.current = false
+        reconnectAttemptRef.current += 1
+        const message =
+          reconnectError instanceof Error ? reconnectError.message : String(reconnectError)
+        setError(message)
+        return false
+      }
+    },
+    [client, syncChatMessages]
+  )
+
+  const scheduleReconnect = useCallback(
+    (options: { immediate?: boolean } = {}) => {
+      if (
+        !shouldAttemptAutoReconnect({
+          demoMode,
+          hasToken: Boolean(tokenRef.current.trim()),
+          inFlight: reconnectInFlightRef.current,
+          state: stateRef.current,
+        })
+      ) {
+        return
+      }
+      if (reconnectTimerRef.current) return
+      const delay = options.immediate ? 0 : nextReconnectDelayMs(reconnectAttemptRef.current)
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null
+        void attemptReconnect({ forceFullSync: true }).then((ok) => {
+          if (!ok) scheduleReconnect()
+        })
+      }, delay)
+    },
+    [attemptReconnect, demoMode]
+  )
+
+  const fetchChatMessages = useCallback(
+    async (options: { resetSince?: boolean } = {}) => {
+      if (!selectedWorkspaceId) return
+      try {
+        await syncChatMessages(client, selectedWorkspaceId, options)
+      } catch (chatError) {
+        chatFetchFailureCountRef.current += 1
+        const message = chatError instanceof Error ? chatError.message : String(chatError)
+        setError(message)
+        if (chatFetchFailureCountRef.current >= 2) {
+          setState('error')
+          scheduleReconnect()
+        }
+      }
+    },
+    [client, scheduleReconnect, selectedWorkspaceId, syncChatMessages]
+  )
 
   const approveRequest = useCallback(
     async (approvalId: string, decision: 'allow' | 'deny') => {
@@ -497,9 +621,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     },
     [client, selectedWorkspaceId]
   )
-
-  const connectRef = useRef(connect)
-  connectRef.current = connect
 
   useEffect(() => {
     let cancelled = false
@@ -526,9 +647,37 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [])
 
   useEffect(() => {
+    if (state === 'connected' || state === 'checking') return
+    scheduleReconnect()
+  }, [scheduleReconnect, state])
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const wasBackgrounded =
+        appStateRef.current === 'background' || appStateRef.current === 'inactive'
+      appStateRef.current = nextState
+      if (nextState !== 'active' || !wasBackgrounded || !tokenRef.current.trim()) return
+      void attemptReconnect({ forceFullSync: true }).then((ok) => {
+        if (!ok) scheduleReconnect({ immediate: true })
+      })
+    })
+    return () => {
+      subscription.remove()
+    }
+  }, [attemptReconnect, scheduleReconnect])
+
+  useEffect(
+    () => () => {
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+    },
+    []
+  )
+
+  useEffect(() => {
     if (connectionMode === 'relay') return
     if (state !== 'connected' || !selectedWorkspaceId || !token.trim()) return
     const socket = new WebSocket(client.buildMobileDashboardWebSocketUrl(selectedWorkspaceId))
+    let closing = false
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(String(event.data)) as {
@@ -549,11 +698,22 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     }
     socket.onerror = () => {
       setError('Mobile dashboard websocket disconnected')
+      setState('error')
+      scheduleReconnect()
+    }
+    socket.onclose = () => {
+      if (closing) return
+      if (stateRef.current === 'connected') {
+        setError('Mobile dashboard websocket disconnected')
+        setState('error')
+        scheduleReconnect()
+      }
     }
     return () => {
+      closing = true
       socket.close()
     }
-  }, [client, connectionMode, selectedWorkspaceId, state, token])
+  }, [client, connectionMode, scheduleReconnect, selectedWorkspaceId, state, token])
 
   useEffect(() => {
     if (state !== 'connected' || !selectedWorkspaceId) return
