@@ -20,6 +20,11 @@ const PRIORITY_CONFIG = {
   medium: { bg: colors.warningSoft, color: colors.warning, label: 'Medium' },
 }
 
+type Feedback = {
+  kind: 'error' | 'success'
+  text: string
+}
+
 export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
   const { answerQuestion, getCockpit } = useMobileRuntime()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
@@ -28,7 +33,18 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
   const [showAnswered, setShowAnswered] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
   const inputRef = useRef<TextInput>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showFeedback = useCallback((nextFeedback: Feedback) => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    setFeedback(nextFeedback)
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedback(null)
+      feedbackTimerRef.current = null
+    }, 3000)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -40,6 +56,13 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    },
+    []
+  )
 
   const questions = [
     ...(cockpit?.questions.high ?? []),
@@ -62,7 +85,16 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
     if (ok) {
       setAnswerText('')
       setSelectedQuestionId(null)
+      showFeedback({
+        kind: 'success',
+        text: 'Answer sent — the orchestrator will handle it; watch Chat.',
+      })
       await load()
+    } else {
+      showFeedback({
+        kind: 'error',
+        text: 'Send failed, tap Submit Answer to retry.',
+      })
     }
     setSubmitting(false)
   }
@@ -90,6 +122,8 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
         <Text style={s.sectionTitle}>Open Questions</Text>
         <Text style={s.sortHint}>Sorted by priority</Text>
       </View>
+
+      {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
       {questions.map((q) => {
         const cfg = PRIORITY_CONFIG[q.priority]
@@ -155,6 +189,30 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   )
 }
 
+const FeedbackBanner = ({ feedback }: { feedback: Feedback }) => {
+  const isSuccess = feedback.kind === 'success'
+  return (
+    <View
+      style={[
+        s.feedbackBanner,
+        {
+          backgroundColor: isSuccess ? colors.successSoft : colors.errorSoft,
+          borderColor: isSuccess ? colors.success : colors.error,
+        },
+      ]}
+    >
+      <Ionicons
+        color={isSuccess ? colors.success : colors.error}
+        name={isSuccess ? 'checkmark-circle' : 'alert-circle'}
+        size={16}
+      />
+      <Text style={[s.feedbackText, { color: isSuccess ? colors.success : colors.error }]}>
+        {feedback.text}
+      </Text>
+    </View>
+  )
+}
+
 const s = StyleSheet.create({
   answerBtn: {
     backgroundColor: colors.accentSoft,
@@ -167,6 +225,16 @@ const s = StyleSheet.create({
   container: { gap: spacing.sm, paddingBottom: 40 },
   emptyText: { color: colors.muted, fontSize: 15, marginTop: 8 },
   emptyWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
+  feedbackBanner: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  feedbackText: { flex: 1, fontSize: 12, fontWeight: '800' },
   headerRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   inputCard: {
     backgroundColor: colors.card,

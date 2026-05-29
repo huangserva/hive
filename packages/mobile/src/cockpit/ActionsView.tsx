@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import type { MobileCockpitData, MobileDashboard } from '../api/client'
@@ -26,12 +26,28 @@ const TYPE_ICON: Record<string, { color: string; icon: IconName }> = {
 
 const stripMarkdown = (text: string) => text.replace(/[*`#]/gu, '').trim()
 
+type Feedback = {
+  kind: 'error' | 'success'
+  text: string
+}
+
 export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
   const { getCockpit, sendPromptToOrchestrator } = useMobileRuntime()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set())
   const [sendingId, setSendingId] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showFeedback = useCallback((nextFeedback: Feedback) => {
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    setFeedback(nextFeedback)
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedback(null)
+      feedbackTimerRef.current = null
+    }, 3000)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -44,14 +60,28 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     void load()
   }, [load])
 
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    },
+    []
+  )
+
   const actions = (cockpit?.aiActions ?? []).filter((action) => !dismissedIds.has(action.id))
   const actionCount = actions.length
 
   const runAction = async (actionId: string, text: string) => {
     if (sendingId) return
     setSendingId(actionId)
-    await sendPromptToOrchestrator(`请执行这个 AI 行动：${text}`)
+    setFeedback(null)
+    const ok = await sendPromptToOrchestrator(`Please execute this AI action: ${text}`)
     setSendingId(null)
+    showFeedback({
+      kind: ok ? 'success' : 'error',
+      text: ok
+        ? 'Sent to orchestrator — watch Chat for the result.'
+        : 'Send failed, tap the action to retry.',
+    })
   }
 
   const dismissAction = (actionId: string) => {
@@ -59,6 +89,10 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
       const next = new Set(current)
       next.add(actionId)
       return next
+    })
+    showFeedback({
+      kind: 'success',
+      text: 'Dismissed locally.',
     })
   }
 
@@ -80,6 +114,8 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
         </View>
       </View>
       <Text style={s.subtitle}>{actionCount} actions need your review</Text>
+
+      {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
       {actions.map((action) => {
         const cfg = PRIORITY_CONFIG[action.priority] ?? PRIORITY_CONFIG.low
@@ -103,7 +139,7 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
                 <Text style={s.dismissText}>Dismiss</Text>
               </Pressable>
               <Pressable
-                disabled={sendingId === action.id}
+                disabled={sendingId !== null}
                 onPress={() => runAction(action.id, action.text)}
                 style={[
                   s.actionBtn,
@@ -127,6 +163,30 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
         </View>
       )}
     </ScrollView>
+  )
+}
+
+const FeedbackBanner = ({ feedback }: { feedback: Feedback }) => {
+  const isSuccess = feedback.kind === 'success'
+  return (
+    <View
+      style={[
+        s.feedbackBanner,
+        {
+          backgroundColor: isSuccess ? colors.successSoft : colors.errorSoft,
+          borderColor: isSuccess ? colors.success : colors.error,
+        },
+      ]}
+    >
+      <Ionicons
+        color={isSuccess ? colors.success : colors.error}
+        name={isSuccess ? 'checkmark-circle' : 'alert-circle'}
+        size={16}
+      />
+      <Text style={[s.feedbackText, { color: isSuccess ? colors.success : colors.error }]}>
+        {feedback.text}
+      </Text>
+    </View>
   )
 }
 
@@ -174,6 +234,16 @@ const s = StyleSheet.create({
     paddingVertical: 5,
   },
   filterText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  feedbackBanner: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  feedbackText: { flex: 1, fontSize: 12, fontWeight: '800' },
   headerRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   iconCircle: {
     alignItems: 'center',

@@ -284,11 +284,14 @@ export default function AgentDetailScreen() {
     const result = await dispatchTask(worker.id, task)
     setDispatching(false)
     if (result) {
-      Alert.alert('Dispatch sent', `Task sent to ${worker.name}.`)
+      Alert.alert(
+        'Dispatch sent',
+        `Sent to ${worker.name}. The orchestrator will track it; watch Chat and Status for updates.`
+      )
       closeDispatch()
       return
     }
-    Alert.alert('Dispatch failed', error ?? 'Unable to send this task.')
+    Alert.alert('Dispatch failed', error ?? 'Unable to send this task. Please try again.')
   }
 
   const copyId = () => {
