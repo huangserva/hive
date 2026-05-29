@@ -25,7 +25,7 @@ const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '0.2.0',
+  version: '0.3.0',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',
