@@ -516,7 +516,9 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
     return (
       <View style={styles.systemBubble}>
         <Ionicons color={colors.muted} name="information-circle-outline" size={14} />
-        <Text style={styles.systemText}>{content}</Text>
+        <Text selectable style={styles.systemText}>
+          {content}
+        </Text>
       </View>
     )
   }
@@ -528,7 +530,9 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
         {media ? (
           <MediaContent media={media} tint="outbound" />
         ) : (
-          <Text style={styles.userBubbleText}>{content}</Text>
+          <Text selectable style={styles.userBubbleText}>
+            {content}
+          </Text>
         )}
         <View style={styles.bubbleFooter}>
           <Text style={styles.userTime}>{time}</Text>
@@ -557,10 +561,14 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
         style={styles.approvalCard}
       >
         <View style={styles.approvalHeader}>
-          <Text style={styles.approvalTitle}>Approval Required</Text>
+          <Text selectable style={styles.approvalTitle}>
+            Approval Required
+          </Text>
           <View style={styles.reviewBadge}>
             <Ionicons color={colors.warning} name="time-outline" size={14} />
-            <Text style={styles.reviewBadgeText}>Needs Review</Text>
+            <Text selectable style={styles.reviewBadgeText}>
+              Needs Review
+            </Text>
           </View>
         </View>
         <View style={styles.approvalContentRow}>
@@ -568,9 +576,13 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
             <Ionicons color={colors.warning} name="document-outline" size={24} />
           </View>
           <View style={styles.approvalCopy}>
-            <Text style={styles.approvalSubject}>{approval.action ?? 'Approval request'}</Text>
+            <Text selectable style={styles.approvalSubject}>
+              {approval.action ?? 'Approval request'}
+            </Text>
             {approval.description ? (
-              <Text style={styles.approvalDescription}>{approval.description}</Text>
+              <Text selectable style={styles.approvalDescription}>
+                {approval.description}
+              </Text>
             ) : null}
           </View>
         </View>
@@ -578,7 +590,9 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
           <View style={styles.tagRow}>
             <View style={[styles.riskTag, styles.highRiskTag]}>
               <Ionicons color={colors.error} name="warning-outline" size={13} />
-              <Text style={styles.highRiskText}>{riskLabel}</Text>
+              <Text selectable style={styles.highRiskText}>
+                {riskLabel}
+              </Text>
             </View>
           </View>
         ) : null}
@@ -602,9 +616,13 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
     return (
       <View style={styles.workerCard}>
         <View style={styles.workerReportHeader}>
-          <Text style={styles.workerReportTitle}>Worker Report</Text>
+          <Text selectable style={styles.workerReportTitle}>
+            Worker Report
+          </Text>
         </View>
-        <Text style={styles.reportSummary}>{content}</Text>
+        <Text selectable style={styles.reportSummary}>
+          {content}
+        </Text>
         {reportItems.length > 0 ? (
           <View style={styles.workerGrid}>
             {reportItems.map((worker) => (
@@ -615,15 +633,15 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
                     { borderColor: worker.accent, backgroundColor: `${worker.accent}22` },
                   ]}
                 >
-                  <Text style={[styles.workerAvatarText, { color: worker.accent }]}>
+                  <Text selectable style={[styles.workerAvatarText, { color: worker.accent }]}>
                     {workerInitials(worker.name)}
                   </Text>
                 </View>
                 <View style={styles.workerTileCopy}>
-                  <Text numberOfLines={1} style={styles.workerTileName}>
+                  <Text numberOfLines={1} selectable style={styles.workerTileName}>
                     {worker.name}
                   </Text>
-                  <Text numberOfLines={1} style={styles.workerTileRole}>
+                  <Text numberOfLines={1} selectable style={styles.workerTileRole}>
                     {worker.role}
                   </Text>
                 </View>
@@ -641,7 +659,9 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
         <Ionicons color={colors.accent} name="hardware-chip-outline" size={20} />
       </View>
       <View style={styles.inboundBubble}>
-        <Text style={styles.senderLabel}>Orchestrator</Text>
+        <Text selectable style={styles.senderLabel}>
+          Orchestrator
+        </Text>
         <MarkdownText text={content} />
         <Text style={styles.inboundTime}>{time}</Text>
       </View>
@@ -656,7 +676,10 @@ const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'i
     return (
       <View style={mediaStyles.imageContainer}>
         <Image source={{ uri: media.url }} style={mediaStyles.image} resizeMode="cover" />
-        <Text style={tint === 'outbound' ? mediaStyles.captionOut : mediaStyles.captionIn}>
+        <Text
+          selectable
+          style={tint === 'outbound' ? mediaStyles.captionOut : mediaStyles.captionIn}
+        >
           {media.filename}
         </Text>
       </View>
@@ -668,12 +691,13 @@ const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'i
         <Ionicons color={colors.accent} name="videocam-outline" size={24} />
         <View style={mediaStyles.fileMeta}>
           <Text
-            style={tint === 'outbound' ? mediaStyles.fileNameOut : mediaStyles.fileNameIn}
             numberOfLines={1}
+            selectable
+            style={tint === 'outbound' ? mediaStyles.fileNameOut : mediaStyles.fileNameIn}
           >
             {media.filename}
           </Text>
-          <Text style={mediaStyles.fileSize}>
+          <Text selectable style={mediaStyles.fileSize}>
             {media.size ? `${(media.size / 1024 / 1024).toFixed(1)} MB` : 'Video'}
           </Text>
         </View>
@@ -685,12 +709,13 @@ const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'i
       <Ionicons color={colors.accent} name="document-outline" size={24} />
       <View style={mediaStyles.fileMeta}>
         <Text
-          style={tint === 'outbound' ? mediaStyles.fileNameOut : mediaStyles.fileNameIn}
           numberOfLines={1}
+          selectable
+          style={tint === 'outbound' ? mediaStyles.fileNameOut : mediaStyles.fileNameIn}
         >
           {media.filename}
         </Text>
-        <Text style={mediaStyles.fileSize}>
+        <Text selectable style={mediaStyles.fileSize}>
           {media.size ? `${(media.size / 1024).toFixed(0)} KB` : 'File'}
         </Text>
       </View>
@@ -711,21 +736,21 @@ const MarkdownText = ({ text }: { text: string }) => {
       {keyedLines.map(({ key, line }) => {
         if (line.startsWith('# ')) {
           return (
-            <Text key={key} style={mdStyles.h1}>
+            <Text key={key} selectable style={mdStyles.h1}>
               {line.slice(2)}
             </Text>
           )
         }
         if (line.startsWith('## ')) {
           return (
-            <Text key={key} style={mdStyles.h2}>
+            <Text key={key} selectable style={mdStyles.h2}>
               {line.slice(3)}
             </Text>
           )
         }
         if (line.startsWith('### ')) {
           return (
-            <Text key={key} style={mdStyles.h3}>
+            <Text key={key} selectable style={mdStyles.h3}>
               {line.slice(4)}
             </Text>
           )
@@ -733,8 +758,12 @@ const MarkdownText = ({ text }: { text: string }) => {
         if (line.startsWith('- ') || line.startsWith('* ')) {
           return (
             <View key={key} style={mdStyles.listItem}>
-              <Text style={mdStyles.bullet}>{'  •  '}</Text>
-              <Text style={mdStyles.listText}>{renderInline(line.slice(2))}</Text>
+              <Text selectable style={mdStyles.bullet}>
+                {'  •  '}
+              </Text>
+              <Text selectable style={mdStyles.listText}>
+                {renderInline(line.slice(2))}
+              </Text>
             </View>
           )
         }
@@ -745,7 +774,7 @@ const MarkdownText = ({ text }: { text: string }) => {
           return <View key={key} style={mdStyles.spacer} />
         }
         return (
-          <Text key={key} style={mdStyles.paragraph}>
+          <Text key={key} selectable style={mdStyles.paragraph}>
             {renderInline(line)}
           </Text>
         )
