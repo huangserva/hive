@@ -25,7 +25,7 @@ type RoleTemplateBody = {
   default_env: Record<string, string>
 }
 
-const serializeCommandPreset = (preset: {
+export const serializeCommandPreset = (preset: {
   id: string
   displayName: string
   command: string

@@ -11,6 +11,8 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 
+import type { WorkerRole } from '../shared/types.js'
+import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
 import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { ResolvedApproval } from './feishu-approval-ledger.js'
@@ -25,6 +27,8 @@ import {
 import { answerQuestionInFile } from './pm-questions-doc.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
+import { serializeCommandPreset } from './routes-settings.js'
+import type { RuntimeStore } from './runtime-store.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie } from './ui-auth-helpers.js'
@@ -283,6 +287,107 @@ const readWorkspaceMobileCockpitDocFile = (workspacePath: string, requestedPath:
   return {
     content: readFileSync(candidate, 'utf8'),
     contentType: lower.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8',
+  }
+}
+
+// 移动端只允许创建这几类普通 worker；sentinel 唯一且 PC 专属，移动端不开放。
+const MOBILE_CREATABLE_ROLES = new Set<WorkerRole>(['coder', 'reviewer', 'tester', 'custom'])
+
+type CreateMobileWorkerStore = Pick<
+  RuntimeStore,
+  'addWorker' | 'configureAgentLaunch' | 'deleteWorker' | 'settings' | 'startAgent'
+>
+
+export interface CreateMobileWorkerBody {
+  autostart?: unknown
+  command_preset_id?: unknown
+  description?: unknown
+  name?: unknown
+  role?: unknown
+  thinking_level?: unknown
+}
+
+// 移动端创建 worker 的下拉列表数据源（PC 端 /api/settings/command-presets 的 mobile 版）。
+export const listMobileCommandPresets = (store: Pick<RuntimeStore, 'settings'>) =>
+  store.settings.listCommandPresets().map(serializeCommandPreset)
+
+// 移动端创建 worker 共享逻辑（LAN route + relay RPC 都调它，保证校验/安全约束单一来源）。
+// 安全要点：绝不接收 startup_command（避免任意 shell 命令注入），只允许已有 command preset；
+// role=sentinel 直接拒绝。复用 PC 同款 addWorker → configureAgentLaunch →(autostart) startAgent。
+export const createMobileWorker = async (
+  store: CreateMobileWorkerStore,
+  workspaceId: string,
+  body: CreateMobileWorkerBody,
+  hivePort: string
+) => {
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  if (!name) throw new BadRequestError('name is required')
+
+  const role = typeof body.role === 'string' ? body.role : ''
+  if (role === 'sentinel') {
+    throw new BadRequestError('Sentinel workers cannot be created from mobile')
+  }
+  if (!MOBILE_CREATABLE_ROLES.has(role as WorkerRole)) {
+    throw new BadRequestError('role must be one of: coder, reviewer, tester, custom')
+  }
+
+  const presetId =
+    typeof body.command_preset_id === 'string' && body.command_preset_id.trim()
+      ? body.command_preset_id.trim()
+      : null
+  const thinkingLevel =
+    typeof body.thinking_level === 'string' && body.thinking_level.trim()
+      ? body.thinking_level.trim()
+      : null
+  const description = typeof body.description === 'string' ? body.description : undefined
+
+  const launchConfig = presetId
+    ? resolveCommandPresetLaunchConfig(store.settings, presetId, thinkingLevel)
+    : undefined
+  if (presetId && !launchConfig) {
+    throw new BadRequestError(`Command preset not found: ${presetId}`)
+  }
+
+  const worker = store.addWorker(workspaceId, { name, role: role as WorkerRole, description })
+  if (launchConfig) {
+    try {
+      store.configureAgentLaunch(workspaceId, worker.id, launchConfig)
+    } catch (error) {
+      store.deleteWorker(workspaceId, worker.id)
+      throw error
+    }
+  }
+
+  let agentStart: { error: string | null; ok: boolean; run_id: string | null } = {
+    error: null,
+    ok: false,
+    run_id: null,
+  }
+  if (body.autostart === true) {
+    if (!launchConfig) {
+      agentStart = { error: 'No worker launch config available', ok: false, run_id: null }
+    } else {
+      try {
+        const run = await store.startAgent(workspaceId, worker.id, { hivePort })
+        agentStart = { error: null, ok: true, run_id: run.runId }
+      } catch (error) {
+        // worker 已建好，仅自启失败：保留 worker（同 PC autostart 语义），把错误带回前端。
+        agentStart = {
+          error: error instanceof Error ? error.message : String(error),
+          ok: false,
+          run_id: null,
+        }
+      }
+    }
+  }
+
+  return {
+    agent_start: agentStart,
+    name: worker.name,
+    ok: true,
+    role: worker.role,
+    worker_id: worker.id,
+    workspace_id: workspaceId,
   }
 }
 
@@ -677,6 +782,32 @@ export const mobileRoutes: RouteDefinition[] = [
         worker_id: workerId,
         workspace_id: workspaceId,
       })
+    }
+  ),
+  route('GET', '/api/mobile/command-presets', ({ request, response, store }) => {
+    requireMobileCapability(request, store, 'admin_runtime')
+    sendJson(response, 200, listMobileCommandPresets(store))
+  }),
+  route(
+    'POST',
+    '/api/mobile/workspaces/:workspaceId/workers',
+    async ({ params, request, response, store }) => {
+      requireMobileCapability(request, store, 'admin_runtime')
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) return
+      const body = await readJsonBody<CreateMobileWorkerBody>(request)
+      const result = await createMobileWorker(
+        store,
+        workspaceId,
+        body,
+        String(request.socket.localPort ?? '')
+      )
+      sendJson(response, 201, result)
     }
   ),
   route('POST', '/api/mobile/voice/transcribe', async ({ request, response, store }) => {

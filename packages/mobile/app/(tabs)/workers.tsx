@@ -15,6 +15,7 @@ import {
 
 import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
+import { AddWorkerModal } from '../../src/components/AddWorkerModal'
 import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
@@ -104,10 +105,12 @@ export default function StatusTab() {
   const {
     connect,
     connectionMode,
+    createWorker,
     dashboard,
     dispatchTask,
     error,
     host,
+    listCommandPresets,
     refreshDashboard,
     restartWorker,
     selectedWorkspaceId,
@@ -116,6 +119,7 @@ export default function StatusTab() {
   } = useMobileRuntime()
   const t = useT()
   const router = useRouter()
+  const [addWorkerVisible, setAddWorkerVisible] = useState(false)
   const [overviewExpanded, setOverviewExpanded] = useState(false)
   const [phaseExpanded, setPhaseExpanded] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -328,14 +332,29 @@ export default function StatusTab() {
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{t('status.workers')}</Text>
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/workers')}>
-            <View style={styles.sectionLink}>
-              <Text style={styles.sectionLinkText}>
-                {t('status.activeCount', { count: activeWorkers })}
-              </Text>
-              <Ionicons color={colors.muted} name="chevron-forward" size={16} />
-            </View>
-          </Pressable>
+          <View style={styles.sectionHeaderRight}>
+            <Pressable
+              accessibilityLabel={t('addWorker.title')}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => setAddWorkerVisible(true)}
+              style={styles.addWorkerBtn}
+            >
+              <Ionicons color={colors.accent} name="add" size={18} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => router.push('/workers')}
+            >
+              <View style={styles.sectionLink}>
+                <Text style={styles.sectionLinkText}>
+                  {t('status.activeCount', { count: activeWorkers })}
+                </Text>
+                <Ionicons color={colors.muted} name="chevron-forward" size={16} />
+              </View>
+            </Pressable>
+          </View>
         </View>
 
         {/* Orchestrator 终端入口 */}
@@ -400,6 +419,12 @@ export default function StatusTab() {
         onSubmit={submitDispatch}
         task={dispatchText}
         worker={dispatchWorker}
+      />
+      <AddWorkerModal
+        listCommandPresets={listCommandPresets}
+        onClose={() => setAddWorkerVisible(false)}
+        onCreate={createWorker}
+        visible={addWorkerVisible}
       />
     </Screen>
   )
@@ -780,6 +805,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
+  addWorkerBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
   btnDisabled: {
     opacity: 0.45,
   },
@@ -1135,6 +1168,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: spacing.xs,
+  },
+  sectionHeaderRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   sectionLink: {
     alignItems: 'center',

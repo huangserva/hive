@@ -50,6 +50,32 @@ export interface MobileCommandPresetCapabilities {
   unattended: MobileCommandPresetUnattended
 }
 
+export interface MobileCommandPreset {
+  available?: boolean
+  display_name: string
+  id: string
+  is_builtin?: boolean
+  thinking_levels?: string[]
+}
+
+export interface MobileCreateWorkerInput {
+  autostart?: boolean
+  command_preset_id?: string | null
+  description?: string
+  name: string
+  role: string
+  thinking_level?: string | null
+}
+
+export interface MobileCreateWorkerResponse {
+  agent_start?: { error: string | null; ok: boolean; run_id: string | null }
+  name?: string
+  ok: boolean
+  role?: string
+  worker_id?: string
+  workspace_id?: string
+}
+
 export interface MobileDashboardWorker {
   capabilities?: MobileCommandPresetCapabilities | null
   id: string
@@ -352,6 +378,23 @@ export const createRuntimeClient = ({
         'worker.restart',
         { worker_id: workerId, workspace_id: workspaceId },
         { method: 'POST' }
+      )
+    },
+    async listCommandPresets(): Promise<MobileCommandPreset[]> {
+      return readMobileJson<MobileCommandPreset[]>(
+        '/api/mobile/command-presets',
+        'command_presets.list'
+      )
+    },
+    async createWorker(
+      workspaceId: string,
+      input: MobileCreateWorkerInput
+    ): Promise<MobileCreateWorkerResponse> {
+      return readMobileJson<MobileCreateWorkerResponse>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/workers`,
+        'worker.create',
+        { workspace_id: workspaceId, ...input },
+        { body: input, method: 'POST' }
       )
     },
     async dispatchTask(

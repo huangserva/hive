@@ -225,6 +225,7 @@ last_review: 2026-05-25
 - [x] **Phase 6**：UI 设计对齐 + 实时终端同步（严格对齐 12 张 mockup + Worker/Orch 终端实时轮询 + Cockpit 子页面接真实 API）— 马超完成 2026-05-28
 - [ ] **Phase 7**：Push Notification + Approval deep link（Expo push 触发 + approval card lifecycle）
 - [ ] **Phase 8**：Error resilience + 离线缓存（LAN/relay fallback UI + offline outbox + 增量同步）
+- [x] **新增 Worker（手机端）**：Status 页「+」入口 + AddWorkerModal 最简安全版（只用已有 preset、拒 sentinel、不收 startup_command），后端 mobile create-worker + command-presets 端点（admin_runtime，LAN + relay 双通道），6 后端测试 — 马超 2026-05-30（待 commit hash；spike `.hive/reports/2026-05-30-mobile-add-worker-spike.html`，安全边界 ADR `draft-2026-05-30-mobile-add-worker-safety.md`）
 - [x] **L1 机制**：设计 milestone shipped → 自动检测缺实施 milestone
 - 设计文档：`.hive/reports/mobile-app-design-v2-2026-05-27.html`
 - UI 审核报告：`.hive/reports/mobile-ui-audit-2026-05-28.html`

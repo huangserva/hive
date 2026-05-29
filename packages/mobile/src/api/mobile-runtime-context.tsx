@@ -17,7 +17,10 @@ import {
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
   type MobileCockpitData,
+  type MobileCommandPreset,
   type MobileConnectionMode,
+  type MobileCreateWorkerInput,
+  type MobileCreateWorkerResponse,
   type MobileDashboard,
   type MobileDeviceSummary,
   type MobileDispatchResponse,
@@ -45,10 +48,12 @@ interface MobileRuntimeContextValue {
   chatMessages: ChatMessage[]
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
   connectionMode: MobileConnectionMode
+  createWorker: (input: MobileCreateWorkerInput) => Promise<MobileCreateWorkerResponse | null>
   dashboard: MobileDashboard | null
   demoMode: boolean
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
+  listCommandPresets: () => Promise<MobileCommandPreset[]>
   enableDemoMode: () => void
   error: string | null
   fetchChatMessages: (options?: { resetSince?: boolean }) => Promise<void>
@@ -398,6 +403,37 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client, refreshDashboard, selectedWorkspaceId]
   )
 
+  const listCommandPresets = useCallback(async () => {
+    setError(null)
+    try {
+      return await client.listCommandPresets()
+    } catch (presetError) {
+      const message = presetError instanceof Error ? presetError.message : String(presetError)
+      setError(message)
+      return []
+    }
+  }, [client])
+
+  const createWorker = useCallback(
+    async (input: MobileCreateWorkerInput) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before creating workers')
+        return null
+      }
+      setError(null)
+      try {
+        const result = await client.createWorker(selectedWorkspaceId, input)
+        await refreshDashboard(selectedWorkspaceId)
+        return result
+      } catch (createError) {
+        const message = createError instanceof Error ? createError.message : String(createError)
+        setError(message)
+        return null
+      }
+    },
+    [client, refreshDashboard, selectedWorkspaceId]
+  )
+
   const getWorkerTranscript = useCallback(
     async (workerId: string) => {
       if (!selectedWorkspaceId) {
@@ -736,11 +772,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       chatMessages: demoMode ? DEMO_CHAT_MESSAGES : chatMessages,
       connect,
       connectionMode: demoMode ? 'lan' : connectionMode,
+      createWorker,
       dashboard: demoMode ? DEMO_DASHBOARD : dashboard,
       demoMode,
       disconnect,
       dispatchTask,
       enableDemoMode,
+      listCommandPresets,
       error,
       fetchChatMessages,
       getCockpit,
@@ -770,6 +808,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       chatMessages,
       connect,
       connectionMode,
+      createWorker,
       dashboard,
       demoMode,
       disconnect,
@@ -777,6 +816,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       enableDemoMode,
       error,
       fetchChatMessages,
+      listCommandPresets,
       getCockpit,
       getWorkerTranscript,
       getWorkspaceTasks,

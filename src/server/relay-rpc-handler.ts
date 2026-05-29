@@ -9,7 +9,9 @@ import {
   buildMobileDashboard,
   buildMobileWorkerTranscript,
   buildMobileWorkspaceTasks,
+  createMobileWorker,
   injectApprovalDecision,
+  listMobileCommandPresets,
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
@@ -25,7 +27,10 @@ interface RelayRpcHandlerDeps {
   runtimeInfo: RuntimeInfo
   store: Pick<
     RuntimeStore,
+    | 'addWorker'
     | 'approvalLedger'
+    | 'configureAgentLaunch'
+    | 'deleteWorker'
     | 'dispatchTask'
     | 'getActiveRunByAgentId'
     | 'getAgent'
@@ -35,6 +40,7 @@ interface RelayRpcHandlerDeps {
     | 'listWorkspaces'
     | 'recordUserInput'
     | 'requireMobileCapability'
+    | 'settings'
     | 'startAgent'
     | 'stopAgentRun'
     | 'updateMobilePushToken'
@@ -170,6 +176,22 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         hivePort: String(deps.runtimeInfo.port ?? ''),
       })
       return { ok: true, run_id: run.runId, worker_id: workerId, workspace_id: workspaceId }
+    }
+
+    if (method === 'command_presets.list') {
+      requireCapability(deps.store, deviceId, capabilities, 'admin_runtime')
+      return listMobileCommandPresets(deps.store as RuntimeStore)
+    }
+
+    if (method === 'worker.create') {
+      requireCapability(deps.store, deviceId, capabilities, 'admin_runtime')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      return createMobileWorker(
+        deps.store as RuntimeStore,
+        workspaceId,
+        params,
+        String(deps.runtimeInfo.port ?? '')
+      )
     }
 
     if (method === 'device.register_push_token') {
