@@ -43,13 +43,39 @@ describe('parseDecisionsDoc', () => {
     const dir = setupDecisionsDir()
     writeFileSync(
       join(dir, 'draft-2026-05-20-schema.md'),
-      '# 决策：schema\n\n**状态**: 已采纳',
+      '# 决策：schema\n\n**状态**: 提案中',
       'utf8'
     )
 
     const result = parseDecisionsDoc(dir)
     expect(result.drafts[0]?.status).toBe('draft')
     expect(result.drafts[0]?.filename).toBe('draft-2026-05-20-schema.md')
+  })
+
+  test('draft- file already adopted in content is classified adopted, not draft', () => {
+    const dir = setupDecisionsDir()
+    // 手动改状态为已采纳但没改文件名：内容终态优先，不再当待确认草稿。
+    writeFileSync(
+      join(dir, 'draft-2026-05-20-schema.md'),
+      '# 决策：schema\n\n**状态**: 已采纳\n**确认日期**: 2026-05-21',
+      'utf8'
+    )
+
+    const result = parseDecisionsDoc(dir)
+    expect(result.drafts).toEqual([])
+    expect(result.adopted[0]?.status).toBe('adopted')
+  })
+
+  test('unfilled template status list (提案中 / 已采纳 / 已废弃) stays draft for draft- file', () => {
+    const dir = setupDecisionsDir()
+    writeFileSync(
+      join(dir, 'draft-2026-05-20-schema.md'),
+      '# 决策：schema\n\n**状态**: 提案中 / 已采纳 / 已废弃',
+      'utf8'
+    )
+
+    const result = parseDecisionsDoc(dir)
+    expect(result.drafts[0]?.status).toBe('draft')
   })
 
   test('adopted by default when no draft prefix and no status match', () => {

@@ -14,6 +14,7 @@ const tabIcon =
         borderRadius: 10,
         height: 34,
         justifyContent: 'center',
+        marginBottom: 4,
         width: 34,
       }}
     >

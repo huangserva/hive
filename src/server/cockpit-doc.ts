@@ -84,6 +84,15 @@ const isRecentIdea = (idea: PMIdea, now = Date.now()) => {
   return now - timestamp <= 7 * 24 * 60 * 60 * 1000
 }
 
+// 已 promote（划掉 / 在 promoted 段）或已 shipped 的 idea 不再是待办，不出 promote action。
+const shippedIdeaPattern = /\bshipped\b|✅|已上线|已发布|已\s?ship|已完成|已落地/iu
+const isActionableIdea = (idea: PMIdea) => !idea.promoted && !shippedIdeaPattern.test(idea.raw)
+
+// 取消/汇报原因里若是「已终态/已解决」类（孤儿收尾、被取代、已完成、放弃……），
+// 不再提示 handoff/loop——这些 dispatch 已无后续动作，提示只会变噪音。
+const resolvedDispatchPattern =
+  /orphan|superseded|取代|duplicate|重复|obsolete|作废|无效|cleanup|清理|abandon|放弃|wontfix|won'?t\s?fix|已解决|resolved|已完成|completed|\bdone\b|不做|redundant|no longer|不再需要/iu
+
 const cancelledDispatchPattern =
   /^-\s+\[~\]\s+\*\*(.+?)\*\*\s+dispatch\s+`([0-9a-fA-F-]{8})`\s+—\s+(.+)$/gmu
 const reportedDispatchPattern =
@@ -100,6 +109,7 @@ const handoffPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
     const dispatchShortId = match[2]?.trim()
     const summary = match[3]?.trim()
     if (!workerName || !dispatchShortId || !summary) continue
+    if (resolvedDispatchPattern.test(summary)) continue
     actions.push({
       action: '准备',
       id: `handoff:${dispatchShortId}`,
@@ -122,6 +132,7 @@ const loopPlaybookActions = (tasks: ParsedTasks): AIAction[] => {
     if (!blockedOrFailedPattern.test(summary)) continue
     if (!verifierRetryPattern.test(summary)) continue
     if (researchOnlyPattern.test(summary)) continue
+    if (resolvedDispatchPattern.test(summary)) continue
     actions.push({
       action: '准备',
       id: `loop:${dispatchShortId}`,
@@ -198,7 +209,7 @@ const buildAiActions = (
       }
     }),
     ...ideas.inbox
-      .filter((idea) => isRecentIdea(idea))
+      .filter((idea) => isRecentIdea(idea) && isActionableIdea(idea))
       .slice(0, 3)
       .map((idea) => ({
         action: '查看',

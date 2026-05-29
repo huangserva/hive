@@ -24,10 +24,17 @@ const titleFromMarkdown = (content: string, fallback: string) =>
   /^#\s+(.+?)\s*$/m.exec(content)?.[1]?.trim() ?? fallback
 
 const statusFromContent = (filename: string, content: string): PMDecisionStatus => {
-  if (filename.startsWith('draft-')) return 'draft'
   const statusMatch = /(?:\*\*状态\*\*|status)\s*[:：]\s*(.+)/i.exec(content)
   const status = statusMatch?.[1]?.toLowerCase() ?? ''
-  if (/draft|提案|草稿/.test(status)) return 'draft'
+  const looksDraft = /draft|提案|草稿/.test(status)
+  // 内容里明确写了单一终态（已采纳 / 废弃）就以内容为准——即使文件仍叫 draft-（手动改状态没改名）。
+  // 但要求状态行不同时含 draft 字样，避免命中模板未填时的 "提案中 / 已采纳 / 已废弃" 并列选项。
+  if (!looksDraft) {
+    if (/superseded|废弃|取代/.test(status)) return 'superseded'
+    if (/已采纳|采纳|adopted|accepted/.test(status)) return 'adopted'
+  }
+  if (filename.startsWith('draft-')) return 'draft'
+  if (looksDraft) return 'draft'
   if (/superseded|废弃|取代/.test(status)) return 'superseded'
   return 'adopted'
 }

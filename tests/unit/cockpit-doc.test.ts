@@ -343,3 +343,64 @@ Goal.
     })
   })
 })
+
+describe('aiActions noise filtering — resolved items must not appear', () => {
+  test('adopted (non-draft) decision does not produce a confirm action', () => {
+    const dir = setupWorkspace()
+    writeFileSync(
+      join(dir, '.hive', 'decisions', '2026-05-20-schema.md'),
+      '# Schema Change\n\n**状态**: 已采纳\n',
+      'utf8'
+    )
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.type === 'decision')).toEqual([])
+  })
+
+  test('draft- file already marked 已采纳 in content does not produce a confirm action', () => {
+    const dir = setupWorkspace()
+    // 手动把状态改成已采纳但没改文件名（仍叫 draft-）——不该再当待确认草稿。
+    writeFileSync(
+      join(dir, '.hive', 'decisions', 'draft-2026-05-20-schema.md'),
+      '# Schema Change\n\n**状态**: 已采纳\n**确认日期**: 2026-05-21\n',
+      'utf8'
+    )
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.type === 'decision')).toEqual([])
+  })
+
+  test('promoted (struck-through) idea in inbox does not produce a promote action', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const dir = setupWorkspace({
+      'ideas/inbox.md': `# Ideas Inbox\n\n## inbox\n\n### ${today}\n\n- ~~🤔 idea: old idea~~ → promoted to plan\n\n## promoted\n`,
+    })
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.type === 'promote')).toEqual([])
+  })
+
+  test('shipped-marked idea in inbox does not produce a promote action', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const dir = setupWorkspace({
+      'ideas/inbox.md': `# Ideas Inbox\n\n## inbox\n\n### ${today}\n\n- 🤔 idea: sentinel card (shipped M20)\n\n## promoted\n`,
+    })
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.type === 'promote')).toEqual([])
+  })
+
+  test('cancelled dispatch with an orphan/resolved reason does not produce a handoff action', () => {
+    const dir = setupWorkspace({
+      'tasks.md':
+        '## In progress\n\n- [~] **马超** dispatch `28853152` — mobile sentinel card ⊘ orphan-submitted: worker stopped without reporting\n',
+    })
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.id.startsWith('handoff:'))).toEqual([])
+  })
+
+  test('cancelled dispatch marked superseded does not produce a handoff action', () => {
+    const dir = setupWorkspace({
+      'tasks.md':
+        '## In progress\n\n- [~] **赵云** dispatch `12abcd34` — build feature ⊘ superseded\n',
+    })
+    const result = parseCockpit(dir)
+    expect(result.aiActions.filter((a) => a.id.startsWith('handoff:'))).toEqual([])
+  })
+})

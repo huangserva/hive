@@ -107,6 +107,7 @@ export default function StatusTab() {
   const [dispatchWorker, setDispatchWorker] = useState<MobileDashboardWorker | null>(null)
   const [dispatchText, setDispatchText] = useState('')
   const [dispatching, setDispatching] = useState(false)
+  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
   const activeWorkers = useMemo(
     () => dashboard?.workers.filter((w) => w.status !== 'stopped').length ?? 0,
     [dashboard]
@@ -346,10 +347,14 @@ export default function StatusTab() {
         {sortedWorkers.map((worker) => (
           <WorkerCard
             key={worker.id}
+            expanded={expandedWorkerId === worker.id}
             onDispatch={() => openDispatch(worker)}
             onOpenDetail={() => router.push(`/agent/${worker.id}`)}
             onRestart={() => confirmRestart(worker)}
             onStop={() => confirmStop(worker)}
+            onToggle={() =>
+              setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
+            }
             worker={worker}
           />
         ))}
@@ -385,23 +390,32 @@ const StatItem = ({
 )
 
 const WorkerCard = ({
+  expanded,
   onDispatch,
   onOpenDetail,
   onRestart,
   onStop,
+  onToggle,
   worker,
 }: {
+  expanded: boolean
   onDispatch: () => void
   onOpenDetail: () => void
   onRestart: () => void
   onStop: () => void
+  onToggle: () => void
   worker: MobileDashboardWorker
 }) => {
   const bgColor = avatarColor(worker.name)
   const accent = statusColor(worker.status)
 
   return (
-    <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.card}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={onToggle}
+      style={styles.card}
+    >
       <View style={styles.workerHeader}>
         <View style={styles.workerLeft}>
           <View style={[styles.workerAvatar, { backgroundColor: bgColor }]}>
@@ -419,21 +433,41 @@ const WorkerCard = ({
         </View>
         <View style={styles.workerRight}>
           <StatusBadge status={worker.status} />
-          <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+          <Ionicons
+            color={colors.muted}
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+          />
         </View>
       </View>
 
-      <View style={styles.workerMetaGrid}>
-        <MetaChip label="Role" value={worker.role} />
-        <MetaChip label="Status" value={statusTextFor(worker)} />
-      </View>
-      <CapabilityChips capabilities={worker.capabilities} />
-      <WorkerActions
-        onDispatch={onDispatch}
-        onRestart={onRestart}
-        onStop={onStop}
-        status={worker.status}
-      />
+      {expanded ? (
+        <View style={styles.expanded}>
+          <View style={styles.workerMetaGrid}>
+            <MetaChip label="Role" value={worker.role} />
+            <MetaChip label="Status" value={statusTextFor(worker)} />
+          </View>
+          <CapabilityChips capabilities={worker.capabilities} />
+          <WorkerActions
+            onDispatch={onDispatch}
+            onRestart={onRestart}
+            onStop={onStop}
+            status={worker.status}
+          />
+          <Pressable
+            accessibilityRole="button"
+            onPress={(event) => {
+              event.stopPropagation()
+              onOpenDetail()
+            }}
+            style={styles.detailLink}
+          >
+            <Ionicons color={colors.accent} name="terminal-outline" size={15} />
+            <Text style={styles.detailLinkText}>Open terminal</Text>
+            <Ionicons color={colors.accent} name="chevron-forward" size={14} />
+          </Pressable>
+        </View>
+      ) : null}
     </Pressable>
   )
 }

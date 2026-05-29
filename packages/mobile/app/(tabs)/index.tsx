@@ -10,6 +10,8 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  type KeyboardEvent,
+  type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -19,7 +21,11 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import type { ChatMessage, MobileDashboardWorker } from '../../src/api/client'
+import {
+  type ChatMessage,
+  type MobileDashboardWorker,
+  normalizeRuntimeHost,
+} from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
@@ -92,13 +98,19 @@ export default function ChatTab() {
   const [sending, setSending] = useState(false)
   const [attachments, setAttachments] = useState<StagedAttachment[]>([])
   const [headerExpanded, setHeaderExpanded] = useState(false)
+  const [keyboardInset, setKeyboardInset] = useState(0)
   const flatListRef = useRef<FlatList<DisplayMessage>>(null)
+  const contentFitsViewportRef = useRef(false)
+  const contentHeightRef = useRef(0)
   const hasInitialAutoScrolledRef = useRef(false)
   const isNearBottomRef = useRef(true)
+  const isDraggingRef = useRef(false)
   const forceScrollToEndRef = useRef(false)
   const scrollFrameRef = useRef<number | null>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keyboardInsetRef = useRef(0)
+  const viewportHeightRef = useRef(0)
   const isConnected = state === 'connected' && Boolean(dashboard)
 
   const connectionLabel = useMemo(() => {
@@ -146,11 +158,23 @@ export default function ChatTab() {
     if (!body && attachments.length === 0) return
     if (sending) return
     const msgId = `opt-${Date.now()}`
+    const firstAttachment = attachments[0]
+    const optimisticContent = firstAttachment
+      ? {
+          media: {
+            file_id: `local-${msgId}`,
+            filename: firstAttachment.filename,
+            mime_type: firstAttachment.mimeType,
+            url: firstAttachment.uri,
+          },
+          text: body || `[${firstAttachment.filename}]`,
+        }
+      : { text: body }
     const msg: OptimisticMessage = {
       id: msgId,
       direction: 'inbound',
       message_type: 'user_text',
-      content_json: JSON.stringify({ text: body || `[${attachments.length} files]` }),
+      content_json: JSON.stringify(optimisticContent),
       created_at: Date.now(),
       pending: true,
     }
@@ -233,24 +257,57 @@ export default function ChatTab() {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
-  const scrollToEnd = useCallback((animated: boolean) => {
+  const cancelScheduledScroll = useCallback(() => {
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current)
+      scrollFrameRef.current = null
     }
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current)
+      scrollTimeoutRef.current = null
     }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null
-      scrollTimeoutRef.current = setTimeout(() => {
-        scrollTimeoutRef.current = null
-        flatListRef.current?.scrollToEnd({ animated })
-      }, 50)
-    })
   }, [])
+
+  const updateContentFit = useCallback(
+    (contentHeight: number, viewportHeight: number) => {
+      contentHeightRef.current = contentHeight
+      viewportHeightRef.current = viewportHeight
+      const fitsViewport = viewportHeight > 0 && contentHeight <= viewportHeight + 1
+      contentFitsViewportRef.current = fitsViewport
+      if (fitsViewport) {
+        forceScrollToEndRef.current = false
+        hasInitialAutoScrolledRef.current = true
+        cancelScheduledScroll()
+      }
+    },
+    [cancelScheduledScroll]
+  )
+
+  const scrollToEnd = useCallback(
+    (animated: boolean) => {
+      if (isDraggingRef.current || contentFitsViewportRef.current) return
+      cancelScheduledScroll()
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null
+        scrollTimeoutRef.current = setTimeout(() => {
+          scrollTimeoutRef.current = null
+          if (isDraggingRef.current || contentFitsViewportRef.current) return
+          flatListRef.current?.scrollToEnd({ animated })
+        }, 50)
+      })
+    },
+    [cancelScheduledScroll]
+  )
 
   const maybeAutoScrollToEnd = useCallback(
     (animated: boolean, trigger: 'content' | 'message' = 'message') => {
+      if (isDraggingRef.current || contentFitsViewportRef.current) {
+        if (contentFitsViewportRef.current) {
+          forceScrollToEndRef.current = false
+          hasInitialAutoScrolledRef.current = true
+        }
+        return
+      }
       const shouldScroll =
         forceScrollToEndRef.current ||
         !hasInitialAutoScrolledRef.current ||
@@ -263,10 +320,42 @@ export default function ChatTab() {
     [scrollToEnd]
   )
 
-  const handleChatScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height)
-    isNearBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX
+  const handleMessageListLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      updateContentFit(contentHeightRef.current, event.nativeEvent.layout.height)
+    },
+    [updateContentFit]
+  )
+
+  const handleContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      updateContentFit(height, viewportHeightRef.current)
+      maybeAutoScrollToEnd(false, 'content')
+    },
+    [maybeAutoScrollToEnd, updateContentFit]
+  )
+
+  const handleChatScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+      updateContentFit(contentSize.height, layoutMeasurement.height)
+      const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height)
+      isNearBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX
+    },
+    [updateContentFit]
+  )
+
+  const handleScrollBeginDrag = useCallback(() => {
+    isDraggingRef.current = true
+    cancelScheduledScroll()
+  }, [cancelScheduledScroll])
+
+  const handleScrollEndDrag = useCallback(() => {
+    isDraggingRef.current = false
+  }, [])
+
+  const handleMomentumScrollEnd = useCallback(() => {
+    isDraggingRef.current = false
   }, [])
 
   useEffect(() => {
@@ -288,6 +377,12 @@ export default function ChatTab() {
   )
 
   useEffect(() => {
+    const setMeasuredKeyboardInset = (nextInset: number) => {
+      if (Math.abs(keyboardInsetRef.current - nextInset) < 2) return
+      keyboardInsetRef.current = nextInset
+      setKeyboardInset(nextInset)
+    }
+
     const settleAfterKeyboardChange = () => {
       if (keyboardSettleTimeoutRef.current) {
         clearTimeout(keyboardSettleTimeoutRef.current)
@@ -299,8 +394,20 @@ export default function ChatTab() {
         }
       }, 180)
     }
-    const showSubscription = Keyboard.addListener('keyboardDidShow', settleAfterKeyboardChange)
-    const hideSubscription = Keyboard.addListener('keyboardDidHide', settleAfterKeyboardChange)
+
+    const handleKeyboardShow = (event: KeyboardEvent) => {
+      const measuredHeight = Math.max(0, event.endCoordinates?.height ?? 0)
+      setMeasuredKeyboardInset(Platform.OS === 'android' ? measuredHeight : 0)
+      settleAfterKeyboardChange()
+    }
+
+    const handleKeyboardHide = () => {
+      setMeasuredKeyboardInset(0)
+      settleAfterKeyboardChange()
+    }
+
+    const showSubscription = Keyboard.addListener('keyboardDidShow', handleKeyboardShow)
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', handleKeyboardHide)
     return () => {
       showSubscription.remove()
       hideSubscription.remove()
@@ -327,7 +434,7 @@ export default function ChatTab() {
   return (
     <Screen>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         style={styles.keyboard}
       >
@@ -399,8 +506,13 @@ export default function ChatTab() {
           contentContainerStyle={styles.messages}
           style={styles.messageList}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => maybeAutoScrollToEnd(false, 'content')}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleMessageListLayout}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
           onScroll={handleChatScroll}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onScrollEndDrag={handleScrollEndDrag}
           scrollEventThrottle={16}
           ListEmptyComponent={<EmptyChat />}
           renderItem={({ item }) => (
@@ -410,6 +522,8 @@ export default function ChatTab() {
                 router.push({ pathname: '/approval', params: { approvalId } })
               }
               onApprove={approveRequest}
+              runtimeHost={host}
+              token={token}
               workers={dashboard?.workers ?? []}
             />
           )}
@@ -462,6 +576,13 @@ export default function ChatTab() {
             </Pressable>
           )}
         </View>
+
+        {keyboardInset > 0 ? (
+          <View
+            pointerEvents="none"
+            style={[styles.keyboardLiftSpacer, { height: keyboardInset }]}
+          />
+        ) : null}
       </KeyboardAvoidingView>
     </Screen>
   )
@@ -640,21 +761,30 @@ type MessageCardProps = {
   message: DisplayMessage
   onApprove: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   onOpenApproval: (approvalId: string) => void
+  runtimeHost: string
+  token: string
   workers: MobileDashboardWorker[]
 }
 
-const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCardProps) => {
+const MessageCard = ({
+  message,
+  onApprove,
+  onOpenApproval,
+  runtimeHost,
+  token,
+  workers,
+}: MessageCardProps) => {
   const content = parseContent(message.content_json)
   const isPending = 'pending' in message && message.pending
   const isError = 'error' in message && message.error
   const time = formatMessageTime(message.created_at)
+  const media = parseMedia(message.content_json)
 
   if (message.message_type === 'user_text') {
-    const media = parseMedia(message.content_json)
     return (
-      <View style={styles.userBubble}>
+      <View style={[styles.userBubble, media ? styles.userMediaBubble : null]}>
         {media ? (
-          <MediaContent media={media} tint="outbound" />
+          <MediaContent authToken={token} media={media} runtimeHost={runtimeHost} tint="outbound" />
         ) : (
           <Text selectable style={styles.userBubbleText}>
             {content}
@@ -814,32 +944,70 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
         <Text selectable style={styles.senderLabel}>
           Orchestrator
         </Text>
-        <MarkdownText text={content} />
+        {media ? (
+          <MediaContent authToken={token} media={media} runtimeHost={runtimeHost} tint="inbound" />
+        ) : (
+          <MarkdownText text={content} />
+        )}
         <Text style={styles.inboundTime}>{time}</Text>
       </View>
     </View>
   )
 }
 
-const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'inbound' }) => {
+const resolveMediaUrl = (url: string, runtimeHost: string) => {
+  if (/^(https?:|file:|content:|data:|asset:)/iu.test(url)) return url
+  const baseUrl = normalizeRuntimeHost(runtimeHost)
+  return `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+const mediaSizeLabel = (size?: number) => {
+  if (!size) return null
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`
+  return `${(size / 1024).toFixed(0)} KB`
+}
+
+const MediaContent = ({
+  authToken,
+  media,
+  runtimeHost,
+  tint,
+}: {
+  authToken: string
+  media: MediaInfo
+  runtimeHost: string
+  tint: 'outbound' | 'inbound'
+}) => {
+  const [imageFailed, setImageFailed] = useState(false)
   const isImage = media.mime_type.startsWith('image/')
   const isVideo = media.mime_type.startsWith('video/')
-  if (isImage) {
+  const uri = resolveMediaUrl(media.url, runtimeHost)
+  const isRemoteHttp = /^https?:\/\//iu.test(uri)
+  const imageSource =
+    isRemoteHttp && authToken ? { headers: { Authorization: `Bearer ${authToken}` }, uri } : { uri }
+  const meta = mediaSizeLabel(media.size)
+
+  if (isImage && !imageFailed) {
     return (
       <View style={mediaStyles.imageContainer}>
-        <Image source={{ uri: media.url }} style={mediaStyles.image} resizeMode="cover" />
+        <Image
+          onError={() => setImageFailed(true)}
+          source={imageSource}
+          style={mediaStyles.image}
+          resizeMode="cover"
+        />
         <Text
           selectable
           style={tint === 'outbound' ? mediaStyles.captionOut : mediaStyles.captionIn}
         >
-          {media.filename}
+          {meta ? `${media.filename} · ${meta}` : media.filename}
         </Text>
       </View>
     )
   }
   if (isVideo) {
     return (
-      <View style={mediaStyles.fileRow}>
+      <View style={mediaStyles.fileCard}>
         <Ionicons color={colors.accent} name="videocam-outline" size={24} />
         <View style={mediaStyles.fileMeta}>
           <Text
@@ -850,15 +1018,19 @@ const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'i
             {media.filename}
           </Text>
           <Text selectable style={mediaStyles.fileSize}>
-            {media.size ? `${(media.size / 1024 / 1024).toFixed(1)} MB` : 'Video'}
+            {meta ? `${meta} video` : 'Video'}
           </Text>
         </View>
       </View>
     )
   }
   return (
-    <View style={mediaStyles.fileRow}>
-      <Ionicons color={colors.accent} name="document-outline" size={24} />
+    <View style={mediaStyles.fileCard}>
+      <Ionicons
+        color={colors.accent}
+        name={isImage ? 'image-outline' : 'document-outline'}
+        size={24}
+      />
       <View style={mediaStyles.fileMeta}>
         <Text
           numberOfLines={1}
@@ -868,7 +1040,7 @@ const MediaContent = ({ media, tint }: { media: MediaInfo; tint: 'outbound' | 'i
           {media.filename}
         </Text>
         <Text selectable style={mediaStyles.fileSize}>
-          {media.size ? `${(media.size / 1024).toFixed(0)} KB` : 'File'}
+          {isImage ? `Image${meta ? ` · ${meta}` : ''}` : (meta ?? 'File')}
         </Text>
       </View>
     </View>
@@ -944,15 +1116,26 @@ const renderInline = (text: string): string => {
 
 const mediaStyles = StyleSheet.create({
   captionIn: { color: colors.textSoft, fontSize: 12, marginTop: 4 },
-  captionOut: { color: 'rgba(13, 17, 23, 0.6)', fontSize: 12, marginTop: 4 },
+  captionOut: { color: colors.textSoft, fontSize: 12, marginTop: 4 },
+  fileCard: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(13, 17, 23, 0.36)',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    maxWidth: 260,
+    minWidth: 190,
+    padding: spacing.sm,
+  },
   fileMetaRow: { flexDirection: 'row', gap: 4 },
   fileMeta: { flex: 1, gap: 2 },
   fileNameIn: { color: colors.text, fontSize: 14, fontWeight: '500' },
-  fileNameOut: { color: colors.background, fontSize: 14, fontWeight: '500' },
-  fileRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
+  fileNameOut: { color: colors.text, fontSize: 14, fontWeight: '500' },
   fileSize: { color: colors.textSoft, fontSize: 12 },
-  image: { borderRadius: radius.sm, height: 200, width: '100%' },
-  imageContainer: { gap: 2 },
+  image: { borderRadius: radius.sm, height: 170, width: 230 },
+  imageContainer: { gap: 4, maxWidth: 230 },
 })
 
 const mdStyles = StyleSheet.create({
@@ -1141,6 +1324,7 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   keyboard: { flex: 1, gap: spacing.md },
+  keyboardLiftSpacer: { flexShrink: 0 },
   messageList: { flex: 1, minHeight: 0 },
   messages: { gap: spacing.md, paddingBottom: spacing.md },
   moreButton: { display: 'none' },
@@ -1242,6 +1426,13 @@ const styles = StyleSheet.create({
     maxWidth: '86%',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+  },
+  userMediaBubble: {
+    backgroundColor: 'rgba(63, 185, 80, 0.14)',
+    borderColor: 'rgba(63, 185, 80, 0.32)',
+    borderWidth: 1,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   userTime: { color: 'rgba(13, 17, 23, 0.58)', fontSize: 13, fontWeight: '700' },
   userBubbleText: { color: colors.background, fontSize: 15, fontWeight: '600', lineHeight: 21 },

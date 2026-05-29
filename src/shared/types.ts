@@ -9,6 +9,36 @@ export interface ThinkingLevelOption {
   value: string
 }
 
+export type CommandPresetProviderFamily = 'claude' | 'codex' | 'custom' | 'gemini' | 'opencode'
+
+export type CommandPresetRiskTier = 'high' | 'moderate' | 'unknown'
+
+export type CommandPresetUnattended = boolean | 'unknown'
+
+export type CommandPresetFeature =
+  | 'browser_e2e'
+  | 'mcp'
+  | 'session_capture'
+  | 'session_resume'
+  | 'terminal_input_profile'
+  | 'thinking_levels'
+
+export interface CommandPresetCapabilities {
+  features: CommandPresetFeature[]
+  mode: 'cli_agent' | 'unknown'
+  providerFamily: CommandPresetProviderFamily
+  riskTier: CommandPresetRiskTier
+  unattended: CommandPresetUnattended
+}
+
+export interface CommandPresetCapabilitiesPayload {
+  features: CommandPresetFeature[]
+  mode: 'cli_agent' | 'unknown'
+  provider_family: CommandPresetProviderFamily
+  risk_tier: CommandPresetRiskTier
+  unattended: CommandPresetUnattended
+}
+
 export interface WorkspaceSummary {
   id: string
   name: string
@@ -45,6 +75,7 @@ export interface TeamListItem {
    * the role-letter avatar.
    */
   commandPresetId?: string
+  capabilities?: CommandPresetCapabilities
   thinkingLevel?: string
   sentinelIntervalMs?: number
 }
@@ -63,6 +94,7 @@ export interface TeamListItemPayload {
   pending_task_count: number
   last_pty_line: string | null
   command_preset_id: string | null
+  capabilities: CommandPresetCapabilitiesPayload | null
   thinking_level: string | null
   sentinel_interval_ms: number | null
 }
