@@ -30,6 +30,7 @@ import {
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
+import { useT } from '../../src/i18n'
 import { colors, radius, spacing } from '../../src/theme'
 
 type OptimisticMessage = {
@@ -93,6 +94,7 @@ export default function ChatTab() {
     token,
     uploadMedia,
   } = useMobileRuntime()
+  const t = useT()
   const router = useRouter()
   const [draft, setDraft] = useState('')
   const [optimistic, setOptimistic] = useState<OptimisticMessage[]>([])
@@ -116,11 +118,11 @@ export default function ChatTab() {
   const isConnected = state === 'connected' && Boolean(dashboard)
 
   const connectionLabel = useMemo(() => {
-    if (state === 'checking') return 'Connecting'
-    if (isConnected) return 'Online'
-    if (state === 'error') return 'Needs attention'
-    return 'Offline'
-  }, [isConnected, state])
+    if (state === 'checking') return t('chat.status.connecting')
+    if (isConnected) return t('chat.status.online')
+    if (state === 'error') return t('chat.status.needsAttention')
+    return t('chat.status.offline')
+  }, [isConnected, state, t])
 
   const workspaceStats = useMemo(
     () => ({
@@ -471,9 +473,7 @@ export default function ChatTab() {
       >
         <View style={styles.header}>
           <Pressable
-            accessibilityLabel={
-              headerExpanded ? 'Collapse workspace summary' : 'Expand workspace summary'
-            }
+            accessibilityLabel={t(headerExpanded ? 'chat.header.collapse' : 'chat.header.expand')}
             accessibilityRole="button"
             accessibilityState={{ expanded: headerExpanded }}
             onPress={() => setHeaderExpanded((v) => !v)}
@@ -497,7 +497,7 @@ export default function ChatTab() {
               </View>
               <View style={styles.workspaceBody}>
                 <Text numberOfLines={1} style={styles.workspaceName}>
-                  Workspace: {workspaceStats.name}
+                  {t('chat.workspace.label', { name: workspaceStats.name })}
                 </Text>
                 <View style={styles.workspaceStats}>
                   {workspaceStats.phase ? (
@@ -582,7 +582,7 @@ export default function ChatTab() {
           <TextInput
             multiline
             onChangeText={setDraft}
-            placeholder="Message orchestrator..."
+            placeholder={t('chat.input.placeholder')}
             placeholderTextColor={colors.muted2}
             scrollEnabled
             style={styles.input}
@@ -618,12 +618,15 @@ export default function ChatTab() {
   )
 }
 
-const EmptyChat = () => (
-  <View style={styles.hintCard}>
-    <Ionicons color={colors.accent} name="chatbubble-ellipses-outline" size={20} />
-    <Text style={styles.hintText}>Send a message to Orchestrator to start.</Text>
-  </View>
-)
+const EmptyChat = () => {
+  const t = useT()
+  return (
+    <View style={styles.hintCard}>
+      <Ionicons color={colors.accent} name="chatbubble-ellipses-outline" size={20} />
+      <Text style={styles.hintText}>{t('chat.empty')}</Text>
+    </View>
+  )
+}
 
 const WorkspaceStat = ({
   color,
@@ -804,6 +807,7 @@ const MessageCard = ({
   token,
   workers,
 }: MessageCardProps) => {
+  const t = useT()
   const content = parseContent(message.content_json)
   const isPending = 'pending' in message && message.pending
   const isError = 'error' in message && message.error
@@ -869,12 +873,12 @@ const MessageCard = ({
       >
         <View style={styles.approvalHeader}>
           <Text selectable style={styles.approvalTitle}>
-            Approval Required
+            {t('chat.approval.required')}
           </Text>
           <View style={styles.reviewBadge}>
             <Ionicons color={colors.warning} name="time-outline" size={14} />
             <Text selectable style={styles.reviewBadgeText}>
-              Needs Review
+              {t('chat.approval.needsReview')}
             </Text>
           </View>
         </View>
@@ -906,10 +910,10 @@ const MessageCard = ({
         {approvalId ? (
           <View style={styles.approvalActions}>
             <Pressable style={styles.denyBtn} onPress={() => void onApprove(approvalId, 'deny')}>
-              <Text style={styles.denyBtnText}>Request Changes</Text>
+              <Text style={styles.denyBtnText}>{t('chat.approval.requestChanges')}</Text>
             </Pressable>
             <Pressable style={styles.allowBtn} onPress={() => void onApprove(approvalId, 'allow')}>
-              <Text style={styles.allowBtnText}>Approve</Text>
+              <Text style={styles.allowBtnText}>{t('chat.approval.approve')}</Text>
             </Pressable>
           </View>
         ) : null}
@@ -924,7 +928,7 @@ const MessageCard = ({
       <View style={styles.workerCard}>
         <View style={styles.workerReportHeader}>
           <Text selectable style={styles.workerReportTitle}>
-            Worker Report
+            {t('chat.system.workerReport')}
           </Text>
         </View>
         <Text selectable style={styles.reportSummary}>

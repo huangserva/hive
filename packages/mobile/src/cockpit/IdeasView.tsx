@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { MobileCockpitData } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
 const stripMarkdown = (text: string) => text.replace(/[*`#]/gu, '').trim()
@@ -15,6 +16,7 @@ type Feedback = {
 
 export function IdeasView() {
   const { getCockpit, sendPromptToOrchestrator } = useMobileRuntime()
+  const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [promotingId, setPromotingId] = useState<string | null>(null)
@@ -61,12 +63,12 @@ export function IdeasView() {
       setPromotedId(ideaId)
       showFeedback({
         kind: 'success',
-        text: 'Sent to orchestrator — watch Chat for the result.',
+        text: t('cockpit.ideas.sent'),
       })
     } else {
       showFeedback({
         kind: 'error',
-        text: 'Send failed, tap Promote to retry.',
+        text: t('cockpit.ideas.failed'),
       })
     }
     setPromotingId(null)
@@ -82,14 +84,14 @@ export function IdeasView() {
 
   return (
     <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
-      <Text style={s.sectionTitle}>Idea Inbox</Text>
+      <Text style={s.sectionTitle}>{t('cockpit.ideas.inbox')}</Text>
 
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
       {inbox.length === 0 && (
         <View style={s.emptyCard}>
           <Ionicons color={colors.muted} name="bulb-outline" size={28} />
-          <Text style={s.emptyText}>No ideas yet</Text>
+          <Text style={s.emptyText}>{t('cockpit.ideas.empty')}</Text>
         </View>
       )}
 
@@ -111,10 +113,10 @@ export function IdeasView() {
             >
               <Text style={s.promoteBtnText}>
                 {promotedId === idea.id
-                  ? 'Sent'
+                  ? t('cockpit.ideas.promotedState')
                   : promotingId === idea.id
-                    ? 'Promoting...'
-                    : 'Promote'}
+                    ? t('cockpit.ideas.promoting')
+                    : t('cockpit.ideas.promote')}
               </Text>
             </Pressable>
           </View>
@@ -123,7 +125,7 @@ export function IdeasView() {
 
       {promoted.length > 0 && (
         <>
-          <Text style={s.promotedTitle}>Promoted Ideas</Text>
+          <Text style={s.promotedTitle}>{t('cockpit.ideas.promoted')}</Text>
           {promoted.map((idea) => (
             <View key={idea.id} style={s.promotedCard}>
               <Ionicons color={colors.success} name="checkmark-circle" size={18} />

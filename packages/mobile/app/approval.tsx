@@ -7,6 +7,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import type { ChatMessage } from '../src/api/client'
 import { useMobileRuntime } from '../src/api/mobile-runtime-context'
 import { Screen } from '../src/components/Screen'
+import { type TFunction, useT } from '../src/i18n'
 import { colors, radius, spacing } from '../src/theme'
 
 interface ApprovalPayload {
@@ -73,6 +74,7 @@ const parseApprovalPayload = (message: ChatMessage | undefined): ResolvedApprova
 export default function ApprovalCenter() {
   const { approvalId } = useLocalSearchParams<{ approvalId?: string }>()
   const router = useRouter()
+  const t = useT()
   const { approveRequest, chatMessages } = useMobileRuntime()
   const [submitting, setSubmitting] = useState<'allow' | 'deny' | null>(null)
 
@@ -108,7 +110,10 @@ export default function ApprovalCenter() {
     setSubmitting(decision)
     const ok = await approveRequest(approval.approval_id, decision)
     setSubmitting(null)
-    Alert.alert(ok ? 'Decision recorded' : 'Decision failed', ok ? decisionLabel(decision) : '')
+    Alert.alert(
+      ok ? t('chat.approval.recorded') : t('chat.approval.failed'),
+      ok ? decisionLabel(decision, t) : ''
+    )
     if (ok) router.back()
   }
 
@@ -119,10 +124,10 @@ export default function ApprovalCenter() {
           <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}>
             <Ionicons color={colors.textSoft} name="chevron-back" size={22} />
           </Pressable>
-          <Text style={styles.title}>Approval Center</Text>
+          <Text style={styles.title}>{t('chat.approval.center')}</Text>
           <View style={styles.filterButton}>
             <Ionicons color={colors.textSoft} name="filter-outline" size={17} />
-            <Text style={styles.filterText}>Filter</Text>
+            <Text style={styles.filterText}>{t('common.filter')}</Text>
             {pendingCount > 0 ? (
               <View style={styles.countBadge}>
                 <Text style={styles.countText}>{pendingCount}</Text>
@@ -136,20 +141,24 @@ export default function ApprovalCenter() {
             <View style={styles.highRiskBadge}>
               <Ionicons color={colors.error} name="warning-outline" size={18} />
               <Text style={styles.highRiskText}>
-                {approval.risk ? `${titleCase(approval.risk)} Risk` : 'Needs Review'}
+                {approval.risk
+                  ? `${titleCase(approval.risk)} Risk`
+                  : t('chat.approval.needsReview')}
               </Text>
             </View>
             <View style={styles.requestedRow}>
               <Text style={styles.requestedText}>
-                {approvalMessage ? formatRelativeTime(approvalMessage.created_at) : 'No request'}
+                {approvalMessage
+                  ? formatRelativeTime(approvalMessage.created_at)
+                  : t('chat.approval.noRequest')}
               </Text>
               <View style={styles.requestDot} />
             </View>
           </View>
 
           <Divider />
-          <Section label="Action">
-            <Text style={styles.actionTitle}>{approval.action ?? 'Approval request'}</Text>
+          <Section label={t('chat.approval.section.action')}>
+            <Text style={styles.actionTitle}>{approval.action ?? t('chat.approval.required')}</Text>
             {approval.description ? (
               <Text style={styles.actionDescription}>{approval.description}</Text>
             ) : null}
@@ -158,7 +167,7 @@ export default function ApprovalCenter() {
           {approval.target_worker ? (
             <>
               <Divider />
-              <Section label="Target Worker">
+              <Section label={t('chat.approval.section.targetWorker')}>
                 <View style={styles.workerRow}>
                   <Avatar name={approval.target_worker.name} />
                   <View style={styles.workerCopy}>
@@ -178,7 +187,7 @@ export default function ApprovalCenter() {
           {approval.workspace || approval.branch ? (
             <>
               <Divider />
-              <Section label="Workspace">
+              <Section label={t('chat.approval.section.workspace')}>
                 <View style={styles.workspaceRow}>
                   <View style={styles.branchIcon}>
                     <Ionicons color={colors.accent} name="git-branch-outline" size={28} />
@@ -200,7 +209,7 @@ export default function ApprovalCenter() {
           {approval.reason ? (
             <>
               <Divider />
-              <Section label="Reason">
+              <Section label={t('chat.approval.section.reason')}>
                 <Text style={styles.reasonText}>{approval.reason}</Text>
               </Section>
             </>
@@ -227,7 +236,9 @@ export default function ApprovalCenter() {
               style={styles.denyButton}
             >
               <Ionicons color={colors.error} name="shield-outline" size={22} />
-              <Text style={styles.denyText}>{submitting === 'deny' ? 'Denying...' : 'Deny'}</Text>
+              <Text style={styles.denyText}>
+                {submitting === 'deny' ? t('chat.approval.denying') : t('chat.approval.deny')}
+              </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -237,7 +248,7 @@ export default function ApprovalCenter() {
             >
               <Ionicons color={colors.text} name="shield-checkmark-outline" size={22} />
               <Text style={styles.allowText}>
-                {submitting === 'allow' ? 'Allowing...' : 'Allow'}
+                {submitting === 'allow' ? t('chat.approval.allowing') : t('chat.approval.allow')}
               </Text>
             </Pressable>
           </View>
@@ -245,7 +256,7 @@ export default function ApprovalCenter() {
 
         {processedApprovals.length > 0 ? (
           <>
-            <Text style={styles.recentTitle}>Recently Processed</Text>
+            <Text style={styles.recentTitle}>{t('chat.approval.recent')}</Text>
             {processedApprovals.map((item) => (
               <ProcessedItem item={item} key={`${item.approval_id}-${item.status}`} />
             ))}
@@ -256,8 +267,8 @@ export default function ApprovalCenter() {
   )
 }
 
-const decisionLabel = (decision: 'allow' | 'deny') =>
-  decision === 'allow' ? 'The action was allowed.' : 'The action was denied.'
+const decisionLabel = (decision: 'allow' | 'deny', t: TFunction) =>
+  decision === 'allow' ? t('chat.approval.allowed') : t('chat.approval.denied')
 
 const parseJsonObject = (json: string): Record<string, unknown> => {
   try {

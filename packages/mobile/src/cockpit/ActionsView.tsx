@@ -5,14 +5,15 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { MobileCockpitData, MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 
 const PRIORITY_CONFIG = {
-  high: { bg: colors.errorSoft, color: colors.error, label: 'High Priority' },
-  low: { bg: 'rgba(139, 148, 158, 0.14)', color: colors.muted, label: 'Low' },
-  medium: { bg: colors.warningSoft, color: colors.warning, label: 'Medium' },
+  high: { bg: colors.errorSoft, color: colors.error },
+  low: { bg: 'rgba(139, 148, 158, 0.14)', color: colors.muted },
+  medium: { bg: colors.warningSoft, color: colors.warning },
 }
 
 const TYPE_ICON: Record<string, { color: string; icon: IconName }> = {
@@ -33,6 +34,7 @@ type Feedback = {
 
 export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
   const { getCockpit, sendPromptToOrchestrator } = useMobileRuntime()
+  const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set())
@@ -78,9 +80,7 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     setSendingId(null)
     showFeedback({
       kind: ok ? 'success' : 'error',
-      text: ok
-        ? 'Sent to orchestrator — watch Chat for the result.'
-        : 'Send failed, tap the action to retry.',
+      text: ok ? t('cockpit.actions.sent') : t('cockpit.actions.failed'),
     })
   }
 
@@ -92,7 +92,7 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     })
     showFeedback({
       kind: 'success',
-      text: 'Dismissed locally.',
+      text: t('cockpit.actions.dismissed'),
     })
   }
 
@@ -107,13 +107,13 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
   return (
     <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}>
-        <Text style={s.sectionTitle}>AI Recommended Actions</Text>
+        <Text style={s.sectionTitle}>{t('cockpit.actions.title')}</Text>
         <View style={s.filterBtn}>
           <Ionicons color={colors.muted} name="filter-outline" size={14} />
-          <Text style={s.filterText}>Filter</Text>
+          <Text style={s.filterText}>{t('common.filter')}</Text>
         </View>
       </View>
-      <Text style={s.subtitle}>{actionCount} actions need your review</Text>
+      <Text style={s.subtitle}>{t('cockpit.actions.count', { count: actionCount })}</Text>
 
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
@@ -130,13 +130,21 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
                 <Ionicons color={typeInfo.color} name={typeInfo.icon} size={18} />
               </View>
               <View style={[s.priorityBadge, { backgroundColor: cfg.bg }]}>
-                <Text style={[s.priorityText, { color: cfg.color }]}>{cfg.label}</Text>
+                <Text style={[s.priorityText, { color: cfg.color }]}>
+                  {t(
+                    action.priority === 'high'
+                      ? 'cockpit.priority.highLong'
+                      : action.priority === 'medium'
+                        ? 'cockpit.priority.medium'
+                        : 'cockpit.priority.low'
+                  )}
+                </Text>
               </View>
             </View>
             <Text style={s.actionTitle}>{stripMarkdown(action.text)}</Text>
             <View style={s.actionFooter}>
               <Pressable onPress={() => dismissAction(action.id)}>
-                <Text style={s.dismissText}>Dismiss</Text>
+                <Text style={s.dismissText}>{t('cockpit.actions.dismiss')}</Text>
               </Pressable>
               <Pressable
                 disabled={sendingId !== null}
@@ -148,7 +156,9 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
                 ]}
               >
                 <Text style={s.actionBtnText}>
-                  {sendingId === action.id ? 'Sending...' : stripMarkdown(action.action)}
+                  {sendingId === action.id
+                    ? t('agent.dispatch.sending')
+                    : stripMarkdown(action.action)}
                 </Text>
               </Pressable>
             </View>
@@ -159,7 +169,7 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
       {actions.length === 0 && (
         <View style={s.emptyCard}>
           <Ionicons color={colors.success} name="checkmark-circle" size={32} />
-          <Text style={s.emptyText}>No actions pending</Text>
+          <Text style={s.emptyText}>{t('cockpit.actions.empty')}</Text>
         </View>
       )}
     </ScrollView>

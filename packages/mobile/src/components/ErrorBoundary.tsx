@@ -1,6 +1,8 @@
 import { Component, type ErrorInfo, type PropsWithChildren, useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
+import { useT } from '../i18n'
+
 interface ErrorBoundaryState {
   error: Error | null
 }
@@ -22,24 +24,27 @@ export class ErrorBoundary extends Component<PropsWithChildren, ErrorBoundarySta
 
   render() {
     if (this.state.error) {
-      return (
-        <View style={styles.fallback}>
-          <Text style={styles.title}>Something went wrong</Text>
-          <Text style={styles.message}>
-            The mobile app hit an unexpected error. Retry the screen, or restart the app if it keeps
-            happening.
-          </Text>
-          <Pressable accessibilityRole="button" onPress={this.retry} style={styles.button}>
-            <Text style={styles.buttonText}>Retry</Text>
-          </Pressable>
-        </View>
-      )
+      return <ErrorFallback onRetry={this.retry} />
     }
     return this.props.children
   }
 }
 
+const ErrorFallback = ({ onRetry }: { onRetry: () => void }) => {
+  const t = useT()
+  return (
+    <View style={styles.fallback}>
+      <Text style={styles.title}>{t('errorBoundary.title')}</Text>
+      <Text style={styles.message}>{t('errorBoundary.message')}</Text>
+      <Pressable accessibilityRole="button" onPress={onRetry} style={styles.button}>
+        <Text style={styles.buttonText}>{t('common.retry')}</Text>
+      </Pressable>
+    </View>
+  )
+}
+
 export const OfflineBanner = () => {
+  const t = useT()
   const [offline, setOffline] = useState(
     typeof navigator !== 'undefined' && 'onLine' in navigator ? navigator.onLine === false : false
   )
@@ -64,7 +69,7 @@ export const OfflineBanner = () => {
   if (!offline) return null
   return (
     <View style={styles.banner}>
-      <Text style={styles.bannerText}>Offline. Showing the last loaded state.</Text>
+      <Text style={styles.bannerText}>{t('errorBoundary.offlineBanner')}</Text>
     </View>
   )
 }

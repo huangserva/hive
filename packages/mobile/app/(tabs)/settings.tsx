@@ -16,11 +16,14 @@ import {
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
+import { type TFunction, useLanguage, useT } from '../../src/i18n'
 import { colors, radius, spacing } from '../../src/theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 
 export default function SettingsTab() {
+  const { language, setLanguage } = useLanguage()
+  const t = useT()
   const {
     connectionMode,
     connect,
@@ -57,14 +60,14 @@ export default function SettingsTab() {
   const onConnectToken = async () => {
     const nextToken = draftToken.trim()
     if (!nextToken) {
-      Alert.alert('Missing token', 'Create a permanent mobile token in HippoTeam Settings first.')
+      Alert.alert(t('settings.missingTokenTitle'), t('settings.connectBody'))
       return
     }
     setHost(draftHost)
     setToken(nextToken)
     const connected = await connect(draftHost, nextToken)
     if (connected) {
-      Alert.alert('Connected', 'This device is connected with a permanent mobile token.')
+      Alert.alert(t('common.connected'), t('settings.connectedBody'))
     }
   }
 
@@ -73,7 +76,7 @@ export default function SettingsTab() {
       ? cameraPermission
       : await requestCameraPermission()
     if (!permission.granted) {
-      Alert.alert('Camera permission needed', 'Allow camera access to scan a HippoTeam QR code.')
+      Alert.alert(t('settings.cameraPermissionTitle'), t('settings.cameraPermissionBody'))
       return
     }
     setScanLocked(false)
@@ -86,7 +89,7 @@ export default function SettingsTab() {
     const payload = parseConnectionQr(result.data)
     if (!payload) {
       setScannerOpen(false)
-      Alert.alert('Invalid QR code', 'This QR code does not contain HippoTeam host and token data.')
+      Alert.alert(t('settings.invalidQrTitle'), t('settings.invalidQrBody'))
       return
     }
     setScannerOpen(false)
@@ -96,19 +99,19 @@ export default function SettingsTab() {
     setToken(payload.token)
     const connected = await connect(payload.host, payload.token)
     if (connected) {
-      Alert.alert('Connected', 'This device is connected from the scanned QR code.')
+      Alert.alert(t('common.connected'), t('settings.connectedFromQr'))
     }
   }
 
   const onDisconnect = () => {
-    Alert.alert('Disconnect device', 'Remove the saved mobile token from this app?', [
-      { style: 'cancel', text: 'Cancel' },
+    Alert.alert(t('settings.deviceDisconnectTitle'), t('settings.deviceDisconnectBody'), [
+      { style: 'cancel', text: t('common.cancel') },
       {
         onPress: () => {
           void disconnect()
         },
         style: 'destructive',
-        text: 'Disconnect',
+        text: t('settings.deviceDisconnect'),
       },
     ])
   }
@@ -131,32 +134,54 @@ export default function SettingsTab() {
   const lanMeta = [host || null, runtimeStatus?.port ? `Port ${runtimeStatus.port}` : null]
     .filter(Boolean)
     .join(' • ')
-  const appBuildLabel = getAppBuildLabel()
+  const appBuildLabel = getAppBuildLabel(t)
 
   return (
     <Screen>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>Settings</Text>
+          <Text style={styles.title}>{t('settings.title')}</Text>
           <ConnectionBadge state={state} />
         </View>
 
-        <SectionLabel>CONNECT TO ORCHESTRATOR</SectionLabel>
+        <SectionLabel>{t('settings.appLanguageTitle')}</SectionLabel>
+        <View style={styles.card}>
+          <FieldHeader subtitle={t('settings.appLanguageHint')} title={t('settings.appLanguage')} />
+          <View style={styles.languageToggle}>
+            {(['en', 'zh'] as const).map((option) => {
+              const active = language === option
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  key={option}
+                  onPress={() => void setLanguage(option)}
+                  style={[styles.languageOption, active && styles.languageOptionActive]}
+                >
+                  <Text
+                    style={[styles.languageOptionText, active && styles.languageOptionTextActive]}
+                  >
+                    {option === 'en' ? 'English' : '中文'}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+        </View>
+
+        <SectionLabel>{t('settings.connectSection')}</SectionLabel>
         <View style={styles.card}>
           <Pressable accessibilityRole="button" onPress={onOpenScanner} style={styles.scanButton}>
             <Ionicons color={colors.accent} name="qr-code-outline" size={21} />
             <View style={styles.scanButtonCopy}>
-              <Text style={styles.scanButtonText}>Scan QR to connect</Text>
-              <Text style={styles.scanButtonHint}>
-                Use the QR code shown in HippoTeam Settings.
-              </Text>
+              <Text style={styles.scanButtonText}>{t('settings.scanQr')}</Text>
+              <Text style={styles.scanButtonHint}>{t('settings.qrHint')}</Text>
             </View>
             <Ionicons color={colors.muted} name="chevron-forward" size={21} />
           </Pressable>
 
           <FieldHeader
-            subtitle="The URL or IP address of your orchestrator."
-            title="Orchestrator Host"
+            subtitle={t('settings.connectHostHint')}
+            title={t('settings.connectHostTitle')}
           />
           <View style={styles.inputShell}>
             <Ionicons color={colors.muted} name="link-outline" size={23} />
@@ -178,8 +203,8 @@ export default function SettingsTab() {
           </View>
 
           <FieldHeader
-            subtitle="Paste the permanent mobile token created in HippoTeam Settings."
-            title="Mobile Token"
+            subtitle={t('settings.connectTokenHint')}
+            title={t('settings.connectTokenTitle')}
           />
           <View style={styles.inputShell}>
             <Ionicons color={colors.muted} name="key-outline" size={23} />
@@ -187,7 +212,7 @@ export default function SettingsTab() {
               autoCapitalize="none"
               autoCorrect={false}
               onChangeText={setDraftToken}
-              placeholder="Paste mobile token"
+              placeholder={t('settings.connectTokenPlaceholder')}
               placeholderTextColor={colors.muted2}
               secureTextEntry
               style={styles.input}
@@ -208,15 +233,15 @@ export default function SettingsTab() {
           >
             <Ionicons color={colors.background} name="lock-closed-outline" size={19} />
             <Text style={styles.primaryButtonText}>
-              {state === 'checking' ? 'Connecting...' : 'Connect Device'}
+              {state === 'checking'
+                ? `${t('chat.status.connecting')}...`
+                : t('settings.connectToken')}
             </Text>
           </Pressable>
-          <Text style={styles.formHint}>
-            Mobile tokens are permanent until deleted from HippoTeam Settings.
-          </Text>
+          <Text style={styles.formHint}>{t('settings.connectTokenHint')}</Text>
         </View>
 
-        <SectionLabel>CONNECTED DEVICE</SectionLabel>
+        <SectionLabel>{t('settings.connectedDevice')}</SectionLabel>
         <View style={styles.deviceCard}>
           <View style={styles.deviceHeader}>
             <View style={styles.deviceIcon}>
@@ -225,11 +250,11 @@ export default function SettingsTab() {
             <View style={styles.deviceCopy}>
               <View style={styles.deviceTitleRow}>
                 <Text numberOfLines={1} style={styles.deviceName}>
-                  {pairedDevice?.name ?? 'Connected device'}
+                  {pairedDevice?.name ?? t('settings.deviceDefaultName')}
                 </Text>
                 <View style={styles.connectedBadge}>
                   <Text style={styles.connectedBadgeText}>
-                    {isConnected ? 'Connected' : 'Not connected'}
+                    {isConnected ? t('settings.deviceConnected') : t('settings.deviceNotConnected')}
                   </Text>
                 </View>
               </View>
@@ -240,7 +265,7 @@ export default function SettingsTab() {
           {deviceCapabilities.length > 0 ? (
             <>
               <View style={styles.divider} />
-              <Text style={styles.capabilitiesLabel}>Capabilities</Text>
+              <Text style={styles.capabilitiesLabel}>{t('settings.capabilities')}</Text>
               <View style={styles.capabilityRow}>
                 {deviceCapabilities.map((capability) => (
                   <Capability key={capability} label={formatCapability(capability)} />
@@ -251,16 +276,16 @@ export default function SettingsTab() {
           {isConnected || token.trim() ? (
             <Pressable accessibilityRole="button" onPress={onDisconnect} style={styles.disconnect}>
               <Ionicons color={colors.error} name="unlink-outline" size={19} />
-              <Text style={styles.disconnectText}>Disconnect</Text>
+              <Text style={styles.disconnectText}>{t('settings.deviceDisconnect')}</Text>
             </Pressable>
           ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
 
-        <SectionLabel>WORKSPACES</SectionLabel>
+        <SectionLabel>{t('settings.workspaces')}</SectionLabel>
         <View style={styles.workspaceCard}>
           {workspaces.length === 0 ? (
-            <Text style={styles.detail}>No workspaces loaded yet. Connect with a token first.</Text>
+            <Text style={styles.detail}>{t('settings.noWorkspaces')}</Text>
           ) : null}
           {workspaces.map((workspace) => (
             <Pressable
@@ -280,7 +305,7 @@ export default function SettingsTab() {
                 <Text style={styles.workspaceName}>{workspace.name}</Text>
                 {selectedWorkspaceId === workspace.id ? (
                   <Text numberOfLines={1} style={styles.detail}>
-                    Active workspace
+                    {t('settings.workspaceActive')}
                   </Text>
                 ) : null}
               </View>
@@ -289,30 +314,32 @@ export default function SettingsTab() {
           ))}
           <Pressable accessibilityRole="button" style={styles.addWorkspace}>
             <Ionicons color={colors.accent} name="add" size={20} />
-            <Text style={styles.addWorkspaceText}>Add Workspace</Text>
+            <Text style={styles.addWorkspaceText}>{t('settings.addWorkspace')}</Text>
           </Pressable>
         </View>
 
-        <SectionLabel>CONNECTION DETAILS</SectionLabel>
+        <SectionLabel>{t('settings.connectionDetails')}</SectionLabel>
         <View style={styles.connectionCard}>
           <ConnectionDetailRow
             icon="wifi-outline"
             meta={relayMeta}
-            status={connectionMode === 'relay' ? 'Connected' : 'Disconnected'}
-            title="Relay"
+            status={connectionMode === 'relay' ? t('common.connected') : t('common.disconnected')}
+            title={t('settings.relay')}
             tone={connectionMode === 'relay' ? 'success' : 'muted'}
           />
           <View style={styles.divider} />
           <ConnectionDetailRow
             icon="git-network-outline"
             meta={lanMeta || null}
-            status={lanAvailable ? 'Available' : 'Unavailable'}
-            title="LAN"
+            status={lanAvailable ? t('common.available') : t('common.unavailable')}
+            title={t('settings.lan')}
             tone={lanAvailable ? 'accent' : 'muted'}
           />
           {runtimeStatus ? (
             <Text style={styles.runtimeVersion}>
-              Runtime version: {String(runtimeStatus.version ?? 'unknown')}
+              {t('settings.runtimeVersion', {
+                version: String(runtimeStatus.version ?? t('common.unknown')),
+              })}
             </Text>
           ) : null}
           <Text style={styles.runtimeVersion}>{appBuildLabel}</Text>
@@ -321,13 +348,13 @@ export default function SettingsTab() {
         {!demoMode ? (
           <Pressable accessibilityRole="button" onPress={enableDemoMode} style={styles.demoButton}>
             <Ionicons color={colors.accent} name="eye-outline" size={18} />
-            <Text style={styles.demoButtonText}>Enable Demo Mode</Text>
-            <Text style={styles.demoHint}>Preview all pages with sample data</Text>
+            <Text style={styles.demoButtonText}>{t('settings.demoMode')}</Text>
+            <Text style={styles.demoHint}>{t('settings.demoHint')}</Text>
           </Pressable>
         ) : (
           <View style={styles.demoActive}>
             <Ionicons color={colors.success} name="checkmark-circle" size={18} />
-            <Text style={styles.demoActiveText}>Demo Mode Active</Text>
+            <Text style={styles.demoActiveText}>{t('settings.demoActive')}</Text>
           </View>
         )}
       </ScrollView>
@@ -340,13 +367,11 @@ export default function SettingsTab() {
         <View style={styles.scannerScreen}>
           <View style={styles.scannerHeader}>
             <View>
-              <Text style={styles.scannerTitle}>Scan HippoTeam QR</Text>
-              <Text style={styles.scannerSubtitle}>
-                Point your camera at the desktop token QR code.
-              </Text>
+              <Text style={styles.scannerTitle}>{t('settings.scanQrTitle')}</Text>
+              <Text style={styles.scannerSubtitle}>{t('settings.scanQrSubtitle')}</Text>
             </View>
             <Pressable
-              accessibilityLabel="Close scanner"
+              accessibilityLabel={t('settings.closeScanner')}
               accessibilityRole="button"
               onPress={() => setScannerOpen(false)}
               style={styles.scannerClose}
@@ -389,7 +414,7 @@ const formatDateLabel = (label: string, value?: string | null) => {
   }).format(date)}`
 }
 
-const getAppBuildLabel = () => {
+const getAppBuildLabel = (t: TFunction) => {
   const extra = Constants.expoConfig?.extra as
     | { buildSha?: unknown; buildTime?: unknown }
     | undefined
@@ -400,7 +425,7 @@ const getAppBuildLabel = () => {
     typeof extra?.buildTime === 'string' && extra.buildTime
       ? formatBuildTime(extra.buildTime)
       : 'unknown time'
-  return `App v${version} · build ${buildSha} · ${buildTime}`
+  return t('settings.appBuild', { sha: buildSha, time: buildTime, version })
 }
 
 const formatBuildTime = (value: string) => {
@@ -698,6 +723,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     paddingHorizontal: 12,
+  },
+  languageOption: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    flex: 1,
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingVertical: 9,
+  },
+  languageOptionActive: {
+    backgroundColor: colors.accent,
+  },
+  languageOptionText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  languageOptionTextActive: {
+    color: colors.background,
+  },
+  languageToggle: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    padding: 4,
   },
   primaryButton: {
     alignItems: 'center',

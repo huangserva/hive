@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { MobileCockpitData, MobileCockpitMilestone, MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { type TFunction, useT } from '../i18n'
 import { colors, spacing } from '../theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -12,47 +13,54 @@ type MilestoneStatus = MobileCockpitMilestone['status']
 
 const STATUS_CONFIG: Record<
   MilestoneStatus,
-  { badgeBg: string; color: string; icon: IconName; label: string; ringBg: string }
+  {
+    badgeBg: string
+    color: string
+    icon: IconName
+    labelKey: Parameters<TFunction>[0]
+    ringBg: string
+  }
 > = {
   blocked: {
     badgeBg: colors.errorSoft,
     color: colors.error,
     icon: 'ellipse-outline',
-    label: 'Blocked',
+    labelKey: 'cockpit.plan.status.blocked',
     ringBg: 'rgba(248, 81, 73, 0.1)',
   },
   in_progress: {
     badgeBg: colors.warningSoft,
     color: colors.warning,
     icon: 'ellipse-outline',
-    label: 'In Progress',
+    labelKey: 'cockpit.plan.status.inProgress',
     ringBg: 'rgba(210, 153, 34, 0.1)',
   },
   open: {
     badgeBg: colors.accentSoft,
     color: colors.accent,
     icon: 'ellipse-outline',
-    label: 'Open',
+    labelKey: 'cockpit.plan.status.open',
     ringBg: 'rgba(88, 166, 255, 0.1)',
   },
   proposed: {
     badgeBg: 'rgba(139, 148, 158, 0.14)',
     color: colors.muted,
     icon: 'ellipse-outline',
-    label: 'Proposed',
+    labelKey: 'cockpit.plan.status.proposed',
     ringBg: 'rgba(139, 148, 158, 0.1)',
   },
   shipped: {
     badgeBg: colors.successSoft,
     color: colors.success,
     icon: 'checkmark',
-    label: 'Shipped',
+    labelKey: 'cockpit.plan.status.shipped',
     ringBg: 'rgba(63, 185, 80, 0.1)',
   },
 }
 
 export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
   const { getCockpit } = useMobileRuntime()
+  const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState('')
@@ -91,22 +99,26 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
     >
       <View style={styles.progressCard}>
         <View style={styles.progressHeader}>
-          <Text style={styles.cardTitle}>Overall Progress</Text>
-          <Text style={styles.progressPercent}>{progress}% complete</Text>
+          <Text style={styles.cardTitle}>{t('cockpit.plan.overall')}</Text>
+          <Text style={styles.progressPercent}>{t('cockpit.plan.complete', { progress })}</Text>
         </View>
         <ProgressBar progress={progress} />
         <View style={styles.progressMetaRow}>
           <Text style={styles.progressMeta}>
-            {doneCount} of {totalCount} tasks done
+            {t('cockpit.plan.tasksDone', { done: doneCount, total: totalCount })}
           </Text>
-          <Text style={styles.progressMeta}>{remainingCount} tasks remaining</Text>
+          <Text style={styles.progressMeta}>
+            {t('cockpit.plan.remaining', { count: remainingCount })}
+          </Text>
         </View>
       </View>
 
       <View style={styles.milestoneHeader}>
-        <Text style={styles.milestonesTitle}>Milestones</Text>
+        <Text style={styles.milestonesTitle}>{t('cockpit.plan.milestones')}</Text>
         <View style={styles.milestoneCountWrap}>
-          <Text style={styles.milestoneCount}>{milestones.length} milestones</Text>
+          <Text style={styles.milestoneCount}>
+            {t('cockpit.plan.count', { count: milestones.length })}
+          </Text>
           <Ionicons color={colors.muted} name="swap-vertical-outline" size={22} />
         </View>
       </View>
@@ -120,6 +132,7 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
             milestone={milestone}
             ordinal={milestones.length - index}
             onPress={() => setExpandedId(expandedId === milestone.id ? '' : milestone.id)}
+            t={t}
           />
         ))}
       </View>
@@ -133,12 +146,14 @@ const MilestoneCard = ({
   milestone,
   onPress,
   ordinal,
+  t,
 }: {
   isExpanded: boolean
   isLast: boolean
   milestone: MobileCockpitMilestone
   onPress: () => void
   ordinal: number
+  t: TFunction
 }) => {
   const status = STATUS_CONFIG[milestone.status] ?? STATUS_CONFIG.open
   const pct =
@@ -180,7 +195,9 @@ const MilestoneCard = ({
           </View>
           <View style={styles.statusSide}>
             <View style={[styles.statusBadge, { backgroundColor: status.badgeBg }]}>
-              <Text style={[styles.statusBadgeText, { color: status.color }]}>{status.label}</Text>
+              <Text style={[styles.statusBadgeText, { color: status.color }]}>
+                {t(status.labelKey)}
+              </Text>
             </View>
             <Ionicons
               color={colors.textSoft}
@@ -193,7 +210,10 @@ const MilestoneCard = ({
           <View style={styles.expanded}>
             <View style={styles.taskProgressRow}>
               <Text style={styles.taskProgressText}>
-                {milestone.doneCount} of {milestone.totalCount} tasks completed
+                {t('cockpit.plan.tasksCompleted', {
+                  done: milestone.doneCount,
+                  total: milestone.totalCount,
+                })}
               </Text>
               <Text style={styles.taskProgressPercent}>{pct}%</Text>
             </View>
@@ -210,7 +230,7 @@ const MilestoneCard = ({
             ))}
             {details ? (
               <View style={styles.detailsBlock}>
-                <Text style={styles.detailsTitle}>Details</Text>
+                <Text style={styles.detailsTitle}>{t('cockpit.plan.details')}</Text>
                 <Text numberOfLines={3} style={styles.detailsBody}>
                   {details}
                 </Text>

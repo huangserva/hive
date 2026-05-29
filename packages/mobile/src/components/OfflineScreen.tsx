@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { type TFunction, useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -24,94 +25,104 @@ export const OfflineScreen = ({
   networkLabel,
   onOpenSettings,
   onRetry,
-}: OfflineScreenProps) => (
-  <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-    <View style={styles.header}>
-      <View>
-        <Text style={styles.title}>Offline</Text>
-        <Text style={styles.subtitle}>Unable to reach HippoTeam Orchestrator</Text>
-      </View>
-      <View style={styles.disconnectedPill}>
-        <View style={styles.redDot} />
-        <Text style={styles.disconnectedText}>Disconnected</Text>
-      </View>
-    </View>
-
-    <View style={styles.heroWrap}>
-      <View style={styles.heroOuter}>
-        <View style={styles.heroInner}>
-          <Ionicons color={colors.error} name="cloud-offline-outline" size={58} />
+}: OfflineScreenProps) => {
+  const t = useT()
+  return (
+    <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>{t('chat.status.offline')}</Text>
+          <Text style={styles.subtitle}>{t('offline.subtitle')}</Text>
         </View>
-        <View style={styles.alertBadge}>
-          <Ionicons color={colors.background} name="alert" size={22} />
+        <View style={styles.disconnectedPill}>
+          <View style={styles.redDot} />
+          <Text style={styles.disconnectedText}>{t('offline.disconnected')}</Text>
         </View>
       </View>
-      <Text style={styles.offlineTitle}>You're offline</Text>
-      <Text style={styles.offlineCopy}>
-        We can't connect to the orchestrator. Please check your connection.
-      </Text>
-      {lastSeenLabel ? (
-        <View style={styles.lastSeenRow}>
-          <Ionicons color={colors.muted} name="time-outline" size={18} />
-          <Text style={styles.lastSeenText}>{lastSeenLabel}</Text>
+
+      <View style={styles.heroWrap}>
+        <View style={styles.heroOuter}>
+          <View style={styles.heroInner}>
+            <Ionicons color={colors.error} name="cloud-offline-outline" size={58} />
+          </View>
+          <View style={styles.alertBadge}>
+            <Ionicons color={colors.background} name="alert" size={22} />
+          </View>
         </View>
-      ) : null}
-    </View>
-
-    <View style={styles.actionRow}>
-      <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
-        <Ionicons color={colors.text} name="refresh-outline" size={20} />
-        <Text style={styles.retryText}>Retry</Text>
-      </Pressable>
-      <Pressable accessibilityRole="button" onPress={onOpenSettings} style={styles.settingsButton}>
-        <Ionicons color={colors.textSoft} name="settings-outline" size={20} />
-        <Text style={styles.settingsText}>Open Settings</Text>
-      </Pressable>
-    </View>
-
-    <View style={styles.warningCard}>
-      <View style={styles.warningTitleRow}>
-        <Ionicons color={colors.warning} name="warning-outline" size={24} />
-        <Text style={styles.warningTitle}>Orchestrator not running</Text>
+        <Text style={styles.offlineTitle}>{t('offline.title')}</Text>
+        <Text style={styles.offlineCopy}>{t('offline.copy')}</Text>
+        {lastSeenLabel ? (
+          <View style={styles.lastSeenRow}>
+            <Ionicons color={colors.muted} name="time-outline" size={18} />
+            <Text style={styles.lastSeenText}>{lastSeenLabel}</Text>
+          </View>
+        ) : null}
       </View>
-      <Text style={styles.warningCopy}>
-        The orchestrator service doesn't appear to be running on your machine.
-      </Text>
-      <View style={styles.warningHintRow}>
-        <Ionicons color={colors.muted} name="desktop-outline" size={20} />
-        <Text style={styles.warningHint}>
-          Please start HippoTeam Orchestrator on your desktop and try again.
-        </Text>
-        <Ionicons color={colors.muted} name="chevron-forward" size={20} />
+
+      <View style={styles.actionRow}>
+        <Pressable accessibilityRole="button" onPress={onRetry} style={styles.retryButton}>
+          <Ionicons color={colors.text} name="refresh-outline" size={20} />
+          <Text style={styles.retryText}>{t('offline.retry')}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenSettings}
+          style={styles.settingsButton}
+        >
+          <Ionicons color={colors.textSoft} name="settings-outline" size={20} />
+          <Text style={styles.settingsText}>{t('offline.openSettings')}</Text>
+        </Pressable>
       </View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-    </View>
 
-    <Text style={styles.sectionTitle}>Connection Details</Text>
-    <View style={styles.detailsCard}>
-      <DetailRow
-        icon="git-network-outline"
-        label="Connection Mode"
-        value={modeLabel(connectionMode)}
-      />
-      <DetailRow icon="server-outline" label="Endpoint" value={host || 'Not configured'} />
-      {networkLabel ? (
-        <DetailRow icon="wifi-outline" label="Network" tone="success" value={networkLabel} />
-      ) : null}
-      <DetailRow
-        icon="hardware-chip-outline"
-        label="Orchestrator Status"
-        tone="error"
-        value="Unavailable"
-      />
-    </View>
-  </ScrollView>
-)
+      <View style={styles.warningCard}>
+        <View style={styles.warningTitleRow}>
+          <Ionicons color={colors.warning} name="warning-outline" size={24} />
+          <Text style={styles.warningTitle}>{t('offline.orchestratorDownTitle')}</Text>
+        </View>
+        <Text style={styles.warningCopy}>{t('offline.orchestratorDownBody')}</Text>
+        <View style={styles.warningHintRow}>
+          <Ionicons color={colors.muted} name="desktop-outline" size={20} />
+          <Text style={styles.warningHint}>{t('offline.orchestratorDownHint')}</Text>
+          <Ionicons color={colors.muted} name="chevron-forward" size={20} />
+        </View>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      </View>
 
-const modeLabel = (mode: string) => {
-  if (mode === 'relay') return 'Relay'
-  if (mode === 'lan') return 'LAN'
-  return 'Disconnected'
+      <Text style={styles.sectionTitle}>{t('offline.connectionDetails')}</Text>
+      <View style={styles.detailsCard}>
+        <DetailRow
+          icon="git-network-outline"
+          label={t('offline.connectionMode')}
+          value={modeLabel(connectionMode, t)}
+        />
+        <DetailRow
+          icon="server-outline"
+          label={t('offline.endpoint')}
+          value={host || t('offline.notConfigured')}
+        />
+        {networkLabel ? (
+          <DetailRow
+            icon="wifi-outline"
+            label={t('offline.network')}
+            tone="success"
+            value={networkLabel}
+          />
+        ) : null}
+        <DetailRow
+          icon="hardware-chip-outline"
+          label={t('offline.orchestratorStatus')}
+          tone="error"
+          value={t('offline.unavailable')}
+        />
+      </View>
+    </ScrollView>
+  )
+}
+
+const modeLabel = (mode: string, t: TFunction) => {
+  if (mode === 'relay') return t('settings.relay')
+  if (mode === 'lan') return t('settings.lan')
+  return t('offline.disconnected')
 }
 
 const DetailRow = ({

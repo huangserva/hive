@@ -18,6 +18,7 @@ import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
+import { useT } from '../../src/i18n'
 import { colors, radius, spacing } from '../../src/theme'
 
 const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39d2c0']
@@ -100,6 +101,7 @@ export default function StatusTab() {
     stopWorker,
     token,
   } = useMobileRuntime()
+  const t = useT()
   const router = useRouter()
   const [overviewExpanded, setOverviewExpanded] = useState(false)
   const [phaseExpanded, setPhaseExpanded] = useState(false)
@@ -142,16 +144,20 @@ export default function StatusTab() {
   }, [refreshDashboard])
 
   const confirmStop = (worker: MobileDashboardWorker) => {
-    Alert.alert('Stop worker', `Stop ${worker.name}?`, [
-      { style: 'cancel', text: 'Cancel' },
-      { onPress: () => void stopWorker(worker.id), style: 'destructive', text: 'Stop' },
+    Alert.alert(t('status.stopWorker'), t('status.stopWorkerBody', { name: worker.name }), [
+      { style: 'cancel', text: t('common.cancel') },
+      {
+        onPress: () => void stopWorker(worker.id),
+        style: 'destructive',
+        text: t('agent.action.stop'),
+      },
     ])
   }
 
   const confirmRestart = (worker: MobileDashboardWorker) => {
-    Alert.alert('Restart worker', `Restart ${worker.name}?`, [
-      { style: 'cancel', text: 'Cancel' },
-      { onPress: () => void restartWorker(worker.id), text: 'Restart' },
+    Alert.alert(t('status.restartWorker'), t('status.restartWorkerBody', { name: worker.name }), [
+      { style: 'cancel', text: t('common.cancel') },
+      { onPress: () => void restartWorker(worker.id), text: t('agent.action.restart') },
     ])
   }
 
@@ -174,13 +180,13 @@ export default function StatusTab() {
     setDispatching(false)
     if (result) {
       Alert.alert(
-        'Dispatch sent',
-        `Sent to ${dispatchWorker.name}. The orchestrator will track it; watch Chat and Status for updates.`
+        t('status.dispatchSent'),
+        t('status.dispatchSentBody', { name: dispatchWorker.name })
       )
       closeDispatch()
       return
     }
-    Alert.alert('Dispatch failed', error ?? 'Unable to send this task. Please try again.')
+    Alert.alert(t('status.dispatchFailed'), error ?? t('common.unavailable'))
   }
 
   if (!dashboard) {
@@ -207,13 +213,13 @@ export default function StatusTab() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Status</Text>
+          <Text style={styles.title}>{t('status.title')}</Text>
           <View style={styles.onlinePill}>
             <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>Orchestrator Online</Text>
+            <Text style={styles.onlineText}>{t('status.orchestratorOnline')}</Text>
           </View>
         </View>
-        <Text style={styles.pullHint}>Pull down to refresh</Text>
+        <Text style={styles.pullHint}>{t('status.pullRefresh')}</Text>
 
         <View style={styles.overviewCard}>
           <Pressable
@@ -223,7 +229,7 @@ export default function StatusTab() {
           >
             <View style={styles.overviewHeaderLeft}>
               <Ionicons color={colors.accent} name="grid-outline" size={16} />
-              <Text style={styles.cardLabel}>Workspace Overview</Text>
+              <Text style={styles.cardLabel}>{t('status.workspaceOverview')}</Text>
             </View>
             <Ionicons
               color={colors.muted}
@@ -236,7 +242,7 @@ export default function StatusTab() {
             <>
               <View style={styles.twoCol}>
                 <View style={styles.colItem}>
-                  <Text style={styles.colLabel}>Current Phase</Text>
+                  <Text style={styles.colLabel}>{t('status.currentPhase')}</Text>
                   <Text
                     ellipsizeMode="tail"
                     numberOfLines={phaseExpanded ? undefined : 2}
@@ -251,13 +257,13 @@ export default function StatusTab() {
                     style={styles.inlineToggle}
                   >
                     <Text style={styles.inlineToggleText}>
-                      {phaseExpanded ? 'Show less' : 'Show more'}
+                      {phaseExpanded ? t('status.showLess') : t('status.showMore')}
                     </Text>
                   </Pressable>
                 </View>
                 <View style={styles.colDivider} />
                 <View style={styles.colItem}>
-                  <Text style={styles.colLabel}>Active Milestone</Text>
+                  <Text style={styles.colLabel}>{t('status.activeMilestone')}</Text>
                   <Text ellipsizeMode="tail" numberOfLines={2} style={styles.colValue}>
                     {dashboard.plan.active_milestone ?? 'No active milestone'}
                   </Text>
@@ -265,7 +271,7 @@ export default function StatusTab() {
               </View>
 
               <View style={styles.progressSection}>
-                <Text style={styles.progressTitle}>Plan Progress</Text>
+                <Text style={styles.progressTitle}>{t('cockpit.plan.overall')}</Text>
                 <View style={styles.progressWrap}>
                   <View style={styles.progressTrack}>
                     <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
@@ -273,20 +279,27 @@ export default function StatusTab() {
                   <Text style={styles.progressPct}>{progressPct}%</Text>
                 </View>
                 <Text style={styles.progressMeta}>
-                  {dashboard.tasks.total_done} of {totalTasks} tasks completed
+                  {t('cockpit.plan.tasksCompleted', {
+                    done: dashboard.tasks.total_done,
+                    total: totalTasks,
+                  })}
                 </Text>
               </View>
 
               <View style={styles.statGrid}>
-                <StatItem icon="people-outline" label="Active Workers" value={activeWorkers} />
+                <StatItem
+                  icon="people-outline"
+                  label={t('status.activeWorkers')}
+                  value={activeWorkers}
+                />
                 <StatItem
                   icon="help-circle-outline"
-                  label="Open Questions"
+                  label={t('cockpit.answer.title')}
                   value={dashboard.cockpit.open_questions}
                 />
                 <StatItem
                   icon="flash-outline"
-                  label="Tasks In Progress"
+                  label={t('status.tasksInProgress')}
                   value={dashboard.tasks.total_open}
                 />
               </View>
@@ -301,10 +314,12 @@ export default function StatusTab() {
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Workers</Text>
+          <Text style={styles.sectionTitle}>{t('status.workers')}</Text>
           <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/workers')}>
             <View style={styles.sectionLink}>
-              <Text style={styles.sectionLinkText}>{activeWorkers} active</Text>
+              <Text style={styles.sectionLinkText}>
+                {t('status.activeCount', { count: activeWorkers })}
+              </Text>
               <Ionicons color={colors.muted} name="chevron-forward" size={16} />
             </View>
           </Pressable>
@@ -323,7 +338,7 @@ export default function StatusTab() {
               </View>
               <View style={styles.orchInfo}>
                 <Text style={styles.orchName}>Orchestrator</Text>
-                <Text style={styles.orchHint}>View orchestrator terminal</Text>
+                <Text style={styles.orchHint}>{t('status.viewOrchestratorTerminal')}</Text>
               </View>
             </View>
             <Ionicons color={colors.muted} name="chevron-forward" size={18} />
@@ -406,6 +421,7 @@ const WorkerCard = ({
   onToggle: () => void
   worker: MobileDashboardWorker
 }) => {
+  const t = useT()
   const bgColor = avatarColor(worker.name)
   const accent = statusColor(worker.status)
 
@@ -444,8 +460,8 @@ const WorkerCard = ({
       {expanded ? (
         <View style={styles.expanded}>
           <View style={styles.workerMetaGrid}>
-            <MetaChip label="Role" value={worker.role} />
-            <MetaChip label="Status" value={statusTextFor(worker)} />
+            <MetaChip label={t('common.role')} value={worker.role} />
+            <MetaChip label={t('common.status')} value={statusTextFor(worker)} />
           </View>
           <CapabilityChips capabilities={worker.capabilities} />
           <WorkerActions
@@ -463,7 +479,7 @@ const WorkerCard = ({
             style={styles.detailLink}
           >
             <Ionicons color={colors.accent} name="terminal-outline" size={15} />
-            <Text style={styles.detailLinkText}>Open terminal</Text>
+            <Text style={styles.detailLinkText}>{t('status.openTerminal')}</Text>
             <Ionicons color={colors.accent} name="chevron-forward" size={14} />
           </Pressable>
         </View>
@@ -567,16 +583,32 @@ const WorkerActions = ({
   onStop: () => void
   status: MobileDashboardWorker['status']
 }) => {
+  const t = useT()
   const isWorking = status === 'working'
   const isStopped = status === 'stopped'
   return (
     <View style={styles.quickActions}>
       {!isWorking && !isStopped ? (
-        <ActionButton icon="send-outline" label="Dispatch" onPress={onDispatch} tone="success" />
+        <ActionButton
+          icon="send-outline"
+          label={t('agent.action.dispatch')}
+          onPress={onDispatch}
+          tone="success"
+        />
       ) : null}
-      <ActionButton icon="refresh-outline" label="Restart" onPress={onRestart} tone="accent" />
+      <ActionButton
+        icon="refresh-outline"
+        label={t('agent.action.restart')}
+        onPress={onRestart}
+        tone="accent"
+      />
       {!isStopped ? (
-        <ActionButton icon="stop-circle-outline" label="Stop" onPress={onStop} tone="danger" />
+        <ActionButton
+          icon="stop-circle-outline"
+          label={t('agent.action.stop')}
+          onPress={onStop}
+          tone="danger"
+        />
       ) : null}
     </View>
   )
@@ -630,41 +662,48 @@ const DispatchModal = ({
   onSubmit: () => void
   task: string
   worker: MobileDashboardWorker | null
-}) => (
-  <Modal animationType="fade" transparent visible={worker !== null}>
-    <View style={styles.modalBackdrop}>
-      <View style={styles.dispatchModal}>
-        <Text style={styles.modalTitle}>Dispatch to {worker?.name ?? 'worker'}</Text>
-        <Text style={styles.modalHint}>Send a task directly to this worker.</Text>
-        <TextInput
-          autoFocus
-          multiline
-          onChangeText={onChangeText}
-          placeholder="Describe the task..."
-          placeholderTextColor={colors.muted2}
-          style={styles.dispatchInput}
-          value={task}
-        />
-        <View style={styles.modalActions}>
-          <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
-            <Text style={styles.modalCancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={dispatching || task.trim().length === 0}
-            onPress={onSubmit}
-            style={[
-              styles.modalSubmitBtn,
-              (dispatching || task.trim().length === 0) && styles.btnDisabled,
-            ]}
-          >
-            <Text style={styles.modalSubmitText}>{dispatching ? 'Sending...' : 'Send Task'}</Text>
-          </Pressable>
+}) => {
+  const t = useT()
+  return (
+    <Modal animationType="fade" transparent visible={worker !== null}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.dispatchModal}>
+          <Text style={styles.modalTitle}>
+            {t('agent.dispatch.title', { name: worker?.name ?? 'worker' })}
+          </Text>
+          <Text style={styles.modalHint}>{t('agent.dispatch.hint')}</Text>
+          <TextInput
+            autoFocus
+            multiline
+            onChangeText={onChangeText}
+            placeholder={t('agent.dispatch.placeholder')}
+            placeholderTextColor={colors.muted2}
+            style={styles.dispatchInput}
+            value={task}
+          />
+          <View style={styles.modalActions}>
+            <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
+              <Text style={styles.modalCancelText}>{t('agent.dispatch.cancel')}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={dispatching || task.trim().length === 0}
+              onPress={onSubmit}
+              style={[
+                styles.modalSubmitBtn,
+                (dispatching || task.trim().length === 0) && styles.btnDisabled,
+              ]}
+            >
+              <Text style={styles.modalSubmitText}>
+                {dispatching ? t('agent.dispatch.sending') : t('agent.dispatch.send')}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
-    </View>
-  </Modal>
-)
+    </Modal>
+  )
+}
 
 const statusTextFor = (worker: MobileDashboardWorker) => {
   if (worker.status === 'working') return 'Working'

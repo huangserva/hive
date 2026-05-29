@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { Tabs } from 'expo-router'
 import { type ColorValue, View } from 'react-native'
 
+import { useT } from '../../src/i18n'
 import { colors } from '../../src/theme'
 
 const tabIcon =
@@ -23,6 +24,7 @@ const tabIcon =
   )
 
 export default function TabsLayout() {
+  const t = useT()
   return (
     <Tabs
       screenOptions={{
@@ -41,19 +43,19 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ tabBarIcon: tabIcon('chatbubble-ellipses-outline'), title: 'Chat' }}
+        options={{ tabBarIcon: tabIcon('chatbubble-ellipses-outline'), title: t('tabs.chat') }}
       />
       <Tabs.Screen
         name="workers"
-        options={{ tabBarIcon: tabIcon('pulse-outline'), title: 'Status' }}
+        options={{ tabBarIcon: tabIcon('pulse-outline'), title: t('tabs.status') }}
       />
       <Tabs.Screen
         name="cockpit"
-        options={{ tabBarIcon: tabIcon('grid-outline'), title: 'Cockpit' }}
+        options={{ tabBarIcon: tabIcon('grid-outline'), title: t('tabs.cockpit') }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ tabBarIcon: tabIcon('settings-outline'), title: 'Settings' }}
+        options={{ tabBarIcon: tabIcon('settings-outline'), title: t('tabs.settings') }}
       />
     </Tabs>
   )

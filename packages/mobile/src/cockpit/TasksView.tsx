@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { MobileDashboard, MobileWorkspaceTask } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
 const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff']
@@ -24,6 +25,7 @@ const newestFirst = (a: MobileWorkspaceTask, b: MobileWorkspaceTask) =>
 
 export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
   const { getWorkspaceTasks } = useMobileRuntime()
+  const t = useT()
   const [dispatches, setDispatches] = useState<MobileWorkspaceTask[]>([])
   const [loading, setLoading] = useState(true)
   const [showDone, setShowDone] = useState(false)
@@ -56,7 +58,7 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
   return (
     <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
       <View style={s.sprintCard}>
-        <Text style={s.sprintLabel}>Sprint Narrative</Text>
+        <Text style={s.sprintLabel}>{t('cockpit.tasks.sprintNarrative')}</Text>
         <View style={s.progressRow}>
           <View style={s.progressTrack}>
             <View style={[s.progressFill, { width: `${pct}%` }]} />
@@ -66,16 +68,16 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
       </View>
 
       <View style={s.timelineHeader}>
-        <Text style={s.timelineTitle}>Dispatch Timeline</Text>
+        <Text style={s.timelineTitle}>{t('cockpit.tasks.dispatchTimeline')}</Text>
         <View style={s.filterBtn}>
           <Ionicons color={colors.muted} name="filter-outline" size={14} />
-          <Text style={s.filterText}>Filter</Text>
+          <Text style={s.filterText}>{t('cockpit.tasks.filter')}</Text>
         </View>
       </View>
 
       {inProgress.length > 0 && (
         <>
-          <Text style={s.groupLabel}>In Progress</Text>
+          <Text style={s.groupLabel}>{t('cockpit.tasks.inProgress')}</Text>
           {inProgress.map((d) => (
             <DispatchItem key={d.id} dispatch={d} />
           ))}
@@ -84,13 +86,15 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
 
       {inProgress.length === 0 && (
         <View style={s.emptyOpenCard}>
-          <Text style={s.emptyOpenText}>No open dispatches</Text>
+          <Text style={s.emptyOpenText}>{t('cockpit.tasks.noOpen')}</Text>
         </View>
       )}
 
       <Pressable onPress={() => setShowDone(!showDone)} style={s.toggleRow}>
         <Text style={s.toggleText}>
-          {showDone ? 'Hide' : 'Show'} {done.length} Done
+          {t(showDone ? 'cockpit.tasks.hideDone' : 'cockpit.tasks.showDone', {
+            count: done.length,
+          })}
         </Text>
         <Ionicons color={colors.muted} name={showDone ? 'chevron-up' : 'chevron-down'} size={14} />
       </Pressable>
@@ -99,7 +103,7 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
 
       {cancelled.length > 0 && (
         <>
-          <Text style={s.groupLabelMuted}>Cancelled</Text>
+          <Text style={s.groupLabelMuted}>{t('cockpit.tasks.cancelled')}</Text>
           {cancelled.map((d) => (
             <DispatchItem key={d.id} dispatch={d} />
           ))}

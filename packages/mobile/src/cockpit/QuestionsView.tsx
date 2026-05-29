@@ -12,12 +12,13 @@ import {
 
 import type { MobileCockpitData, MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
 const PRIORITY_CONFIG = {
-  high: { bg: colors.errorSoft, color: colors.error, label: 'High' },
-  low: { bg: 'rgba(139, 148, 158, 0.14)', color: colors.muted, label: 'Low' },
-  medium: { bg: colors.warningSoft, color: colors.warning, label: 'Medium' },
+  high: { bg: colors.errorSoft, color: colors.error },
+  low: { bg: 'rgba(139, 148, 158, 0.14)', color: colors.muted },
+  medium: { bg: colors.warningSoft, color: colors.warning },
 }
 
 type Feedback = {
@@ -27,6 +28,7 @@ type Feedback = {
 
 export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
   const { answerQuestion, getCockpit } = useMobileRuntime()
+  const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [answerText, setAnswerText] = useState('')
@@ -88,13 +90,13 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
       setSelectedQuestionId(null)
       showFeedback({
         kind: 'success',
-        text: 'Answer sent — the orchestrator will handle it; watch Chat.',
+        text: t('cockpit.answer.sent'),
       })
       await load()
     } else {
       showFeedback({
         kind: 'error',
-        text: 'Send failed, tap Submit Answer to retry.',
+        text: t('cockpit.answer.failed'),
       })
     }
     setSubmitting(false)
@@ -112,8 +114,8 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
     return (
       <View style={s.emptyWrap}>
         <Ionicons color={colors.success} name="checkmark-circle" size={40} />
-        <Text style={s.emptyTitle}>No open questions</Text>
-        <Text style={s.emptyText}>You're all caught up.</Text>
+        <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
+        <Text style={s.emptyText}>{t('cockpit.answer.emptyBody')}</Text>
       </View>
     )
   }
@@ -121,8 +123,8 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   return (
     <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
       <View style={s.headerRow}>
-        <Text style={s.sectionTitle}>Open Questions</Text>
-        <Text style={s.sortHint}>Sorted by priority</Text>
+        <Text style={s.sectionTitle}>{t('cockpit.answer.title')}</Text>
+        <Text style={s.sortHint}>{t('cockpit.answer.sortHint')}</Text>
       </View>
 
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
@@ -131,8 +133,8 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
         <View style={s.emptyCard}>
           <Ionicons color={colors.success} name="checkmark-circle" size={24} />
           <View style={s.emptyCopy}>
-            <Text style={s.emptyTitle}>No open questions</Text>
-            <Text style={s.emptyText}>You're all caught up. Answered history is below.</Text>
+            <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
+            <Text style={s.emptyText}>{t('cockpit.answer.emptyBodyHistory')}</Text>
           </View>
         </View>
       ) : null}
@@ -143,14 +145,22 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
           <View key={q.id} style={[s.qCard, selectedQuestionId === q.id && s.qCardSelected]}>
             <View style={s.qHeader}>
               <View style={[s.priorityBadge, { backgroundColor: cfg.bg }]}>
-                <Text style={[s.priorityText, { color: cfg.color }]}>{cfg.label}</Text>
+                <Text style={[s.priorityText, { color: cfg.color }]}>
+                  {t(
+                    q.priority === 'high'
+                      ? 'cockpit.priority.high'
+                      : q.priority === 'medium'
+                        ? 'cockpit.priority.medium'
+                        : 'cockpit.priority.low'
+                  )}
+                </Text>
               </View>
             </View>
             <Text style={s.qTitle}>{q.text}</Text>
-            <Text style={s.qContext}>Context · {q.id}</Text>
+            <Text style={s.qContext}>{t('cockpit.answer.context', { id: q.id })}</Text>
             <View style={s.qFooter}>
               <Pressable onPress={() => selectQuestion(q.id)} style={s.answerBtn}>
-                <Text style={s.answerBtnText}>Answer</Text>
+                <Text style={s.answerBtnText}>{t('cockpit.answer.button')}</Text>
               </Pressable>
             </View>
           </View>
@@ -159,7 +169,7 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
 
       {selectedQuestion ? (
         <View style={s.inputCard}>
-          <Text style={s.inputLabel}>Your Answer</Text>
+          <Text style={s.inputLabel}>{t('cockpit.answer.inputLabel')}</Text>
           <Text numberOfLines={2} style={s.selectedQuestionText}>
             {selectedQuestion.text}
           </Text>
@@ -167,7 +177,7 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
             ref={inputRef}
             multiline
             onChangeText={setAnswerText}
-            placeholder="Type your answer..."
+            placeholder={t('cockpit.answer.placeholder')}
             placeholderTextColor={colors.muted2}
             style={s.textInput}
             value={answerText}
@@ -177,13 +187,15 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
             onPress={submitAnswer}
             style={[s.submitBtn, (!answerText.trim() || submitting) && s.submitDisabled]}
           >
-            <Text style={s.submitText}>{submitting ? 'Submitting...' : 'Submit Answer'}</Text>
+            <Text style={s.submitText}>
+              {submitting ? t('cockpit.answer.submitting') : t('cockpit.answer.submit')}
+            </Text>
           </Pressable>
         </View>
       ) : null}
 
       <Pressable onPress={() => setShowAnswered(!showAnswered)} style={s.toggleRow}>
-        <Text style={s.toggleText}>Answered ({answered.length})</Text>
+        <Text style={s.toggleText}>{t('cockpit.answer.answered', { count: answered.length })}</Text>
         <Ionicons
           color={colors.muted}
           name={showAnswered ? 'chevron-up' : 'chevron-down'}

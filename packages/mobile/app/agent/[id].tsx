@@ -24,6 +24,7 @@ import type {
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
+import { useT } from '../../src/i18n'
 import { colors, radius, spacing } from '../../src/theme'
 
 const WORKER_ROLES: Record<string, string> = {
@@ -105,16 +106,32 @@ const WorkerActions = ({
   onStop: () => void
   status: string
 }) => {
+  const t = useT()
   const isWorking = status === 'working'
   const isStopped = status === 'stopped'
   return (
     <View style={styles.actionBtns}>
       {canDispatch && !isWorking && !isStopped ? (
-        <ActionButton icon="send-outline" label="Dispatch" onPress={onDispatch} tone="success" />
+        <ActionButton
+          icon="send-outline"
+          label={t('agent.action.dispatch')}
+          onPress={onDispatch}
+          tone="success"
+        />
       ) : null}
-      <ActionButton icon="refresh-outline" label="Restart" onPress={onRestart} tone="accent" />
+      <ActionButton
+        icon="refresh-outline"
+        label={t('agent.action.restart')}
+        onPress={onRestart}
+        tone="accent"
+      />
       {!isStopped ? (
-        <ActionButton icon="stop-circle-outline" label="Stop" onPress={onStop} tone="danger" />
+        <ActionButton
+          icon="stop-circle-outline"
+          label={t('agent.action.stop')}
+          onPress={onStop}
+          tone="danger"
+        />
       ) : null}
     </View>
   )
@@ -167,45 +184,51 @@ const DispatchModal = ({
   task: string
   visible: boolean
   workerName: string
-}) => (
-  <Modal animationType="fade" transparent visible={visible}>
-    <View style={styles.modalBackdrop}>
-      <View style={styles.dispatchModal}>
-        <Text style={styles.modalTitle}>Dispatch to {workerName}</Text>
-        <Text style={styles.modalHint}>Send a task directly to this worker.</Text>
-        <TextInput
-          autoFocus
-          multiline
-          onChangeText={onChangeText}
-          placeholder="Describe the task..."
-          placeholderTextColor={colors.muted2}
-          style={styles.dispatchInput}
-          value={task}
-        />
-        <View style={styles.modalActions}>
-          <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
-            <Text style={styles.modalCancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={dispatching || task.trim().length === 0}
-            onPress={onSubmit}
-            style={[
-              styles.modalSubmitBtn,
-              (dispatching || task.trim().length === 0) && styles.btnDisabled,
-            ]}
-          >
-            <Text style={styles.modalSubmitText}>{dispatching ? 'Sending...' : 'Send Task'}</Text>
-          </Pressable>
+}) => {
+  const t = useT()
+  return (
+    <Modal animationType="fade" transparent visible={visible}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.dispatchModal}>
+          <Text style={styles.modalTitle}>{t('agent.dispatch.title', { name: workerName })}</Text>
+          <Text style={styles.modalHint}>{t('agent.dispatch.hint')}</Text>
+          <TextInput
+            autoFocus
+            multiline
+            onChangeText={onChangeText}
+            placeholder={t('agent.dispatch.placeholder')}
+            placeholderTextColor={colors.muted2}
+            style={styles.dispatchInput}
+            value={task}
+          />
+          <View style={styles.modalActions}>
+            <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
+              <Text style={styles.modalCancelText}>{t('agent.dispatch.cancel')}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={dispatching || task.trim().length === 0}
+              onPress={onSubmit}
+              style={[
+                styles.modalSubmitBtn,
+                (dispatching || task.trim().length === 0) && styles.btnDisabled,
+              ]}
+            >
+              <Text style={styles.modalSubmitText}>
+                {dispatching ? t('agent.dispatch.sending') : t('agent.dispatch.send')}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </View>
-    </View>
-  </Modal>
-)
+    </Modal>
+  )
+}
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>()
   const router = useRouter()
+  const t = useT()
   const {
     dashboard,
     dispatchTask,
@@ -339,17 +362,21 @@ export default function AgentDetailScreen() {
 
   const confirmStop = () => {
     if (!worker) return
-    Alert.alert('Stop worker', `Stop ${worker.name}?`, [
-      { style: 'cancel', text: 'Cancel' },
-      { onPress: () => void stopWorker(worker.id), style: 'destructive', text: 'Stop' },
+    Alert.alert(t('status.stopWorker'), t('status.stopWorkerBody', { name: worker.name }), [
+      { style: 'cancel', text: t('common.cancel') },
+      {
+        onPress: () => void stopWorker(worker.id),
+        style: 'destructive',
+        text: t('agent.action.stop'),
+      },
     ])
   }
 
   const confirmRestart = () => {
     if (!worker) return
-    Alert.alert('Restart worker', `Restart ${worker.name}?`, [
-      { style: 'cancel', text: 'Cancel' },
-      { onPress: () => void restartWorker(worker.id), text: 'Restart' },
+    Alert.alert(t('status.restartWorker'), t('status.restartWorkerBody', { name: worker.name }), [
+      { style: 'cancel', text: t('common.cancel') },
+      { onPress: () => void restartWorker(worker.id), text: t('agent.action.restart') },
     ])
   }
 
@@ -371,18 +398,15 @@ export default function AgentDetailScreen() {
     const result = await dispatchTask(worker.id, task)
     setDispatching(false)
     if (result) {
-      Alert.alert(
-        'Dispatch sent',
-        `Sent to ${worker.name}. The orchestrator will track it; watch Chat and Status for updates.`
-      )
+      Alert.alert(t('status.dispatchSent'), t('status.dispatchSentBody', { name: worker.name }))
       closeDispatch()
       return
     }
-    Alert.alert('Dispatch failed', error ?? 'Unable to send this task. Please try again.')
+    Alert.alert(t('status.dispatchFailed'), error ?? t('common.unavailable'))
   }
 
   const copyId = () => {
-    if (detailAgent) Alert.alert('Copied', detailAgent.id)
+    if (detailAgent) Alert.alert(t('common.copied'), detailAgent.id)
   }
 
   const openTerminalFullscreen = () => {
@@ -480,21 +504,21 @@ export default function AgentDetailScreen() {
           <Pressable accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
             <Ionicons color={colors.accent} name="arrow-back" size={22} />
           </Pressable>
-          <Text style={styles.navTitle}>Worker Detail</Text>
+          <Text style={styles.navTitle}>{t('agent.detail.title')}</Text>
           <Pressable accessibilityRole="button" hitSlop={12}>
             <Ionicons color={colors.muted} name="ellipsis-horizontal" size={22} />
           </Pressable>
         </View>
-        <Text style={styles.pullHint}>Pull down to refresh</Text>
+        <Text style={styles.pullHint}>{t('status.pullRefresh')}</Text>
 
         {!detailAgent && state !== 'connected' ? (
           <View style={styles.card}>
-            <Text style={styles.body}>Connect in Settings first. State: {state}</Text>
+            <Text style={styles.body}>{t('cockpit.connectFirst', { state })}</Text>
           </View>
         ) : null}
         {!detailAgent && state === 'connected' ? (
           <View style={styles.card}>
-            <Text style={styles.body}>Agent not found: {workerId}</Text>
+            <Text style={styles.body}>{t('agent.detail.notFound', { id: workerId })}</Text>
           </View>
         ) : null}
 
@@ -520,7 +544,9 @@ export default function AgentDetailScreen() {
                   <Text style={styles.workerName}>{detailAgent.name}</Text>
                   <Text style={styles.workerRole}>{detailAgent.roleLabel}</Text>
                   <Pressable onPress={copyId} style={styles.idRow}>
-                    <Text style={styles.agentId}>Agent ID: {detailAgent.id}</Text>
+                    <Text style={styles.agentId}>
+                      {t('agent.detail.agentId', { id: detailAgent.id })}
+                    </Text>
                     <Ionicons color={colors.muted} name="copy-outline" size={13} />
                   </Pressable>
                 </View>
@@ -528,7 +554,7 @@ export default function AgentDetailScreen() {
               {worker ? (
                 <View style={styles.profileMetaGrid}>
                   <InfoPill label="CLI" value={cliLabel(worker.preset)} />
-                  <InfoPill label="Role" value={worker.role} />
+                  <InfoPill label={t('common.role')} value={worker.role} />
                 </View>
               ) : null}
               {worker ? <CapabilityChips capabilities={worker.capabilities} /> : null}
@@ -559,19 +585,19 @@ export default function AgentDetailScreen() {
             {/* Stats row */}
             <View style={styles.statsCard}>
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Workspace</Text>
+                <Text style={styles.statLabel}>{t('agent.detail.workspace')}</Text>
                 <Text style={styles.statValue}>
                   {dashboard?.workspace.name ?? selectedWorkspaceId ?? '--'}
                 </Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Uptime</Text>
+                <Text style={styles.statLabel}>{t('agent.detail.uptime')}</Text>
                 <Text style={styles.statValue}>{uptimeText}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
-                <Text style={styles.statLabel}>Started</Text>
+                <Text style={styles.statLabel}>{t('agent.detail.started')}</Text>
                 <Text style={styles.statValue}>{startedText}</Text>
               </View>
             </View>
@@ -581,11 +607,11 @@ export default function AgentDetailScreen() {
               <View style={styles.terminalHeader}>
                 <View style={styles.terminalTitleRow}>
                   <View style={styles.liveDot} />
-                  <Text style={styles.sectionTitle}>Terminal (Live)</Text>
+                  <Text style={styles.sectionTitle}>{t('agent.detail.terminal')}</Text>
                 </View>
                 <View style={styles.terminalHeaderActions}>
                   <View style={styles.autoScrollRow}>
-                    <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
+                    <Text style={styles.autoScrollLabel}>{t('agent.detail.autoScroll')}</Text>
                     <Switch
                       onValueChange={setAutoScroll}
                       thumbColor="#fff"
@@ -594,7 +620,7 @@ export default function AgentDetailScreen() {
                     />
                   </View>
                   <Pressable
-                    accessibilityLabel="Expand terminal"
+                    accessibilityLabel={t('agent.detail.expandTerminal')}
                     accessibilityRole="button"
                     hitSlop={8}
                     onPress={openTerminalFullscreen}
@@ -621,7 +647,7 @@ export default function AgentDetailScreen() {
                       </Text>
                     ))
                   ) : (
-                    <Text style={styles.termLine}>No terminal output yet.</Text>
+                    <Text style={styles.termLine}>{t('agent.detail.noTerminal')}</Text>
                   )}
                 </ScrollView>
               </View>
@@ -629,9 +655,9 @@ export default function AgentDetailScreen() {
 
             {!isOrchestrator && !isSentinel ? (
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Dispatch History</Text>
+                <Text style={styles.sectionTitle}>{t('agent.detail.dispatchHistory')}</Text>
                 {relevantDispatches.length === 0 ? (
-                  <Text style={styles.body}>No dispatches for this worker.</Text>
+                  <Text style={styles.body}>{t('agent.detail.noDispatches')}</Text>
                 ) : null}
                 {relevantDispatches.map((d) => (
                   <View key={d.id} style={styles.dispatchItem}>
@@ -682,12 +708,12 @@ export default function AgentDetailScreen() {
             <View style={styles.terminalTitleRow}>
               <View style={styles.liveDot} />
               <View>
-                <Text style={styles.fullscreenTitle}>Terminal (Live)</Text>
+                <Text style={styles.fullscreenTitle}>{t('agent.detail.terminal')}</Text>
                 <Text style={styles.fullscreenSubtitle}>{detailAgent?.name ?? 'Agent'}</Text>
               </View>
             </View>
             <Pressable
-              accessibilityLabel="Close terminal"
+              accessibilityLabel={t('agent.detail.closeTerminal')}
               accessibilityRole="button"
               hitSlop={10}
               onPress={() => setTerminalFullscreenOpen(false)}
@@ -697,7 +723,7 @@ export default function AgentDetailScreen() {
             </Pressable>
           </View>
           <View style={styles.fullscreenControls}>
-            <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
+            <Text style={styles.autoScrollLabel}>{t('agent.detail.autoScroll')}</Text>
             <Switch
               onValueChange={setFullscreenAutoScroll}
               thumbColor="#fff"
@@ -724,7 +750,7 @@ export default function AgentDetailScreen() {
                 </Text>
               ))
             ) : (
-              <Text style={styles.fullscreenTermLine}>No terminal output yet.</Text>
+              <Text style={styles.fullscreenTermLine}>{t('agent.detail.noTerminal')}</Text>
             )}
           </ScrollView>
         </SafeAreaView>

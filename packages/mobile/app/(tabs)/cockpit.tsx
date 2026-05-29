@@ -9,28 +9,30 @@ import { PlanView } from '../../src/cockpit/PlanView'
 import { QuestionsView } from '../../src/cockpit/QuestionsView'
 import { TasksView } from '../../src/cockpit/TasksView'
 import { Screen } from '../../src/components/Screen'
+import { useT } from '../../src/i18n'
 import { colors, spacing } from '../../src/theme'
 
 type CockpitTab = 'plan' | 'tasks' | 'questions' | 'ideas' | 'actions'
 
-const TABS: { key: CockpitTab; label: string }[] = [
-  { key: 'plan', label: 'Plan' },
-  { key: 'tasks', label: 'Tasks' },
-  { key: 'questions', label: 'Questions' },
-  { key: 'ideas', label: 'Ideas' },
-  { key: 'actions', label: 'Actions' },
+const TABS: { key: CockpitTab; labelKey: Parameters<ReturnType<typeof useT>>[0] }[] = [
+  { key: 'plan', labelKey: 'cockpit.tab.plan' },
+  { key: 'tasks', labelKey: 'cockpit.tab.tasks' },
+  { key: 'questions', labelKey: 'cockpit.tab.questions' },
+  { key: 'ideas', labelKey: 'cockpit.tab.ideas' },
+  { key: 'actions', labelKey: 'cockpit.tab.actions' },
 ]
 
 export default function CockpitTab() {
   const { dashboard, state } = useMobileRuntime()
+  const t = useT()
   const [activeTab, setActiveTab] = useState<CockpitTab>('plan')
-  const activeLabel = TABS.find((tab) => tab.key === activeTab)?.label ?? 'Plan'
+  const activeLabel = t(TABS.find((tab) => tab.key === activeTab)?.labelKey ?? 'cockpit.tab.plan')
 
   if (!dashboard) {
     return (
       <Screen>
-        <Text style={styles.title}>Cockpit</Text>
-        <Text style={styles.hint}>Connect in Settings first. State: {state}</Text>
+        <Text style={styles.title}>{t('tabs.cockpit')}</Text>
+        <Text style={styles.hint}>{t('cockpit.connectFirst', { state })}</Text>
       </Screen>
     )
   }
@@ -43,7 +45,7 @@ export default function CockpitTab() {
         </Pressable>
         <View style={styles.headerCenter}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>Cockpit</Text>
+            <Text style={styles.title}>{t('tabs.cockpit')}</Text>
             <Text style={styles.titleDivider}>/</Text>
             <Text style={styles.titleActive}>{activeLabel}</Text>
             <Ionicons color={colors.accent} name="chevron-down" size={19} />
@@ -76,7 +78,7 @@ export default function CockpitTab() {
               style={[styles.tab, isActive && styles.tabActive]}
             >
               <Text numberOfLines={1} style={[styles.tabText, isActive && styles.tabTextActive]}>
-                {tab.label}
+                {t(tab.labelKey)}
               </Text>
             </Pressable>
           )
