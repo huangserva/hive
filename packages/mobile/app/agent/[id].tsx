@@ -185,6 +185,36 @@ export default function AgentDetailScreen() {
     () => dashboard?.workers.find((item) => item.id === workerId) ?? null,
     [dashboard, workerId]
   )
+  const isOrchestrator = useMemo(
+    () =>
+      workerId.endsWith(':orchestrator') ||
+      (selectedWorkspaceId ? workerId === `${selectedWorkspaceId}:orchestrator` : false),
+    [selectedWorkspaceId, workerId]
+  )
+  const detailAgent = useMemo(() => {
+    if (worker) {
+      return {
+        id: worker.id,
+        name: worker.name,
+        roleLabel: roleLabel(worker.role),
+        status: worker.status,
+        type: 'worker' as const,
+      }
+    }
+    if (isOrchestrator) {
+      const run = dashboard?.runs.find(
+        (item) => item.agent_name.toLowerCase() === 'orchestrator' || item.id === workerId
+      )
+      return {
+        id: workerId,
+        name: 'Orchestrator',
+        roleLabel: 'Project Manager / Orchestrator',
+        status: run?.status === 'running' ? 'working' : (run?.status ?? 'working'),
+        type: 'orchestrator' as const,
+      }
+    }
+    return null
+  }, [dashboard, isOrchestrator, worker, workerId])
   const [transcript, setTranscript] = useState<MobileWorkerTranscript | null>(null)
   const [tasks, setTasks] = useState<MobileWorkspaceTasks | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -197,13 +227,17 @@ export default function AgentDetailScreen() {
     if (!workerId || !selectedWorkspaceId) return
     setRefreshing(true)
     try {
-      const [t, tk] = await Promise.all([getWorkerTranscript(workerId), getWorkspaceTasks()])
-      setTranscript(t)
+      const tk = await getWorkspaceTasks()
       setTasks(tk)
+      if (isOrchestrator) {
+        setTranscript(null)
+      } else {
+        setTranscript(await getWorkerTranscript(workerId))
+      }
     } finally {
       setRefreshing(false)
     }
-  }, [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, workerId])
+  }, [getWorkerTranscript, getWorkspaceTasks, isOrchestrator, selectedWorkspaceId, workerId])
 
   useEffect(() => {
     void load()
@@ -212,7 +246,7 @@ export default function AgentDetailScreen() {
   // 每 3 秒轮询终端输出
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    if (!workerId || !selectedWorkspaceId) return
+    if (!workerId || !selectedWorkspaceId || isOrchestrator) return
     pollRef.current = setInterval(async () => {
       try {
         const t = await getWorkerTranscript(workerId)
@@ -222,11 +256,16 @@ export default function AgentDetailScreen() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [getWorkerTranscript, selectedWorkspaceId, workerId])
+  }, [getWorkerTranscript, isOrchestrator, selectedWorkspaceId, workerId])
 
   const workerRun = useMemo(
-    () => dashboard?.runs.find((r) => worker && r.agent_name === worker.name) ?? null,
-    [dashboard, worker]
+    () =>
+      dashboard?.runs.find((r) =>
+        worker
+          ? r.agent_name === worker.name
+          : isOrchestrator && (r.agent_name.toLowerCase() === 'orchestrator' || r.id === workerId)
+      ) ?? null,
+    [dashboard, isOrchestrator, worker, workerId]
   )
 
   const uptimeText = useMemo(() => {
@@ -248,7 +287,9 @@ export default function AgentDetailScreen() {
   }, [workerRun])
 
   const relevantDispatches =
-    tasks?.dispatches.filter((d) => !worker || d.worker_name === worker.name) ?? []
+    !isOrchestrator && worker
+      ? (tasks?.dispatches.filter((d) => d.worker_name === worker.name) ?? [])
+      : []
 
   const confirmStop = () => {
     if (!worker) return
@@ -295,7 +336,7 @@ export default function AgentDetailScreen() {
   }
 
   const copyId = () => {
-    if (worker) Alert.alert('Copied', worker.id)
+    if (detailAgent) Alert.alert('Copied', detailAgent.id)
   }
 
   return (
@@ -317,13 +358,18 @@ export default function AgentDetailScreen() {
         </View>
         <Text style={styles.pullHint}>Pull down to refresh</Text>
 
-        {!worker && state !== 'connected' ? (
+        {!detailAgent && state !== 'connected' ? (
           <View style={styles.card}>
             <Text style={styles.body}>Connect in Settings first. State: {state}</Text>
           </View>
         ) : null}
+        {!detailAgent && state === 'connected' ? (
+          <View style={styles.card}>
+            <Text style={styles.body}>Agent not found: {workerId}</Text>
+          </View>
+        ) : null}
 
-        {worker ? (
+        {detailAgent ? (
           <>
             {/* Profile card */}
             <View style={styles.profileCard}>
@@ -332,34 +378,42 @@ export default function AgentDetailScreen() {
                   style={[
                     styles.avatar,
                     {
-                      backgroundColor: `${statusColor(worker.status)}22`,
-                      borderColor: statusColor(worker.status),
+                      backgroundColor: `${statusColor(detailAgent.status)}22`,
+                      borderColor: statusColor(detailAgent.status),
                     },
                   ]}
                 >
-                  <Text style={styles.avatarText}>{worker.name.slice(0, 2).toUpperCase()}</Text>
+                  <Text style={styles.avatarText}>
+                    {detailAgent.name.slice(0, 2).toUpperCase()}
+                  </Text>
                 </View>
                 <View style={styles.profileInfo}>
-                  <Text style={styles.workerName}>{worker.name}</Text>
-                  <Text style={styles.workerRole}>{roleLabel(worker.role)}</Text>
+                  <Text style={styles.workerName}>{detailAgent.name}</Text>
+                  <Text style={styles.workerRole}>{detailAgent.roleLabel}</Text>
                   <Pressable onPress={copyId} style={styles.idRow}>
-                    <Text style={styles.agentId}>Agent ID: {worker.id}</Text>
+                    <Text style={styles.agentId}>Agent ID: {detailAgent.id}</Text>
                     <Ionicons color={colors.muted} name="copy-outline" size={13} />
                   </Pressable>
                 </View>
               </View>
-              <View style={styles.profileMetaGrid}>
-                <InfoPill label="CLI" value={cliLabel(worker.preset)} />
-                <InfoPill label="Role" value={worker.role} />
-              </View>
+              {worker ? (
+                <View style={styles.profileMetaGrid}>
+                  <InfoPill label="CLI" value={cliLabel(worker.preset)} />
+                  <InfoPill label="Role" value={worker.role} />
+                </View>
+              ) : null}
               <View style={styles.badgeActionRow}>
-                <StatusBadge status={worker.status} />
-                <WorkerActions
-                  onDispatch={openDispatch}
-                  onRestart={confirmRestart}
-                  onStop={confirmStop}
-                  status={worker.status}
-                />
+                <View style={styles.statusRow}>
+                  <StatusBadge status={detailAgent.status} />
+                </View>
+                {worker ? (
+                  <WorkerActions
+                    onDispatch={openDispatch}
+                    onRestart={confirmRestart}
+                    onStop={confirmStop}
+                    status={worker.status}
+                  />
+                ) : null}
               </View>
             </View>
 
@@ -408,6 +462,11 @@ export default function AgentDetailScreen() {
                         {line}
                       </Text>
                     ))
+                  ) : isOrchestrator ? (
+                    <Text style={styles.termLine}>
+                      Orchestrator terminal transcript is not exposed by the current mobile worker
+                      transcript API.
+                    </Text>
                   ) : (
                     <Text style={styles.termLine}>No terminal output yet.</Text>
                   )}
@@ -415,40 +474,41 @@ export default function AgentDetailScreen() {
               </View>
             </View>
 
-            {/* Dispatch History */}
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Dispatch History</Text>
-              {relevantDispatches.length === 0 ? (
-                <Text style={styles.body}>No dispatches for this worker.</Text>
-              ) : null}
-              {relevantDispatches.map((d) => (
-                <View key={d.id} style={styles.dispatchItem}>
-                  <Ionicons
-                    color={dispatchStatusColor(d.status)}
-                    name={dispatchIcon(d.status)}
-                    size={20}
-                  />
-                  <View style={styles.dispatchContent}>
-                    <Text style={styles.dispatchTitle}>{d.task_summary}</Text>
-                    <Text style={styles.dispatchMeta}>
-                      {new Date(d.created_at).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.dispatchBadge,
-                      { backgroundColor: `${dispatchStatusColor(d.status)}22` },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.dispatchBadgeText, { color: dispatchStatusColor(d.status) }]}
+            {!isOrchestrator ? (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Dispatch History</Text>
+                {relevantDispatches.length === 0 ? (
+                  <Text style={styles.body}>No dispatches for this worker.</Text>
+                ) : null}
+                {relevantDispatches.map((d) => (
+                  <View key={d.id} style={styles.dispatchItem}>
+                    <Ionicons
+                      color={dispatchStatusColor(d.status)}
+                      name={dispatchIcon(d.status)}
+                      size={20}
+                    />
+                    <View style={styles.dispatchContent}>
+                      <Text style={styles.dispatchTitle}>{d.task_summary}</Text>
+                      <Text style={styles.dispatchMeta}>
+                        {new Date(d.created_at).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.dispatchBadge,
+                        { backgroundColor: `${dispatchStatusColor(d.status)}22` },
+                      ]}
                     >
-                      {dispatchStatusLabel(d.status)}
-                    </Text>
+                      <Text
+                        style={[styles.dispatchBadgeText, { color: dispatchStatusColor(d.status) }]}
+                      >
+                        {dispatchStatusLabel(d.status)}
+                      </Text>
+                    </View>
                   </View>
-                </View>
-              ))}
-            </View>
+                ))}
+              </View>
+            ) : null}
           </>
         ) : null}
 
@@ -484,16 +544,17 @@ const InfoPill = ({ label, value }: { label: string; value: string }) => (
 
 const styles = StyleSheet.create({
   actionBtns: {
-    flex: 1,
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.xs,
-    justifyContent: 'flex-end',
   },
   actionBtn: {
     alignItems: 'center',
     borderColor: colors.borderMuted,
     borderRadius: radius.sm,
     borderWidth: 1,
+    flex: 1,
+    flexBasis: 96,
     flexDirection: 'row',
     gap: 5,
     justifyContent: 'center',
@@ -537,9 +598,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   badgeActionRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
     marginTop: spacing.sm,
   },
   body: {
@@ -766,6 +825,9 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 14,
     fontWeight: '600',
+  },
+  statusRow: {
+    alignItems: 'flex-start',
   },
   statsCard: {
     backgroundColor: colors.card,
