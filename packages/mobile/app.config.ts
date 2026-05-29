@@ -19,6 +19,7 @@ const config: ExpoConfigWithSplash = {
   ios: {
     bundleIdentifier: 'com.huangserva.hippoteam',
     infoPlist: {
+      NSCameraUsageDescription: 'HippoTeam uses the camera to scan desktop connection QR codes.',
       NSMicrophoneUsageDescription:
         'HippoTeam uses the microphone to turn voice commands into agent tasks.',
     },
@@ -33,10 +34,16 @@ const config: ExpoConfigWithSplash = {
     },
     package: 'com.huangserva.hippoteam',
     predictiveBackGestureEnabled: false,
-    softwareKeyboardLayoutMode: 'pan',
+    softwareKeyboardLayoutMode: 'resize',
   },
   plugins: [
     'expo-router',
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'HippoTeam uses the camera to scan desktop connection QR codes.',
+      },
+    ],
     'expo-secure-store',
     [
       'expo-image-picker',

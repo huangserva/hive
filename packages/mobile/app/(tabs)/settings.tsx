@@ -1,7 +1,17 @@
 import { Ionicons } from '@expo/vector-icons'
+import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
 import type { ComponentProps } from 'react'
 import { useEffect, useState } from 'react'
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  Alert,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
@@ -31,6 +41,9 @@ export default function SettingsTab() {
   } = useMobileRuntime()
   const [draftHost, setDraftHost] = useState(host)
   const [draftToken, setDraftToken] = useState(token)
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions()
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanLocked, setScanLocked] = useState(false)
 
   useEffect(() => {
     setDraftHost(host)
@@ -51,6 +64,38 @@ export default function SettingsTab() {
     const connected = await connect(draftHost, nextToken)
     if (connected) {
       Alert.alert('Connected', 'This device is connected with a permanent mobile token.')
+    }
+  }
+
+  const onOpenScanner = async () => {
+    const permission = cameraPermission?.granted
+      ? cameraPermission
+      : await requestCameraPermission()
+    if (!permission.granted) {
+      Alert.alert('Camera permission needed', 'Allow camera access to scan a HippoTeam QR code.')
+      return
+    }
+    setScanLocked(false)
+    setScannerOpen(true)
+  }
+
+  const onBarcodeScanned = async (result: BarcodeScanningResult) => {
+    if (scanLocked) return
+    setScanLocked(true)
+    const payload = parseConnectionQr(result.data)
+    if (!payload) {
+      setScannerOpen(false)
+      Alert.alert('Invalid QR code', 'This QR code does not contain HippoTeam host and token data.')
+      return
+    }
+    setScannerOpen(false)
+    setDraftHost(payload.host)
+    setDraftToken(payload.token)
+    setHost(payload.host)
+    setToken(payload.token)
+    const connected = await connect(payload.host, payload.token)
+    if (connected) {
+      Alert.alert('Connected', 'This device is connected from the scanned QR code.')
     }
   }
 
@@ -96,6 +141,17 @@ export default function SettingsTab() {
 
         <SectionLabel>CONNECT TO ORCHESTRATOR</SectionLabel>
         <View style={styles.card}>
+          <Pressable accessibilityRole="button" onPress={onOpenScanner} style={styles.scanButton}>
+            <Ionicons color={colors.accent} name="qr-code-outline" size={21} />
+            <View style={styles.scanButtonCopy}>
+              <Text style={styles.scanButtonText}>Scan QR to connect</Text>
+              <Text style={styles.scanButtonHint}>
+                Use the QR code shown in HippoTeam Settings.
+              </Text>
+            </View>
+            <Ionicons color={colors.muted} name="chevron-forward" size={21} />
+          </Pressable>
+
           <FieldHeader
             subtitle="The URL or IP address of your orchestrator."
             title="Orchestrator Host"
@@ -272,6 +328,38 @@ export default function SettingsTab() {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        animationType="slide"
+        visible={scannerOpen}
+        onRequestClose={() => setScannerOpen(false)}
+      >
+        <View style={styles.scannerScreen}>
+          <View style={styles.scannerHeader}>
+            <View>
+              <Text style={styles.scannerTitle}>Scan HippoTeam QR</Text>
+              <Text style={styles.scannerSubtitle}>
+                Point your camera at the desktop token QR code.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close scanner"
+              accessibilityRole="button"
+              onPress={() => setScannerOpen(false)}
+              style={styles.scannerClose}
+            >
+              <Ionicons color={colors.text} name="close" size={24} />
+            </Pressable>
+          </View>
+          <CameraView
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={scanLocked ? undefined : onBarcodeScanned}
+            style={styles.camera}
+          >
+            <View style={styles.scanFrame} />
+          </CameraView>
+        </View>
+      </Modal>
     </Screen>
   )
 }
@@ -304,6 +392,32 @@ const formatCapability = (capability: string) =>
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(' ')
+
+const parseConnectionQr = (raw: string): { host: string; token: string } | null => {
+  const fromObject = (value: unknown) => {
+    if (!value || typeof value !== 'object') return null
+    const candidate = value as { host?: unknown; token?: unknown }
+    if (typeof candidate.host !== 'string' || typeof candidate.token !== 'string') return null
+    const host = candidate.host.trim()
+    const token = candidate.token.trim()
+    return host && token ? { host, token } : null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    const payload = fromObject(parsed)
+    if (payload) return payload
+  } catch {}
+
+  try {
+    const url = new URL(raw)
+    const host = url.searchParams.get('host')?.trim()
+    const token = url.searchParams.get('token')?.trim()
+    return host && token ? { host, token } : null
+  } catch {
+    return null
+  }
+}
 
 const Capability = ({ icon, label }: { icon?: IconName; label: string }) => (
   <View style={styles.capabilityChip}>
@@ -362,19 +476,19 @@ const styles = StyleSheet.create({
   addWorkspace: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.xs,
-    paddingHorizontal: spacing.xs,
-    paddingTop: spacing.sm,
+    gap: 6,
+    paddingHorizontal: 6,
+    paddingTop: 10,
   },
-  addWorkspaceText: { color: colors.accent, fontSize: 16, fontWeight: '700' },
+  addWorkspaceText: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   badge: {
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   badgeConnected: {
     backgroundColor: colors.card,
@@ -382,8 +496,8 @@ const styles = StyleSheet.create({
   },
   badgeDot: {
     borderRadius: 999,
-    height: 9,
-    width: 9,
+    height: 8,
+    width: 8,
   },
   badgeDotConnected: {
     backgroundColor: colors.success,
@@ -397,7 +511,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: colors.textSoft,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   capabilityChip: {
@@ -407,88 +521,88 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 7,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   capabilityRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.xs,
+    gap: 7,
   },
-  capabilitiesLabel: { color: colors.textSoft, fontSize: 13, fontWeight: '700' },
-  capabilityText: { color: colors.textSoft, fontSize: 13, fontWeight: '700' },
+  capabilitiesLabel: { color: colors.textSoft, fontSize: 12, fontWeight: '700' },
+  capabilityText: { color: colors.textSoft, fontSize: 12, fontWeight: '700' },
   card: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md,
+    gap: 10,
+    padding: spacing.sm,
   },
   codeInput: {
     color: colors.text,
     flex: 1,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
     letterSpacing: 4,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   connectedBadge: {
     backgroundColor: colors.successSoft,
     borderColor: 'rgba(63, 185, 80, 0.34)',
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
   },
-  connectedBadgeText: { color: colors.success, fontSize: 13, fontWeight: '800' },
+  connectedBadgeText: { color: colors.success, fontSize: 12, fontWeight: '800' },
   connectionCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
-  connectionDetailCopy: { flex: 1, gap: 3 },
+  connectionDetailCopy: { flex: 1, gap: 2 },
   connectionDetailRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
+    gap: 10,
+    paddingVertical: 7,
   },
-  connectionDetailTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  connectionDetailTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
   connectionIcon: {
     alignItems: 'center',
     borderRadius: radius.sm,
-    height: 42,
+    height: 38,
     justifyContent: 'center',
-    width: 42,
+    width: 38,
   },
-  connectionMeta: { color: colors.muted, fontSize: 14 },
+  connectionMeta: { color: colors.muted, fontSize: 13 },
   connectionTitleRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 7,
   },
   detail: {
     color: colors.muted,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 13,
+    lineHeight: 18,
   },
   deviceCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md,
+    gap: 10,
+    padding: spacing.sm,
   },
-  deviceCopy: { flex: 1, gap: 5 },
+  deviceCopy: { flex: 1, gap: 4 },
   deviceHeader: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: 10,
   },
   deviceIcon: {
     alignItems: 'center',
@@ -496,16 +610,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(88, 166, 255, 0.24)',
     borderRadius: radius.md,
     borderWidth: 1,
-    height: 64,
+    height: 54,
     justifyContent: 'center',
-    width: 64,
+    width: 54,
   },
-  deviceMeta: { color: colors.muted, fontSize: 15 },
-  deviceName: { color: colors.text, flexShrink: 1, fontSize: 18, fontWeight: '900' },
+  deviceMeta: { color: colors.muted, fontSize: 13 },
+  deviceName: { color: colors.text, flexShrink: 1, fontSize: 16, fontWeight: '900' },
   deviceTitleRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: 8,
   },
   disabled: {
     opacity: 0.6,
@@ -516,25 +630,25 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 7,
     justifyContent: 'center',
-    marginTop: spacing.xs,
-    paddingVertical: 13,
+    marginTop: 6,
+    paddingVertical: 11,
   },
   disconnectText: {
     color: colors.error,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
   },
   divider: { backgroundColor: colors.borderMuted, height: 1 },
   error: {
     color: colors.error,
-    fontSize: 13,
+    fontSize: 12,
   },
-  fieldHeader: { gap: 4 },
-  fieldSubtitle: { color: colors.muted, fontSize: 14, lineHeight: 20 },
-  fieldTitle: { color: colors.text, fontSize: 18, fontWeight: '800' },
-  formHint: { color: colors.muted, fontSize: 14 },
+  fieldHeader: { gap: 3 },
+  fieldSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  fieldTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  formHint: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -543,8 +657,8 @@ const styles = StyleSheet.create({
   input: {
     color: colors.text,
     flex: 1,
-    fontSize: 16,
-    paddingVertical: 10,
+    fontSize: 15,
+    paddingVertical: 8,
   },
   inputShell: {
     alignItems: 'center',
@@ -553,52 +667,122 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: 14,
+    gap: 10,
+    paddingHorizontal: 12,
   },
   primaryButton: {
     alignItems: 'center',
     backgroundColor: colors.accent,
     borderRadius: radius.md,
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 7,
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
   primaryButtonText: {
     color: colors.background,
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '900',
   },
-  runtimeVersion: { color: colors.muted2, fontSize: 12, marginTop: spacing.xs },
-  scroll: {
+  camera: {
+    flex: 1,
+  },
+  runtimeVersion: { color: colors.muted2, fontSize: 11, marginTop: 6 },
+  scanButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderColor: 'rgba(88, 166, 255, 0.24)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: 10,
+  },
+  scanButtonCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  scanButtonHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  scanButtonText: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  scanFrame: {
+    alignSelf: 'center',
+    borderColor: colors.accent,
+    borderRadius: radius.lg,
+    borderWidth: 3,
+    height: 240,
+    marginTop: 160,
+    width: 240,
+  },
+  scannerClose: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  scannerHeader: {
+    alignItems: 'center',
+    backgroundColor: colors.background,
+    flexDirection: 'row',
     gap: spacing.sm,
+    justifyContent: 'space-between',
+    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: 56,
+  },
+  scannerScreen: {
+    backgroundColor: colors.background,
+    flex: 1,
+  },
+  scannerSubtitle: {
+    color: colors.muted,
+    fontSize: 13,
+    marginTop: 4,
+  },
+  scannerTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  scroll: {
+    gap: 9,
     paddingBottom: spacing.lg,
   },
   sectionLabel: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.5,
-    marginTop: spacing.sm,
+    marginTop: 10,
   },
   selectedWorkspaceIcon: {
     alignItems: 'center',
     backgroundColor: colors.accent,
     borderRadius: radius.sm,
-    height: 32,
+    height: 28,
     justifyContent: 'center',
-    width: 32,
+    width: 28,
   },
   statusPill: {
     borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  statusPillText: { fontSize: 12, fontWeight: '800' },
+  statusPillText: { fontSize: 11, fontWeight: '800' },
   title: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 30,
     fontWeight: '900',
   },
   workspaceCard: {
@@ -606,18 +790,18 @@ const styles = StyleSheet.create({
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
   workspaceIcon: {
     borderColor: colors.borderMuted,
     borderRadius: radius.sm,
     borderWidth: 1,
-    height: 32,
-    width: 32,
+    height: 28,
+    width: 28,
   },
   workspaceName: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
   },
   workspaceRow: {
@@ -625,8 +809,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderMuted,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
+    gap: 10,
+    paddingVertical: 10,
   },
   workspaceText: {
     flex: 1,
@@ -639,18 +823,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     gap: 4,
-    marginTop: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    marginTop: 10,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
   },
   demoButtonText: {
     color: colors.accent,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
   },
   demoHint: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 12,
   },
   demoActive: {
     alignItems: 'center',
@@ -659,14 +843,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: 7,
     justifyContent: 'center',
-    marginTop: spacing.md,
-    paddingVertical: spacing.sm,
+    marginTop: 10,
+    paddingVertical: 10,
   },
   demoActiveText: {
     color: colors.success,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
   },
 })

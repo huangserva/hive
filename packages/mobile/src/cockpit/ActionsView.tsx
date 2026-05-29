@@ -191,16 +191,16 @@ const FeedbackBanner = ({ feedback }: { feedback: Feedback }) => {
 }
 
 const s = StyleSheet.create({
-  actionBtn: { borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 8 },
+  actionBtn: { borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 7 },
   actionBtnDisabled: { opacity: 0.5 },
-  actionBtnText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  actionBtnText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   actionCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: spacing.md,
+    gap: 6,
+    padding: spacing.sm,
   },
   actionFooter: {
     alignItems: 'center',
@@ -209,19 +209,19 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   actionHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  actionTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  container: { gap: spacing.sm, paddingBottom: 40 },
-  dismissText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  actionTitle: { color: colors.text, fontSize: 13, fontWeight: '700', lineHeight: 19 },
+  container: { gap: spacing.xs, paddingBottom: 40 },
+  dismissText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   emptyCard: {
     alignItems: 'center',
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: spacing.lg,
+    gap: 6,
+    padding: spacing.md,
   },
-  emptyText: { color: colors.muted, fontSize: 14 },
+  emptyText: { color: colors.muted, fontSize: 13 },
   filterBtn: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
@@ -255,6 +255,6 @@ const s = StyleSheet.create({
   loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   priorityBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   priorityText: { fontSize: 11, fontWeight: '800' },
-  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  subtitle: { color: colors.muted, fontSize: 13 },
+  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  subtitle: { color: colors.muted, fontSize: 12 },
 })

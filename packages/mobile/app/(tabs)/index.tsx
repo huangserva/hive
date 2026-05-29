@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -26,7 +27,7 @@ import { colors, radius, spacing } from '../../src/theme'
 
 type OptimisticMessage = {
   id: string
-  direction: 'outbound'
+  direction: 'inbound'
   message_type: 'user_text'
   content_json: string
   created_at: number
@@ -44,6 +45,31 @@ interface StagedAttachment {
 }
 
 const AUTO_SCROLL_THRESHOLD_PX = 80
+const DEDUPE_MESSAGE_TYPES = new Set<DisplayMessage['message_type']>([
+  'orch_reply',
+  'worker_report',
+])
+
+const messageContentKey = (message: Pick<DisplayMessage, 'content_json' | 'message_type'>) =>
+  `${message.message_type}:${parseContent(message.content_json).replace(/\s+/g, ' ').trim()}`
+
+const dedupeAdjacentMessages = (messages: DisplayMessage[]) => {
+  const deduped: DisplayMessage[] = []
+  for (const message of messages) {
+    const previous = deduped.at(-1)
+    if (
+      previous &&
+      DEDUPE_MESSAGE_TYPES.has(message.message_type) &&
+      previous.message_type === message.message_type &&
+      messageContentKey(previous) === messageContentKey(message)
+    ) {
+      deduped[deduped.length - 1] = message
+      continue
+    }
+    deduped.push(message)
+  }
+  return deduped
+}
 
 export default function ChatTab() {
   const {
@@ -70,6 +96,9 @@ export default function ChatTab() {
   const hasInitialAutoScrolledRef = useRef(false)
   const isNearBottomRef = useRef(true)
   const forceScrollToEndRef = useRef(false)
+  const scrollFrameRef = useRef<number | null>(null)
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keyboardSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isConnected = state === 'connected' && Boolean(dashboard)
 
   const connectionLabel = useMemo(() => {
@@ -92,9 +121,25 @@ export default function ChatTab() {
 
   const allMessages = useMemo<DisplayMessage[]>(() => {
     const serverIds = new Set(chatMessages.map((m) => m.id))
-    const pending = optimistic.filter((m) => !serverIds.has(m.id))
-    return [...chatMessages, ...pending].sort((a, b) => a.created_at - b.created_at)
+    const persistedUserText = chatMessages.filter((message) => message.message_type === 'user_text')
+    const pending = optimistic.filter(
+      (message) =>
+        !serverIds.has(message.id) &&
+        !persistedUserText.some(
+          (serverMessage) =>
+            messageContentKey(serverMessage) === messageContentKey(message) &&
+            Math.abs(serverMessage.created_at - message.created_at) < 10_000
+        )
+    )
+    return dedupeAdjacentMessages(
+      [...chatMessages, ...pending].sort((a, b) => a.created_at - b.created_at)
+    )
   }, [chatMessages, optimistic])
+
+  const latestMessageToken = useMemo(() => {
+    const latest = allMessages.at(-1)
+    return latest ? `${allMessages.length}:${latest.id}:${latest.created_at}` : ''
+  }, [allMessages])
 
   const sendMessage = useCallback(async () => {
     const body = draft.trim()
@@ -103,7 +148,7 @@ export default function ChatTab() {
     const msgId = `opt-${Date.now()}`
     const msg: OptimisticMessage = {
       id: msgId,
-      direction: 'outbound',
+      direction: 'inbound',
       message_type: 'user_text',
       content_json: JSON.stringify({ text: body || `[${attachments.length} files]` }),
       created_at: Date.now(),
@@ -189,13 +234,27 @@ export default function ChatTab() {
   }, [])
 
   const scrollToEnd = useCallback((animated: boolean) => {
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated }), 50)
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current)
+    }
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current)
+    }
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null
+      scrollTimeoutRef.current = setTimeout(() => {
+        scrollTimeoutRef.current = null
+        flatListRef.current?.scrollToEnd({ animated })
+      }, 50)
+    })
   }, [])
 
   const maybeAutoScrollToEnd = useCallback(
-    (animated: boolean) => {
+    (animated: boolean, trigger: 'content' | 'message' = 'message') => {
       const shouldScroll =
-        forceScrollToEndRef.current || isNearBottomRef.current || !hasInitialAutoScrolledRef.current
+        forceScrollToEndRef.current ||
+        !hasInitialAutoScrolledRef.current ||
+        (trigger === 'message' && isNearBottomRef.current)
       if (!shouldScroll) return
       hasInitialAutoScrolledRef.current = true
       forceScrollToEndRef.current = false
@@ -211,10 +270,45 @@ export default function ChatTab() {
   }, [])
 
   useEffect(() => {
-    if (allMessages.length > 0) {
+    if (latestMessageToken) {
       maybeAutoScrollToEnd(true)
     }
-  }, [allMessages.length, maybeAutoScrollToEnd])
+  }, [latestMessageToken, maybeAutoScrollToEnd])
+
+  useEffect(
+    () => () => {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current)
+      }
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    },
+    []
+  )
+
+  useEffect(() => {
+    const settleAfterKeyboardChange = () => {
+      if (keyboardSettleTimeoutRef.current) {
+        clearTimeout(keyboardSettleTimeoutRef.current)
+      }
+      keyboardSettleTimeoutRef.current = setTimeout(() => {
+        keyboardSettleTimeoutRef.current = null
+        if (isNearBottomRef.current || forceScrollToEndRef.current) {
+          scrollToEnd(false)
+        }
+      }, 180)
+    }
+    const showSubscription = Keyboard.addListener('keyboardDidShow', settleAfterKeyboardChange)
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', settleAfterKeyboardChange)
+    return () => {
+      showSubscription.remove()
+      hideSubscription.remove()
+      if (keyboardSettleTimeoutRef.current) {
+        clearTimeout(keyboardSettleTimeoutRef.current)
+      }
+    }
+  }, [scrollToEnd])
 
   if (!isConnected) {
     return (
@@ -233,7 +327,7 @@ export default function ChatTab() {
   return (
     <Screen>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
         style={styles.keyboard}
       >
@@ -303,8 +397,9 @@ export default function ChatTab() {
           data={allMessages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messages}
+          style={styles.messageList}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => maybeAutoScrollToEnd(false)}
+          onContentSizeChange={() => maybeAutoScrollToEnd(false, 'content')}
           onScroll={handleChatScroll}
           scrollEventThrottle={16}
           ListEmptyComponent={<EmptyChat />}
@@ -345,6 +440,7 @@ export default function ChatTab() {
             onChangeText={setDraft}
             placeholder="Message orchestrator..."
             placeholderTextColor={colors.muted2}
+            scrollEnabled
             style={styles.input}
             value={draft}
           />
@@ -459,6 +555,47 @@ const parseApprovalPayload = (json: string) => {
   }
 }
 
+const compactSummary = (value: string | null | undefined, maxLength = 96) => {
+  const firstLine = value
+    ?.split('\n')
+    .find((line) => line.trim().length > 0)
+    ?.trim()
+  if (!firstLine) return null
+  return firstLine.length > maxLength ? `${firstLine.slice(0, maxLength - 1)}…` : firstLine
+}
+
+const parseSystemEventPayload = (json: string) => {
+  const parsed = parseContentObject(json)
+  const event = firstString(parsed.event, parsed.type) ?? 'system'
+  const worker = firstString(parsed.worker, parsed.worker_name)
+  const taskSummary = compactSummary(firstString(parsed.task_summary, parsed.task, parsed.summary))
+  const description = compactSummary(
+    firstString(parsed.text, parsed.description, parsed.message, parsed.reason)
+  )
+
+  if (event === 'dispatch') {
+    return {
+      icon: 'paper-plane-outline' as const,
+      summary: taskSummary ?? description ?? 'A task was sent to a worker.',
+      title: worker ? `Dispatched → ${worker}` : 'Dispatched',
+    }
+  }
+
+  if (event === 'report' || event === 'done') {
+    return {
+      icon: 'checkmark-circle-outline' as const,
+      summary: description ?? taskSummary ?? 'A worker report was recorded.',
+      title: worker ? `Report from ${worker}` : 'Worker Report',
+    }
+  }
+
+  return {
+    icon: 'information-circle-outline' as const,
+    summary: description ?? taskSummary ?? titleCase(event),
+    title: titleCase(event),
+  }
+}
+
 const titleCase = (value: string) =>
   value
     .split(/[\s_-]+/)
@@ -512,18 +649,7 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
   const isError = 'error' in message && message.error
   const time = formatMessageTime(message.created_at)
 
-  if (message.message_type === 'system_event') {
-    return (
-      <View style={styles.systemBubble}>
-        <Ionicons color={colors.muted} name="information-circle-outline" size={14} />
-        <Text selectable style={styles.systemText}>
-          {content}
-        </Text>
-      </View>
-    )
-  }
-
-  if (message.direction === 'outbound') {
+  if (message.message_type === 'user_text') {
     const media = parseMedia(message.content_json)
     return (
       <View style={styles.userBubble}>
@@ -543,6 +669,27 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
           ) : (
             <Ionicons color="rgba(13, 17, 23, 0.5)" name="checkmark-done" size={12} />
           )}
+        </View>
+      </View>
+    )
+  }
+
+  if (message.message_type === 'system_event') {
+    const event = parseSystemEventPayload(message.content_json)
+    return (
+      <View style={styles.systemBubble}>
+        <View style={styles.systemIcon}>
+          <Ionicons color={colors.muted} name={event.icon} size={18} />
+        </View>
+        <View style={styles.systemCopy}>
+          <Text selectable style={styles.systemTitle}>
+            {event.title}
+          </Text>
+          {event.summary ? (
+            <Text numberOfLines={2} selectable style={styles.systemText}>
+              {event.summary}
+            </Text>
+          ) : null}
         </View>
       </View>
     )
@@ -658,7 +805,12 @@ const MessageCard = ({ message, onApprove, onOpenApproval, workers }: MessageCar
       <View style={styles.botAvatar}>
         <Ionicons color={colors.accent} name="hardware-chip-outline" size={20} />
       </View>
-      <View style={styles.inboundBubble}>
+      <View
+        style={[
+          styles.inboundBubble,
+          message.message_type === 'orch_reply' && styles.orchestratorBubble,
+        ]}
+      >
         <Text selectable style={styles.senderLabel}>
           Orchestrator
         </Text>
@@ -983,12 +1135,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 15,
-    maxHeight: 96,
-    minHeight: 42,
+    height: 42,
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
+    textAlignVertical: 'top',
   },
   keyboard: { flex: 1, gap: spacing.md },
+  messageList: { flex: 1, minHeight: 0 },
   messages: { gap: spacing.md, paddingBottom: spacing.md },
   moreButton: { display: 'none' },
   onlineBadge: {
@@ -1040,14 +1193,38 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   stateText: { color: colors.muted2, fontSize: 13 },
-  systemBubble: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 4,
+  orchestratorBubble: {
+    backgroundColor: colors.accentSoft,
+    borderColor: 'rgba(88, 166, 255, 0.35)',
   },
-  systemText: { color: colors.muted, fontSize: 12 },
+  systemBubble: {
+    alignItems: 'flex-start',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    maxWidth: '88%',
+    padding: spacing.md,
+  },
+  systemCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  systemIcon: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(139, 148, 158, 0.12)',
+    borderColor: 'rgba(139, 148, 158, 0.2)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  systemText: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
+  systemTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
   title: { color: colors.text, flex: 1, fontSize: 20, fontWeight: '900' },
   titleOnlineDot: {
@@ -1060,7 +1237,7 @@ const styles = StyleSheet.create({
   titleRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: colors.accent,
+    backgroundColor: colors.success,
     borderRadius: 20,
     maxWidth: '86%',
     paddingHorizontal: spacing.md,

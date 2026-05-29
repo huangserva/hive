@@ -47,6 +47,16 @@ const WORKER_ROLES: Record<string, string> = {
 
 const roleLabel = (role: string) => WORKER_ROLES[role] ?? role
 
+// Worker 列表按状态排序：working 最上 → idle → stopped 最下，跟 PC/web 端一致。
+// 同状态内保持原始顺序（Array.prototype.sort 在 Hermes/V8 上稳定，相等项不重排）。
+const STATUS_RANK: Record<string, number> = {
+  working: 0,
+  idle: 1,
+  stopped: 2,
+}
+
+const statusRank = (status: string) => STATUS_RANK[status] ?? 99
+
 export default function StatusTab() {
   const {
     connect,
@@ -70,6 +80,19 @@ export default function StatusTab() {
   const [dispatching, setDispatching] = useState(false)
   const activeWorkers = useMemo(
     () => dashboard?.workers.filter((w) => w.status !== 'stopped').length ?? 0,
+    [dashboard]
+  )
+  // Sentinel（哨兵 worker，如周瑜）单独拎出来，不当普通 worker，也不参与下面的状态排序。
+  const sentinelWorkers = useMemo(
+    () => dashboard?.workers.filter((w) => w.role === 'sentinel') ?? [],
+    [dashboard]
+  )
+  // 普通 worker：按 working → idle → stopped 排序，同状态保持原始顺序。
+  const sortedWorkers = useMemo(
+    () =>
+      (dashboard?.workers.filter((w) => w.role !== 'sentinel') ?? [])
+        .slice()
+        .sort((a, b) => statusRank(a.status) - statusRank(b.status)),
     [dashboard]
   )
   const totalTasks = useMemo(
@@ -277,7 +300,21 @@ export default function StatusTab() {
           </Pressable>
         ) : null}
 
-        {dashboard.workers.map((worker) => (
+        {/* Sentinel 哨兵专属区块：固定在普通 worker 之上、Orchestrator 之下，独立呈现 */}
+        {sentinelWorkers.length > 0 ? (
+          <View style={styles.sentinelSection}>
+            <Text style={styles.sentinelLabel}>Sentinel</Text>
+            {sentinelWorkers.map((worker) => (
+              <SentinelCard
+                key={worker.id}
+                onOpenDetail={() => router.push(`/agent/${worker.id}`)}
+                worker={worker}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {sortedWorkers.map((worker) => (
           <WorkerCard
             key={worker.id}
             onDispatch={() => openDispatch(worker)}
@@ -343,8 +380,10 @@ const WorkerCard = ({
             <View style={[styles.workerStatusDot, { backgroundColor: accent }]} />
           </View>
           <View style={styles.workerInfo}>
-            <Text style={styles.workerName}>{worker.name}</Text>
-            <Text style={styles.workerTask}>
+            <Text numberOfLines={1} style={styles.workerName}>
+              {worker.name}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
               {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
             </Text>
           </View>
@@ -365,6 +404,40 @@ const WorkerCard = ({
         onStop={onStop}
         status={worker.status}
       />
+    </Pressable>
+  )
+}
+
+// Sentinel 哨兵卡片：哨兵只做巡检、不接派单，所以去掉 Dispatch/Stop/meta，呈现更轻量，
+// 用盾牌图标与 accent 描边把它和普通 worker 区分开。点击仍进 Worker Detail 看终端。
+const SentinelCard = ({
+  onOpenDetail,
+  worker,
+}: {
+  onOpenDetail: () => void
+  worker: MobileDashboardWorker
+}) => {
+  const accent = statusColor(worker.status)
+  return (
+    <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.sentinelCard}>
+      <View style={styles.workerLeft}>
+        <View style={styles.sentinelAvatar}>
+          <Ionicons color={colors.accent} name="shield-checkmark-outline" size={18} />
+          <View style={[styles.workerStatusDot, { backgroundColor: accent }]} />
+        </View>
+        <View style={styles.workerInfo}>
+          <Text numberOfLines={1} style={styles.workerName}>
+            {worker.name}
+          </Text>
+          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
+            {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.workerRight}>
+        <StatusBadge status={worker.status} />
+        <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+      </View>
     </Pressable>
   )
 }
@@ -863,6 +936,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  sentinelAvatar: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    height: 40,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 40,
+  },
+  sentinelCard: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(22, 27, 34, 0.9)',
+    borderColor: colors.accent,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+  },
+  sentinelLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  sentinelSection: {
+    gap: spacing.xs,
+  },
   statGrid: {
     flexDirection: 'row',
     gap: spacing.xs,
@@ -934,7 +1036,10 @@ const styles = StyleSheet.create({
   workerRight: {
     alignItems: 'center',
     flexDirection: 'row',
+    // 状态徽章 + chevron 固定在右侧、永不被挤压；左侧文字区自行截断让出空间。
+    flexShrink: 0,
     gap: 6,
+    marginLeft: spacing.sm,
   },
   workerTask: {
     color: colors.textSoft,

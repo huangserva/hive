@@ -7,6 +7,7 @@
     "@huangserva/hippoteam-relay-crypto": "workspace:*",
     "expo": "~56.0.4",
     "expo-build-properties": "^56.0.14",
+    "expo-camera": "~56.0.7",
     "expo-document-picker": "~56.0.3",
     "expo-file-system": "^56.0.7",
     "expo-image-picker": "~56.0.5",

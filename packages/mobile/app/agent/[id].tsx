@@ -229,7 +229,12 @@ export default function AgentDetailScreen() {
   const [fullscreenAutoScroll, setFullscreenAutoScroll] = useState(true)
   const terminalScrollRef = useRef<ScrollView>(null)
   const fullscreenTerminalScrollRef = useRef<ScrollView>(null)
+  const terminalNearBottomRef = useRef(true)
   const fullscreenNearBottomRef = useRef(true)
+  const terminalScrollFrameRef = useRef<number | null>(null)
+  const terminalScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fullscreenScrollFrameRef = useRef<number | null>(null)
+  const fullscreenScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     if (!workerId || !selectedWorkspaceId) return
@@ -347,7 +352,47 @@ export default function AgentDetailScreen() {
     fullscreenNearBottomRef.current = true
     setFullscreenAutoScroll(true)
     setTerminalFullscreenOpen(true)
-    setTimeout(() => fullscreenTerminalScrollRef.current?.scrollToEnd({ animated: false }), 80)
+    scheduleFullscreenTerminalScroll(false)
+  }
+
+  const scheduleTerminalScroll = useCallback((animated: boolean) => {
+    if (terminalScrollFrameRef.current !== null) {
+      cancelAnimationFrame(terminalScrollFrameRef.current)
+    }
+    if (terminalScrollTimeoutRef.current) {
+      clearTimeout(terminalScrollTimeoutRef.current)
+    }
+    terminalScrollFrameRef.current = requestAnimationFrame(() => {
+      terminalScrollFrameRef.current = null
+      terminalScrollTimeoutRef.current = setTimeout(() => {
+        terminalScrollTimeoutRef.current = null
+        terminalScrollRef.current?.scrollToEnd({ animated })
+      }, 50)
+    })
+  }, [])
+
+  const scheduleFullscreenTerminalScroll = useCallback((animated: boolean) => {
+    if (fullscreenScrollFrameRef.current !== null) {
+      cancelAnimationFrame(fullscreenScrollFrameRef.current)
+    }
+    if (fullscreenScrollTimeoutRef.current) {
+      clearTimeout(fullscreenScrollTimeoutRef.current)
+    }
+    fullscreenScrollFrameRef.current = requestAnimationFrame(() => {
+      fullscreenScrollFrameRef.current = null
+      fullscreenScrollTimeoutRef.current = setTimeout(() => {
+        fullscreenScrollTimeoutRef.current = null
+        fullscreenTerminalScrollRef.current?.scrollToEnd({ animated })
+      }, 50)
+    })
+  }, [])
+
+  const handleTerminalScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { nativeEvent } = event
+    const distanceFromBottom =
+      nativeEvent.contentSize.height -
+      (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height)
+    terminalNearBottomRef.current = distanceFromBottom <= 80
   }
 
   const handleFullscreenTerminalScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -357,6 +402,24 @@ export default function AgentDetailScreen() {
       (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height)
     fullscreenNearBottomRef.current = distanceFromBottom <= 80
   }
+
+  useEffect(
+    () => () => {
+      if (terminalScrollFrameRef.current !== null) {
+        cancelAnimationFrame(terminalScrollFrameRef.current)
+      }
+      if (terminalScrollTimeoutRef.current) {
+        clearTimeout(terminalScrollTimeoutRef.current)
+      }
+      if (fullscreenScrollFrameRef.current !== null) {
+        cancelAnimationFrame(fullscreenScrollFrameRef.current)
+      }
+      if (fullscreenScrollTimeoutRef.current) {
+        clearTimeout(fullscreenScrollTimeoutRef.current)
+      }
+    },
+    []
+  )
 
   const terminalLines = transcript?.lines ?? []
   const terminalLineItems = useMemo(() => {
@@ -497,9 +560,11 @@ export default function AgentDetailScreen() {
               <View style={styles.terminal}>
                 <ScrollView
                   onContentSizeChange={() => {
-                    if (autoScroll) terminalScrollRef.current?.scrollToEnd({ animated: false })
+                    if (autoScroll && terminalNearBottomRef.current) scheduleTerminalScroll(false)
                   }}
+                  onScroll={handleTerminalScroll}
                   ref={terminalScrollRef}
+                  scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
                 >
                   {terminalLineItems.length ? (
@@ -597,7 +662,7 @@ export default function AgentDetailScreen() {
             contentContainerStyle={styles.fullscreenTerminalContent}
             onContentSizeChange={() => {
               if (fullscreenAutoScroll && fullscreenNearBottomRef.current) {
-                fullscreenTerminalScrollRef.current?.scrollToEnd({ animated: false })
+                scheduleFullscreenTerminalScroll(false)
               }
             }}
             onScroll={handleFullscreenTerminalScroll}

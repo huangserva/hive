@@ -163,17 +163,17 @@ const FeedbackBanner = ({ feedback }: { feedback: Feedback }) => {
 }
 
 const s = StyleSheet.create({
-  container: { gap: spacing.sm, paddingBottom: 40 },
+  container: { gap: spacing.xs, paddingBottom: 40 },
   emptyCard: {
     alignItems: 'center',
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: spacing.lg,
+    gap: 6,
+    padding: spacing.md,
   },
-  emptyText: { color: colors.muted, fontSize: 14 },
+  emptyText: { color: colors.muted, fontSize: 13 },
   feedbackBanner: {
     alignItems: 'center',
     borderRadius: radius.sm,
@@ -187,17 +187,17 @@ const s = StyleSheet.create({
   ideaCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: spacing.md,
+    gap: 6,
+    padding: spacing.sm,
   },
   ideaDate: { color: colors.muted2, fontSize: 11 },
   ideaFooter: { alignItems: 'center', flexDirection: 'row', justifyContent: 'flex-end' },
   ideaHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   ideaLeft: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   ideaNum: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  ideaTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  ideaTitle: { color: colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 },
   loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   promoteBtn: {
     backgroundColor: 'rgba(160,100,255,0.14)',
@@ -218,7 +218,7 @@ const s = StyleSheet.create({
     padding: spacing.sm,
   },
   promotedInfo: { flex: 1, gap: 2 },
-  promotedName: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  promotedTitle: { color: colors.text, fontSize: 16, fontWeight: '800', marginTop: spacing.xs },
-  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  promotedName: { color: colors.text, fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  promotedTitle: { color: colors.text, fontSize: 15, fontWeight: '800', marginTop: spacing.xs },
+  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
 })

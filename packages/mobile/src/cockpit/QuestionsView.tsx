@@ -71,6 +71,7 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   ]
   const answered = cockpit?.questions.answered ?? []
   const selectedQuestion = questions.find((q) => q.id === selectedQuestionId) ?? null
+  const hasOpenQuestions = questions.length > 0
 
   const selectQuestion = (questionId: string) => {
     setSelectedQuestionId(questionId)
@@ -111,7 +112,8 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
     return (
       <View style={s.emptyWrap}>
         <Ionicons color={colors.success} name="checkmark-circle" size={40} />
-        <Text style={s.emptyText}>No open questions</Text>
+        <Text style={s.emptyTitle}>No open questions</Text>
+        <Text style={s.emptyText}>You're all caught up.</Text>
       </View>
     )
   }
@@ -125,6 +127,16 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
 
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
+      {!hasOpenQuestions ? (
+        <View style={s.emptyCard}>
+          <Ionicons color={colors.success} name="checkmark-circle" size={24} />
+          <View style={s.emptyCopy}>
+            <Text style={s.emptyTitle}>No open questions</Text>
+            <Text style={s.emptyText}>You're all caught up. Answered history is below.</Text>
+          </View>
+        </View>
+      ) : null}
+
       {questions.map((q) => {
         const cfg = PRIORITY_CONFIG[q.priority]
         return (
@@ -135,6 +147,7 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
               </View>
             </View>
             <Text style={s.qTitle}>{q.text}</Text>
+            <Text style={s.qContext}>Context · {q.id}</Text>
             <View style={s.qFooter}>
               <Pressable onPress={() => selectQuestion(q.id)} style={s.answerBtn}>
                 <Text style={s.answerBtnText}>Answer</Text>
@@ -144,30 +157,30 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
         )
       })}
 
-      <View style={s.inputCard}>
-        <Text style={s.inputLabel}>
-          {selectedQuestion ? `Your Answer · ${selectedQuestion.id}` : 'Your Answer'}
-        </Text>
-        <TextInput
-          ref={inputRef}
-          multiline
-          onChangeText={setAnswerText}
-          placeholder={selectedQuestion ? 'Type your answer...' : 'Select a question first'}
-          placeholderTextColor={colors.muted2}
-          style={s.textInput}
-          value={answerText}
-        />
-        <Pressable
-          disabled={!selectedQuestion || !answerText.trim() || submitting}
-          onPress={submitAnswer}
-          style={[
-            s.submitBtn,
-            (!selectedQuestion || !answerText.trim() || submitting) && s.submitDisabled,
-          ]}
-        >
-          <Text style={s.submitText}>{submitting ? 'Submitting...' : 'Submit Answer'}</Text>
-        </Pressable>
-      </View>
+      {selectedQuestion ? (
+        <View style={s.inputCard}>
+          <Text style={s.inputLabel}>Your Answer</Text>
+          <Text numberOfLines={2} style={s.selectedQuestionText}>
+            {selectedQuestion.text}
+          </Text>
+          <TextInput
+            ref={inputRef}
+            multiline
+            onChangeText={setAnswerText}
+            placeholder="Type your answer..."
+            placeholderTextColor={colors.muted2}
+            style={s.textInput}
+            value={answerText}
+          />
+          <Pressable
+            disabled={!answerText.trim() || submitting}
+            onPress={submitAnswer}
+            style={[s.submitBtn, (!answerText.trim() || submitting) && s.submitDisabled]}
+          >
+            <Text style={s.submitText}>{submitting ? 'Submitting...' : 'Submit Answer'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <Pressable onPress={() => setShowAnswered(!showAnswered)} style={s.toggleRow}>
         <Text style={s.toggleText}>Answered ({answered.length})</Text>
@@ -221,10 +234,22 @@ const s = StyleSheet.create({
     paddingVertical: 6,
   },
   answerBtnText: { color: colors.accent, fontSize: 12, fontWeight: '800' },
-  answerPreview: { color: colors.success, fontSize: 13, fontStyle: 'italic' },
-  container: { gap: spacing.sm, paddingBottom: 40 },
-  emptyText: { color: colors.muted, fontSize: 15, marginTop: 8 },
-  emptyWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
+  answerPreview: { color: colors.success, fontSize: 12, fontStyle: 'italic', lineHeight: 18 },
+  container: { gap: spacing.xs, paddingBottom: 40 },
+  emptyCard: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  emptyCopy: { flex: 1, gap: 2 },
+  emptyText: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  emptyTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  emptyWrap: { alignItems: 'center', flex: 1, gap: 4, justifyContent: 'center', paddingTop: 60 },
   feedbackBanner: {
     alignItems: 'center',
     borderRadius: radius.sm,
@@ -239,24 +264,25 @@ const s = StyleSheet.create({
   inputCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: spacing.xs,
-    padding: spacing.md,
+    padding: spacing.sm,
   },
-  inputLabel: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  inputLabel: { color: colors.text, fontSize: 13, fontWeight: '800' },
   loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   priorityBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   priorityText: { fontSize: 11, fontWeight: '800' },
   qCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
-    gap: 8,
-    padding: spacing.md,
+    gap: 6,
+    padding: spacing.sm,
   },
   qCardSelected: { borderColor: colors.accent },
+  qContext: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   qFooter: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -264,25 +290,26 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   qHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  qTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
-  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  qTitle: { color: colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  selectedQuestionText: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
   sortHint: { color: colors.muted, fontSize: 12 },
   submitBtn: {
     alignItems: 'center',
     backgroundColor: colors.success,
     borderRadius: radius.sm,
-    paddingVertical: 10,
+    paddingVertical: 9,
   },
   submitDisabled: { opacity: 0.4 },
-  submitText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  submitText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   textInput: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderColor: colors.borderMuted,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: colors.text,
-    fontSize: 14,
-    minHeight: 80,
+    fontSize: 13,
+    minHeight: 72,
     padding: spacing.sm,
     textAlignVertical: 'top',
   },
