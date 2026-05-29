@@ -45,6 +45,10 @@ const normalizeLimit = (limit: number | undefined) => {
 }
 
 export const createMobileChatStore = (db: Database) => {
+  const maxCreatedAtRow = db
+    .prepare('SELECT MAX(created_at) AS max_created_at FROM mobile_chat_messages')
+    .get() as { max_created_at: number | null }
+  let lastCreatedAt = maxCreatedAtRow.max_created_at ?? 0
   const insert = db.prepare(
     `INSERT INTO mobile_chat_messages (
       id,
@@ -59,7 +63,7 @@ export const createMobileChatStore = (db: Database) => {
     `SELECT id, workspace_id, direction, message_type, content_json, created_at
      FROM mobile_chat_messages
      WHERE workspace_id = ?
-     ORDER BY created_at ASC
+     ORDER BY created_at ASC, id ASC
      LIMIT ?`
   )
   const listSince = db.prepare(
@@ -67,9 +71,16 @@ export const createMobileChatStore = (db: Database) => {
      FROM mobile_chat_messages
      WHERE workspace_id = ?
        AND created_at > ?
-     ORDER BY created_at ASC
+     ORDER BY created_at ASC, id ASC
      LIMIT ?`
   )
+
+  const nextCreatedAt = () => {
+    const now = Date.now()
+    const createdAt = now <= lastCreatedAt ? lastCreatedAt + 1 : now
+    lastCreatedAt = createdAt
+    return createdAt
+  }
 
   return {
     insertChatMessage(
@@ -80,7 +91,7 @@ export const createMobileChatStore = (db: Database) => {
     ): MobileChatMessage {
       const record: MobileChatMessage = {
         content_json: contentJson,
-        created_at: Date.now(),
+        created_at: nextCreatedAt(),
         direction,
         id: randomUUID(),
         message_type: messageType,

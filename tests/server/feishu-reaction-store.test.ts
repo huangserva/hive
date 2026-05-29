@@ -22,4 +22,24 @@ describe('FeishuReactionStore', () => {
     expect(store.getLatestForChat('oc_1')).toBe('om_2')
     expect(store.take('om_1')).toBe('rx_1')
   })
+
+  test('evicts oldest reactions when the configured limit is exceeded', () => {
+    const store = new FeishuReactionStore({ maxReactions: 2 })
+
+    store.set('om_1', 'rx_1')
+    store.set('om_2', 'rx_2')
+    store.set('om_3', 'rx_3')
+
+    expect(store.take('om_1')).toBeUndefined()
+    expect(store.take('om_2')).toBe('rx_2')
+    expect(store.take('om_3')).toBe('rx_3')
+  })
+
+  test('expires stale reactions before they can grow without bound', () => {
+    const store = new FeishuReactionStore({ now: () => 10_000, ttlMs: 1_000 })
+
+    store.set('om_old', 'rx_old')
+
+    expect(store.take('om_old', 11_001)).toBeUndefined()
+  })
 })

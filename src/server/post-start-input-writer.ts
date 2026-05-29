@@ -137,9 +137,10 @@ export const createPostStartInputWriter = (
         return
       }
       if (output === null) return
+      const timedOut = Date.now() - startedAt >= READY_TIMEOUT_MS
       if (
         hasInteractivePromptReady(output, command) ||
-        (canTimeoutBeforePromptReady(command) && Date.now() - startedAt >= READY_TIMEOUT_MS)
+        (canTimeoutBeforePromptReady(command) && timedOut)
       ) {
         const baselineLength = output.length
         const input = usesBracketedPaste(command) ? toBracketedPasteSubmission(text) : text
@@ -158,6 +159,7 @@ export const createPostStartInputWriter = (
         )
         return
       }
+      if (timedOut) return
       setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
     }
     try {

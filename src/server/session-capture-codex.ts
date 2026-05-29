@@ -17,7 +17,6 @@ const includesAny = (content: string, needles: string | readonly string[]) => {
 
 const CODEX_SESSION_FILE = /^rollout-.*\.jsonl$/i
 const CODEX_HEADER_READ_CHUNK_BYTES = 4096
-const CODEX_HEADER_MAX_BYTES = 64 * 1024
 
 const getDefaultCodexHome = () => process.env.CODEX_HOME ?? join(homedir(), '.codex')
 
@@ -46,9 +45,12 @@ const walkSessionFiles = (dir: string): string[] => {
   }
 }
 
+// 默认不限制首行字节数：codex session_meta 首行可能 >64KB，旧的硬上限会让这类 session 被静默跳过、
+// 永远捕获不到（bug C1）。这里读到首个换行（或 EOF）为止，正常 JSONL 第一行后即有换行不会读全文。
+// maxBytes 参数仍保留，供需要有界读取的调用方（及测试）显式传入。
 export const readCodexSessionFirstLine = (
   filePath: string,
-  maxBytes = CODEX_HEADER_MAX_BYTES
+  maxBytes = Number.POSITIVE_INFINITY
 ): string | null => {
   const fd = openSync(filePath, 'r')
   try {

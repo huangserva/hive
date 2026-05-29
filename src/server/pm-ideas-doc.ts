@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -39,9 +40,14 @@ const today = () => new Date().toISOString().slice(0, 10)
 
 const topLevelBullet = (line: string) => /^-\s+(.+?)\s*$/.exec(line)
 
+const stableIdeaId = (rawText: string) => {
+  const text = stripIdeaMarker(rawText).replace(/\s+/g, ' ').trim().toLowerCase()
+  const digest = createHash('sha1').update(text).digest('hex').slice(0, 12)
+  return `I-${digest}`
+}
+
 const findIdeaBlock = (lines: string[], ideaId: string) => {
   let section: 'inbox' | 'promoted' | null = null
-  let counter = 0
   for (let index = 0; index < lines.length; index += 1) {
     const trimmed = lines[index]?.trim() ?? ''
     if (/^##\s+inbox/i.test(trimmed)) {
@@ -55,8 +61,8 @@ const findIdeaBlock = (lines: string[], ideaId: string) => {
     if (section !== 'inbox') continue
     const bullet = topLevelBullet(lines[index] ?? '')
     if (!bullet) continue
-    counter += 1
-    if (`I${counter}` !== ideaId) continue
+    const rawText = (bullet[1] ?? '').trim()
+    if (stableIdeaId(rawText) !== ideaId) continue
 
     let end = index + 1
     while (end < lines.length) {
@@ -64,7 +70,6 @@ const findIdeaBlock = (lines: string[], ideaId: string) => {
       if (/^##\s+/.test(next.trim()) || /^###\s+/.test(next.trim()) || topLevelBullet(next)) break
       end += 1
     }
-    const rawText = (bullet[1] ?? '').trim()
     return {
       end,
       start: index,
@@ -166,7 +171,6 @@ export const parseIdeasDoc = (content: string): ParsedIdeas => {
   try {
     let section: 'inbox' | 'promoted' | null = null
     let currentDate: string | null = null
-    let counter = 0
     for (const line of content.split(/\r?\n/)) {
       const trimmed = line.trim()
       if (/^##\s+inbox/i.test(trimmed)) {
@@ -187,13 +191,12 @@ export const parseIdeasDoc = (content: string): ParsedIdeas => {
       if (!section) continue
       const bullet = topLevelBullet(line)
       if (!bullet) continue
-      counter += 1
       const rawText = (bullet[1] ?? '').trim()
       const promoted = section === 'promoted' || /~~.+~~/.test(rawText)
       const date = /^\d{4}-\d{2}-\d{2}\b/.exec(rawText)?.[0] ?? currentDate
       const idea: PMIdea = {
         addedAt: date,
-        id: `I${counter}`,
+        id: stableIdeaId(rawText),
         promoted,
         raw: line,
         text: stripIdeaMarker(rawText),

@@ -78,10 +78,9 @@ export const createCockpitWebSocketServer = (
         return
       }
       wss.handleUpgrade(request, socket, head, (ws) => {
-        const sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
-        sockets.add(ws)
-        socketsByWorkspaceId.set(workspaceId, sockets)
+        let sockets: Set<WsSocket> | null = null
         ws.on('close', () => {
+          if (!sockets) return
           sockets.delete(ws)
           if (sockets.size === 0) socketsByWorkspaceId.delete(workspaceId)
         })
@@ -93,6 +92,10 @@ export const createCockpitWebSocketServer = (
           } catch (error) {
             logUpgradeError(logger, error)
           }
+          if (ws.readyState !== ws.OPEN) return
+          sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
+          sockets.add(ws)
+          socketsByWorkspaceId.set(workspaceId, sockets)
         })
       })
     } catch (error) {
@@ -124,7 +127,11 @@ export const createCockpitWebSocketServer = (
       }
       for (const socket of sockets) {
         if (socket.readyState === socket.OPEN) {
-          sendSnapshot(socket, workspacePath, 'cockpit-update')
+          try {
+            sendSnapshot(socket, workspacePath, 'cockpit-update')
+          } catch (error) {
+            logger?.error('cockpit websocket publish failed', error)
+          }
         }
       }
     },

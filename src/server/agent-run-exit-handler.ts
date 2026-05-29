@@ -37,7 +37,13 @@ export const handleAgentRunExit = (
   clearResumedSessionOnFailure(context, exitCode)
   context.handledRunExits.add(runId)
   context.tokenRegistry.revokeIfMatches(context.agentId, context.token)
-  context.onAgentExit(context.workspace.id, context.agentId)
+  // onAgentExit 抛错也绝不能阻止 resolveExit：否则 exit promise 永不 resolve，
+  // closeAgentRuntime 等它就永久挂起、close() 卡死（bug B2）。包 try/catch 保证退出收尾一定完成。
+  try {
+    context.onAgentExit(context.workspace.id, context.agentId)
+  } catch {
+    // 吞掉 onAgentExit 的异常（此处无 logger 可用）：退出收尾的可靠性优先于上抛该错误。
+  }
   context.registry.resolveExit(runId)
   context.registry.clearPendingExitCode(runId)
   return true

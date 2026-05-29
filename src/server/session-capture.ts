@@ -101,6 +101,7 @@ export const snapshotSessionIdsForCapture = (
       env: { HIVE_OPENCODE_DB_PATH: dbPath },
       knownSessionIds: snapshotOpenCodeSessionIds(cwd, dbPath),
       root: dbPath,
+      ...(discriminator ? { discriminator } : {}),
     }
   }
   return undefined
@@ -158,7 +159,8 @@ export const captureSessionIdForCapture = async (
       onCapture,
       timeoutMs,
       intervalMs,
-      snapshot.root
+      snapshot.root,
+      snapshot.discriminator
     )
   }
 }
@@ -179,7 +181,7 @@ export const doesCapturedSessionExist = (
     return hasGeminiSession(cwd, sessionId, capture.pattern, discriminator)
   }
   if (capture.source === 'opencode_session_db') {
-    return hasOpenCodeSession(cwd, sessionId, capture.pattern)
+    return hasOpenCodeSession(cwd, sessionId, capture.pattern, discriminator)
   }
   return false
 }

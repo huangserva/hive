@@ -1,6 +1,16 @@
-import { describe, expect, test } from 'vitest'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-import { parseIdeasDoc } from '../../src/server/pm-ideas-doc.js'
+import { afterEach, describe, expect, test } from 'vitest'
+
+import { parseIdeasDoc, promoteIdeaInFile } from '../../src/server/pm-ideas-doc.js'
+
+const tempDirs: string[] = []
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
+})
 
 const FULL_IDEAS = `# Ideas Inbox
 
@@ -65,9 +75,13 @@ describe('parseIdeasDoc', () => {
     expect(result.raw).toBe(FULL_IDEAS)
   })
 
-  test('sequential id generation', () => {
+  test('stable id generation does not depend on inbox position', () => {
     const result = parseIdeasDoc(FULL_IDEAS)
-    expect(result.inbox.map((i) => i.id)).toEqual(['I1', 'I2', 'I3'])
+    const withoutFirst = parseIdeasDoc(
+      FULL_IDEAS.replace('- 🤔 idea: 用 LLM 做自动 code review\n', '')
+    )
+    expect(result.inbox[1]?.id).toBe(withoutFirst.inbox[0]?.id)
+    expect(result.inbox[2]?.id).toBe(withoutFirst.inbox[1]?.id)
   })
 
   test('ignores indented child bullets inside an idea', () => {
@@ -87,5 +101,41 @@ describe('parseIdeasDoc', () => {
 
     expect(result.inbox).toHaveLength(2)
     expect(result.inbox.map((idea) => idea.text)).toEqual(['provider catalog', 'voice control'])
+  })
+
+  test('promotes the originally selected ideas when multiple promotes shift inbox positions', () => {
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-ideas-stable-id-'))
+    tempDirs.push(workspacePath)
+    mkdirSync(join(workspacePath, '.hive', 'ideas'), { recursive: true })
+    writeFileSync(
+      join(workspacePath, '.hive', 'ideas', 'inbox.md'),
+      `# Ideas Inbox
+
+## inbox
+
+- idea: first idea
+- idea: second idea
+- idea: third idea
+
+## promoted
+`,
+      'utf8'
+    )
+
+    const initial = parseIdeasDoc(
+      readFileSync(join(workspacePath, '.hive', 'ideas', 'inbox.md'), 'utf8')
+    )
+    const firstId = initial.inbox[0]?.id
+    const secondId = initial.inbox[1]?.id
+    if (!firstId || !secondId) throw new Error('Expected first and second idea ids')
+
+    promoteIdeaInFile(workspacePath, firstId, 'adr')
+    promoteIdeaInFile(workspacePath, secondId, 'adr')
+
+    const content = readFileSync(join(workspacePath, '.hive', 'ideas', 'inbox.md'), 'utf8')
+    expect(content).toContain('- ~~first idea~~ → promoted to adr')
+    expect(content).toContain('- ~~second idea~~ → promoted to adr')
+    expect(content).toContain('- idea: third idea')
+    expect(content).not.toContain('- ~~third idea~~ → promoted to adr')
   })
 })

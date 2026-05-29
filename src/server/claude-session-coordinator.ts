@@ -15,6 +15,9 @@ const clearPollerIfIdle = (projectKey: string) => {
   if (poller) clearInterval(poller)
   pollersByProjectKey.delete(projectKey)
   claimedByProjectKey.delete(projectKey)
+  // waiter 集合已空：删除该 projectKey 条目，避免 waitersByProjectKey 只增不减的模块级内存泄漏（bug C4）。
+  // 此处守卫已保证 length 为 0（flushWaiters 会先 set 空数组再调本函数），删除空条目是安全的。
+  waitersByProjectKey.delete(projectKey)
 }
 
 const flushWaiters = (projectKey: string, listSessionIds: () => string[]) => {
@@ -102,3 +105,10 @@ export const resetSessionCaptureCoordinatorForTests = () => {
   waitersByProjectKey.clear()
   claimedByProjectKey.clear()
 }
+
+// 仅供测试断言内部 Map 不残留条目（bug C4 回归）。
+export const getSessionCaptureCoordinatorStateForTests = () => ({
+  claimedKeys: [...claimedByProjectKey.keys()],
+  pollerKeys: [...pollersByProjectKey.keys()],
+  waiterKeys: [...waitersByProjectKey.keys()],
+})

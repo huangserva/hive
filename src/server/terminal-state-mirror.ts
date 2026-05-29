@@ -45,8 +45,14 @@ export class TerminalStateMirror {
   }
 
   async getSnapshot() {
-    await this.operationQueue
-    return this.serializeAddon.serialize()
+    const snapshot = this.operationQueue
+      .catch(() => undefined)
+      .then(() => this.serializeAddon.serialize())
+    this.operationQueue = snapshot.then(
+      () => undefined,
+      () => undefined
+    )
+    return await snapshot
   }
 
   /**

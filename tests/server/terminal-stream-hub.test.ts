@@ -18,12 +18,15 @@ class FakeSocket extends EventEmitter {
 
 const createFakeStore = () => {
   const outputHandlers = new Map<string, (chunk: string) => void>()
+  const outputUnsubscribes = new Map<string, ReturnType<typeof vi.fn>>()
   return {
     getLiveRun: vi.fn(() => ({ exitCode: null, output: '', status: 'running' })),
     getPtyOutputBus: vi.fn(() => ({
       subscribe: vi.fn((runId: string, handler: (chunk: string) => void) => {
         outputHandlers.set(runId, handler)
-        return vi.fn(() => outputHandlers.delete(runId))
+        const unsubscribe = vi.fn(() => outputHandlers.delete(runId))
+        outputUnsubscribes.set(runId, unsubscribe)
+        return unsubscribe
       }),
     })),
     pauseTerminalRun: vi.fn(),
@@ -33,6 +36,9 @@ const createFakeStore = () => {
     writeRunInput: vi.fn(),
     emitOutput(runId: string, chunk: string) {
       outputHandlers.get(runId)?.(chunk)
+    },
+    getOutputUnsubscribe(runId: string) {
+      return outputUnsubscribes.get(runId)
     },
   }
 }
@@ -55,5 +61,31 @@ describe('terminal stream hub', () => {
     expect(store.writeRunInput).not.toHaveBeenCalled()
 
     hub.close()
+  })
+
+  test('missing live run during exit polling sends exit and releases run state', async () => {
+    vi.useFakeTimers()
+    const store = createFakeStore()
+    const hub = createTerminalStreamHub(store as unknown as RuntimeStore)
+    const controlSocket = new FakeSocket()
+
+    hub.attachControl('run-removed', 'viewer-a', controlSocket as unknown as WebSocket)
+    store.getLiveRun.mockImplementation(() => {
+      throw new Error('Live run not found: run-removed')
+    })
+
+    await vi.advanceTimersByTimeAsync(30)
+
+    const payloads = controlSocket.send.mock.calls.map(([payload]) => JSON.parse(String(payload)))
+    expect(payloads).toContainEqual({ type: 'exit', code: null })
+    expect(store.getOutputUnsubscribe('run-removed')).toHaveBeenCalledTimes(1)
+
+    controlSocket.close()
+    store.emitOutput('run-removed', 'after-cleanup')
+
+    expect(controlSocket.send).not.toHaveBeenCalledWith('after-cleanup')
+
+    hub.close()
+    vi.useRealTimers()
   })
 })

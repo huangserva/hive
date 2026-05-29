@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
@@ -7,12 +8,12 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { randomUUID } from 'node:crypto'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 
 import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
+import type { ResolvedApproval } from './feishu-approval-ledger.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import { createLocalSttProvider } from './local-stt.js'
@@ -30,6 +31,40 @@ import { readCookie } from './ui-auth-helpers.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 const pendingUploadPaths = new Map<string, string[]>()
+
+const getPendingUploadKey = (workspaceId: string, deviceId: string) => `${workspaceId}:${deviceId}`
+
+const ALLOWED_AUDIO_FORMATS = new Set(['m4a', 'mp3', 'wav', 'ogg', 'webm', 'opus', 'aac', 'flac'])
+
+export const normalizeMobileAudioFormat = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return 'm4a'
+  if (typeof value !== 'string') throw new BadRequestError('format must be a string')
+  const normalized = value.trim().toLowerCase()
+  if (!/^[a-z0-9]+$/u.test(normalized) || !ALLOWED_AUDIO_FORMATS.has(normalized)) {
+    throw new BadRequestError('Unsupported audio format')
+  }
+  return normalized
+}
+
+const assertInsideDirectory = (parentDir: string, childPath: string) => {
+  const parent = resolve(parentDir)
+  const child = resolve(childPath)
+  if (child !== parent && !child.startsWith(`${parent}${sep}`)) {
+    throw new BadRequestError('Resolved path escapes target directory')
+  }
+}
+
+export const injectApprovalDecision = (
+  store: { recordUserInput: (workspaceId: string, orchestratorId: string, text: string) => void },
+  resolved: ResolvedApproval
+) => {
+  const keyword = resolved.decision === 'allow' ? 'ALLOWED' : 'DENIED'
+  const message = [
+    `[Hive 系统消息：approval_id=${resolved.approvalId} ${keyword} by ${resolved.operator} at ${new Date(resolved.resolvedAt).toISOString()}]`,
+    `action: ${resolved.action}`,
+  ].join('\n')
+  store.recordUserInput(resolved.workspaceId, resolved.orchAgentId, message)
+}
 
 const activeMilestone = (cockpit: ReturnType<typeof parseCockpit>) =>
   cockpit.plan.milestones.find((milestone) => milestone.status === 'in_progress') ??
@@ -513,7 +548,7 @@ export const mobileRoutes: RouteDefinition[] = [
     'POST',
     '/api/mobile/workspaces/:workspaceId/prompt',
     async ({ params, request, response, store }) => {
-      requireMobileCapability(request, store, 'send_prompt')
+      const device = requireMobileCapability(request, store, 'send_prompt')
       const workspaceId = getRequiredParam(
         response,
         params,
@@ -528,8 +563,9 @@ export const mobileRoutes: RouteDefinition[] = [
       if (!activeRun) {
         throw new BadRequestError('Orchestrator is not running')
       }
-      const uploadPaths = pendingUploadPaths.get(workspaceId) ?? []
-      pendingUploadPaths.delete(workspaceId)
+      const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
+      const uploadPaths = pendingUploadPaths.get(pendingUploadKey) ?? []
+      pendingUploadPaths.delete(pendingUploadKey)
       const pathHints = uploadPaths.map((p) => `[Image: source: ${p}]`).join('\n')
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
@@ -563,6 +599,7 @@ export const mobileRoutes: RouteDefinition[] = [
       }
       const resolved = store.approvalLedger.resolve(approvalId, decision, `mobile:${device.id}`)
       if (!resolved) throw new BadRequestError(`Approval already resolved: ${approvalId}`)
+      injectApprovalDecision(store, resolved)
       sendJson(response, 200, {
         approval_id: approvalId,
         decision,
@@ -648,9 +685,10 @@ export const mobileRoutes: RouteDefinition[] = [
       return
     }
     const audioBuffer = Buffer.from(body.audio, 'base64')
-    const ext = typeof body.format === 'string' && body.format ? `.${body.format}` : '.m4a'
+    const ext = `.${normalizeMobileAudioFormat(body.format)}`
     const tmpDir = mkdtempSync(join(tmpdir(), 'hive-voice-'))
     const audioPath = join(tmpDir, `voice${ext}`)
+    assertInsideDirectory(tmpDir, audioPath)
     try {
       writeFileSync(audioPath, audioBuffer)
       const result = await sttProvider.transcribeAudioFile(audioPath)
@@ -691,8 +729,7 @@ export const mobileRoutes: RouteDefinition[] = [
       if (dataBuffer.length > 50 * 1024 * 1024) {
         throw new BadRequestError('File too large (max 50MB)')
       }
-      const dataDir =
-        runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
+      const dataDir = runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
       const uploadsDir = join(dataDir, 'uploads')
       if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
       const fileId = randomUUID()
@@ -701,9 +738,10 @@ export const mobileRoutes: RouteDefinition[] = [
       writeFileSync(join(uploadsDir, storageName), dataBuffer)
       const diskPath = join(uploadsDir, storageName)
       const url = `/api/mobile/uploads/${fileId}${ext}`
-      const pending = pendingUploadPaths.get(workspaceId) ?? []
+      const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
+      const pending = pendingUploadPaths.get(pendingUploadKey) ?? []
       pending.push(diskPath)
-      pendingUploadPaths.set(workspaceId, pending)
+      pendingUploadPaths.set(pendingUploadKey, pending)
       store.insertMobileChatMessage(
         workspaceId,
         'inbound',
@@ -723,57 +761,73 @@ export const mobileRoutes: RouteDefinition[] = [
       })
     }
   ),
-  route('GET', '/api/mobile/uploads/:fileId', ({ params, request, response, runtimeInfo }) => {
-    const fileId = params?.fileId
-    if (!fileId) {
-      sendJson(response, 404, { error: 'Not found' })
-      return
-    }
-    const dataDir =
-      runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
-    const uploadsDir = join(dataDir, 'uploads')
-    if (!existsSync(uploadsDir)) {
-      sendJson(response, 404, { error: 'Not found' })
-      return
-    }
-    const candidates = [fileId]
-    const commonExts = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.pdf', '.doc', '.docx', '.zip']
-    for (const ext of commonExts) {
-      candidates.push(`${fileId}${ext}`)
-    }
-    let found: string | null = null
-    for (const candidate of candidates) {
-      const filePath = join(uploadsDir, candidate)
-      if (existsSync(filePath) && statSync(filePath).isFile()) {
-        const resolved = resolve(filePath)
-        if (resolved.startsWith(resolve(uploadsDir))) {
-          found = resolved
-          break
+  route(
+    'GET',
+    '/api/mobile/uploads/:fileId',
+    ({ params, request, response, runtimeInfo, store }) => {
+      requireMobileCapability(request, store, 'read_dashboard')
+      const fileId = params?.fileId
+      if (!fileId) {
+        sendJson(response, 404, { error: 'Not found' })
+        return
+      }
+      const dataDir = runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
+      const uploadsDir = join(dataDir, 'uploads')
+      if (!existsSync(uploadsDir)) {
+        sendJson(response, 404, { error: 'Not found' })
+        return
+      }
+      const candidates = [fileId]
+      const commonExts = [
+        '.png',
+        '.jpg',
+        '.jpeg',
+        '.gif',
+        '.webp',
+        '.mp4',
+        '.mov',
+        '.pdf',
+        '.doc',
+        '.docx',
+        '.zip',
+      ]
+      for (const ext of commonExts) {
+        candidates.push(`${fileId}${ext}`)
+      }
+      let found: string | null = null
+      for (const candidate of candidates) {
+        const filePath = join(uploadsDir, candidate)
+        if (existsSync(filePath) && statSync(filePath).isFile()) {
+          const resolved = resolve(filePath)
+          if (resolved.startsWith(`${resolve(uploadsDir)}${sep}`)) {
+            found = resolved
+            break
+          }
         }
       }
+      if (!found) {
+        sendJson(response, 404, { error: 'File not found' })
+        return
+      }
+      const data = readFileSync(found)
+      const ext = found.includes('.') ? found.slice(found.lastIndexOf('.')) : ''
+      const mimeMap: Record<string, string> = {
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.gif': 'image/gif',
+        '.jpeg': 'image/jpeg',
+        '.jpg': 'image/jpeg',
+        '.mov': 'video/quicktime',
+        '.mp4': 'video/mp4',
+        '.pdf': 'application/pdf',
+        '.png': 'image/png',
+        '.webp': 'image/webp',
+        '.zip': 'application/zip',
+      }
+      response.setHeader('content-type', mimeMap[ext] ?? 'application/octet-stream')
+      response.setHeader('cache-control', 'public, max-age=86400')
+      response.statusCode = 200
+      response.end(data)
     }
-    if (!found) {
-      sendJson(response, 404, { error: 'File not found' })
-      return
-    }
-    const data = readFileSync(found)
-    const ext = found.includes('.') ? found.slice(found.lastIndexOf('.')) : ''
-    const mimeMap: Record<string, string> = {
-      '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.gif': 'image/gif',
-      '.jpeg': 'image/jpeg',
-      '.jpg': 'image/jpeg',
-      '.mov': 'video/quicktime',
-      '.mp4': 'video/mp4',
-      '.pdf': 'application/pdf',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.zip': 'application/zip',
-    }
-    response.setHeader('content-type', mimeMap[ext] ?? 'application/octet-stream')
-    response.setHeader('cache-control', 'public, max-age=86400')
-    response.statusCode = 200
-    response.end(data)
-  }),
+  ),
 ]

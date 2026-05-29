@@ -228,19 +228,54 @@ export const createRelayConnector = (
     return true
   }
 
+  // stale channel 守卫（bug ③c）：仅当该会话仍是当前注册的活跃会话时才发响应。
+  // 断连会 sessions.clear()、重新握手会替换同 deviceId 的会话——两种情况下，
+  // 在途 async 响应若仍用旧 channel 加密并发到（可能已是新的）socket 就会用过期密钥 / 发错连接，
+  // 因此一旦会话身份不再匹配就直接丢弃，不发送。
+  const sendEncryptedResponse = (session: RelayDeviceSession, body: unknown) => {
+    if (sessions.get(session.deviceId) !== session) return
+    sendRelayFrame({
+      payload: session.channel.encrypt(encodeJson(body)),
+      type: 'data',
+    })
+  }
+
   const handleEncryptedRpc = async (payload: string) => {
     for (const session of sessions.values()) {
-      const plaintext = session.channel.decrypt(payload)
+      // 畸形 base64 会让 decrypt 内部的 atob 抛错（bug ③a）；逐会话捕获后继续尝试下一个会话，
+      // 任何畸形输入都不让异常冒泡出本函数（否则 line 274 的 void 调用会变成 unhandled rejection → process.exit）。
+      let plaintext: Uint8Array | null
+      try {
+        plaintext = session.channel.decrypt(payload)
+      } catch {
+        continue
+      }
       if (!plaintext) continue
-      const request = decodeJson(plaintext) as {
-        id?: string
-        method?: string
-        params?: unknown
+
+      // 解密成功 = 命中正确会话。后续畸形输入一律优雅回标准 JSON-RPC error，不再 throw（bug ③a/③b）。
+      let request: { id?: string; method?: string; params?: unknown }
+      try {
+        request = decodeJson(plaintext) as { id?: string; method?: string; params?: unknown }
+      } catch {
+        // JSON 畸形：取不到 id，按 JSON-RPC 规范回 -32700 Parse error（id 为 null）。
+        sendEncryptedResponse(session, {
+          error: { code: -32700, message: 'Parse error' },
+          id: null,
+          jsonrpc: '2.0',
+        })
+        return
       }
-      if (typeof request.method !== 'string') {
-        throw new Error('Invalid JSON-RPC method')
-      }
+
       const id = request.id ?? null
+      if (typeof request.method !== 'string') {
+        sendEncryptedResponse(session, {
+          error: { code: -32600, message: 'Invalid Request' },
+          id,
+          jsonrpc: '2.0',
+        })
+        return
+      }
+
       try {
         const result = await rpcHandler(
           request.method,
@@ -248,17 +283,9 @@ export const createRelayConnector = (
           session.deviceId,
           session.capabilities
         )
-        sendRelayFrame({
-          payload: session.channel.encrypt(encodeJson({ id, jsonrpc: '2.0', result })),
-          type: 'data',
-        })
+        sendEncryptedResponse(session, { id, jsonrpc: '2.0', result })
       } catch (error) {
-        sendRelayFrame({
-          payload: session.channel.encrypt(
-            encodeJson({ error: normalizeRpcError(error), id, jsonrpc: '2.0' })
-          ),
-          type: 'data',
-        })
+        sendEncryptedResponse(session, { error: normalizeRpcError(error), id, jsonrpc: '2.0' })
       }
       return
     }
@@ -271,7 +298,9 @@ export const createRelayConnector = (
   const handleDataFrame = (frame: RelayDataFrame) => {
     const clearFrame = decodeClearFrame(frame.payload)
     if (clearFrame && handleHandshake(clearFrame)) return
-    void handleEncryptedRpc(frame.payload)
+    // 防御性兜底：handleEncryptedRpc 内部已捕获所有畸形输入，这里再加 .catch 确保任何意外异常
+    // 都不会变成 unhandled rejection 触发全局 handler 的 process.exit（bug ③a）。
+    void handleEncryptedRpc(frame.payload).catch(() => {})
   }
 
   function connect() {

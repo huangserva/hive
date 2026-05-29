@@ -205,8 +205,20 @@ describe('POST /api/workspaces/:workspaceId/cockpit/ideas/:ideaId/promote', () =
       'utf8'
     )
 
+    const cockpit = await fetchJson(`${baseUrl}/api/workspaces/${workspace.id}/cockpit`, {
+      headers: uiHeaders(uiToken),
+    })
+    expect(cockpit.status).toBe(200)
+    const ideas = (
+      cockpit.body as {
+        ideas: { inbox: Array<{ id: string; text: string }> }
+      }
+    ).ideas.inbox
+    const ideaId = ideas.find((idea) => idea.text === 'add voice mode')?.id
+    expect(ideaId).toBeDefined()
+
     const { body, status } = await fetchJson(
-      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/ideas/I1/promote`,
+      `${baseUrl}/api/workspaces/${workspace.id}/cockpit/ideas/${encodeURIComponent(ideaId ?? '')}/promote`,
       {
         body: JSON.stringify({ target: 'question' }),
         headers: { ...uiHeaders(uiToken), 'content-type': 'application/json' },

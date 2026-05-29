@@ -130,6 +130,28 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
   })
 
+  test('stops polling Gemini when the prompt never becomes ready', () => {
+    vi.useFakeTimers()
+    const manager = {
+      getRun: vi.fn(() => ({
+        output: 'Gemini CLI v0.35.3\nAuthenticated with gemini-api-key',
+        status: 'running',
+      })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'gemini')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(9000)
+    const callsAfterTimeout = manager.getRun.mock.calls.length
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1000)
+    expect(manager.getRun).toHaveBeenCalledTimes(callsAfterTimeout)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+  })
+
   test('does not submit delayed Enter after the PTY exits', () => {
     vi.useFakeTimers()
     let output = 'Welcome back\n❯ '

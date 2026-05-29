@@ -72,10 +72,9 @@ export const createTasksWebSocketServer = (
       }
       wss.handleUpgrade(request, socket, head, (ws) => {
         const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
-        const sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
-        sockets.add(ws)
-        socketsByWorkspaceId.set(workspaceId, sockets)
+        let sockets: Set<WsSocket> | null = null
         ws.on('close', () => {
+          if (!sockets) return
           sockets.delete(ws)
           if (sockets.size === 0) {
             socketsByWorkspaceId.delete(workspaceId)
@@ -95,6 +94,10 @@ export const createTasksWebSocketServer = (
               ws.send(JSON.stringify({ type: 'tasks-snapshot', content: '' }))
             }
           }
+          if (ws.readyState !== ws.OPEN) return
+          sockets = socketsByWorkspaceId.get(workspaceId) ?? new Set<WsSocket>()
+          sockets.add(ws)
+          socketsByWorkspaceId.set(workspaceId, sockets)
         })
       })
     } catch (error) {

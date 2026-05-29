@@ -122,6 +122,23 @@ const jsonHeaders = (input: { cookie?: string; host?: string; token?: string } =
 
 const toWsUrl = (baseUrl: string, path: string) => baseUrl.replace('http://', 'ws://') + path
 
+const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25) => {
+  const deadline = Date.now() + timeoutMs
+  let lastError: unknown
+
+  while (Date.now() <= deadline) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+      await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    }
+  }
+
+  throw lastError
+}
+
 const waitForMessage = async <T>(socket: WebSocket) =>
   new Promise<T>((resolve, reject) => {
     socket.once('message', (chunk) => {
@@ -646,6 +663,143 @@ describe('mobile API', () => {
     }
   })
 
+  test('requires mobile read_dashboard capability before serving uploaded files', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Uploads')
+      const sender = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Sender')
+      const upload = await fetch(`${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`, {
+        body: JSON.stringify({
+          data: Buffer.from('private upload bytes').toString('base64'),
+          filename: 'private.txt',
+          mime_type: 'text/plain',
+        }),
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token: sender.token }),
+        method: 'POST',
+      })
+      const uploaded = (await upload.json()) as { url: string }
+      expect(upload.status).toBe(200)
+      expect(uploaded.url).toMatch(/^\/api\/mobile\/uploads\//)
+
+      const anonymous = await fetch(`${server.baseUrl}${uploaded.url}`, {
+        headers: { host: '192.168.1.44:4010' },
+      })
+      expect(anonymous.status).toBe(401)
+
+      const noReader = await fetch(`${server.baseUrl}${uploaded.url}`, {
+        headers: mobileHeaders(sender.token, '192.168.1.44:4010'),
+      })
+      expect(noReader.status).toBe(403)
+
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
+      const allowed = await fetch(`${server.baseUrl}${uploaded.url}`, {
+        headers: mobileHeaders(reader.token, '192.168.1.44:4010'),
+      })
+      expect(allowed.status).toBe(200)
+      expect(await allowed.text()).toBe('private upload bytes')
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('keeps pending mobile uploads isolated per device before prompt submission', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Upload Isolation')
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-upload-echo.js')
+      writeFileSync(
+        orchScript,
+        [
+          "process.stdin.setEncoding('utf8')",
+          "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+        ].join('\n'),
+        'utf8'
+      )
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+
+      const firstDevice = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Phone A')
+      const secondDevice = await createMobileTokenForTest(
+        server.baseUrl,
+        ['send_prompt'],
+        'Phone B'
+      )
+
+      const firstUpload = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`,
+        {
+          body: JSON.stringify({
+            data: Buffer.from('image from phone a').toString('base64'),
+            filename: 'phone-a.png',
+            mime_type: 'image/png',
+          }),
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: firstDevice.token }),
+          method: 'POST',
+        }
+      )
+      const firstBody = (await firstUpload.json()) as { file_id: string }
+      expect(firstUpload.status).toBe(200)
+
+      const secondUpload = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`,
+        {
+          body: JSON.stringify({
+            data: Buffer.from('image from phone b').toString('base64'),
+            filename: 'phone-b.png',
+            mime_type: 'image/png',
+          }),
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: secondDevice.token }),
+          method: 'POST',
+        }
+      )
+      const secondBody = (await secondUpload.json()) as { file_id: string }
+      expect(secondUpload.status).toBe(200)
+
+      const secondPrompt = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/prompt`,
+        {
+          body: JSON.stringify({ text: 'Prompt from phone B' }),
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: secondDevice.token }),
+          method: 'POST',
+        }
+      )
+      expect(secondPrompt.status).toBe(200)
+
+      const firstPrompt = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/prompt`,
+        {
+          body: JSON.stringify({ text: 'Prompt from phone A' }),
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: firstDevice.token }),
+          method: 'POST',
+        }
+      )
+      expect(firstPrompt.status).toBe(200)
+
+      const recoveryMessages = server.store.listMessagesForRecovery(workspace.id, 0)
+      const messageFromB = recoveryMessages.find((message) =>
+        message.text.includes('Prompt from phone B')
+      )
+      const messageFromA = recoveryMessages.find((message) =>
+        message.text.includes('Prompt from phone A')
+      )
+
+      expect(messageFromB?.text).toContain(secondBody.file_id)
+      expect(messageFromB?.text).not.toContain(firstBody.file_id)
+      expect(messageFromA?.text).toContain(firstBody.file_id)
+      expect(messageFromA?.text).not.toContain(secondBody.file_id)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('does not expose deprecated pairing code endpoints', async () => {
     const server = await startTestServer()
     try {
@@ -805,11 +959,28 @@ describe('mobile API', () => {
     const server = await startTestServer()
     try {
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Approval')
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-approval-echo.js')
+      writeFileSync(
+        orchScript,
+        [
+          "process.stdin.setEncoding('utf8')",
+          "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+        ].join('\n'),
+        'utf8'
+      )
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      const run = await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
       const approval = server.store.approvalLedger.create({
         action: 'Remove generated files',
         chatId: 'oc_mobile',
         messageId: 'om_mobile',
-        orchAgentId: `${workspace.id}:orchestrator`,
+        orchAgentId: orchestratorId,
         risk: 'high',
         target: null,
         workspaceId: workspace.id,
@@ -847,6 +1018,17 @@ describe('mobile API', () => {
         status: 'recorded',
       })
       expect(server.store.approvalLedger.get(approval.approvalId)).toBeNull()
+      await waitFor(() => {
+        const activeRun = server.store.getLiveRun(run.runId)
+        expect(activeRun.output).toContain(`approval_id=${approval.approvalId} ALLOWED`)
+        expect(activeRun.output).toContain('action: Remove generated files')
+      })
+      expect(server.store.listMessagesForRecovery(workspace.id, 0)).toContainEqual(
+        expect.objectContaining({
+          text: expect.stringContaining(`approval_id=${approval.approvalId} ALLOWED`),
+          type: 'user_input',
+        })
+      )
     } finally {
       await server.close()
     }

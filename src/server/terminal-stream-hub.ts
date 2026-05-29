@@ -38,6 +38,13 @@ const normalizeTerminalInput = (
   return isBinary ? Buffer.from(bytes) : bytes.toString()
 }
 
+const isMissingLiveRunError = (error: unknown, runId: string) => {
+  if (!(error instanceof Error)) return false
+  return (
+    error.message === `Live run not found: ${runId}` || error.message === `Run not found: ${runId}`
+  )
+}
+
 export interface TerminalStreamHub {
   attachControl: (
     runId: string,
@@ -116,25 +123,27 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
 
   const startExitWatcher = (runId: string, state: RunState) => {
     if (state.exitInterval) return
+    const finalizeExit = (exitCode: number | null) => {
+      state.exited = true
+      state.outputUnsubscribe?.()
+      state.outputUnsubscribe = null
+      const payload = serializeTerminalExit(exitCode)
+      for (const viewer of state.viewers.values()) {
+        const controlSocket = viewer.controlSocket
+        if (controlSocket && controlSocket.readyState === controlSocket.OPEN)
+          controlSocket.send(payload)
+      }
+      if (state.exitInterval) clearInterval(state.exitInterval)
+      state.exitInterval = null
+      cleanupRun(runId)
+    }
     state.exitInterval = setInterval(() => {
       try {
         const run = store.getLiveRun(runId)
         if (run.status !== 'exited' && run.status !== 'error') return
-        state.exited = true
-        state.outputUnsubscribe?.()
-        state.outputUnsubscribe = null
-        const payload = serializeTerminalExit(run.exitCode)
-        for (const viewer of state.viewers.values()) {
-          const controlSocket = viewer.controlSocket
-          if (controlSocket && controlSocket.readyState === controlSocket.OPEN)
-            controlSocket.send(payload)
-        }
-        if (state.exitInterval) clearInterval(state.exitInterval)
-        state.exitInterval = null
-        cleanupRun(runId)
-      } catch {
-        if (state.exitInterval) clearInterval(state.exitInterval)
-        state.exitInterval = null
+        finalizeExit(run.exitCode)
+      } catch (error) {
+        if (isMissingLiveRunError(error, runId)) finalizeExit(null)
       }
     }, 25)
   }

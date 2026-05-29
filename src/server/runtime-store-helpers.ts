@@ -150,6 +150,7 @@ export const createRuntimeStoreServices = (
   }
   const restartPolicy = buildRuntimeRestartPolicy({
     agentRunStore,
+    listDispatches: dispatchLedgerStore.listWorkspaceDispatches,
     messageLogStore,
     tasksFileService,
     workspaceStore,

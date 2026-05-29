@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import { createLocalSttProvider } from './local-stt.js'
 import type { MobileCapability } from './mobile-auth.js'
@@ -9,6 +9,8 @@ import {
   buildMobileDashboard,
   buildMobileWorkerTranscript,
   buildMobileWorkspaceTasks,
+  injectApprovalDecision,
+  normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
 
@@ -30,6 +32,7 @@ interface RelayRpcHandlerDeps {
     | 'getWorker'
     | 'listDispatches'
     | 'listWorkspaces'
+    | 'recordUserInput'
     | 'requireMobileCapability'
     | 'startAgent'
     | 'stopAgentRun'
@@ -141,6 +144,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       }
       const resolved = deps.store.approvalLedger.resolve(approvalId, decision, `relay:${deviceId}`)
       if (!resolved) throw new Error(`Approval not found or already resolved: ${approvalId}`)
+      injectApprovalDecision(deps.store, resolved)
       return { approval_id: approvalId, decision, ok: true }
     }
 
@@ -177,14 +181,19 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
     if (method === 'voice.transcribe') {
       requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
       const audioBase64 = readStringParam(params, 'audio')
-      const format = typeof params.format === 'string' ? params.format : 'm4a'
+      const format = normalizeMobileAudioFormat(params.format)
       const sttProvider = createLocalSttProvider()
       const cli = await sttProvider.detect()
       if (!cli) return { error: 'stt_unavailable' }
       const audioBuffer = Buffer.from(audioBase64, 'base64')
-      const ext = format ? `.${format}` : '.m4a'
+      const ext = `.${format}`
       const tmpDir = mkdtempSync(join(tmpdir(), 'hive-voice-'))
       const audioPath = join(tmpDir, `voice${ext}`)
+      const resolvedTmpDir = resolve(tmpDir)
+      const resolvedAudioPath = resolve(audioPath)
+      if (!resolvedAudioPath.startsWith(`${resolvedTmpDir}${sep}`)) {
+        throw new Error('Resolved audio path escapes temp directory')
+      }
       try {
         writeFileSync(audioPath, audioBuffer)
         const result = await sttProvider.transcribeAudioFile(audioPath)

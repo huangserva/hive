@@ -1,10 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
 
+import { createPlanWebSocketServer } from '../../src/server/plan-websocket-server.js'
+import type { RuntimeStore } from '../../src/server/runtime-store.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -70,6 +73,13 @@ Test websocket snapshot.
 ### M1 · shipped
 
 - [x] Done`
+
+const listen = async (server: ReturnType<typeof createServer>) => {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Expected TCP address')
+  return `ws://127.0.0.1:${address.port}`
+}
 
 describe('plan websocket server', () => {
   test('rejects plan upgrade without valid UI token', async () => {
@@ -137,6 +147,49 @@ describe('plan websocket server', () => {
       socket.close()
     } finally {
       await server.close()
+    }
+  })
+
+  test('sends initial plan snapshot before subscribing client to updates', async () => {
+    const httpServer = createServer()
+    const workspaceId = 'workspace-plan-order'
+    let planWs!: ReturnType<typeof createPlanWebSocketServer>
+    planWs = createPlanWebSocketServer(
+      httpServer,
+      {
+        getWorkspaceSnapshot: () => ({ summary: { path: '/tmp/hive-plan-order' } }),
+        validateUiToken: () => true,
+      } as unknown as RuntimeStore,
+      {
+        readPlan: () => {
+          planWs.publish(workspaceId, PLAN_CONTENT.replace('WsTest', 'Updated'))
+          return PLAN_CONTENT
+        },
+      }
+    )
+    const baseUrl = await listen(httpServer)
+    const messages: Array<{ type: string }> = []
+
+    try {
+      const socket = new WebSocket(`${baseUrl}/ws/plan/${workspaceId}`, {
+        headers: { cookie: 'hive_ui_token=test' },
+      })
+      socket.on('message', (chunk) => messages.push(JSON.parse(chunk.toString())))
+
+      await new Promise<void>((resolve, reject) => {
+        socket.once('open', resolve)
+        socket.once('error', reject)
+      })
+
+      await waitFor(() => {
+        expect(messages.length).toBeGreaterThanOrEqual(1)
+        expect(messages[0]?.type).toBe('plan-snapshot')
+      })
+
+      socket.close()
+    } finally {
+      planWs.close()
+      httpServer.close()
     }
   })
 })

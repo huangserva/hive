@@ -27,10 +27,10 @@ export const createNoopRestartPolicy = (): RestartPolicy => ({
 })
 
 export const createRestartPolicy = ({
-  deleteMessage,
   getWorkspaceSnapshot,
   insertMessage,
   listAgentRuns,
+  listDispatches,
   listMessagesForRecovery,
   readTasks,
 }: RestartPolicyInput): RestartPolicy => ({
@@ -48,16 +48,21 @@ export const createRestartPolicy = ({
 
     if (startConfig.resumedSessionId) return true
 
+    // 已取消的 dispatch 不该在恢复摘要里当成 open 任务复活（bug C2）。
+    const cancelledDispatches = listDispatches(workspace.id)
+      .filter((dispatch) => dispatch.status === 'cancelled')
+      .map((dispatch) => ({ text: dispatch.text, toAgentId: dispatch.toAgentId }))
+
     const text = buildRecoverySummary({
       agent,
       allTaskMessages: listMessagesForRecovery(workspace.id, 0),
+      cancelledDispatches,
       messages: listMessagesForRecovery(workspace.id, Date.now() - RECOVERY_WINDOW_MS),
       tasksContent,
       workers,
       workspace,
     })
     writeSystemMessage({
-      deleteMessage,
       insertMessage,
       record: createSystemRecoverySummaryMessage(workspace.id, agentId, text),
       runId,
