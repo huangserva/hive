@@ -105,7 +105,7 @@ export const AddWorkerDialog = ({
         <div className="pointer-events-none fixed inset-0 z-50 grid place-items-center p-4">
           <Dialog.Content
             data-testid="add-worker-content"
-            className="dialog-scale-pop elev-2 pointer-events-auto flex max-h-[calc(100vh-32px)] w-[560px] max-w-full flex-col rounded-lg border"
+            className="dialog-scale-pop elev-2 pointer-events-auto flex max-h-[85vh] w-[560px] max-w-full flex-col overflow-hidden rounded-lg border"
             style={{
               background: 'var(--bg-elevated)',
               borderColor: 'var(--border-bright)',
@@ -114,7 +114,7 @@ export const AddWorkerDialog = ({
             <form
               onSubmit={handleSubmit}
               aria-label={t('addWorker.title')}
-              className="flex flex-col"
+              className="flex min-h-0 flex-1 flex-col"
             >
               <div
                 className="flex shrink-0 flex-col gap-0.5 border-b px-5 py-4"
@@ -128,7 +128,7 @@ export const AddWorkerDialog = ({
                 </Dialog.Description>
               </div>
 
-              <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
                 <label className="flex flex-col gap-2">
                   <div className="flex items-baseline justify-between gap-2">
                     <SectionLabel>{t('addWorker.name')}</SectionLabel>
@@ -155,7 +155,17 @@ export const AddWorkerDialog = ({
                   />
                 </label>
 
-                <TemplatePicker roleTemplates={roleTemplates} onTemplateSelect={onTemplateSelect} />
+                <AgentCliPicker
+                  commandPresetId={commandPresetId}
+                  commandPresets={commandPresets}
+                  onPresetChange={onPresetChange}
+                />
+                <TemplatePicker
+                  commandPresetId={commandPresetId}
+                  commandPresets={commandPresets}
+                  roleTemplates={roleTemplates}
+                  onTemplateSelect={onTemplateSelect}
+                />
                 <RolePicker workerRole={workerRole} onRoleChange={onRoleChange} />
                 <RoleInstructionsField
                   modified={roleDescriptionModified}
@@ -163,11 +173,6 @@ export const AddWorkerDialog = ({
                   onReset={onRoleDescriptionReset}
                   roleDescription={roleDescription}
                   workerRole={workerRole}
-                />
-                <AgentCliPicker
-                  commandPresetId={commandPresetId}
-                  commandPresets={commandPresets}
-                  onPresetChange={onPresetChange}
                 />
                 <ThinkingLevelPicker
                   commandPresetId={commandPresetId}
@@ -179,7 +184,7 @@ export const AddWorkerDialog = ({
               </div>
 
               <div
-                className="flex shrink-0 items-center justify-end gap-2 border-t px-5 py-3"
+                className="sticky bottom-0 z-10 flex shrink-0 items-center justify-end gap-2 border-t px-5 py-3"
                 style={{ borderColor: 'var(--border)', background: 'var(--bg-2)' }}
               >
                 <button
@@ -211,14 +216,20 @@ const roleLabelKey = (role: WorkerRole) =>
   `role.${role}` as 'role.coder' | 'role.custom' | 'role.reviewer' | 'role.sentinel' | 'role.tester'
 
 const TemplatePicker = ({
+  commandPresetId,
+  commandPresets,
   onTemplateSelect,
   roleTemplates,
 }: {
+  commandPresetId: string
+  commandPresets: CommandPreset[]
   onTemplateSelect: (template: RoleTemplate) => void
   roleTemplates: Array<RoleTemplate & { roleType: WorkerRole }>
 }) => {
   const { t } = useI18n()
   if (roleTemplates.length === 0) return null
+  const selectedPreset = commandPresets.find((preset) => preset.id === commandPresetId)
+  const claudePreset = commandPresets.find((preset) => preset.id === 'claude')
 
   return (
     <section className="flex flex-col gap-2" aria-label={t('worker.fromTemplate')}>
@@ -229,6 +240,7 @@ const TemplatePicker = ({
       <p className="text-sm text-ter">{t('worker.templatePicker')}</p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {roleTemplates.map((template) => {
+          const cliPreset = template.roleType === 'sentinel' ? claudePreset : selectedPreset
           const preview = template.description
             .split('\n')
             .map((line) => line.trim())
@@ -249,7 +261,15 @@ const TemplatePicker = ({
                 </span>
               </span>
               <span className="line-clamp-2 text-xs leading-5 text-ter">{preview}</span>
-              <span className="mono text-[11px] text-muted">{template.defaultCommand}</span>
+              <span className="mono text-[11px] text-muted">
+                {template.roleType === 'sentinel'
+                  ? t('worker.templateCliLocked', {
+                      cli: cliPreset?.displayName ?? template.defaultCommand,
+                    })
+                  : t('worker.templateCliCurrent', {
+                      cli: cliPreset?.displayName ?? template.defaultCommand,
+                    })}
+              </span>
             </button>
           )
         })}

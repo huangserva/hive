@@ -144,4 +144,40 @@ describe('Add Worker thinking level picker', () => {
 
     expect(onTemplateSelect).toHaveBeenCalledWith(roleTemplates[0])
   })
+
+  test('template cards show the currently selected CLI instead of every template defaulting to claude', () => {
+    render(
+      <AppProviders>
+        <AddWorkerDialog
+          commandPresets={presets}
+          commandPresetId="opencode"
+          onClose={() => {}}
+          onNameChange={() => {}}
+          onPresetChange={() => {}}
+          onRandomName={() => {}}
+          onRoleChange={() => {}}
+          onRoleDescriptionChange={() => {}}
+          onRoleDescriptionReset={() => {}}
+          onStartupCommandChange={() => {}}
+          onSubmit={(event) => event.preventDefault()}
+          onTemplateSelect={() => {}}
+          onThinkingLevelChange={() => {}}
+          roleDescription="You are a Coder"
+          roleDescriptionDefault="You are a Coder"
+          roleTemplates={[
+            {
+              ...roleTemplates[0],
+              defaultCommand: 'claude',
+            },
+          ]}
+          startupCommand=""
+          thinkingLevel=""
+          workerName=""
+          workerRole="coder"
+        />
+      </AppProviders>
+    )
+
+    expect(screen.getByRole('button', { name: /前端专家/ })).toHaveTextContent('CLI: OpenCode')
+  })
 })

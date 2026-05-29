@@ -1,12 +1,11 @@
-import { LoaderCircle, Pencil, ShieldAlert, Smartphone } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Copy, LoaderCircle, Pencil, Smartphone, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
 import {
-  generatePairingCode,
+  createMobileToken,
   listMobileDevices,
   type MobileCapability,
   type MobileDevice,
-  type PairingCodeResult,
   revokeMobileDevice,
   updateMobileDevice,
 } from '../api.js'
@@ -40,11 +39,11 @@ const FieldLabel = ({ children }: FieldLabelProps) => (
 interface DeviceRowProps {
   device: MobileDevice
   onEdit: () => void
-  onRevoke: () => void
+  onDelete: () => void
   t: (key: string, values?: Record<string, string | number>) => string
 }
 
-const DeviceRow = ({ device, onEdit, onRevoke, t }: DeviceRowProps) => {
+const DeviceRow = ({ device, onDelete, onEdit, t }: DeviceRowProps) => {
   const isRevoked = device.revoked_at !== null
   const lastSeen = device.last_seen_at
     ? new Date(device.last_seen_at).toLocaleString()
@@ -68,6 +67,7 @@ const DeviceRow = ({ device, onEdit, onRevoke, t }: DeviceRowProps) => {
           {device.device_type === 'legacy_m19a' ? (
             <span className="pill pill--neutral text-[10px]">{t('mobile.legacy')}</span>
           ) : null}
+          <span className="pill pill--ghost text-[10px]">{t('mobile.sourceManual')}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-ter">
           {device.capabilities.map((cap) => (
@@ -93,10 +93,10 @@ const DeviceRow = ({ device, onEdit, onRevoke, t }: DeviceRowProps) => {
           <button
             type="button"
             className="worker-card__action"
-            aria-label={t('mobile.revoke')}
-            onClick={onRevoke}
+            aria-label={t('mobile.delete')}
+            onClick={onDelete}
           >
-            <ShieldAlert size={12} aria-hidden />
+            <Trash2 size={12} aria-hidden />
           </button>
         </div>
       ) : null}
@@ -109,18 +109,16 @@ export const MobileDevicesSection = () => {
   const [devices, setDevices] = useState<MobileDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pairingResult, setPairingResult] = useState<PairingCodeResult | null>(null)
-  const [generating, setGenerating] = useState(false)
+  const [createdToken, setCreatedToken] = useState<{ deviceId: string; token: string } | null>(null)
+  const [creating, setCreating] = useState(false)
   const [showGenerator, setShowGenerator] = useState(false)
   const [genName, setGenName] = useState('')
   const [genCaps, setGenCaps] = useState<MobileCapability[]>([...ALL_CAPABILITIES])
-  const [revokeTarget, setRevokeTarget] = useState<MobileDevice | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MobileDevice | null>(null)
   const [editTarget, setEditTarget] = useState<MobileDevice | null>(null)
   const [editName, setEditName] = useState('')
   const [editCaps, setEditCaps] = useState<MobileCapability[]>([])
   const [editSaving, setEditSaving] = useState(false)
-  const [countdown, setCountdown] = useState(0)
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const loadDevices = useCallback(() => {
     setLoading(true)
@@ -135,52 +133,28 @@ export const MobileDevicesSection = () => {
     loadDevices()
   }, [loadDevices])
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current)
-    }
-  }, [])
-  const startCountdown = (expiresAt: number) => {
-    if (timerRef.current) clearInterval(timerRef.current)
-    const update = () => {
-      const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
-      setCountdown(remaining)
-      if (remaining <= 0 && timerRef.current) {
-        clearInterval(timerRef.current)
-        timerRef.current = null
-        setPairingResult(null)
-      }
-    }
-    update()
-    timerRef.current = setInterval(update, 1000)
-  }
-
   const handleGenerate = () => {
     if (!genName.trim()) return
-    setGenerating(true)
+    setCreating(true)
     setError(null)
-    generatePairingCode(genName.trim(), genCaps)
+    createMobileToken(genName.trim(), genCaps)
       .then((result) => {
-        setPairingResult(result)
-        startCountdown(result.expires_at)
+        setCreatedToken({ deviceId: result.device_id, token: result.token })
         setShowGenerator(false)
         setGenName('')
         setGenCaps([...ALL_CAPABILITIES])
+        loadDevices()
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setGenerating(false))
+      .finally(() => setCreating(false))
   }
 
-  const handleRevoke = () => {
-    if (!revokeTarget) return
-    revokeMobileDevice(revokeTarget.id)
+  const handleDelete = () => {
+    if (!deleteTarget) return
+    revokeMobileDevice(deleteTarget.id)
       .then(() => {
-        setDevices((prev) =>
-          prev.map((d) =>
-            d.id === revokeTarget.id ? { ...d, revoked_at: new Date().toISOString() } : d
-          )
-        )
-        setRevokeTarget(null)
+        setDevices((prev) => prev.filter((device) => device.id !== deleteTarget.id))
+        setDeleteTarget(null)
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }
@@ -205,9 +179,6 @@ export const MobileDevicesSection = () => {
     setCaps(caps.includes(cap) ? caps.filter((c) => c !== cap) : [...caps, cap])
   }
 
-  const minutes = Math.floor(countdown / 60)
-  const seconds = countdown % 60
-
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
@@ -231,21 +202,27 @@ export const MobileDevicesSection = () => {
         </div>
       ) : null}
 
-      {pairingResult ? (
+      {createdToken ? (
         <div
           className="flex flex-col items-center gap-2 rounded border px-4 py-4"
           style={{ borderColor: 'var(--border)' }}
-          data-testid="pairing-code-display"
+          data-testid="created-token-display"
         >
           <span className="text-xs uppercase tracking-wider text-ter">
-            {t('mobile.pairingCode')}
+            {t('mobile.createdToken')}
           </span>
-          <code className="mono text-4xl font-bold tracking-[0.3em] text-pri">
-            {pairingResult.code}
+          <code className="mono max-w-full break-all rounded bg-black/20 px-3 py-2 text-sm text-pri">
+            {createdToken.token}
           </code>
-          <span className="text-xs text-ter">
-            {t('mobile.codeExpires', { minutes: String(minutes), seconds: String(seconds) })}
-          </span>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => void navigator.clipboard?.writeText(createdToken.token)}
+          >
+            <Copy size={12} aria-hidden />
+            {t('mobile.copyToken')}
+          </button>
+          <span className="text-xs text-ter">{t('mobile.tokenShownOnce')}</span>
         </div>
       ) : null}
 
@@ -253,7 +230,7 @@ export const MobileDevicesSection = () => {
         <div
           className="flex flex-col gap-3 rounded border px-3 py-3"
           style={{ borderColor: 'var(--border)' }}
-          data-testid="pairing-generator"
+          data-testid="token-generator"
         >
           <label className="flex flex-col gap-1.5">
             <FieldLabel>{t('mobile.deviceName')}</FieldLabel>
@@ -262,7 +239,7 @@ export const MobileDevicesSection = () => {
               placeholder="My iPhone"
               value={genName}
               onChange={(e) => setGenName(e.target.value)}
-              data-testid="pairing-device-name"
+              data-testid="token-device-name"
             />
           </label>
           <div className="flex flex-col gap-1.5">
@@ -289,9 +266,9 @@ export const MobileDevicesSection = () => {
               className="icon-btn icon-btn--primary"
               disabled={!genName.trim() || genCaps.length === 0 || generating}
               onClick={handleGenerate}
-              data-testid="pairing-confirm"
+              data-testid="token-confirm"
             >
-              {generating ? t('mobile.generating') : t('mobile.generateCode')}
+              {creating ? t('mobile.creating') : t('mobile.createToken')}
             </button>
           </div>
         </div>
@@ -300,9 +277,9 @@ export const MobileDevicesSection = () => {
           type="button"
           className="icon-btn icon-btn--primary self-start"
           onClick={() => setShowGenerator(true)}
-          data-testid="generate-pairing-btn"
+          data-testid="create-token-btn"
         >
-          {t('mobile.generateCode')}
+          {t('mobile.createToken')}
         </button>
       )}
 
@@ -328,7 +305,7 @@ export const MobileDevicesSection = () => {
                 setEditName(device.name)
                 setEditCaps([...device.capabilities])
               }}
-              onRevoke={() => setRevokeTarget(device)}
+              onDelete={() => setDeleteTarget(device)}
               t={t}
             />
           ))}
@@ -381,15 +358,15 @@ export const MobileDevicesSection = () => {
       ) : null}
 
       <Confirm
-        open={revokeTarget !== null}
+        open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open) setRevokeTarget(null)
+          if (!open) setDeleteTarget(null)
         }}
-        title={revokeTarget ? t('mobile.revokeConfirm', { name: revokeTarget.name }) : ''}
+        title={deleteTarget ? t('mobile.deleteConfirm', { name: deleteTarget.name }) : ''}
         description=""
-        confirmLabel={t('mobile.revoke')}
+        confirmLabel={t('mobile.delete')}
         confirmKind="danger"
-        onConfirm={handleRevoke}
+        onConfirm={handleDelete}
       />
     </section>
   )

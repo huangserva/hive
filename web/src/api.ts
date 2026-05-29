@@ -862,6 +862,7 @@ export type MobileCapability =
   | 'admin_runtime'
 
 export interface MobileDevice {
+  active: boolean
   capabilities: MobileCapability[]
   created_at: string
   device_type: string | null
@@ -869,55 +870,53 @@ export interface MobileDevice {
   last_seen_at: string | null
   name: string
   revoked_at: string | null
+  source: 'manual'
 }
 
-export interface PairingCodeResult {
-  capabilities: MobileCapability[]
-  code: string
-  device_name: string
-  expires_at: number
+export interface MobileTokenCreated {
+  device_id: string
+  token: string
 }
 
-export const generatePairingCode = async (
-  deviceName: string,
+export const createMobileToken = async (
+  name: string,
   capabilities: MobileCapability[]
-): Promise<PairingCodeResult> => {
-  const response = await apiFetch('/api/mobile/pair/generate', {
-    body: JSON.stringify({ capabilities, device_name: deviceName }),
+): Promise<MobileTokenCreated> => {
+  const response = await apiFetch('/api/mobile/tokens', {
+    body: JSON.stringify({ capabilities, name }),
     headers: { 'content-type': 'application/json' },
     method: 'POST',
   })
-  if (!response.ok)
-    throw new Error(await readErrorMessage(response, 'Failed to generate pairing code'))
-  return (await response.json()) as PairingCodeResult
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to create token'))
+  return (await response.json()) as MobileTokenCreated
 }
 
 export const listMobileDevices = async (): Promise<MobileDevice[]> => {
-  const response = await apiFetch('/api/mobile/devices')
+  const response = await apiFetch('/api/mobile/tokens')
   if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to load devices'))
-  const body = (await response.json()) as { devices: MobileDevice[] }
-  return body.devices
+  const body = (await response.json()) as { tokens: MobileDevice[] }
+  return body.tokens
 }
 
 export const updateMobileDevice = async (
   deviceId: string,
   patch: { capabilities?: MobileCapability[]; name?: string }
 ): Promise<MobileDevice> => {
-  const response = await apiFetch(`/api/mobile/devices/${encodeURIComponent(deviceId)}`, {
+  const response = await apiFetch(`/api/mobile/tokens/${encodeURIComponent(deviceId)}`, {
     body: JSON.stringify(patch),
     headers: { 'content-type': 'application/json' },
     method: 'PATCH',
   })
   if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to update device'))
-  const body = (await response.json()) as { device: MobileDevice }
-  return body.device
+  const body = (await response.json()) as { token: MobileDevice }
+  return body.token
 }
 
 export const revokeMobileDevice = async (deviceId: string): Promise<void> => {
-  const response = await apiFetch(`/api/mobile/devices/${encodeURIComponent(deviceId)}`, {
+  const response = await apiFetch(`/api/mobile/tokens/${encodeURIComponent(deviceId)}`, {
     method: 'DELETE',
   })
-  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to revoke device'))
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to delete token'))
 }
 
 export interface PickFolderResponse {

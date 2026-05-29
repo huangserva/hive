@@ -297,8 +297,12 @@ export const useWorkerComposer = ({
     setWorkerRole(nextRole)
     roleDescriptionEditedRef.current = false
     setRoleDescriptionState(template.description)
-    setCommandPresetId(nextRole === 'sentinel' ? 'claude' : template.defaultCommand)
-    setCommandPresetTouched(false)
+    if (nextRole === 'sentinel') {
+      setCommandPresetId('claude')
+      setCommandPresetTouched(false)
+    } else if (!commandPresetTouched) {
+      setCommandPresetId(template.defaultCommand)
+    }
     setStartupCommand('')
     setThinkingLevel('')
     if (!workerName.trim() || workerNameGeneratedRef.current) {
