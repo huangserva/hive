@@ -9,6 +9,11 @@ import { NotFoundError } from './http-errors.js'
 import type { HiveLogger } from './logger.js'
 import type { RecoveryMessage } from './message-log-store.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
+import type {
+  MobileChatDirection,
+  MobileChatMessage,
+  MobileChatMessageType,
+} from './mobile-chat-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
@@ -102,6 +107,9 @@ interface RuntimeStore {
   getLiveRun: (runId: string) => LiveAgentRun
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => LiveAgentRun | undefined
   registerCockpitListener: (listener: (workspaceId: string) => void) => () => void
+  registerMobileChatListener: (
+    listener: (workspaceId: string, message: MobileChatMessage) => void
+  ) => () => void
   registerPlanListener: (listener: (workspaceId: string, content: string) => void) => () => void
   registerTasksListener: (listener: (workspaceId: string, content: string) => void) => () => void
   listAgentRuns: (agentId: string) => PersistedAgentRun[]
@@ -113,15 +121,24 @@ interface RuntimeStore {
   settings: SettingsStore
   writeRunInput: (runId: string, input: Buffer | string) => void
   getUiToken: () => string
-  ensureMobileAccessToken: () => MobileDeviceRecord
+  insertMobileChatMessage: (
+    workspaceId: string,
+    direction: MobileChatDirection,
+    messageType: MobileChatMessageType,
+    contentJson: string
+  ) => MobileChatMessage
+  listMobileChatMessages: (
+    workspaceId: string,
+    since?: number,
+    limit?: number
+  ) => MobileChatMessage[]
   authenticateMobileDevice: (token: string | undefined) => MobileDeviceRecord
-  generateMobilePairingCode: (
-    deviceName: string,
-    capabilities: MobileCapability[],
-    expiresInMs?: number
-  ) => { capabilities: MobileCapability[]; code: string; device_name: string; expires_at: number }
+  createMobileDeviceToken: (
+    name: string,
+    capabilities: MobileCapability[]
+  ) => { device: MobileDeviceRecord; token: string }
+  deleteMobileDevice: (deviceId: string) => void
   listMobileDevices: () => MobileDeviceRecord[]
-  redeemMobilePairingCode: (code: string) => { device: MobileDeviceRecord; token: string }
   requireMobileCapability: (device: MobileDeviceRecord, capability: MobileCapability) => void
   revokeMobileDevice: (deviceId: string) => MobileDeviceRecord
   clearMobilePushToken: (pushToken: string) => void
@@ -245,6 +262,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     getActiveRunByAgentId: (workspaceId, agentId) =>
       services.agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
     registerCockpitListener: lifecycle.registerCockpitListener,
+    registerMobileChatListener: lifecycle.registerMobileChatListener,
     registerPlanListener: lifecycle.registerPlanListener,
     registerTasksListener: lifecycle.registerTasksListener,
     listAgentRuns: (agentId) => services.agentRuntime.listAgentRuns(agentId),
@@ -257,12 +275,23 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     settings: services.settings,
     writeRunInput: lifecycle.writeRunInput,
     getUiToken: () => services.uiAuth.getToken(),
-    ensureMobileAccessToken: () => services.mobileAuthStore.ensureDefaultDevice(),
+    insertMobileChatMessage: (workspaceId, direction, messageType, contentJson) => {
+      const message = services.mobileChatStore.insertChatMessage(
+        workspaceId,
+        direction,
+        messageType,
+        contentJson
+      )
+      for (const callback of services.mobileChatWatchCallbacks) callback(workspaceId, message)
+      return message
+    },
+    listMobileChatMessages: (workspaceId, since, limit) =>
+      services.mobileChatStore.listChatMessages(workspaceId, since, limit),
     authenticateMobileDevice: (token) => services.mobileAuthStore.authenticateDevice(token),
-    generateMobilePairingCode: (deviceName, capabilities, expiresInMs) =>
-      services.mobileAuthStore.generatePairingCode(deviceName, capabilities, expiresInMs),
+    createMobileDeviceToken: (name, capabilities) =>
+      services.mobileAuthStore.createDeviceToken(name, capabilities),
+    deleteMobileDevice: (deviceId) => services.mobileAuthStore.deleteDevice(deviceId),
     listMobileDevices: () => services.mobileAuthStore.listDevices(),
-    redeemMobilePairingCode: (code) => services.mobileAuthStore.redeemPairingCode(code),
     requireMobileCapability: (device, capability) =>
       services.mobileAuthStore.requireCapability(device, capability),
     revokeMobileDevice: (deviceId) => services.mobileAuthStore.revokeDevice(deviceId),

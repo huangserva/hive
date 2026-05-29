@@ -1,11 +1,7 @@
 import Database from 'better-sqlite3'
 import { afterEach, describe, expect, test } from 'vitest'
 
-import {
-  createMobileAuthStore,
-  MOBILE_CAPABILITIES,
-  type MobileCapability,
-} from '../../src/server/mobile-auth.js'
+import { createMobileAuthStore, type MobileCapability } from '../../src/server/mobile-auth.js'
 import { initializeRuntimeDatabase } from '../../src/server/sqlite-schema.js'
 
 let db: Database | null = null
@@ -22,135 +18,102 @@ const createStore = () => {
 }
 
 describe('mobile auth store', () => {
-  test('migrates the default M19a device to a fully capable legacy device', () => {
+  test('creates permanent manual tokens and authenticates them', () => {
     const store = createStore()
-    const device = store.ensureDefaultDevice()
 
-    expect(device.device_type).toBe('legacy_m19a')
-    expect(device.revoked_at).toBeNull()
-    expect(device.capabilities).toEqual([...MOBILE_CAPABILITIES])
-  })
+    const created = store.createDeviceToken('Personal phone', ['read_dashboard'], 1_000)
 
-  test('generates and redeems a one-time pairing code', () => {
-    const store = createStore()
-    const pairing = store.generatePairingCode('Alice iPhone', ['read_dashboard'], 300_000, 1_000)
-
-    expect(pairing.code).toMatch(/^\d{6}$/)
-    expect(pairing.expires_at).toBe(301_000)
-
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
-    expect(redeemed.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
-    expect(redeemed.device.name).toBe('Alice iPhone')
-    expect(redeemed.device.capabilities).toEqual(['read_dashboard'])
-    expect(redeemed.device.device_type).toBe('mobile')
-  })
-
-  test('rejects expired and already redeemed pairing codes', () => {
-    const store = createStore()
-    const expired = store.generatePairingCode('Old phone', ['read_dashboard'], 100, 1_000)
-    expect(() => store.redeemPairingCode(expired.code, 1_101)).toThrow('Pairing code expired')
-
-    const fresh = store.generatePairingCode('New phone', ['read_dashboard'], 300_000, 2_000)
-    store.redeemPairingCode(fresh.code, 3_000)
-    expect(() => store.redeemPairingCode(fresh.code, 4_000)).toThrow(
-      'Pairing code already redeemed'
-    )
+    expect(created.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
+    expect(created.device).toMatchObject({
+      capabilities: ['read_dashboard'],
+      created_at: 1_000,
+      device_type: 'mobile',
+      last_seen_at: null,
+      name: 'Personal phone',
+      revoked_at: null,
+      source: 'manual',
+    })
+    expect(store.authenticateDevice(created.token, 2_000)).toMatchObject({
+      id: created.device.id,
+      last_seen_at: 2_000,
+      source: 'manual',
+    })
   })
 
   test('authenticates capabilities and rejects missing capability', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Read-only', ['read_dashboard'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
-    const device = store.authenticateDevice(redeemed.token, 3_000)
+    const created = store.createDeviceToken('Read-only', ['read_dashboard'], 1_000)
+    const device = store.authenticateDevice(created.token, 3_000)
 
-    expect(device.id).toBe(redeemed.device.id)
     expect(() => store.requireCapability(device, 'read_dashboard')).not.toThrow()
     expect(() => store.requireCapability(device, 'send_prompt')).toThrow(
       'Missing mobile capability'
     )
   })
 
-  test('revokes devices immediately and expires inactive devices after 30 days', () => {
+  test('revokes devices immediately and keeps non-revoked tokens valid across long inactivity', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Admin', ['admin_runtime'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
+    const created = store.createDeviceToken('Admin', ['admin_runtime'], 1_000)
 
-    const revoked = store.revokeDevice(redeemed.device.id, 3_000)
+    const revoked = store.revokeDevice(created.device.id, 3_000)
     expect(revoked.revoked_at).toBe(3_000)
-    expect(() => store.authenticateDevice(redeemed.token, 4_000)).toThrow('Mobile device revoked')
+    expect(() => store.authenticateDevice(created.token, 4_000)).toThrow('Mobile device revoked')
 
-    const second = store.generatePairingCode('Second', ['read_dashboard'], 300_000, 5_000)
-    const active = store.redeemPairingCode(second.code, 6_000)
-    expect(() => store.authenticateDevice(active.token, 6_000 + 31 * 24 * 60 * 60 * 1000)).toThrow(
-      'Mobile token expired'
+    const active = store.createDeviceToken('Second', ['read_dashboard'], 5_000)
+    expect(store.authenticateDevice(active.token, 5_000 + 365 * 24 * 60 * 60 * 1000).id).toBe(
+      active.device.id
     )
   })
 
-  test('updates device name and capabilities', () => {
+  test('updates token name and capabilities', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Phone', ['read_dashboard'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
+    const created = store.createDeviceToken('Phone', ['read_dashboard'], 1_000)
 
-    const updated = store.updateDevice(redeemed.device.id, {
+    const updated = store.updateDevice(created.device.id, {
       capabilities: ['read_dashboard', 'send_prompt'] satisfies MobileCapability[],
       name: 'Renamed phone',
     })
 
     expect(updated.name).toBe('Renamed phone')
     expect(updated.capabilities).toEqual(['read_dashboard', 'send_prompt'])
-    expect(store.listDevices().map((device) => device.id)).toContain(redeemed.device.id)
+    expect(store.listDevices().map((device) => device.id)).toContain(created.device.id)
   })
 
-  test('rejects invalid pairing codes', () => {
-    const store = createStore()
-
-    expect(() => store.redeemPairingCode('000000', 1_000)).toThrow('Invalid pairing code')
-  })
-
-  test('rejects unknown capabilities at code generation time', () => {
+  test('rejects unknown capabilities at token creation time', () => {
     const store = createStore()
 
     expect(() =>
-      store.generatePairingCode('Phone', ['read_dashboard', 'root_runtime' as MobileCapability])
+      store.createDeviceToken('Phone', ['read_dashboard', 'root_runtime' as MobileCapability])
     ).toThrow('Invalid mobile capability')
   })
 
   test('validateToken remains a boolean compatibility wrapper', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Phone', ['read_dashboard'])
-    const redeemed = store.redeemPairingCode(pairing.code)
+    const created = store.createDeviceToken('Phone', ['read_dashboard'])
 
-    expect(store.validateToken(redeemed.token)).toBe(true)
-    store.revokeDevice(redeemed.device.id, 3_000)
-    expect(store.validateToken(redeemed.token)).toBe(false)
+    expect(store.validateToken(created.token)).toBe(true)
+    store.revokeDevice(created.device.id, 3_000)
+    expect(store.validateToken(created.token)).toBe(false)
     expect(store.validateToken('missing')).toBe(false)
   })
 
-  test('lists revoked devices for registry management', () => {
+  test('hard deletes tokens', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Phone', ['admin_runtime'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
-    store.revokeDevice(redeemed.device.id, 3_000)
+    const created = store.createDeviceToken('Phone', ['read_dashboard'], 1_000)
 
-    expect(store.listDevices().find((device) => device.id === redeemed.device.id)?.revoked_at).toBe(
-      3_000
+    store.deleteDevice(created.device.id)
+
+    expect(store.listDevices().map((device) => device.id)).not.toContain(created.device.id)
+    expect(() => store.authenticateDevice(created.token, 3_000)).toThrow(
+      'Invalid or missing mobile token'
     )
   })
 
-  test('cleans expired pairing codes before generating new codes', () => {
+  test('updates only provided token fields', () => {
     const store = createStore()
-    const expired = store.generatePairingCode('Old', ['read_dashboard'], 100, 1_000)
-    store.generatePairingCode('New', ['read_dashboard'], 300_000, 1_101)
+    const created = store.createDeviceToken('Phone', ['read_dashboard'], 1_000)
 
-    expect(() => store.redeemPairingCode(expired.code, 1_102)).toThrow('Invalid pairing code')
-  })
-
-  test('updates only provided device fields', () => {
-    const store = createStore()
-    const pairing = store.generatePairingCode('Phone', ['read_dashboard'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
-
-    const updated = store.updateDevice(redeemed.device.id, { name: 'Only name' })
+    const updated = store.updateDevice(created.device.id, { name: 'Only name' })
 
     expect(updated.name).toBe('Only name')
     expect(updated.capabilities).toEqual(['read_dashboard'])
@@ -158,17 +121,16 @@ describe('mobile auth store', () => {
 
   test('stores and clears an Expo push token for an authenticated device', () => {
     const store = createStore()
-    const pairing = store.generatePairingCode('Phone', ['read_dashboard'], 300_000, 1_000)
-    const redeemed = store.redeemPairingCode(pairing.code, 2_000)
+    const created = store.createDeviceToken('Phone', ['read_dashboard'], 1_000)
 
-    const registered = store.updatePushToken(redeemed.device.id, 'ExponentPushToken[abc]')
+    const registered = store.updatePushToken(created.device.id, 'ExponentPushToken[abc]')
     expect(registered.push_token).toBe('ExponentPushToken[abc]')
-    expect(store.listDevices().find((device) => device.id === redeemed.device.id)?.push_token).toBe(
+    expect(store.listDevices().find((device) => device.id === created.device.id)?.push_token).toBe(
       'ExponentPushToken[abc]'
     )
 
     store.clearPushToken('ExponentPushToken[abc]')
-    expect(store.listDevices().find((device) => device.id === redeemed.device.id)?.push_token).toBe(
+    expect(store.listDevices().find((device) => device.id === created.device.id)?.push_token).toBe(
       null
     )
   })

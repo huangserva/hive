@@ -130,4 +130,19 @@ export const teamRoutes: RouteDefinition[] = [
     })
     return
   }),
+  route('POST', '/api/team/mobile-reply', async ({ request, response, store }) => {
+    const body = await readJsonBody<ReportTaskBody>(request)
+    const projectId = requireNonEmptyString(body.project_id, 'project_id')
+    const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
+    const text = requireNonEmptyString((body as unknown as Record<string, unknown>).text, 'text')
+    authenticateCliAgent({
+      fromAgentId,
+      getAgent: store.getAgent,
+      token: body.token,
+      validateToken: store.validateAgentToken,
+      workspaceId: projectId,
+    })
+    store.insertMobileChatMessage(projectId, 'outbound', 'orch_reply', JSON.stringify({ text }))
+    sendJson(response, 200, { ok: true })
+  }),
 ]

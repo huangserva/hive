@@ -6,6 +6,12 @@ import { parseCockpit } from './cockpit-doc.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import { ConflictError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
+import type {
+  MobileChatDirection,
+  MobileChatMessage,
+  MobileChatMessageType,
+} from './mobile-chat-store.js'
+import { isMobileAppUserInput } from './mobile-orchestrator-reply-capture.js'
 import type { MobilePushService } from './mobile-push.js'
 import {
   createReportMessage,
@@ -37,6 +43,12 @@ export interface TeamOperationsInput {
   ) => DispatchRecord | undefined
   findOpenDispatchById: (workspaceId: string, dispatchId: string) => DispatchRecord | undefined
   insertMessage: (record: MessageLogRecord) => MessageLogHandle
+  insertMobileChatMessage?: (
+    workspaceId: string,
+    direction: MobileChatDirection,
+    messageType: MobileChatMessageType,
+    contentJson: string
+  ) => MobileChatMessage
   markDispatchCancelled: (input: {
     dispatchId: string
     reason: string
@@ -51,6 +63,8 @@ export interface TeamOperationsInput {
   }) => DispatchRecord | undefined
   markDispatchSubmitted: (dispatchId: string) => void
   mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'>
+  onMobileUserInput?: (workspaceId: string) => void
+  runDbTransaction?: <T>(mutation: () => T) => T
   tasksFileService?: Pick<
     TasksFileService,
     'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
@@ -61,6 +75,7 @@ export interface TeamOperationsInput {
 export interface DispatchTaskInput {
   fromAgentId?: string
   hivePort?: string
+  senderName?: string
 }
 
 export interface ReportTaskInput {
@@ -128,10 +143,13 @@ export const createTeamOperations = ({
   findOpenDispatch,
   findOpenDispatchById,
   insertMessage,
+  insertMobileChatMessage,
   markDispatchCancelled,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
   mobilePushService,
+  onMobileUserInput,
+  runDbTransaction = (mutation) => mutation(),
   tasksFileService = noopTasksFileService,
   workspaceStore,
 }: TeamOperationsInput) => {
@@ -248,10 +266,15 @@ export const createTeamOperations = ({
       if (input.fromAgentId) dispatchInput.fromAgentId = input.fromAgentId
       dispatch = createDispatch(dispatchInput)
 
-      if (input.fromAgentId) {
-        const sender = workspaceStore.getAgent(workspaceId, input.fromAgentId)
+      const worker = workspaceStore.getWorker(workspaceId, workerId)
+      const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, workerId)
+      const hasLaunchConfig = !!agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
+      if (input.fromAgentId || hasActiveRun || hasLaunchConfig) {
+        const senderName = input.fromAgentId
+          ? workspaceStore.getAgent(workspaceId, input.fromAgentId).name
+          : (input.senderName ?? 'mobile')
         await ensureWorkerRun(workspaceId, workerId, input.hivePort ?? '')
-        const worker = workspaceStore.getWorker(workspaceId, workerId)
+        const promptWorker = workspaceStore.getWorker(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)
         const cockpitSnapshot = workspacePath
           ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
@@ -261,15 +284,14 @@ export const createTeamOperations = ({
           workspaceId,
           workerId,
           dispatch.id,
-          sender.name,
-          worker.description,
+          senderName,
+          promptWorker.description,
           text,
           cockpitSnapshot
         )
       }
 
       workspaceStore.markTaskDispatched(workspaceId, workerId)
-      const worker = workspaceStore.getWorker(workspaceId, workerId)
       const workspacePath = getWorkspacePath(workspaceId)
       if (workspacePath) {
         const recentDispatchState =
@@ -284,6 +306,16 @@ export const createTeamOperations = ({
         updateRuntimeTasksMtime(workspaceId, workspacePath)
         maybeNudgeTasksNarrative(workspaceId, workspacePath, text, recentDispatchState)
       }
+      insertMobileChatMessage?.(
+        workspaceId,
+        'outbound',
+        'system_event',
+        JSON.stringify({
+          event: 'dispatch',
+          task_summary: text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? '',
+          worker: worker.name,
+        })
+      )
       return dispatch
     } catch (error) {
       if (dispatch) deleteDispatch(dispatch.id)
@@ -339,6 +371,7 @@ export const createTeamOperations = ({
     },
     recordUserInput(workspaceId: string, orchestratorId: string, text: string) {
       workspaceStore.getAgent(workspaceId, orchestratorId)
+      if (isMobileAppUserInput(text)) onMobileUserInput?.(workspaceId)
       agentRuntime.writeUserInputPrompt(workspaceId, text)
       insertMessage(createUserInputMessage(workspaceId, orchestratorId, text))
     },
@@ -381,20 +414,36 @@ export const createTeamOperations = ({
       if (!openDispatch) {
         throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
       }
-      const messageHandle = insertMessage(
-        createReportMessage(workspaceId, workerId, text, status, artifacts)
-      )
+      let messageHandle: MessageLogHandle | null = null
+      let dbCommitted = false
       try {
-        const dispatch = markDispatchReportedByWorker({
-          artifacts,
-          ...(input.dispatchId ? { dispatchId: input.dispatchId } : {}),
-          reportText: text,
-          toAgentId: workerId,
-          workspaceId,
+        const dispatch = runDbTransaction(() => {
+          messageHandle = insertMessage(
+            createReportMessage(workspaceId, workerId, text, status, artifacts)
+          )
+          const reportedDispatch = markDispatchReportedByWorker({
+            artifacts,
+            ...(input.dispatchId ? { dispatchId: input.dispatchId } : {}),
+            reportText: text,
+            toAgentId: workerId,
+            workspaceId,
+          })
+          if (!reportedDispatch) {
+            throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
+          }
+          insertMobileChatMessage?.(
+            workspaceId,
+            'outbound',
+            'worker_report',
+            JSON.stringify({
+              dispatch_id: reportedDispatch.id,
+              summary: text.trim().split(/\r?\n/u)[0]?.slice(0, 240) ?? '',
+              worker_name: worker.name,
+            })
+          )
+          return reportedDispatch
         })
-        if (!dispatch) {
-          throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
-        }
+        dbCommitted = true
         workspaceStore.markTaskReported(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)
         if (workspacePath) {
@@ -425,7 +474,7 @@ export const createTeamOperations = ({
         }
         return { dispatch, forwardError, forwarded }
       } catch (error) {
-        deleteMessage(messageHandle)
+        if (!dbCommitted && messageHandle) deleteMessage(messageHandle)
         throw error
       }
     },

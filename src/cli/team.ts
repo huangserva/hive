@@ -485,6 +485,25 @@ export const runTeamCommand = async (argv: string[]) => {
     return
   }
 
+  if (command === 'mobile-reply') {
+    const text = args.join(' ').trim()
+    if (!text) {
+      throw new Error('Usage: team mobile-reply "<text>"')
+    }
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await postJson(baseUrl, '/api/team/mobile-reply', {
+      from_agent_id: env.HIVE_AGENT_ID,
+      project_id: env.HIVE_PROJECT_ID,
+      text,
+      token: env.HIVE_AGENT_TOKEN,
+    })
+    if (!response.ok) {
+      await throwHttpError(response)
+    }
+    return
+  }
+
   if (command === 'feishu') {
     const [subcommand, ...subcommandArgs] = args
     if (subcommand !== 'reply') {

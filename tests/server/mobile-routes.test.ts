@@ -80,13 +80,31 @@ m19a-lan-dashboard
   return workspacePath
 }
 
-const pairMobile = async (baseUrl: string) => {
-  const response = await fetch(`${baseUrl}/api/mobile/pair`)
-  const body = (await response.json()) as { host: string; port: number; token: string }
+const ALL_MOBILE_CAPABILITIES = [
+  'read_dashboard',
+  'read_terminal',
+  'send_prompt',
+  'approve_risk',
+  'admin_runtime',
+] as const
+
+const createMobileTokenForTest = async (
+  baseUrl: string,
+  capabilities: string[] = [...ALL_MOBILE_CAPABILITIES],
+  name = 'Mobile test device'
+) => {
+  const cookie = await getUiCookie(baseUrl)
+  const response = await fetch(`${baseUrl}/api/mobile/tokens`, {
+    body: JSON.stringify({ capabilities, name }),
+    headers: { 'content-type': 'application/json', cookie },
+    method: 'POST',
+  })
+  const body = (await response.json()) as { device_id: string; token: string }
   expect(response.status).toBe(200)
+  expect(body.device_id).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  )
   expect(body.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
-  expect(body.host).toBe('127.0.0.1')
-  expect(typeof body.port).toBe('number')
   return body
 }
 
@@ -117,21 +135,22 @@ const waitForMessage = async <T>(socket: WebSocket) =>
   })
 
 describe('mobile API', () => {
-  test('pairs a persistent bearer token from localhost only', async () => {
+  test('creates permanent mobile tokens through the token management endpoint', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-mobile-data-'))
     tempDirs.push(dataDir)
     const server = await startTestServer({ dataDir })
-    const blockedRemotePair = await fetch(`${server.baseUrl}/api/mobile/pair`, {
-      headers: { origin: 'http://192.168.1.44:4010' },
-    })
-    expect(blockedRemotePair.status).toBe(403)
-    const first = await pairMobile(server.baseUrl)
+    const first = await createMobileTokenForTest(server.baseUrl)
     await server.close()
 
     const restarted = await startTestServer({ dataDir })
     try {
-      const second = await pairMobile(restarted.baseUrl)
-      expect(second.token).toBe(first.token)
+      const workspaces = await fetch(`${restarted.baseUrl}/api/mobile/workspaces`, {
+        headers: mobileHeaders(first.token, '192.168.1.44:4010'),
+      })
+      expect(workspaces.status).toBe(200)
+
+      const second = await createMobileTokenForTest(restarted.baseUrl)
+      expect(second.token).not.toBe(first.token)
     } finally {
       await restarted.close()
     }
@@ -140,7 +159,7 @@ describe('mobile API', () => {
   test('requires bearer auth for mobile routes and allows authenticated LAN Host headers', async () => {
     const server = await startTestServer()
     try {
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const missing = await fetch(`${server.baseUrl}/api/mobile/workspaces`)
       expect(missing.status).toBe(401)
@@ -163,7 +182,7 @@ describe('mobile API', () => {
   test('registers Expo push token for an authenticated mobile device', async () => {
     const server = await startTestServer()
     try {
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const missing = await fetch(`${server.baseUrl}/api/mobile/push-token`, {
         headers: { 'content-type': 'application/json' },
@@ -186,13 +205,99 @@ describe('mobile API', () => {
     }
   })
 
+  test('creates lists edits and hard deletes permanent mobile tokens', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Token Test')
+      const cookie = await getUiCookie(server.baseUrl)
+
+      const created = await fetch(`${server.baseUrl}/api/mobile/tokens`, {
+        body: JSON.stringify({
+          capabilities: ['read_dashboard'],
+          name: 'Admin phone',
+        }),
+        headers: jsonHeaders({ cookie }),
+        method: 'POST',
+      })
+      expect(created.status).toBe(200)
+      const createdBody = (await created.json()) as { device_id: string; token: string }
+      expect(createdBody.device_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      )
+      expect(createdBody.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
+
+      const dashboard = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dashboard`,
+        { headers: mobileHeaders(createdBody.token, '192.168.1.44:4010') }
+      )
+      expect(dashboard.status).toBe(200)
+
+      const list = await fetch(`${server.baseUrl}/api/mobile/tokens`, {
+        headers: { cookie },
+      })
+      expect(list.status).toBe(200)
+      const listBody = (await list.json()) as {
+        tokens: Array<{
+          active: boolean
+          capabilities: string[]
+          id: string
+          name: string
+          source: string
+          token?: string
+        }>
+      }
+      expect(listBody.tokens).toContainEqual(
+        expect.objectContaining({
+          active: true,
+          capabilities: ['read_dashboard'],
+          id: createdBody.device_id,
+          name: 'Admin phone',
+          source: 'manual',
+        })
+      )
+      expect(listBody.tokens.find((token) => token.id === createdBody.device_id)?.token).toBe(
+        undefined
+      )
+
+      const updated = await fetch(`${server.baseUrl}/api/mobile/tokens/${createdBody.device_id}`, {
+        body: JSON.stringify({ capabilities: ['read_dashboard', 'send_prompt'], name: 'Renamed' }),
+        headers: jsonHeaders({ cookie }),
+        method: 'PATCH',
+      })
+      expect(updated.status).toBe(200)
+      await expect(updated.json()).resolves.toMatchObject({
+        token: expect.objectContaining({
+          capabilities: ['read_dashboard', 'send_prompt'],
+          id: createdBody.device_id,
+          name: 'Renamed',
+        }),
+      })
+
+      const deleted = await fetch(`${server.baseUrl}/api/mobile/tokens/${createdBody.device_id}`, {
+        headers: { cookie },
+        method: 'DELETE',
+      })
+      expect(deleted.status).toBe(200)
+      await expect(deleted.json()).resolves.toEqual({ device_id: createdBody.device_id, ok: true })
+
+      const afterDelete = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dashboard`,
+        { headers: mobileHeaders(createdBody.token, '192.168.1.44:4010') }
+      )
+      expect(afterDelete.status).toBe(401)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('returns a compact dashboard aggregate for a paired mobile client', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
     try {
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Test')
       server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const response = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dashboard`,
@@ -249,7 +354,7 @@ describe('mobile API', () => {
     const server = await startTestServer()
     try {
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Cockpit')
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const response = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit`,
@@ -283,20 +388,8 @@ describe('mobile API', () => {
     const workspacePath = createWorkspaceFixture({ withQuestion: true })
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Questions')
-      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
-      })
-      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
-      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
-        method: 'POST',
-        body: JSON.stringify({ code: readCode }),
-      })
-      const reader = (await readRedeemed.json()) as { token: string }
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
 
       const forbidden = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/questions/Q1/answer`,
@@ -308,18 +401,7 @@ describe('mobile API', () => {
       )
       expect(forbidden.status).toBe(403)
 
-      const senderPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['send_prompt'], device_name: 'Sender' }),
-      })
-      const { code } = (await senderPair.json()) as { code: string }
-      const senderRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      })
-      const sender = (await senderRedeemed.json()) as { token: string }
+      const sender = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Sender')
 
       const answered = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/questions/Q1/answer`,
@@ -353,7 +435,7 @@ describe('mobile API', () => {
         '<!doctype html><h1>Mobile Report</h1>',
         'utf8'
       )
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const markdown = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit/doc-file?path=${encodeURIComponent(
@@ -392,7 +474,7 @@ describe('mobile API', () => {
     const server = await startTestServer()
     try {
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile WS')
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const unauthorized = new WebSocket(
         toWsUrl(server.baseUrl, `/ws/mobile/workspaces/${workspace.id}/dashboard?token=wrong`)
@@ -430,39 +512,159 @@ describe('mobile API', () => {
     }
   })
 
-  test('generates and redeems scoped pairing codes over mobile endpoints', async () => {
+  test('returns persisted mobile chat messages for a paired mobile client', async () => {
+    const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
-      const blocked = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: { origin: 'http://192.168.1.44:4010' },
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Phone' }),
-      })
-      expect(blocked.status).toBe(403)
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Chat')
+      const first = server.store.insertMobileChatMessage(
+        workspace.id,
+        'inbound',
+        'user_text',
+        JSON.stringify({ text: 'hello from phone' })
+      )
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      const second = server.store.insertMobileChatMessage(
+        workspace.id,
+        'outbound',
+        'system_event',
+        JSON.stringify({ event: 'dispatch', task_summary: 'wire chat stream', worker: 'Alice' })
+      )
+      const { token } = await createMobileTokenForTest(server.baseUrl)
 
-      const generated = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Phone' }),
-      })
-      const generatedBody = (await generated.json()) as { code: string; expires_at: number }
-      expect(generated.status).toBe(200)
-      expect(generatedBody.code).toMatch(/^\d{6}$/)
-
-      const redeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders({ host: '192.168.1.44:4010' }),
-        method: 'POST',
-        body: JSON.stringify({ code: generatedBody.code }),
-      })
-      const redeemedBody = (await redeemed.json()) as {
-        device: { capabilities: string[]; name: string }
-        token: string
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/chat/messages?since=${first.created_at}&limit=10`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        messages: Array<{
+          content_json: string
+          created_at: number
+          direction: string
+          id: string
+          message_type: string
+          workspace_id: string
+        }>
       }
-      expect(redeemed.status).toBe(200)
-      expect(redeemedBody.token).toMatch(/^[A-Za-z0-9_-]{32,}$/)
-      expect(redeemedBody.device.name).toBe('Phone')
-      expect(redeemedBody.device.capabilities).toEqual(['read_dashboard'])
+
+      expect(response.status).toBe(200)
+      expect(body.messages).toEqual([
+        {
+          content_json: second.content_json,
+          created_at: second.created_at,
+          direction: 'outbound',
+          id: second.id,
+          message_type: 'system_event',
+          workspace_id: workspace.id,
+        },
+      ])
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('broadcasts mobile chat messages over the dashboard websocket', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Chat WS')
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+      const socket = new WebSocket(
+        toWsUrl(server.baseUrl, `/ws/mobile/workspaces/${workspace.id}/dashboard?token=${token}`),
+        { headers: { host: '192.168.1.44:4010' } }
+      )
+      await waitForMessage(socket)
+
+      const message = server.store.insertMobileChatMessage(
+        workspace.id,
+        'outbound',
+        'worker_report',
+        JSON.stringify({ summary: 'done', worker_name: 'Alice' })
+      )
+      const frame = await waitForMessage<{
+        kind: string
+        payload: { id: string; message_type: string; workspace_id: string }
+      }>(socket)
+
+      expect(frame).toEqual({
+        kind: 'mobile-chat-message',
+        payload: expect.objectContaining({
+          id: message.id,
+          message_type: 'worker_report',
+          workspace_id: workspace.id,
+        }),
+      })
+      socket.close()
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('records orchestrator replies through the explicit team mobile-reply route', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Reply')
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-mobile-reply-idle.js')
+      writeFileSync(orchScript, 'process.stdin.resume()\n', 'utf8')
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+      const orchestratorToken = server.store.peekAgentToken(orchestratorId)
+      if (!orchestratorToken) throw new Error('Expected orchestrator token')
+
+      const response = await fetch(`${server.baseUrl}/api/team/mobile-reply`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({
+          from_agent_id: orchestratorId,
+          project_id: workspace.id,
+          text: 'I received the mobile request and will inspect the sprint.',
+          token: orchestratorToken,
+        }),
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ ok: true })
+
+      const messages = server.store.listMobileChatMessages(workspace.id)
+      const reply = messages.find((message) => message.message_type === 'orch_reply')
+      expect(reply).toMatchObject({
+        direction: 'outbound',
+        message_type: 'orch_reply',
+        workspace_id: workspace.id,
+      })
+      expect(JSON.parse(reply?.content_json ?? '{}')).toEqual({
+        text: 'I received the mobile request and will inspect the sprint.',
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('does not expose deprecated pairing code endpoints', async () => {
+    const server = await startTestServer()
+    try {
+      const pair = await fetch(`${server.baseUrl}/api/mobile/pair`)
+      expect(pair.status).toBe(404)
+
+      const generate = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Phone' }),
+      })
+      expect(generate.status).toBe(404)
+
+      const redeem = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({ code: '123456' }),
+      })
+      expect(redeem.status).toBe(404)
     } finally {
       await server.close()
     }
@@ -471,34 +673,22 @@ describe('mobile API', () => {
   test('gates mobile device registry by admin_runtime capability and revokes tokens', async () => {
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
-      const admin = await pairMobile(server.baseUrl)
-      const generated = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
-      })
-      const { code } = (await generated.json()) as { code: string }
-      const redeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      })
-      const reader = (await redeemed.json()) as { device: { id: string }; token: string }
+      const admin = await createMobileTokenForTest(server.baseUrl)
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
 
       const forbidden = await fetch(`${server.baseUrl}/api/mobile/devices`, {
         headers: mobileHeaders(reader.token, '192.168.1.44:4010'),
       })
       expect(forbidden.status).toBe(403)
 
-      const patched = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device.id}`, {
+      const patched = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device_id}`, {
         headers: jsonHeaders({ host: '192.168.1.44:4010', token: admin.token }),
         method: 'PATCH',
         body: JSON.stringify({ capabilities: ['read_dashboard', 'send_prompt'], name: 'Reader 2' }),
       })
       expect(patched.status).toBe(200)
 
-      const revoked = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device.id}`, {
+      const revoked = await fetch(`${server.baseUrl}/api/mobile/devices/${reader.device_id}`, {
         headers: mobileHeaders(admin.token, '192.168.1.44:4010'),
         method: 'DELETE',
       })
@@ -517,7 +707,7 @@ describe('mobile API', () => {
     const server = await startTestServer()
     try {
       const cookie = await getUiCookie(server.baseUrl)
-      const mobile = await pairMobile(server.baseUrl)
+      const mobile = await createMobileTokenForTest(server.baseUrl)
 
       const listed = await fetch(`${server.baseUrl}/api/mobile/devices`, {
         headers: jsonHeaders({ cookie }),
@@ -527,7 +717,7 @@ describe('mobile API', () => {
       expect(listedBody.devices).toContainEqual(
         expect.objectContaining({
           id: expect.any(String),
-          name: 'M19a mobile device',
+          name: 'Mobile test device',
         })
       )
 
@@ -568,21 +758,9 @@ describe('mobile API', () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Control')
       const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-      const readOnly = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
-      })
-      const { code: readCode } = (await readOnly.json()) as { code: string }
-      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code: readCode }),
-      })
-      const reader = (await readRedeemed.json()) as { token: string }
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
 
       const forbidden = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dispatch`,
@@ -594,18 +772,7 @@ describe('mobile API', () => {
       )
       expect(forbidden.status).toBe(403)
 
-      const senderPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['send_prompt'], device_name: 'Sender' }),
-      })
-      const { code } = (await senderPair.json()) as { code: string }
-      const senderRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      })
-      const sender = (await senderRedeemed.json()) as { token: string }
+      const sender = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Sender')
       const dispatched = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dispatch`,
         {
@@ -621,6 +788,13 @@ describe('mobile API', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
       )
       expect(body.pending_task_count).toBe(1)
+      expect(server.store.listMobileChatMessages(workspace.id)).toContainEqual(
+        expect.objectContaining({
+          direction: 'outbound',
+          message_type: 'system_event',
+          workspace_id: workspace.id,
+        })
+      )
     } finally {
       await server.close()
     }
@@ -630,7 +804,6 @@ describe('mobile API', () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Approval')
       const approval = server.store.approvalLedger.create({
         action: 'Remove generated files',
@@ -642,18 +815,7 @@ describe('mobile API', () => {
         workspaceId: workspace.id,
       })
 
-      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
-      })
-      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
-      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code: readCode }),
-      })
-      const reader = (await readRedeemed.json()) as { token: string }
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
 
       const forbidden = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/approve/${approval.approvalId}`,
@@ -665,18 +827,7 @@ describe('mobile API', () => {
       )
       expect(forbidden.status).toBe(403)
 
-      const approverPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['approve_risk'], device_name: 'Approver' }),
-      })
-      const { code } = (await approverPair.json()) as { code: string }
-      const approverRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code }),
-      })
-      const approver = (await approverRedeemed.json()) as { token: string }
+      const approver = await createMobileTokenForTest(server.baseUrl, ['approve_risk'], 'Approver')
 
       const decided = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/approve/${approval.approvalId}`,
@@ -705,22 +856,9 @@ describe('mobile API', () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
     try {
-      const cookie = await getUiCookie(server.baseUrl)
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Stop')
       const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-
-      const readOnlyPair = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-        headers: jsonHeaders({ cookie }),
-        method: 'POST',
-        body: JSON.stringify({ capabilities: ['read_dashboard'], device_name: 'Reader' }),
-      })
-      const { code: readCode } = (await readOnlyPair.json()) as { code: string }
-      const readRedeemed = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-        headers: jsonHeaders(),
-        method: 'POST',
-        body: JSON.stringify({ code: readCode }),
-      })
-      const reader = (await readRedeemed.json()) as { token: string }
+      const reader = await createMobileTokenForTest(server.baseUrl, ['read_dashboard'], 'Reader')
 
       const forbidden = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/stop`,
@@ -731,7 +869,7 @@ describe('mobile API', () => {
       )
       expect(forbidden.status).toBe(403)
 
-      const admin = await pairMobile(server.baseUrl)
+      const admin = await createMobileTokenForTest(server.baseUrl)
       const stopped = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/stop`,
         {
@@ -776,7 +914,7 @@ describe('mobile API', () => {
       server.store.getPtyOutputBus().publish(run.runId, output)
       await new Promise((resolve) => setTimeout(resolve, 20))
 
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
       const response = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/transcript`,
         { headers: mobileHeaders(token, '192.168.1.44:4010') }
@@ -819,13 +957,20 @@ describe('mobile API', () => {
         dispatchId: done.id,
         reportText: 'done',
       })
+      expect(server.store.listMobileChatMessages(workspace.id)).toContainEqual(
+        expect.objectContaining({
+          direction: 'outbound',
+          message_type: 'worker_report',
+          workspace_id: workspace.id,
+        })
+      )
       const cancelled = await server.store.dispatchTask(workspace.id, worker.id, 'Cancel me')
       server.store.cancelTask(workspace.id, cancelled.id, {
         fromAgentId: worker.id,
         reason: 'not needed',
       })
 
-      const { token } = await pairMobile(server.baseUrl)
+      const { token } = await createMobileTokenForTest(server.baseUrl)
       const response = await fetch(
         `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/tasks`,
         {

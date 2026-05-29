@@ -25,13 +25,9 @@ describe('mobile runtime client', () => {
     })
   })
 
-  test('pairs and calls mobile API routes with bearer auth', async () => {
+  test('calls mobile API routes with bearer auth', async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce({
-        json: () => Promise.resolve({ host: '127.0.0.1', port: 4010, token: 'mobile-token' }),
-        ok: true,
-      })
       .mockResolvedValueOnce({
         json: () => Promise.resolve({ version: '1.4.0', cwd: '/repo' }),
         ok: true,
@@ -42,11 +38,6 @@ describe('mobile runtime client', () => {
       })
     const client = createRuntimeClient({ fetchImpl, host: '10.0.0.2:4010', token: 'mobile-token' })
 
-    await expect(client.pairMobile()).resolves.toEqual({
-      host: '127.0.0.1',
-      port: 4010,
-      token: 'mobile-token',
-    })
     await expect(client.getMobileRuntimeStatus()).resolves.toEqual({
       cwd: '/repo',
       version: '1.4.0',
@@ -55,13 +46,10 @@ describe('mobile runtime client', () => {
       { id: 'workspace-1', name: 'HippoTeam', path: '/repo' },
     ])
 
-    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://10.0.0.2:4010/api/mobile/pair', {
-      headers: { Accept: 'application/json' },
-    })
-    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'http://10.0.0.2:4010/api/mobile/runtime/status', {
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://10.0.0.2:4010/api/mobile/runtime/status', {
       headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
     })
-    expect(fetchImpl).toHaveBeenNthCalledWith(3, 'http://10.0.0.2:4010/api/mobile/workspaces', {
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'http://10.0.0.2:4010/api/mobile/workspaces', {
       headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
     })
   })
@@ -105,34 +93,6 @@ describe('mobile runtime client', () => {
     const client = createRuntimeClient({ host: 'http://10.0.0.2:4010/' })
 
     expect(client.buildWebSocketUrl('/ws/cockpit/ws-1')).toBe('ws://10.0.0.2:4010/ws/cockpit/ws-1')
-  })
-
-  test('redeems pairing codes through the mobile pairing endpoint', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      json: () =>
-        Promise.resolve({
-          device: {
-            capabilities: ['read_dashboard'],
-            device_type: 'ios',
-            id: 'device-1',
-            name: 'iPhone',
-          },
-          token: 'redeemed-token',
-        }),
-      ok: true,
-    })
-    const client = createRuntimeClient({ fetchImpl, host: '10.0.0.2:4010' })
-
-    await expect(client.redeemPairingCode('123456')).resolves.toMatchObject({
-      token: 'redeemed-token',
-      device: { id: 'device-1', name: 'iPhone' },
-    })
-
-    expect(fetchImpl).toHaveBeenCalledWith('http://10.0.0.2:4010/api/mobile/pair/redeem', {
-      body: JSON.stringify({ code: '123456' }),
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      method: 'POST',
-    })
   })
 
   test('sends worker control actions with bearer auth', async () => {

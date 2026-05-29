@@ -29,6 +29,10 @@ const logUpgradeError = (logger: HiveLogger | undefined, error: unknown) => {
 
 export interface MobileDashboardWebSocketServer {
   close: () => void
+  publishChatMessage: (
+    workspaceId: string,
+    message: Parameters<Parameters<RuntimeStore['registerMobileChatListener']>[0]>[1]
+  ) => void
   publish: (workspaceId: string) => void
 }
 
@@ -100,6 +104,15 @@ export const createMobileDashboardWebSocketServer = (
       }
       socketsByWorkspaceId.clear()
       wss.close()
+    },
+    publishChatMessage: (workspaceId, message) => {
+      const sockets = socketsByWorkspaceId.get(workspaceId)
+      if (!sockets) return
+      for (const socket of sockets) {
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ kind: 'mobile-chat-message', payload: message }))
+        }
+      }
     },
     publish: (workspaceId) => {
       const sockets = socketsByWorkspaceId.get(workspaceId)

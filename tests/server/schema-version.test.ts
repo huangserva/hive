@@ -49,6 +49,18 @@ const indexColumns = (db: Database, indexName: string) =>
     (column) => column.name
   )
 
+const dispatchColumns = (db: Database) =>
+  new Set(
+    (db.prepare('PRAGMA table_info(dispatches)').all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  )
+
+const tableExists = (db: Database, tableName: string) =>
+  db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName) as
+    | { name: string }
+    | undefined
+
 describe('schema version', () => {
   test('runtime sqlite initializes a schema_version table', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-version-'))
@@ -192,9 +204,10 @@ describe('schema version', () => {
         'revoked_at',
         'device_type',
         'push_token',
+        'source',
       ])
     )
-    expect(mobilePairingCodesTable).toEqual({ name: 'mobile_pairing_codes' })
+    expect(mobilePairingCodesTable).toBeUndefined()
     expectDispatchSchema(db)
 
     const presetCount = db
@@ -1025,6 +1038,197 @@ describe('schema version', () => {
     expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(19)).toEqual({
       version: 19,
     })
+
+    db.close()
+  })
+
+  test('v15 migration rebuilds legacy dispatches with sequence and preserves rows', () => {
+    const db = new Database(':memory:')
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+
+      INSERT INTO schema_version (version, applied_at)
+      VALUES (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14);
+
+      CREATE TABLE dispatches (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        from_agent_id TEXT,
+        to_agent_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        delivered_at INTEGER,
+        submitted_at INTEGER,
+        reported_at INTEGER,
+        report_text TEXT,
+        artifacts TEXT
+      );
+
+      INSERT INTO dispatches (
+        id,
+        workspace_id,
+        from_agent_id,
+        to_agent_id,
+        text,
+        status,
+        created_at,
+        delivered_at,
+        submitted_at,
+        reported_at,
+        report_text,
+        artifacts
+      ) VALUES
+        ('dispatch-later', 'ws-1', 'orch', 'worker', 'later', 'queued', 200, NULL, NULL, NULL, NULL, '[]'),
+        ('dispatch-earlier', 'ws-1', 'orch', 'worker', 'earlier', 'reported', 100, 110, 120, 130, 'done', '["a.md"]');
+
+      CREATE INDEX idx_dispatches_workspace_created_at
+        ON dispatches (workspace_id, created_at);
+
+      CREATE INDEX idx_dispatches_open_by_worker
+        ON dispatches (workspace_id, to_agent_id, status, created_at);
+    `)
+
+    initializeRuntimeDatabase(db)
+
+    const rows = db
+      .prepare(
+        `SELECT sequence, id, workspace_id, from_agent_id, to_agent_id, text, status, created_at, delivered_at, submitted_at, reported_at, report_text, artifacts
+         FROM dispatches
+         ORDER BY sequence ASC`
+      )
+      .all()
+
+    expect(dispatchColumns(db).has('sequence')).toBe(true)
+    expect(rows).toEqual([
+      {
+        artifacts: '["a.md"]',
+        created_at: 100,
+        delivered_at: 110,
+        from_agent_id: 'orch',
+        id: 'dispatch-earlier',
+        reported_at: 130,
+        report_text: 'done',
+        sequence: 1,
+        status: 'reported',
+        submitted_at: 120,
+        text: 'earlier',
+        to_agent_id: 'worker',
+        workspace_id: 'ws-1',
+      },
+      {
+        artifacts: '[]',
+        created_at: 200,
+        delivered_at: null,
+        from_agent_id: 'orch',
+        id: 'dispatch-later',
+        reported_at: null,
+        report_text: null,
+        sequence: 2,
+        status: 'queued',
+        submitted_at: null,
+        text: 'later',
+        to_agent_id: 'worker',
+        workspace_id: 'ws-1',
+      },
+    ])
+    expect(tableExists(db, 'dispatches_legacy_v15')).toBeUndefined()
+    expect(indexColumns(db, 'idx_dispatches_workspace_created_at')).toEqual([
+      'workspace_id',
+      'sequence',
+    ])
+    expect(indexColumns(db, 'idx_dispatches_open_by_worker')).toEqual([
+      'workspace_id',
+      'to_agent_id',
+      'status',
+      'sequence',
+    ])
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(15)).toEqual({
+      version: 15,
+    })
+
+    db.close()
+  })
+
+  test('v15 migration rolls back dispatch rebuild and schema_version on copy failure', () => {
+    const db = new Database(':memory:')
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+
+      INSERT INTO schema_version (version, applied_at)
+      VALUES (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14);
+
+      CREATE TABLE dispatches (
+        id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        from_agent_id TEXT,
+        to_agent_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        delivered_at INTEGER,
+        submitted_at INTEGER,
+        reported_at INTEGER,
+        report_text TEXT,
+        artifacts TEXT
+      );
+
+      INSERT INTO dispatches (
+        id,
+        workspace_id,
+        from_agent_id,
+        to_agent_id,
+        text,
+        status,
+        created_at,
+        delivered_at,
+        submitted_at,
+        reported_at,
+        report_text,
+        artifacts
+      ) VALUES
+        ('duplicate-dispatch', 'ws-1', 'orch', 'worker', 'first copy candidate', 'queued', 100, NULL, NULL, NULL, NULL, '[]'),
+        ('duplicate-dispatch', 'ws-1', 'orch', 'worker', 'second copy candidate', 'queued', 200, NULL, NULL, NULL, NULL, '[]');
+
+      CREATE INDEX idx_dispatches_workspace_created_at
+        ON dispatches (workspace_id, created_at);
+
+      CREATE INDEX idx_dispatches_open_by_worker
+        ON dispatches (workspace_id, to_agent_id, status, created_at);
+    `)
+
+    expect(() => initializeRuntimeDatabase(db)).toThrow()
+
+    const rows = db
+      .prepare('SELECT rowid, id, text, created_at FROM dispatches ORDER BY rowid ASC')
+      .all()
+
+    expect(dispatchColumns(db).has('sequence')).toBe(false)
+    expect(rows).toEqual([
+      {
+        created_at: 100,
+        id: 'duplicate-dispatch',
+        rowid: 1,
+        text: 'first copy candidate',
+      },
+      {
+        created_at: 200,
+        id: 'duplicate-dispatch',
+        rowid: 2,
+        text: 'second copy candidate',
+      },
+    ])
+    expect(tableExists(db, 'dispatches')).toEqual({ name: 'dispatches' })
+    expect(tableExists(db, 'dispatches_legacy_v15')).toBeUndefined()
+    expect(
+      db.prepare('SELECT version FROM schema_version WHERE version = ?').get(15)
+    ).toBeUndefined()
 
     db.close()
   })

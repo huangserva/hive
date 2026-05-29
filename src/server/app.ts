@@ -40,8 +40,7 @@ const getDefaultStaticDir = () => {
 }
 
 const isReservedPath = (pathname: string) => /^\/(api|internal|ws)(\/|$)/.test(pathname)
-const isMobileApiPath = (pathname: string) =>
-  pathname === '/api/mobile/pair' || pathname.startsWith('/api/mobile/')
+const isMobileApiPath = (pathname: string) => pathname.startsWith('/api/mobile/')
 
 const canServeStatic = async (staticDir: string) => {
   try {
@@ -139,11 +138,6 @@ export const createApp = ({
     try {
       if (!isMobileApiPath(url.pathname)) {
         assertLocalRequest(request)
-      } else if (
-        url.pathname === '/api/mobile/pair' ||
-        url.pathname === '/api/mobile/pair/generate'
-      ) {
-        assertLocalRequest(request)
       }
 
       const match = matchRoute(method, url.pathname)
@@ -208,8 +202,12 @@ export const createApp = ({
       logger?.error('mobile high aiAction notification failed', error)
     }
   })
+  const disposeMobileChatListener = store.registerMobileChatListener((workspaceId, message) => {
+    mobileDashboardWss.publishChatMessage(workspaceId, message)
+  })
   server.on('close', () => {
     disposeMobileCockpitListener()
+    disposeMobileChatListener()
     mobileDashboardWss.close()
   })
 

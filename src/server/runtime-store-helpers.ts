@@ -10,6 +10,13 @@ import type { HiveLogger } from './logger.js'
 import { createMessageLogStore } from './message-log-store.js'
 import { createMilestoneCompletionTrigger } from './milestone-completion-trigger.js'
 import { createMobileAuthStore } from './mobile-auth.js'
+import {
+  createMobileChatStore,
+  type MobileChatDirection,
+  type MobileChatMessage,
+  type MobileChatMessageType,
+} from './mobile-chat-store.js'
+import { createMobileOrchestratorReplyCapture } from './mobile-orchestrator-reply-capture.js'
 import { createMobilePushService } from './mobile-push.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import { notifyOrphanedDispatchesOnWorkerExit } from './orphaned-dispatch-nudge.js'
@@ -37,6 +44,9 @@ export interface RuntimeStoreServices {
   feishuBindingsStore: ReturnType<typeof createFeishuBindingsStore>
   messageLogStore: ReturnType<typeof createMessageLogStore>
   mobileAuthStore: ReturnType<typeof createMobileAuthStore>
+  mobileChatStore: ReturnType<typeof createMobileChatStore>
+  mobileChatWatchCallbacks: Set<(workspaceId: string, message: MobileChatMessage) => void>
+  mobileOrchestratorReplyCapture: ReturnType<typeof createMobileOrchestratorReplyCapture> | null
   mobilePushService: ReturnType<typeof createMobilePushService>
   cockpitFileWatchCallbacks: Set<(workspaceId: string) => void>
   settings: ReturnType<typeof createSettingsStore>
@@ -79,7 +89,25 @@ export const createRuntimeStoreServices = (
   const db = openRuntimeDatabase(options.dataDir)
   const messageLogStore = createMessageLogStore(db)
   const mobileAuthStore = createMobileAuthStore(db)
-  mobileAuthStore.ensureDefaultDevice()
+  const mobileChatStore = createMobileChatStore(db)
+  const mobileChatWatchCallbacks = new Set<
+    (workspaceId: string, message: MobileChatMessage) => void
+  >()
+  const insertMobileChatMessage = (
+    workspaceId: string,
+    direction: MobileChatDirection,
+    messageType: MobileChatMessageType,
+    contentJson: string
+  ) => {
+    const message = mobileChatStore.insertChatMessage(
+      workspaceId,
+      direction,
+      messageType,
+      contentJson
+    )
+    for (const callback of mobileChatWatchCallbacks) callback(workspaceId, message)
+    return message
+  }
   const mobilePushService = createMobilePushService({
     store: {
       clearMobilePushToken: (pushToken) => mobileAuthStore.clearPushToken(pushToken),
@@ -129,12 +157,19 @@ export const createRuntimeStoreServices = (
   const workerOutputTracker = options.agentManager
     ? createWorkerOutputTracker(options.agentManager.getOutputBus())
     : null
+  const mobileOrchestratorReplyCapture = options.agentManager
+    ? createMobileOrchestratorReplyCapture({
+        insertMobileChatMessage,
+        outputBus: options.agentManager.getOutputBus(),
+      })
+    : null
   const agentRuntime = createAgentRuntime(
     options.agentManager,
     agentRunStore,
     agentSessionStore,
     settings.getCommandPreset,
     (workspaceId, agentId) => {
+      mobileOrchestratorReplyCapture?.detach(workspaceId, agentId)
       workerOutputTracker?.detach(workspaceId, agentId)
       if (!workspaceStore.hasAgent(workspaceId, agentId)) return
       const worker = workspaceStore.getAgent(workspaceId, agentId)
@@ -215,7 +250,11 @@ export const createRuntimeStoreServices = (
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
+    onMobileUserInput: (workspaceId) =>
+      mobileOrchestratorReplyCapture?.startPendingReply(workspaceId),
+    insertMobileChatMessage,
     mobilePushService,
+    runDbTransaction: (mutation) => db.transaction(mutation)(),
     tasksFileService,
     workspaceStore,
   })
@@ -231,6 +270,9 @@ export const createRuntimeStoreServices = (
     feishuBindingsStore,
     messageLogStore,
     mobileAuthStore,
+    mobileChatStore,
+    mobileChatWatchCallbacks,
+    mobileOrchestratorReplyCapture,
     mobilePushService,
     cockpitFileWatchCallbacks,
     settings,
@@ -268,6 +310,7 @@ export const createRuntimeStoreLifecycle = ({
         services.workspaceStore.markAgentStopped(workspaceId, agentId)
       } else {
         services.workerOutputTracker?.attach(workspaceId, agentId, run.runId, run.output)
+        services.mobileOrchestratorReplyCapture?.attach(workspaceId, agentId, run.runId)
       }
       return run
     } catch (error) {
@@ -318,6 +361,7 @@ export const createRuntimeStoreLifecycle = ({
       await services.agentRuntime.close()
       await services.tasksFileWatcher.close()
       services.workerOutputTracker?.closeAll()
+      services.mobileOrchestratorReplyCapture?.closeAll()
       services.agentRunStore.close?.()
       services.db.close()
     },
@@ -377,6 +421,14 @@ export const createRuntimeStoreLifecycle = ({
       services.cockpitFileWatchCallbacks.add(listener)
       return () => {
         services.cockpitFileWatchCallbacks.delete(listener)
+      }
+    },
+    registerMobileChatListener: (
+      listener: (workspaceId: string, message: MobileChatMessage) => void
+    ) => {
+      services.mobileChatWatchCallbacks.add(listener)
+      return () => {
+        services.mobileChatWatchCallbacks.delete(listener)
       }
     },
     startWorkspaceWatch: async (workspaceId: string) => {

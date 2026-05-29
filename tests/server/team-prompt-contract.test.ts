@@ -89,6 +89,44 @@ describe('team prompt contract', () => {
     })
   })
 
+  test('mobile-style dispatch without sender agent still reaches worker stdin', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-mobile-dispatch-contract-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(workspacePath, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const workerScript = join(workspacePath, 'worker-echo.js')
+    writeFileSync(
+      workerScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => process.stdout.write(chunk))",
+      ].join('\n')
+    )
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      command: '/bin/bash',
+      args: ['-lc', `"${process.execPath}" "${workerScript}"`],
+    })
+
+    const dispatch = await store.dispatchTask(workspace.id, worker.id, 'Mobile dispatch smoke')
+
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      const output = run?.output.replace(/\r\n/g, '\n') ?? ''
+      expect(output).toContain('@mobile')
+      expect(output).toContain(`dispatch_id: ${dispatch.id}`)
+      expect(output).toContain('Mobile dispatch smoke')
+    })
+    expect(store.listDispatches(workspace.id)).toContainEqual(
+      expect.objectContaining({ id: dispatch.id, status: 'submitted' })
+    )
+  })
+
   test('team send submits prompts to interactive CLI agents after bracketed paste', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-interactive-team-send-'))
     const workspacePath = join(dataDir, 'workspace')

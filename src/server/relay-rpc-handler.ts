@@ -67,6 +67,7 @@ const requireCapability = (
       name: 'Relay device',
       push_token: null,
       revoked_at: null,
+      source: 'manual',
       token: '',
     },
     capability

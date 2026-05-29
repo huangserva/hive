@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { startTestServer } from '../helpers/test-server.js'
+import { getUiCookie } from '../helpers/ui-session.js'
 
 const tempDirs: string[] = []
 
@@ -12,18 +13,32 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
+const createMobileToken = async (
+  baseUrl: string,
+  capabilities = ['read_dashboard', 'send_prompt']
+) => {
+  const cookie = await getUiCookie(baseUrl)
+  const response = await fetch(`${baseUrl}/api/mobile/tokens`, {
+    body: JSON.stringify({ capabilities, name: 'Voice test phone' }),
+    headers: { 'content-type': 'application/json', cookie },
+    method: 'POST',
+  })
+  expect(response.status).toBe(200)
+  const body = (await response.json()) as { token: string }
+  return body.token
+}
+
 describe('POST /api/mobile/voice/transcribe', () => {
   test('returns stt_unavailable when whisper is not installed', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-voice-data-'))
     tempDirs.push(dataDir)
     const server = await startTestServer({ dataDir })
-    const pairResponse = await fetch(`${server.baseUrl}/api/mobile/pair`)
-    const pair = (await pairResponse.json()) as { token: string }
+    const token = await createMobileToken(server.baseUrl)
     const audioBase64 = Buffer.from('fake audio data').toString('base64')
     const response = await fetch(`${server.baseUrl}/api/mobile/voice/transcribe`, {
       body: JSON.stringify({ audio: audioBase64, format: 'm4a' }),
       headers: {
-        authorization: `Bearer ${pair.token}`,
+        authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       method: 'POST',
@@ -37,31 +52,12 @@ describe('POST /api/mobile/voice/transcribe', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-voice-data-'))
     tempDirs.push(dataDir)
     const server = await startTestServer({ dataDir })
-    const cookie = await (async () => {
-      const uiResponse = await fetch(`${server.baseUrl}/api/ui/token`, { method: 'POST' })
-      const setCookie = uiResponse.headers.getSetCookie()
-      return setCookie[0]?.split(';')[0] ?? ''
-    })()
-    const codeResponse = await fetch(`${server.baseUrl}/api/mobile/pair/generate`, {
-      body: JSON.stringify({
-        capabilities: ['read_dashboard'],
-        device_name: 'test-phone',
-      }),
-      headers: { 'content-type': 'application/json', cookie },
-      method: 'POST',
-    })
-    const codeBody = (await codeResponse.json()) as { code: string }
-    const redeemResponse = await fetch(`${server.baseUrl}/api/mobile/pair/redeem`, {
-      body: JSON.stringify({ code: codeBody.code }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-    })
-    const redeem = (await redeemResponse.json()) as { token: string }
+    const token = await createMobileToken(server.baseUrl, ['read_dashboard'])
     const audioBase64 = Buffer.from('fake audio').toString('base64')
     const response = await fetch(`${server.baseUrl}/api/mobile/voice/transcribe`, {
       body: JSON.stringify({ audio: audioBase64 }),
       headers: {
-        authorization: `Bearer ${redeem.token}`,
+        authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       method: 'POST',
@@ -74,12 +70,11 @@ describe('POST /api/mobile/voice/transcribe', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-voice-data-'))
     tempDirs.push(dataDir)
     const server = await startTestServer({ dataDir })
-    const pairResponse = await fetch(`${server.baseUrl}/api/mobile/pair`)
-    const pair = (await pairResponse.json()) as { token: string }
+    const token = await createMobileToken(server.baseUrl)
     const response = await fetch(`${server.baseUrl}/api/mobile/voice/transcribe`, {
       body: JSON.stringify({}),
       headers: {
-        authorization: `Bearer ${pair.token}`,
+        authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       method: 'POST',

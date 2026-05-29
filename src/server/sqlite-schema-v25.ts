@@ -24,13 +24,5 @@ export const applySchemaVersion25 = (db: Database) => {
       device_type = COALESCE(device_type, 'legacy_m19a')
     WHERE capabilities IS NULL OR device_type IS NULL;
 
-    CREATE TABLE IF NOT EXISTS mobile_pairing_codes (
-      code TEXT PRIMARY KEY,
-      device_name TEXT NOT NULL,
-      capabilities TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      redeemed_at INTEGER,
-      redeemed_device_id TEXT
-    );
   `)
 }
