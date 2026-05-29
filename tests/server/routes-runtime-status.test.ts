@@ -65,13 +65,23 @@ describe('GET /api/runtime/status', () => {
     expect(body).toEqual({
       cwd: process.cwd(),
       db_path: join(dataDir, 'runtime.sqlite'),
+      lan_addresses: expect.any(Array),
       log_path: join(dataDir, 'logs', 'runtime-4567.log'),
       pid: process.pid,
       port: 4567,
       version: '1.2.3-test',
     })
+    expect(
+      (body.lan_addresses as unknown[]).every(
+        (address) =>
+          typeof address === 'string' &&
+          /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address) &&
+          address !== '127.0.0.1'
+      )
+    ).toBe(true)
     expect(typeof body.cwd).toBe('string')
     expect(typeof body.db_path).toBe('string')
+    expect(Array.isArray(body.lan_addresses)).toBe(true)
     expect(typeof body.log_path).toBe('string')
     expect(typeof body.pid).toBe('number')
     expect(typeof body.port).toBe('number')

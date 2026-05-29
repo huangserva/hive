@@ -1,4 +1,5 @@
-import { Copy, LoaderCircle, Pencil, Smartphone, Trash2 } from 'lucide-react'
+import { Copy, LoaderCircle, Pencil, QrCode, Smartphone, Trash2 } from 'lucide-react'
+import QRCode from 'qrcode'
 import { useCallback, useEffect, useState } from 'react'
 
 import {
@@ -10,6 +11,7 @@ import {
   updateMobileDevice,
 } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { useRuntimeStatus } from '../layout/useRuntimeStatus.js'
 import { Confirm } from '../ui/Confirm.js'
 
 const ALL_CAPABILITIES: MobileCapability[] = [
@@ -40,7 +42,7 @@ interface DeviceRowProps {
   device: MobileDevice
   onEdit: () => void
   onDelete: () => void
-  t: (key: string, values?: Record<string, string | number>) => string
+  t: ReturnType<typeof useI18n>['t']
 }
 
 const DeviceRow = ({ device, onDelete, onEdit, t }: DeviceRowProps) => {
@@ -106,10 +108,13 @@ const DeviceRow = ({ device, onDelete, onEdit, t }: DeviceRowProps) => {
 
 export const MobileDevicesSection = () => {
   const { t } = useI18n()
+  const runtimeStatus = useRuntimeStatus()
   const [devices, setDevices] = useState<MobileDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [createdToken, setCreatedToken] = useState<{ deviceId: string; token: string } | null>(null)
+  const [createdTokenQr, setCreatedTokenQr] = useState<string | null>(null)
+  const [createdTokenQrError, setCreatedTokenQrError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [showGenerator, setShowGenerator] = useState(false)
   const [genName, setGenName] = useState('')
@@ -132,6 +137,36 @@ export const MobileDevicesSection = () => {
   useEffect(() => {
     loadDevices()
   }, [loadDevices])
+
+  const currentLanAddress = runtimeStatus?.lanAddresses[0] ?? null
+  const currentMobileHost =
+    currentLanAddress && runtimeStatus?.port ? `${currentLanAddress}:${runtimeStatus.port}` : null
+
+  useEffect(() => {
+    let alive = true
+    setCreatedTokenQr(null)
+    setCreatedTokenQrError(null)
+    if (!createdToken) return
+    if (!currentMobileHost) {
+      setCreatedTokenQrError('No LAN IPv4 address detected on this runtime.')
+      return
+    }
+
+    QRCode.toDataURL(JSON.stringify({ host: currentMobileHost, token: createdToken.token }), {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      scale: 6,
+    })
+      .then((dataUrl) => {
+        if (alive) setCreatedTokenQr(dataUrl)
+      })
+      .catch((err: unknown) => {
+        if (alive) setCreatedTokenQrError(err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      alive = false
+    }
+  }, [createdToken, currentMobileHost])
 
   const handleGenerate = () => {
     if (!genName.trim()) return
@@ -222,6 +257,31 @@ export const MobileDevicesSection = () => {
             <Copy size={12} aria-hidden />
             {t('mobile.copyToken')}
           </button>
+          <div
+            className="mt-2 flex w-full max-w-sm flex-col items-center gap-2 rounded border px-3 py-3"
+            style={{ borderColor: 'var(--border)', background: 'var(--bg-3)' }}
+          >
+            <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-ter">
+              <QrCode size={13} aria-hidden />
+              Scan QR in mobile app
+            </span>
+            {createdTokenQr ? (
+              <img
+                alt="Mobile token connection QR code"
+                className="h-44 w-44 rounded bg-white p-2"
+                src={createdTokenQr}
+              />
+            ) : createdTokenQrError ? (
+              <span className="text-center text-xs text-ter">{createdTokenQrError}</span>
+            ) : (
+              <LoaderCircle size={16} className="animate-spin text-ter" aria-hidden />
+            )}
+            {currentMobileHost ? (
+              <span className="mono max-w-full break-all text-xs text-ter">
+                host: {currentMobileHost}
+              </span>
+            ) : null}
+          </div>
           <span className="text-xs text-ter">{t('mobile.tokenShownOnce')}</span>
         </div>
       ) : null}
@@ -264,7 +324,7 @@ export const MobileDevicesSection = () => {
             <button
               type="button"
               className="icon-btn icon-btn--primary"
-              disabled={!genName.trim() || genCaps.length === 0 || generating}
+              disabled={!genName.trim() || genCaps.length === 0 || creating}
               onClick={handleGenerate}
               data-testid="token-confirm"
             >

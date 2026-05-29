@@ -1,9 +1,38 @@
+import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { ConfigureAgentLaunchBody, RouteDefinition } from './route-types.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 import { getWorkspaceShellAgentId } from './workspace-shell-runtime.js'
+
+export const listLanIpv4Addresses = (): string[] => {
+  const addresses = new Set<string>()
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || entry.address === '127.0.0.1') continue
+      addresses.add(entry.address)
+    }
+  }
+  return [...addresses].sort((left, right) => {
+    const leftPreferred = isPrivateLanIpv4(left)
+    const rightPreferred = isPrivateLanIpv4(right)
+    if (leftPreferred !== rightPreferred) return leftPreferred ? -1 : 1
+    return left.localeCompare(right)
+  })
+}
+
+const isPrivateLanIpv4 = (address: string): boolean => {
+  const parts = address.split('.').map((part) => Number(part))
+  const [first, second] = parts
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) return false
+  if (first === undefined || second === undefined) return false
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  )
+}
 
 export const runtimeRoutes: RouteDefinition[] = [
   route(
@@ -18,6 +47,7 @@ export const runtimeRoutes: RouteDefinition[] = [
         cwd: process.cwd(),
         log_path: join(runtimeInfo.dataDir, 'logs', `runtime-${runtimeInfo.port ?? 0}.log`),
         db_path: join(runtimeInfo.dataDir, 'runtime.sqlite'),
+        lan_addresses: listLanIpv4Addresses(),
         version: version.current_version,
       })
     }
