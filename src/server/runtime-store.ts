@@ -26,6 +26,7 @@ import type { SettingsStore } from './settings-store.js'
 import type {
   CancelTaskInput,
   DispatchTaskInput,
+  ReconcileOrphanedDispatchesInput,
   ReportTaskInput,
   ReportTaskResult,
   StatusTaskInput,
@@ -74,6 +75,7 @@ interface RuntimeStore {
   reportTask: (workspaceId: string, workerId: string, input?: ReportTaskInput) => ReportTaskResult
   statusTask: (workspaceId: string, workerId: string, input?: StatusTaskInput) => ReportTaskResult
   cancelTask: (workspaceId: string, dispatchId: string, input: CancelTaskInput) => ReportTaskResult
+  reconcileOrphanedDispatches: (input?: ReconcileOrphanedDispatchesInput) => DispatchRecord[]
   listDispatches: (workspaceId: string, options?: ListDispatchesOptions) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
   getLastPtyLineForAgent: (workspaceId: string, agentId: string) => string | null
@@ -245,6 +247,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       services.agentRuntime.writeQuestionAnsweredPrompt(workspaceId, questionId, answer)
     },
     cancelTask: services.teamOps.cancelTask,
+    reconcileOrphanedDispatches: services.teamOps.reconcileOrphanedDispatches,
     dispatchTask: services.teamOps.dispatchTask,
     dispatchTaskByWorkerName: services.teamOps.dispatchTaskByWorkerName,
     reportTask: services.teamOps.reportTask,

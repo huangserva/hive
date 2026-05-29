@@ -88,6 +88,15 @@ export const buildMobileDashboard = (
   const milestone = activeMilestone(cockpit)
   const workers = enrichTeamList(workspaceId, store, store.listWorkers(workspaceId)).map(
     (worker) => ({
+      capabilities: worker.capabilities
+        ? {
+            features: worker.capabilities.features,
+            mode: worker.capabilities.mode,
+            provider_family: worker.capabilities.providerFamily,
+            risk_tier: worker.capabilities.riskTier,
+            unattended: worker.capabilities.unattended,
+          }
+        : null,
       id: worker.id,
       name: worker.name,
       preset: worker.commandPresetId ?? null,

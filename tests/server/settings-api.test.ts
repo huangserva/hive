@@ -33,6 +33,12 @@ describe('settings api', () => {
     expect(appStateBeforeResponse.status).toBe(200)
 
     const presets = (await presetsResponse.json()) as Array<{
+      capabilities: {
+        features: string[]
+        provider_family: string
+        risk_tier: string
+        unattended: boolean | 'unknown'
+      }
       display_name: string
       id: string
       yolo_args_template: string[] | null
@@ -61,6 +67,12 @@ describe('settings api', () => {
       expect.objectContaining({
         id: 'codex',
         display_name: 'Codex',
+        capabilities: expect.objectContaining({
+          provider_family: 'codex',
+          risk_tier: 'high',
+          unattended: true,
+          features: expect.arrayContaining(['browser_e2e', 'mcp', 'session_resume']),
+        }),
         yolo_args_template: [
           '--dangerously-bypass-approvals-and-sandbox',
           '-c',

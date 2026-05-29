@@ -1,4 +1,5 @@
 import type { TeamListItem } from '../shared/types.js'
+import { getCommandPresetCapabilities } from './command-preset-capabilities.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 export type TeamListEnrichmentStore = Pick<
@@ -50,7 +51,10 @@ export const enrichTeamList = (
       worker.role === 'sentinel' ? store.getWorkerConfig(workspaceId, worker.id) : {}
     const next: TeamListItem = { ...worker }
     if (line !== null) next.lastPtyLine = line
-    if (presetId !== null) next.commandPresetId = presetId
+    if (presetId !== null) {
+      next.commandPresetId = presetId
+      next.capabilities = getCommandPresetCapabilities(presetId)
+    }
     if (thinkingLevel) next.thinkingLevel = thinkingLevel
     if (worker.role === 'sentinel' && typeof workerConfig.heartbeat_interval_ms === 'number') {
       next.sentinelIntervalMs = workerConfig.heartbeat_interval_ms

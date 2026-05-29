@@ -258,6 +258,7 @@ describe('team API authz (R1.4)', () => {
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual([
         {
+          capabilities: null,
           command_preset_id: null,
           description: expect.any(String),
           id: ctx.worker.id,

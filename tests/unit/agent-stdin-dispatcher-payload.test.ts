@@ -162,6 +162,24 @@ describe('buildWorkerDispatchPayload', () => {
     expect(snapshotIdx).toBeGreaterThan(pmReminderIdx)
     expect(workerTailIdx).toBeGreaterThan(snapshotIdx)
   })
+
+  test('can include a compact worker capability summary in dispatch context', () => {
+    const payload = buildWorkerDispatchPayload(
+      'orchestrator-1',
+      'Coder',
+      'disp-cap',
+      'run browser smoke',
+      undefined,
+      'Codex capabilities: provider=codex; risk=high; unattended=true; features=browser_e2e, mcp'
+    )
+
+    expect(payload).toContain('**Worker capability manifest（runtime 推导）**')
+    expect(payload).toContain('provider=codex')
+    expect(payload).toContain('browser_e2e')
+    expect(lineIndexOf(payload, 'provider=codex')).toBeGreaterThan(
+      lineIndexOf(payload, 'run browser smoke')
+    )
+  })
 })
 
 describe('buildWorkerCockpitSnapshot', () => {

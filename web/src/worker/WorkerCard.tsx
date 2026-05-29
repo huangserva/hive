@@ -5,6 +5,7 @@ import type { TeamListItem } from '../../../src/shared/types.js'
 import { useI18n } from '../i18n.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { CliAgentAvatar } from './CliAgentAvatar.js'
+import { CommandPresetCapabilities } from './CommandPresetCapabilities.js'
 import { presentWorkerStatus, type WorkerStatusKind } from './worker-status.js'
 
 const pillToneByStatus: Record<WorkerStatusKind, string> = {
@@ -92,6 +93,7 @@ export const WorkerCard = ({
           <span className={status.dotClass} aria-hidden />
           {t(statusKey(status.kind))}
         </span>
+        <CommandPresetCapabilities capabilities={worker.capabilities} maxFeatures={3} />
       </button>
 
       {onAction ? (

@@ -251,6 +251,7 @@ export const createRuntimeStoreServices = (
     findOpenDispatch: dispatchLedgerStore.findOpenDispatch,
     findOpenDispatchById: dispatchLedgerStore.findOpenDispatchById,
     insertMessage: messageLogStore.insertMessage,
+    listOpenDispatchesForWorkspace: dispatchLedgerStore.listOpenDispatchesForWorkspace,
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
@@ -264,6 +265,19 @@ export const createRuntimeStoreServices = (
   })
   startExistingWorkspaceWatches()
   sentinelHeartbeat?.start()
+
+  // 启动时收尾历史孤儿派单：runtime 重启后所有 worker 都是 stopped 且无 active run，
+  // 此时把卡在 submitted 已过期的孤儿统一标成 cancelled（tasks.md 同步），清掉噪音。
+  // 当前正在 working 的 worker 在重启瞬间也是 stopped，但其 dispatch 通常未过 staleness
+  // 阈值；真重启会中断在途 PTY，这些任务本就需重派，故收尾是合理的。
+  try {
+    const reconciled = teamOps.reconcileOrphanedDispatches()
+    if (reconciled.length > 0) {
+      options.logger?.info(`reconciled ${reconciled.length} orphaned submitted dispatch(es)`)
+    }
+  } catch (error) {
+    options.logger?.warn('orphaned dispatch reconcile on startup failed', error)
+  }
 
   return {
     agentRunStore,

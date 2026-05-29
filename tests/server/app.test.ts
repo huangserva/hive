@@ -246,6 +246,7 @@ describe('runtime http app', () => {
         pending_task_count: 1,
         last_pty_line: null,
         command_preset_id: null,
+        capabilities: null,
         thinking_level: null,
         sentinel_interval_ms: null,
       },
@@ -337,6 +338,7 @@ describe('runtime http app', () => {
       pending_task_count: 0,
       last_pty_line: null,
       command_preset_id: null,
+      capabilities: null,
       thinking_level: null,
       sentinel_interval_ms: null,
     })

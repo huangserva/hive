@@ -39,7 +39,19 @@ export interface MobileWorkspace {
   path: string
 }
 
+export type MobileCommandPresetRiskTier = 'high' | 'moderate' | 'unknown'
+export type MobileCommandPresetUnattended = boolean | 'unknown'
+
+export interface MobileCommandPresetCapabilities {
+  features: string[]
+  mode: 'cli_agent' | 'unknown' | string
+  provider_family: 'claude' | 'codex' | 'custom' | 'gemini' | 'opencode' | string
+  risk_tier: MobileCommandPresetRiskTier
+  unattended: MobileCommandPresetUnattended
+}
+
 export interface MobileDashboardWorker {
+  capabilities?: MobileCommandPresetCapabilities | null
   id: string
   name: string
   preset: string | null

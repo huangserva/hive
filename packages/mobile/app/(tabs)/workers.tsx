@@ -37,6 +37,35 @@ const CLI_LABELS: Record<string, string> = {
 
 const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
 
+const FEATURE_LABELS: Record<string, string> = {
+  browser_e2e: 'Browser E2E',
+  mcp: 'MCP',
+  session_capture: 'Capture',
+  session_resume: 'Resume',
+  terminal_input_profile: 'Terminal',
+  thinking_levels: 'Thinking',
+}
+
+const featureLabel = (feature: string) => FEATURE_LABELS[feature] ?? feature.replace(/_/g, ' ')
+
+const riskColor = (risk: string) => {
+  if (risk === 'high') return colors.error
+  if (risk === 'moderate') return colors.warning
+  return colors.muted
+}
+
+const unattendedLabel = (
+  value: MobileDashboardWorker['capabilities'] extends infer C
+    ? C extends { unattended?: infer U }
+      ? U
+      : never
+    : never
+) => {
+  if (value === true) return 'Unattended'
+  if (value === false) return 'Supervised'
+  return null
+}
+
 const WORKER_ROLES: Record<string, string> = {
   coder: 'Software Engineer',
   designer: 'UI Designer',
@@ -398,6 +427,7 @@ const WorkerCard = ({
         <MetaChip label="Role" value={worker.role} />
         <MetaChip label="Status" value={statusTextFor(worker)} />
       </View>
+      <CapabilityChips capabilities={worker.capabilities} />
       <WorkerActions
         onDispatch={onDispatch}
         onRestart={onRestart}
@@ -438,6 +468,7 @@ const SentinelCard = ({
         <StatusBadge status={worker.status} />
         <Ionicons color={colors.muted} name="chevron-forward" size={18} />
       </View>
+      <CapabilityChips capabilities={worker.capabilities} />
     </Pressable>
   )
 }
@@ -447,6 +478,46 @@ const MetaChip = ({ label, value }: { label: string; value: string }) => (
     <Text style={styles.metaLabel}>{label}</Text>
     <Text numberOfLines={1} style={styles.metaValue}>
       {value}
+    </Text>
+  </View>
+)
+
+const CapabilityChips = ({
+  capabilities,
+}: {
+  capabilities?: MobileDashboardWorker['capabilities']
+}) => {
+  if (!capabilities) return null
+  const features = capabilities.features.slice(0, 4)
+  const hiddenCount = capabilities.features.length - features.length
+  const unattended = unattendedLabel(capabilities.unattended)
+  const showMode = capabilities.mode && capabilities.mode !== 'unknown'
+  const showRisk = capabilities.risk_tier && capabilities.risk_tier !== 'unknown'
+
+  if (!features.length && !hiddenCount && !unattended && !showMode && !showRisk) return null
+
+  return (
+    <View style={styles.capabilityRow}>
+      {showMode ? <CapabilityChip label={capabilities.mode.replace(/_/g, ' ')} /> : null}
+      {showRisk ? (
+        <CapabilityChip
+          color={riskColor(capabilities.risk_tier)}
+          label={`${capabilities.risk_tier} risk`}
+        />
+      ) : null}
+      {unattended ? <CapabilityChip color={colors.accent} label={unattended} /> : null}
+      {features.map((feature) => (
+        <CapabilityChip key={feature} label={featureLabel(feature)} />
+      ))}
+      {hiddenCount > 0 ? <CapabilityChip label={`+${hiddenCount}`} /> : null}
+    </View>
+  )
+}
+
+const CapabilityChip = ({ color = colors.textSoft, label }: { color?: string; label: string }) => (
+  <View style={styles.capabilityChip}>
+    <Text numberOfLines={1} style={[styles.capabilityChipText, { color }]}>
+      {label}
     </Text>
   </View>
 )
@@ -601,6 +672,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
+  },
+  capabilityChip: {
+    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    borderColor: colors.borderMuted,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: 132,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  capabilityChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  capabilityRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
   },
   orchAvatar: {
     alignItems: 'center',

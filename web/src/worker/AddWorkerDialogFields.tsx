@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import type { WorkerRole } from '../../../src/shared/types.js'
 import type { CommandPreset } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { CommandPresetCapabilities } from './CommandPresetCapabilities.js'
 import { RoleAvatar } from './RoleAvatar.js'
 
 interface RoleCardSpec {
@@ -180,12 +181,13 @@ const AgentChip = ({
       data-testid={`agent-radio-${preset.id}`}
       className="selectable-card flex items-center justify-between gap-2 px-3 py-2 disabled:cursor-not-allowed disabled:opacity-45"
     >
-      <span className="flex min-w-0 flex-col items-start gap-0.5">
+      <span className="flex min-w-0 flex-col items-start gap-1">
         <span className="truncate text-base font-medium text-pri">{preset.displayName}</span>
         <span className="mono truncate text-xs text-ter">
           {preset.command}
           {preset.available === false ? ` · ${t('addWorker.agentNotFound')}` : ''}
         </span>
+        <CommandPresetCapabilities capabilities={preset.capabilities} maxFeatures={3} />
       </span>
       {active ? <Check size={14} className="shrink-0 text-accent" aria-hidden /> : null}
     </button>

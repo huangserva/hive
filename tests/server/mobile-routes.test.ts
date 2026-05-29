@@ -313,7 +313,12 @@ describe('mobile API', () => {
     const server = await startTestServer()
     try {
       const workspace = server.store.createWorkspace(workspacePath, 'Mobile Test')
-      server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      server.store.configureAgentLaunch(workspace.id, worker.id, {
+        args: [],
+        command: 'claude',
+        commandPresetId: 'claude',
+      })
       const { token } = await createMobileTokenForTest(server.baseUrl)
 
       const response = await fetch(
@@ -332,6 +337,11 @@ describe('mobile API', () => {
         runs: Array<{ agent_name: string; id: string; started_at: string | null; status: string }>
         tasks: { total_done: number; total_open: number }
         workers: Array<{
+          capabilities: {
+            features: string[]
+            provider_family: string
+            risk_tier: string
+          } | null
           id: string
           name: string
           preset: string | null
@@ -350,8 +360,13 @@ describe('mobile API', () => {
       expect(body.tasks).toEqual({ total_done: 1, total_open: 1 })
       expect(body.workers).toHaveLength(1)
       expect(body.workers[0]).toMatchObject({
+        capabilities: {
+          features: expect.arrayContaining(['session_resume', 'session_capture']),
+          provider_family: 'claude',
+          risk_tier: 'high',
+        },
         name: 'Alice',
-        preset: null,
+        preset: 'claude',
         role: 'coder',
         status: 'stopped',
       })

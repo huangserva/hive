@@ -16,8 +16,11 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-
-import type { MobileWorkerTranscript, MobileWorkspaceTasks } from '../../src/api/client'
+import type {
+  MobileDashboardWorker,
+  MobileWorkerTranscript,
+  MobileWorkspaceTasks,
+} from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
@@ -42,6 +45,35 @@ const CLI_LABELS: Record<string, string> = {
 
 const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
 
+const FEATURE_LABELS: Record<string, string> = {
+  browser_e2e: 'Browser E2E',
+  mcp: 'MCP',
+  session_capture: 'Capture',
+  session_resume: 'Resume',
+  terminal_input_profile: 'Terminal',
+  thinking_levels: 'Thinking',
+}
+
+const featureLabel = (feature: string) => FEATURE_LABELS[feature] ?? feature.replace(/_/g, ' ')
+
+const riskColor = (risk: string) => {
+  if (risk === 'high') return colors.error
+  if (risk === 'moderate') return colors.warning
+  return colors.muted
+}
+
+const unattendedLabel = (
+  value: MobileDashboardWorker['capabilities'] extends infer C
+    ? C extends { unattended?: infer U }
+      ? U
+      : never
+    : never
+) => {
+  if (value === true) return 'Unattended'
+  if (value === false) return 'Supervised'
+  return null
+}
+
 const dispatchStatusLabel = (status: string) => {
   if (status === 'done') return 'Completed'
   if (status === 'cancelled') return 'Cancelled'
@@ -61,11 +93,13 @@ const dispatchIcon = (status: string): keyof typeof Ionicons.glyphMap => {
 }
 
 const WorkerActions = ({
+  canDispatch = true,
   onDispatch,
   onRestart,
   onStop,
   status,
 }: {
+  canDispatch?: boolean
   onDispatch: () => void
   onRestart: () => void
   onStop: () => void
@@ -75,7 +109,7 @@ const WorkerActions = ({
   const isStopped = status === 'stopped'
   return (
     <View style={styles.actionBtns}>
-      {!isWorking && !isStopped ? (
+      {canDispatch && !isWorking && !isStopped ? (
         <ActionButton icon="send-outline" label="Dispatch" onPress={onDispatch} tone="success" />
       ) : null}
       <ActionButton icon="refresh-outline" label="Restart" onPress={onRestart} tone="accent" />
@@ -194,6 +228,9 @@ export default function AgentDetailScreen() {
       (selectedWorkspaceId ? workerId === `${selectedWorkspaceId}:orchestrator` : false),
     [selectedWorkspaceId, workerId]
   )
+  // Sentinel（哨兵，如周瑜）只巡检、不能被派单（后端 team-authz 禁止 send），
+  // 所以详情页同样隐藏 Dispatch 入口和 Dispatch History，沿用 orchestrator 特判思路。
+  const isSentinel = worker?.role === 'sentinel'
   const detailAgent = useMemo(() => {
     if (worker) {
       return {
@@ -494,12 +531,14 @@ export default function AgentDetailScreen() {
                   <InfoPill label="Role" value={worker.role} />
                 </View>
               ) : null}
+              {worker ? <CapabilityChips capabilities={worker.capabilities} /> : null}
               <View style={styles.badgeActionRow}>
                 <View style={styles.statusRow}>
                   <StatusBadge status={detailAgent.status} />
                 </View>
                 {worker ? (
                   <WorkerActions
+                    canDispatch={!isSentinel}
                     onDispatch={openDispatch}
                     onRestart={confirmRestart}
                     onStop={confirmStop}
@@ -507,6 +546,14 @@ export default function AgentDetailScreen() {
                   />
                 ) : null}
               </View>
+              {isSentinel ? (
+                <View style={styles.sentinelNote}>
+                  <Ionicons color={colors.accent} name="shield-checkmark-outline" size={14} />
+                  <Text style={styles.sentinelNoteText}>
+                    Sentinel watcher — observes and patrols only, cannot be dispatched.
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             {/* Stats row */}
@@ -580,7 +627,7 @@ export default function AgentDetailScreen() {
               </View>
             </View>
 
-            {!isOrchestrator ? (
+            {!isOrchestrator && !isSentinel ? (
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Dispatch History</Text>
                 {relevantDispatches.length === 0 ? (
@@ -701,6 +748,46 @@ const InfoPill = ({ label, value }: { label: string; value: string }) => (
   </View>
 )
 
+const CapabilityChips = ({
+  capabilities,
+}: {
+  capabilities?: MobileDashboardWorker['capabilities']
+}) => {
+  if (!capabilities) return null
+  const features = capabilities.features.slice(0, 6)
+  const hiddenCount = capabilities.features.length - features.length
+  const unattended = unattendedLabel(capabilities.unattended)
+  const showMode = capabilities.mode && capabilities.mode !== 'unknown'
+  const showRisk = capabilities.risk_tier && capabilities.risk_tier !== 'unknown'
+
+  if (!features.length && !hiddenCount && !unattended && !showMode && !showRisk) return null
+
+  return (
+    <View style={styles.capabilityRow}>
+      {showMode ? <CapabilityChip label={capabilities.mode.replace(/_/g, ' ')} /> : null}
+      {showRisk ? (
+        <CapabilityChip
+          color={riskColor(capabilities.risk_tier)}
+          label={`${capabilities.risk_tier} risk`}
+        />
+      ) : null}
+      {unattended ? <CapabilityChip color={colors.accent} label={unattended} /> : null}
+      {features.map((feature) => (
+        <CapabilityChip key={feature} label={featureLabel(feature)} />
+      ))}
+      {hiddenCount > 0 ? <CapabilityChip label={`+${hiddenCount}`} /> : null}
+    </View>
+  )
+}
+
+const CapabilityChip = ({ color = colors.textSoft, label }: { color?: string; label: string }) => (
+  <View style={styles.capabilityChip}>
+    <Text numberOfLines={1} style={[styles.capabilityChipText, { color }]}>
+      {label}
+    </Text>
+  </View>
+)
+
 const styles = StyleSheet.create({
   actionBtns: {
     flexDirection: 'row',
@@ -779,6 +866,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.md,
+  },
+  capabilityChip: {
+    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    borderColor: colors.borderMuted,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: 140,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  capabilityChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  capabilityRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: spacing.xs,
   },
   dispatchBadge: {
     borderRadius: 999,
@@ -1053,6 +1160,18 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     alignItems: 'flex-start',
+  },
+  sentinelNote: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  sentinelNoteText: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
   },
   statsCard: {
     backgroundColor: colors.card,

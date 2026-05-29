@@ -49,6 +49,7 @@ export interface TeamOperationsInput {
     messageType: MobileChatMessageType,
     contentJson: string
   ) => MobileChatMessage
+  listOpenDispatchesForWorkspace: (workspaceId: string) => DispatchRecord[]
   markDispatchCancelled: (input: {
     dispatchId: string
     reason: string
@@ -97,6 +98,20 @@ export interface CancelTaskInput {
   reason: string
 }
 
+export interface ReconcileOrphanedDispatchesInput {
+  now?: number
+  staleMs?: number
+  workspaceId?: string
+}
+
+// 孤儿派单收尾：一条 dispatch 卡在 submitted、目标 worker 已 stopped/已删 且无 active run，
+// 就再也不会有人 report 了（worker 在别的 dispatch 下 report、或 worker 已停）。把这种
+// 「明确孤儿」标成 cancelled，避免无限堆在 In progress 段当噪音。语义与 sentinel 巡检
+// (sentinel-heartbeat.ts STALE_SUBMITTED_DISPATCH_MS) 对齐：默认 15 分钟 staleness 阈值，
+// 防止刚派出去、worker 还没起来/正在原生 resume 的在途任务被误杀。
+export const ORPHAN_DISPATCH_CANCEL_REASON = 'orphan-submitted: worker stopped without reporting'
+const ORPHAN_SUBMITTED_STALE_MS = 15 * 60 * 1000
+
 export interface ReportTaskResult {
   dispatch: DispatchRecord | null
   forwardError: string | null
@@ -144,6 +159,7 @@ export const createTeamOperations = ({
   findOpenDispatchById,
   insertMessage,
   insertMobileChatMessage,
+  listOpenDispatchesForWorkspace,
   markDispatchCancelled,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
@@ -324,6 +340,24 @@ export const createTeamOperations = ({
     }
   }
 
+  // 判定一条 open dispatch 是否是「可安全收尾」的孤儿。只收明确孤儿：
+  // submitted + 已过 staleness 阈值 + 无 active run + （worker 已删 或 status==='stopped'）。
+  // worker 还在 working/idle（在途，可能正在做或马上 report）一律不动。
+  const isReconcilableOrphan = (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    now: number,
+    staleMs: number
+  ) => {
+    if (dispatch.status !== 'submitted' || dispatch.submittedAt === null) return false
+    if (now - dispatch.submittedAt < staleMs) return false
+    // 在途保护：worker 还有 active run = 合法在途，绝不收尾。
+    if (agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)) return false
+    // worker 已被删除 = 明确孤儿；否则必须是 stopped 态才算孤儿。
+    if (!workspaceStore.hasAgent(workspaceId, dispatch.toAgentId)) return true
+    return workspaceStore.getWorker(workspaceId, dispatch.toAgentId).status === 'stopped'
+  }
+
   return {
     cancelTask(workspaceId: string, dispatchId: string, input: CancelTaskInput) {
       workspaceStore.getAgent(workspaceId, input.fromAgentId)
@@ -358,6 +392,38 @@ export const createTeamOperations = ({
         console.error('[hive] swallowed:teamCancel.forward', error)
       }
       return { dispatch, forwardError, forwarded }
+    },
+    reconcileOrphanedDispatches(input: ReconcileOrphanedDispatchesInput = {}) {
+      const now = input.now ?? Date.now()
+      const staleMs = input.staleMs ?? ORPHAN_SUBMITTED_STALE_MS
+      const workspaceIds = input.workspaceId
+        ? [input.workspaceId]
+        : workspaceStore.listWorkspaces().map((workspace) => workspace.id)
+      const reconciled: DispatchRecord[] = []
+      for (const workspaceId of workspaceIds) {
+        for (const dispatch of listOpenDispatchesForWorkspace(workspaceId)) {
+          if (!isReconcilableOrphan(workspaceId, dispatch, now, staleMs)) continue
+          const cancelled = markDispatchCancelled({
+            dispatchId: dispatch.id,
+            reason: ORPHAN_DISPATCH_CANCEL_REASON,
+            workspaceId,
+          })
+          if (!cancelled) continue
+          // worker 还在（只是 stopped）才更新它的 pending 计数；已删 worker 跳过。
+          if (workspaceStore.hasAgent(workspaceId, cancelled.toAgentId)) {
+            workspaceStore.markTaskCancelled(workspaceId, cancelled.toAgentId)
+          }
+          const workspacePath = getWorkspacePath(workspaceId)
+          if (workspacePath) {
+            tasksFileService.recordDispatchCancelled(workspacePath, {
+              dispatchId: cancelled.id,
+              reason: ORPHAN_DISPATCH_CANCEL_REASON,
+            })
+          }
+          reconciled.push(cancelled)
+        }
+      }
+      return reconciled
     },
     dispatchTask,
     dispatchTaskByWorkerName(

@@ -38,6 +38,11 @@ const createWorkspace = async (baseUrl: string, cookie: string) => {
 }
 
 interface TeamMember {
+  capabilities: {
+    features: string[]
+    provider_family: string
+    risk_tier: string
+  } | null
   id: string
   name: string
   command_preset_id: string | null
@@ -52,7 +57,7 @@ interface TeamMember {
  * downgrade, especially in dev where caches mask the failure.
  */
 describe('POST → GET round-trip carries command_preset_id end to end', () => {
-  test('explicit `claude` preset on create flows into the GET /team payload as `claude`', async () => {
+  test('explicit `claude` preset on create flows into the GET /team payload with capabilities', async () => {
     const server = await startTestServer()
     servers.push(server)
     const cookie = await getUiCookie(server.baseUrl)
@@ -71,6 +76,11 @@ describe('POST → GET round-trip carries command_preset_id end to end', () => {
     expect(createResponse.status).toBe(201)
     const created = (await createResponse.json()) as TeamMember
     expect(created.command_preset_id).toBe('claude')
+    expect(created.capabilities).toMatchObject({
+      provider_family: 'claude',
+      risk_tier: 'high',
+      features: expect.arrayContaining(['session_resume', 'session_capture', 'thinking_levels']),
+    })
 
     const teamResponse = await fetch(`${server.baseUrl}/api/ui/workspaces/${workspace.id}/team`, {
       headers: { cookie },
@@ -79,6 +89,10 @@ describe('POST → GET round-trip carries command_preset_id end to end', () => {
     const team = (await teamResponse.json()) as TeamMember[]
     const alice = team.find((member) => member.id === created.id)
     expect(alice?.command_preset_id).toBe('claude')
+    expect(alice?.capabilities).toMatchObject({
+      provider_family: 'claude',
+      risk_tier: 'high',
+    })
   })
 
   test('worker created without a preset gets `command_preset_id: null` back on GET', async () => {
@@ -105,5 +119,6 @@ describe('POST → GET round-trip carries command_preset_id end to end', () => {
     const bob = team.find((member) => member.name === 'Bob')
     expect(bob).toBeDefined()
     expect(bob?.command_preset_id).toBeNull()
+    expect(bob?.capabilities).toBeNull()
   })
 })

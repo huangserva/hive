@@ -13,6 +13,10 @@ import { stopLiveRun } from './agent-runtime-stop-run.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentStdinDispatcher } from './agent-stdin-dispatcher.js'
 import { createAgentTokenRegistry } from './agent-tokens.js'
+import {
+  getCommandPresetCapabilities,
+  summarizeCommandPresetCapabilities,
+} from './command-preset-capabilities.js'
 import type { CommandPresetRecord } from './command-preset-store.js'
 import { createLiveRunRegistry } from './live-run-registry.js'
 import type { HiveLogger } from './logger.js'
@@ -160,6 +164,18 @@ export const createAgentRuntime = (
       text,
       cockpitSnapshot
     ) {
+      const launchConfig = launchCache.peek(workspaceId, workerId)
+      const presetId =
+        launchConfig && !launchConfig.presetAugmentationDisabled
+          ? (launchConfig.commandPresetId ?? getCommandPreset(launchConfig.command)?.id ?? null)
+          : null
+      const preset = presetId ? getCommandPreset(presetId) : undefined
+      const capabilitySummary = preset
+        ? summarizeCommandPresetCapabilities(
+            preset.displayName,
+            getCommandPresetCapabilities(preset.id)
+          )
+        : undefined
       stdinDispatcher.writeSendPrompt(
         workspaceId,
         workerId,
@@ -167,7 +183,8 @@ export const createAgentRuntime = (
         fromAgentName,
         workerDescription,
         text,
-        cockpitSnapshot
+        cockpitSnapshot,
+        capabilitySummary
       )
     },
     writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input = {}) {

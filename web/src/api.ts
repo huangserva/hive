@@ -1,5 +1,7 @@
 import type {
   AgentSummary,
+  CommandPresetCapabilities,
+  CommandPresetCapabilitiesPayload,
   TeamListItem,
   TeamListItemPayload,
   WorkerRole,
@@ -50,6 +52,17 @@ const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   pendingTaskCount: payload.pending_task_count,
   ...(payload.last_pty_line ? { lastPtyLine: payload.last_pty_line } : {}),
   ...(payload.command_preset_id ? { commandPresetId: payload.command_preset_id } : {}),
+  ...(payload.capabilities
+    ? {
+        capabilities: {
+          features: payload.capabilities.features,
+          mode: payload.capabilities.mode,
+          providerFamily: payload.capabilities.provider_family,
+          riskTier: payload.capabilities.risk_tier,
+          unattended: payload.capabilities.unattended,
+        },
+      }
+    : {}),
   ...(payload.thinking_level ? { thinkingLevel: payload.thinking_level } : {}),
   ...(payload.sentinel_interval_ms !== null
     ? { sentinelIntervalMs: payload.sentinel_interval_ms }
@@ -168,6 +181,7 @@ export interface OrchestratorStartResult {
 export interface CommandPreset {
   args: string[]
   available: boolean
+  capabilities: CommandPresetCapabilities | null
   command: string
   displayName: string
   id: string
@@ -274,6 +288,7 @@ export interface ParsedPlan {
 interface CommandPresetPayload {
   args: string[]
   available: boolean
+  capabilities: CommandPresetCapabilitiesPayload | null
   command: string
   display_name: string
   id: string
@@ -512,6 +527,15 @@ export const listCommandPresets = async (): Promise<CommandPreset[]> => {
   return ((await response.json()) as CommandPresetPayload[]).map((preset) => ({
     args: preset.args,
     available: preset.available,
+    capabilities: preset.capabilities
+      ? {
+          features: preset.capabilities.features,
+          mode: preset.capabilities.mode,
+          providerFamily: preset.capabilities.provider_family,
+          riskTier: preset.capabilities.risk_tier,
+          unattended: preset.capabilities.unattended,
+        }
+      : null,
     command: preset.command,
     displayName: preset.display_name,
     id: preset.id,

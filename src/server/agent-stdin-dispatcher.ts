@@ -94,7 +94,8 @@ export const buildWorkerDispatchPayload = (
   workerDescription: string,
   dispatchId: string,
   text: string,
-  cockpitSnapshot?: string
+  cockpitSnapshot?: string,
+  workerCapabilitySummary?: string
 ): string =>
   [
     `[Hive 系统消息：来自 @${fromAgentName} 的派单]`,
@@ -112,6 +113,9 @@ export const buildWorkerDispatchPayload = (
     '',
     PM_DISPATCH_REMINDER,
     '',
+    ...(workerCapabilitySummary?.trim()
+      ? ['**Worker capability manifest（runtime 推导）**', workerCapabilitySummary.trim(), '']
+      : []),
     ...(cockpitSnapshot?.trim() ? [cockpitSnapshot.trim(), ''] : []),
     buildWorkerReminderTail(dispatchId),
     '',
@@ -232,7 +236,8 @@ export const createAgentStdinDispatcher = ({
       fromAgentName: string,
       workerDescription: string,
       text: string,
-      cockpitSnapshot?: string
+      cockpitSnapshot?: string,
+      workerCapabilitySummary?: string
     ) {
       writeToActiveAgentRun(
         workspaceId,
@@ -242,7 +247,8 @@ export const createAgentStdinDispatcher = ({
           workerDescription,
           dispatchId,
           text,
-          cockpitSnapshot
+          cockpitSnapshot,
+          workerCapabilitySummary
         ),
         { requireActiveRun: true }
       )
