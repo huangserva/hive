@@ -178,15 +178,15 @@ last_review: 2026-05-25
 ### M19 · HippoTeam native app / dashboard · confirmed (user 飞书 5/25)
 - [x] 初版路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile（`2fa6425`，结论已被 user 覆写为原生-first）
 - [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
-- [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host pairing + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
+- [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host token auth + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
 - [x] **M19a**：协议 audit + Expo/RN app skeleton + LAN 只读 dashboard（Cockpit summary + Tasks + Workers）— shipped `59ea75a`→`1ef7b00`→`d237009`→`a263adf`
   - [x] 子任务 1：现有 HTTP/WS 协议 audit + native app 稳定 API 缺口分析（`59ea75a`）
   - [x] 子任务 2：Expo skeleton + LAN 连接 spike（`1ef7b00`）
   - [x] 子任务 3：mobile API 层 — Bearer auth + dashboard aggregate + WS（`d237009`）
   - [x] 子任务 4：Expo app 对接 mobile API — dashboard/workers/tasks 数据展示（`a263adf`）
-- [x] **M19b**：pairing/auth + device registry + scoped direct LAN control（send/approve/stop/restart）— shipped `c83ae50`
+- [x] **M19b**：permanent token auth + device registry + scoped direct LAN control（send/approve/stop/restart）— shipped `c83ae50`
   - [x] 子任务 1：API contract + schema 设计 spike（赵云，reports + research）
-  - [x] 子任务 2：runtime 后端 pairing code / device registry / capability checks / mobile control endpoints（关羽）
+  - [x] 子任务 2：runtime 后端 permanent token / device registry / capability checks / mobile control endpoints（关羽）
   - [x] 子任务 3：Web 端设备管理 UI — MobileDevicesSection + i18n（马超）
   - [x] 子任务 4：Expo app 配对流程 + SecureStore + control actions（赵云）
   - [x] 子任务 5：集成测试验证 7 tests（典韦）
@@ -215,18 +215,20 @@ last_review: 2026-05-25
 - [x] backend 支持编辑 worker description / preset / thinking_level / sentinel heartbeat interval
 - [x] tests: heartbeat 注入、创建唯一性、authz 拒绝 send、UI 独立区域
 
-### M24 · Mobile App 产品化实现 · open
-- [ ] **Phase 1**：Chat 双向消息后端（mobile_chat_messages 表 + orch 输出捕获 → 写表 + WS push + REST history endpoint）
-- [ ] **Phase 2**：Chat UI 重做（message renderer: text/report/approval/system cards + 双向实时流 + local composer）
-- [ ] **Phase 3**：Mobile Cockpit（4 tab 导航改造 + /api/mobile/workspaces/:id/cockpit 端点 + Plan/Tasks/Questions/Ideas/Actions 5 个子页面）
-- [ ] **Phase 4**：Worker Detail + Status 增强（terminal preview + dispatch history + Cockpit entry card）
-- [ ] **Phase 5**：Push Notification + Approval（deep link + approval card lifecycle + Expo push 触发）
-- [ ] **Phase 6**：Error resilience + 离线缓存（LAN/relay fallback UI + offline outbox + 增量同步）
-- [ ] **L1 机制**：设计 milestone shipped → 自动检测缺实施 milestone（扩展 milestone completion trigger，Cockpit ActionBar 出 high action）
+### M24 · Mobile App 产品化实现 · in_progress
+- [x] **Phase 1**：Chat 双向消息后端（mobile_chat_messages 表 + mobile prompt / orch_reply 捕获 / dispatch / worker report 写表 + WS push + REST history endpoint）— 2026-05-27
+- [x] **Phase 2**：12 页面 UI 实现（Chat/Status/Settings/Worker Detail/Cockpit 5 tabs/Approval/Offline 全部按设计稿实现）— 2026-05-27
+- [x] **Phase 3**：Token 认证替代 pairing code（永久 token CRUD + Web 管理 UI + 删除 pairing_codes 表）— 2026-05-28
+- [x] **Phase 4**：Demo Mode（假数据预览全部页面，无需 LAN 连接）— 2026-05-27
+- [x] **Phase 5**：Orchestrator reply 自动回灌（PTY 输出捕获 → mobile_chat_messages orch_reply）— 2026-05-27
+- [x] **Phase 6**：UI 设计对齐 + 实时终端同步（严格对齐 12 张 mockup + Worker/Orch 终端实时轮询 + Cockpit 子页面接真实 API）— 马超完成 2026-05-28
+- [ ] **Phase 7**：Push Notification + Approval deep link（Expo push 触发 + approval card lifecycle）
+- [ ] **Phase 8**：Error resilience + 离线缓存（LAN/relay fallback UI + offline outbox + 增量同步）
+- [x] **L1 机制**：设计 milestone shipped → 自动检测缺实施 milestone
 - 设计文档：`.hive/reports/mobile-app-design-v2-2026-05-27.html`
-- 决策：`.hive/decisions/design-to-impl-milestone-trigger.md`
+- UI 审核报告：`.hive/reports/mobile-ui-audit-2026-05-28.html`
+- 决策：Token 完全替代 pairing code（2026-05-28 user 拍板）
 - 前置：M19i 设计 spec 已完成
-- 可并行：Phase 1 后端 + Phase 2 前端可同时开工
 
 ### M23 · Agent Run Timeline 可恢复事件流 · open
 - [ ] 设计 AgentRunTimelineEvent schema + AgentRunTimelineStore（SQLite durable，seq/epoch/gap 三概念）

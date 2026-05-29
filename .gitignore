@@ -14,3 +14,5 @@ coverage/
 .playwright-mcp/
 /full-app-*.png
 /cockpit-*.png
+# Runtime database (contains workspace state, not source)
+hive.db

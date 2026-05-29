@@ -6,7 +6,7 @@
 
 - Risk: `mobile_devices` tokens now authorize dashboard reads and control actions; a scope bug can expose dispatch/stop/restart to the wrong device or workspace.
 - Trigger: schema v25+ migration, `routes-mobile.ts` control endpoints, `mobile-auth.ts` capability edits, device revoke/expiry changes.
-- Current mitigation: `mobile-pairing-integration.test.ts`, `mobile-routes.test.ts`, `mobile-auth.test.ts` cover HTTP+SQLite auth, capability denial, revoke, expiry, and workspace isolation.
+- Current mitigation: `mobile-token-integration.test.ts`, `mobile-routes.test.ts`, `mobile-auth.test.ts` cover HTTP+SQLite auth, capability denial, deletion/revoke behavior, and workspace isolation.
 - Watch: every new `/api/mobile/*` or `relay-rpc-handler.ts` method must name the required capability explicitly.
 
 ## Mobile client transport split
@@ -106,7 +106,7 @@
 - Risk: mobile beta config can drift from actual runtime protocol or fail store builds late.
 - Trigger: `packages/mobile/app.config.ts`, `eas.json`, native permissions, Expo dependency changes.
 - Current mitigation: mobile README + EAS config + package typecheck; no real EAS build without Apple/Google credentials.
-- Watch: before TestFlight/internal release, run device smoke for pairing, push permission, voice record, relay fallback.
+- Watch: before TestFlight/internal release, run device smoke for token entry, push permission, voice record, relay fallback.
 
 ## Local data and secrets
 

@@ -19,8 +19,8 @@
 - runtime-store.ts — RuntimeStore facade，组合 workspace/agent/team/feishu/PM 服务。
 - runtime-store-helpers.ts — 创建 stores、watcher、agentRuntime、lifecycle helpers。
 - runtime-database.ts — 打开 better-sqlite3 runtime.sqlite 并初始化 schema。
-- sqlite-schema.ts — 当前 schema v27 与迁移调度（v27 = template catalog seed）。
-- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 mobile pairing/capabilities；v26 Expo push token；v27 builtin role_templates seed。
+- sqlite-schema.ts — 当前 schema v30 与迁移调度（v30 = drop legacy mobile pairing codes）。
+- sqlite-schema-v*.ts — 历史/增量 schema migration；v25 mobile capabilities；v26 Expo push token；v27 builtin role_templates seed；v30 删除 pairing code 表。
 - workspace-store.ts — workspace/worker 内存状态 facade。
 - workspace-store-contract.ts — workspace store 类型契约。
 - workspace-store-hydration.ts — runtime 启动时从 SQLite 恢复 workspace/worker。
@@ -136,12 +136,12 @@
 - routes-tasks.ts — tasks.md API。
 - routes-plan.ts — plan.md API。
 - routes-cockpit.ts — cockpit aggregate API + question answer（idea-6）+ report-file（同浏览器 serve reports/*.html，path-traversal 防护）。
-- routes-mobile.ts — M19 mobile API：pairing/device CRUD、push-token、dashboard/tasks/transcript、voice、dispatch/approve/worker controls。
+- routes-mobile.ts — M19 mobile API：permanent token/device CRUD、push-token、dashboard/tasks/transcript、voice、dispatch/approve/worker controls。
 - routes-fs.ts — file browser/picker endpoints。
 - routes-settings.ts — settings endpoints。
 - routes-ui.ts — UI session/bootstrap endpoints。
 - routes-version.ts — version info endpoint。
-- mobile-auth.ts — mobile auth store：capability model、pairing code、device CRUD/revoke/expiry、push_token、legacy M19a compatibility。
+- mobile-auth.ts — mobile auth store：capability model、permanent token CRUD、device revoke/delete、push_token。
 - mobile-push.ts — Expo push best-effort sender；worker done/high aiAction 通知、invalid token 清理、dispatch/action 去重。
 - relay-connector.ts — daemon→relay outbound WebSocket connector；E2E 加密握手、room join、auto-reconnect。
 - relay-rpc-handler.ts — relay inbound JSON-RPC handler：dashboard/tasks/transcript/voice/dispatch/approve 代理到本地 runtime API。
@@ -173,7 +173,7 @@
 - tasks/* — task graph drawer, markdown parser/editor, tasks hook。
 - terminal/* — xterm client, workspace shell dialog, terminal run hooks。
 - worker/* — Add Worker, cards, SentinelCard, modal, orchestrator pane, worker actions。
-- workspace/* — Add Workspace, browse dialogs, settings, command preset select, MobileDevicesSection（web 端 pairing code 生成、device registry、capability 编辑/吊销）。
+- workspace/* — Add Workspace, browse dialogs, settings, command preset select, MobileDevicesSection（web 端 mobile token 创建、device registry、capability 编辑/删除）。
 - sidebar/* — workspace sidebar and avatar/color helpers。
 - layout/* — Topbar, HippoLogo, MainLayout, RuntimeStatusStrip, language/sidebar resize。
 - feishu/* — Feishu status indicator。
@@ -186,7 +186,7 @@
 
 ## Mobile / relay packages
 
-- packages/mobile/app/(tabs)/* — Expo Router native app；Dashboard/Tasks/Workers/Settings，含 pairing、voice、push、Stop/Restart/Dispatch。
+- packages/mobile/app/(tabs)/* — Expo Router native app；Dashboard/Tasks/Workers/Settings，含 token auth、voice、push、Stop/Restart/Dispatch。
 - packages/mobile/src/api/* — LAN-first HTTP/WS client、SecureStore token、relay fallback、E2E JSON-RPC、push-token 注册。
 - packages/mobile/src/components/* + app.config.ts/eas.json — RN UI primitives、ErrorBoundary/offline banner、Expo/EAS/TestFlight/internal distribution config。
 - packages/relay/* — lightweight WebSocket room relay；daemon outbound connector 的远程中转服务。
@@ -204,4 +204,4 @@
 
 ## Tests
 
-- Mobile tests — mobile-routes/pairing/relay/voice/push/auth 覆盖 HTTP+SQLite、capability、revocation、transport 与 notification 边界。
+- Mobile tests — mobile-routes/token/relay/voice/push/auth 覆盖 HTTP+SQLite、capability、revocation/deletion、transport 与 notification 边界。
