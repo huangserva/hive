@@ -352,7 +352,11 @@ export default function StatusTab() {
             {sentinelWorkers.map((worker) => (
               <SentinelCard
                 key={worker.id}
+                expanded={expandedWorkerId === worker.id}
                 onOpenDetail={() => router.push(`/agent/${worker.id}`)}
+                onToggle={() =>
+                  setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
+                }
                 worker={worker}
               />
             ))}
@@ -488,37 +492,71 @@ const WorkerCard = ({
   )
 }
 
-// Sentinel 哨兵卡片：哨兵只做巡检、不接派单，所以去掉 Dispatch/Stop/meta，呈现更轻量，
-// 用盾牌图标与 accent 描边把它和普通 worker 区分开。点击仍进 Worker Detail 看终端。
+// Sentinel 哨兵卡片：哨兵只做巡检、不接派单，默认收起成普通 worker 同款 header；
+// 展开后只给巡检说明、能力标签和终端入口。
 const SentinelCard = ({
+  expanded,
   onOpenDetail,
+  onToggle,
   worker,
 }: {
+  expanded: boolean
   onOpenDetail: () => void
+  onToggle: () => void
   worker: MobileDashboardWorker
 }) => {
   const accent = statusColor(worker.status)
   return (
-    <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.sentinelCard}>
-      <View style={styles.workerLeft}>
-        <View style={styles.sentinelAvatar}>
-          <Ionicons color={colors.accent} name="shield-checkmark-outline" size={18} />
-          <View style={[styles.workerStatusDot, { backgroundColor: accent }]} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={onToggle}
+      style={styles.sentinelCard}
+    >
+      <View style={styles.workerHeader}>
+        <View style={styles.workerLeft}>
+          <View style={styles.sentinelAvatar}>
+            <Ionicons color={colors.accent} name="shield-checkmark-outline" size={18} />
+            <View style={[styles.workerStatusDot, { backgroundColor: accent }]} />
+          </View>
+          <View style={styles.workerInfo}>
+            <Text numberOfLines={1} style={styles.workerName}>
+              {worker.name}
+            </Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
+              {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
+            </Text>
+          </View>
         </View>
-        <View style={styles.workerInfo}>
-          <Text numberOfLines={1} style={styles.workerName}>
-            {worker.name}
-          </Text>
-          <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
-            {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
-          </Text>
+        <View style={styles.workerRight}>
+          <StatusBadge status={worker.status} />
+          <Ionicons
+            color={colors.muted}
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={18}
+          />
         </View>
       </View>
-      <View style={styles.workerRight}>
-        <StatusBadge status={worker.status} />
-        <Ionicons color={colors.muted} name="chevron-forward" size={18} />
-      </View>
-      <CapabilityChips capabilities={worker.capabilities} />
+      {expanded ? (
+        <View style={styles.expanded}>
+          <CapabilityChips capabilities={worker.capabilities} />
+          <Text style={styles.sentinelNote}>
+            Observes only. Sentinel workers do not accept dispatches.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={(event) => {
+              event.stopPropagation()
+              onOpenDetail()
+            }}
+            style={styles.detailLink}
+          >
+            <Ionicons color={colors.accent} name="terminal-outline" size={15} />
+            <Text style={styles.detailLinkText}>Open terminal</Text>
+            <Ionicons color={colors.accent} name="chevron-forward" size={14} />
+          </Pressable>
+        </View>
+      ) : null}
     </Pressable>
   )
 }
@@ -1109,13 +1147,11 @@ const styles = StyleSheet.create({
     width: 40,
   },
   sentinelCard: {
-    alignItems: 'center',
     backgroundColor: 'rgba(22, 27, 34, 0.9)',
     borderColor: colors.accent,
     borderRadius: radius.lg,
     borderWidth: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: spacing.sm,
     padding: spacing.md,
   },
   sentinelLabel: {
@@ -1127,6 +1163,11 @@ const styles = StyleSheet.create({
   },
   sentinelSection: {
     gap: spacing.xs,
+  },
+  sentinelNote: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
   },
   statGrid: {
     flexDirection: 'row',
