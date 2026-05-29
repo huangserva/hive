@@ -1,3 +1,5 @@
+import { execSync } from 'node:child_process'
+
 import type { ExpoConfig } from 'expo/config'
 
 type ExpoConfigWithSplash = ExpoConfig & {
@@ -7,6 +9,18 @@ type ExpoConfigWithSplash = ExpoConfig & {
     resizeMode: 'contain' | 'cover' | 'native'
   }
 }
+
+const getBuildSha = () => {
+  try {
+    return execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim()
+  } catch {
+    return 'unknown'
+  }
+}
+
+const buildTime = new Date()
+const buildSha = getBuildSha()
+const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
@@ -35,6 +49,7 @@ const config: ExpoConfigWithSplash = {
     package: 'com.huangserva.hippoteam',
     predictiveBackGestureEnabled: false,
     softwareKeyboardLayoutMode: 'resize',
+    versionCode: androidVersionCode,
   },
   plugins: [
     'expo-router',
@@ -70,6 +85,8 @@ const config: ExpoConfigWithSplash = {
     favicon: './assets/favicon.png',
   },
   extra: {
+    buildSha,
+    buildTime: buildTime.toISOString(),
     eas: {
       projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
     },

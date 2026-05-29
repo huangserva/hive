@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
+import Constants from 'expo-constants'
 import type { ComponentProps } from 'react'
 import { useEffect, useState } from 'react'
 import {
@@ -130,6 +131,7 @@ export default function SettingsTab() {
   const lanMeta = [host || null, runtimeStatus?.port ? `Port ${runtimeStatus.port}` : null]
     .filter(Boolean)
     .join(' • ')
+  const appBuildLabel = getAppBuildLabel()
 
   return (
     <Screen>
@@ -313,6 +315,7 @@ export default function SettingsTab() {
               Runtime version: {String(runtimeStatus.version ?? 'unknown')}
             </Text>
           ) : null}
+          <Text style={styles.runtimeVersion}>{appBuildLabel}</Text>
         </View>
 
         {!demoMode ? (
@@ -384,6 +387,32 @@ const formatDateLabel = (label: string, value?: string | null) => {
     month: 'short',
     year: 'numeric',
   }).format(date)}`
+}
+
+const getAppBuildLabel = () => {
+  const extra = Constants.expoConfig?.extra as
+    | { buildSha?: unknown; buildTime?: unknown }
+    | undefined
+  const version = Constants.expoConfig?.version ?? 'unknown'
+  const buildSha =
+    typeof extra?.buildSha === 'string' && extra.buildSha ? extra.buildSha : 'unknown'
+  const buildTime =
+    typeof extra?.buildTime === 'string' && extra.buildTime
+      ? formatBuildTime(extra.buildTime)
+      : 'unknown time'
+  return `App v${version} · build ${buildSha} · ${buildTime}`
+}
+
+const formatBuildTime = (value: string) => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'unknown time'
+  return new Intl.DateTimeFormat(undefined, {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date)
 }
 
 const formatCapability = (capability: string) =>
