@@ -33,10 +33,18 @@ const config: ExpoConfigWithSplash = {
     },
     package: 'com.huangserva.hippoteam',
     predictiveBackGestureEnabled: false,
+    softwareKeyboardLayoutMode: 'pan',
   },
   plugins: [
     'expo-router',
     'expo-secure-store',
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'HippoTeam needs access to your photos to send images in chat.',
+        cameraPermission: 'HippoTeam needs access to your camera to take photos.',
+      },
+    ],
     [
       'expo-build-properties',
       {

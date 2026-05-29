@@ -5,19 +5,58 @@ import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } 
 
 import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
+import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { colors, radius, spacing } from '../../src/theme'
 
+const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39d2c0']
+
+const avatarColor = (name: string) => {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]
+}
+
+const CLI_LABELS: Record<string, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  opencode: 'OpenCode',
+}
+
+const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
+
 export default function StatusTab() {
-  const { dashboard, error, refreshDashboard, restartWorker, state, stopWorker } =
-    useMobileRuntime()
+  const {
+    connect,
+    connectionMode,
+    dashboard,
+    error,
+    host,
+    refreshDashboard,
+    restartWorker,
+    selectedWorkspaceId,
+    stopWorker,
+    token,
+  } = useMobileRuntime()
   const router = useRouter()
   const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
+  const [overviewExpanded, setOverviewExpanded] = useState(false)
+  const [phaseExpanded, setPhaseExpanded] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const activeWorkers = useMemo(
-    () => dashboard?.workers.filter((worker) => worker.status !== 'stopped').length ?? 0,
+    () => dashboard?.workers.filter((w) => w.status !== 'stopped').length ?? 0,
     [dashboard]
+  )
+  const totalTasks = useMemo(
+    () => (dashboard ? dashboard.tasks.total_open + dashboard.tasks.total_done : 0),
+    [dashboard]
+  )
+  const progressPct = useMemo(
+    () =>
+      totalTasks > 0 ? Math.round(((dashboard?.tasks.total_done ?? 0) / totalTasks) * 100) : 0,
+    [dashboard, totalTasks]
   )
 
   const onRefresh = useCallback(async () => {
@@ -29,49 +68,27 @@ export default function StatusTab() {
   const confirmStop = (worker: MobileDashboardWorker) => {
     Alert.alert('Stop worker', `Stop ${worker.name}?`, [
       { style: 'cancel', text: 'Cancel' },
-      {
-        onPress: () => {
-          void stopWorker(worker.id)
-        },
-        style: 'destructive',
-        text: 'Stop',
-      },
+      { onPress: () => void stopWorker(worker.id), style: 'destructive', text: 'Stop' },
     ])
   }
 
   const confirmRestart = (worker: MobileDashboardWorker) => {
     Alert.alert('Restart worker', `Restart ${worker.name}?`, [
       { style: 'cancel', text: 'Cancel' },
-      {
-        onPress: () => {
-          void restartWorker(worker.id)
-        },
-        text: 'Restart',
-      },
+      { onPress: () => void restartWorker(worker.id), text: 'Restart' },
     ])
   }
 
   if (!dashboard) {
     return (
       <Screen>
-        <View style={styles.emptyWrap}>
-          <View style={styles.emptyIcon}>
-            <Ionicons color={colors.accent} name="pulse-outline" size={34} />
-          </View>
-          <Text style={styles.emptyTitle}>Status appears after pairing</Text>
-          <Text style={styles.emptyBody}>
-            Connect in Settings to see orchestrator state, worker health, plan progress, and pending
-            questions.
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/settings')}
-            style={styles.primaryButton}
-          >
-            <Text style={styles.primaryButtonText}>Open Settings</Text>
-          </Pressable>
-          <Text style={styles.stateText}>State: {state}</Text>
-        </View>
+        <OfflineScreen
+          connectionMode={connectionMode}
+          error={error}
+          host={host}
+          onOpenSettings={() => router.push('/settings')}
+          onRetry={() => void connect(host, token)}
+        />
       </Screen>
     )
   }
@@ -81,97 +98,146 @@ export default function StatusTab() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
+          <RefreshControl onRefresh={onRefresh} refreshing={refreshing} tintColor={colors.accent} />
         }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>Command status</Text>
-            <Text style={styles.title}>{dashboard.workspace.name}</Text>
-          </View>
-          <View style={styles.connectedPill}>
-            <View style={styles.connectedDot} />
-            <Text style={styles.connectedText}>Live</Text>
+          <Text style={styles.title}>Status</Text>
+          <View style={styles.onlinePill}>
+            <View style={styles.onlineDot} />
+            <Text style={styles.onlineText}>Orchestrator Online</Text>
           </View>
         </View>
+        <Text style={styles.pullHint}>Pull down to refresh</Text>
 
         <View style={styles.overviewCard}>
-          <View style={styles.overviewTop}>
-            <View>
-              <Text style={styles.cardLabel}>Current phase</Text>
-              <Text style={styles.phase}>{dashboard.plan.current_phase ?? 'Unknown'}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setOverviewExpanded((value) => !value)}
+            style={styles.overviewHeader}
+          >
+            <View style={styles.overviewHeaderLeft}>
+              <Ionicons color={colors.accent} name="grid-outline" size={16} />
+              <Text style={styles.cardLabel}>Workspace Overview</Text>
             </View>
-            <Text style={styles.generatedAt}>
-              {new Date(dashboard.generated_at).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View
-              style={[styles.progressFill, { width: `${Math.min(activeWorkers * 25, 100)}%` }]}
+            <Ionicons
+              color={colors.muted}
+              name={overviewExpanded ? 'chevron-up' : 'chevron-down'}
+              size={18}
             />
-          </View>
-          <View style={styles.metricRow}>
-            <Metric label="Active" value={activeWorkers} />
-            <Metric label="Open Q" value={dashboard.cockpit.open_questions} />
-            <Metric label="Tasks" value={dashboard.tasks.total_open} />
-          </View>
+          </Pressable>
+
+          {overviewExpanded ? (
+            <>
+              <View style={styles.twoCol}>
+                <View style={styles.colItem}>
+                  <Text style={styles.colLabel}>Current Phase</Text>
+                  <Text
+                    ellipsizeMode="tail"
+                    numberOfLines={phaseExpanded ? undefined : 2}
+                    style={styles.colValue}
+                  >
+                    {dashboard.plan.current_phase ?? 'Unknown'}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setPhaseExpanded((value) => !value)}
+                    style={styles.inlineToggle}
+                  >
+                    <Text style={styles.inlineToggleText}>
+                      {phaseExpanded ? 'Show less' : 'Show more'}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={styles.colDivider} />
+                <View style={styles.colItem}>
+                  <Text style={styles.colLabel}>Active Milestone</Text>
+                  <Text ellipsizeMode="tail" numberOfLines={2} style={styles.colValue}>
+                    {dashboard.plan.active_milestone ?? 'No active milestone'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.progressSection}>
+                <Text style={styles.progressTitle}>Plan Progress</Text>
+                <View style={styles.progressWrap}>
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+                  </View>
+                  <Text style={styles.progressPct}>{progressPct}%</Text>
+                </View>
+                <Text style={styles.progressMeta}>
+                  {dashboard.tasks.total_done} of {totalTasks} tasks completed
+                </Text>
+              </View>
+
+              <View style={styles.statGrid}>
+                <StatItem icon="people-outline" label="Active Workers" value={activeWorkers} />
+                <StatItem
+                  icon="help-circle-outline"
+                  label="Open Questions"
+                  value={dashboard.cockpit.open_questions}
+                />
+                <StatItem
+                  icon="flash-outline"
+                  label="Tasks In Progress"
+                  value={dashboard.tasks.total_open}
+                />
+              </View>
+            </>
+          ) : (
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.overviewSummary}>
+              {dashboard.plan.active_milestone ??
+                dashboard.plan.current_phase ??
+                'No active milestone'}
+            </Text>
+          )}
         </View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Workers</Text>
-          <Text style={styles.sectionMeta}>{dashboard.workers.length} total</Text>
+          <Pressable accessibilityRole="button" hitSlop={8} onPress={() => router.push('/workers')}>
+            <View style={styles.sectionLink}>
+              <Text style={styles.sectionLinkText}>{activeWorkers} active</Text>
+              <Ionicons color={colors.muted} name="chevron-forward" size={16} />
+            </View>
+          </Pressable>
         </View>
 
-        {dashboard.workers.length === 0 ? (
-          <View style={styles.card}>
-            <Text style={styles.body}>No workers in this workspace yet.</Text>
-          </View>
+        {/* Orchestrator 终端入口 */}
+        {selectedWorkspaceId ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(`/agent/${selectedWorkspaceId}:orchestrator`)}
+            style={styles.orchCard}
+          >
+            <View style={styles.orchLeft}>
+              <View style={styles.orchAvatar}>
+                <Ionicons color={colors.accent} name="terminal-outline" size={18} />
+              </View>
+              <View style={styles.orchInfo}>
+                <Text style={styles.orchName}>Orchestrator</Text>
+                <Text style={styles.orchHint}>View orchestrator terminal</Text>
+              </View>
+            </View>
+            <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+          </Pressable>
         ) : null}
 
         {dashboard.workers.map((worker) => (
           <WorkerCard
             expanded={expandedWorkerId === worker.id}
             key={worker.id}
-            onOpenAgent={() => router.push({ pathname: '/agent/[id]', params: { id: worker.id } })}
+            onDispatch={() => router.push('/')}
+            onOpenDetail={() => router.push(`/agent/${worker.id}`)}
             onRestart={() => confirmRestart(worker)}
             onStop={() => confirmStop(worker)}
-            onToggle={() =>
-              setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
-            }
+            onToggle={() => setExpandedWorkerId((cur) => (cur === worker.id ? null : worker.id))}
             worker={worker}
           />
         ))}
-
-        <View style={styles.footerCard}>
-          <View style={styles.footerRow}>
-            <Ionicons color={colors.accent} name="git-branch-outline" size={18} />
-            <View style={styles.footerText}>
-              <Text style={styles.footerTitle}>
-                {dashboard.plan.active_milestone ?? 'No milestone'}
-              </Text>
-              <Text style={styles.footerMeta}>Active milestone</Text>
-            </View>
-          </View>
-          <View style={styles.footerRow}>
-            <Ionicons
-              color={dashboard.cockpit.baseline_stale ? colors.warning : colors.success}
-              name="shield-checkmark-outline"
-              size={18}
-            />
-            <View style={styles.footerText}>
-              <Text style={styles.footerTitle}>
-                Baseline {dashboard.cockpit.baseline_stale ? 'stale' : 'fresh'}
-              </Text>
-              <Text style={styles.footerMeta}>
-                {dashboard.cockpit.high_ai_actions} high-priority action
-              </Text>
-            </View>
-          </View>
-        </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
@@ -179,99 +245,121 @@ export default function StatusTab() {
   )
 }
 
-const Metric = ({ label, value }: { label: string; value: number }) => (
-  <View style={styles.metric}>
-    <Text style={styles.metricValue}>{value}</Text>
-    <Text style={styles.metricLabel}>{label}</Text>
+const StatItem = ({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  value: number
+}) => (
+  <View style={styles.statItem}>
+    <Ionicons color={colors.accent} name={icon} size={16} />
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
   </View>
 )
 
 const WorkerCard = ({
   expanded,
-  onOpenAgent,
+  onDispatch,
+  onOpenDetail,
   onRestart,
   onStop,
   onToggle,
   worker,
 }: {
   expanded: boolean
-  onOpenAgent: () => void
+  onDispatch: () => void
+  onOpenDetail: () => void
   onRestart: () => void
   onStop: () => void
   onToggle: () => void
   worker: MobileDashboardWorker
-}) => (
-  <Pressable accessibilityRole="button" onPress={onToggle} style={styles.card}>
-    <View style={styles.workerHeader}>
-      <View style={styles.workerLeft}>
-        <View style={[styles.workerAvatar, { borderColor: statusColor(worker.status) }]}>
-          <Text style={styles.workerAvatarText}>{worker.name.slice(0, 1)}</Text>
-        </View>
-        <View style={styles.workerText}>
-          <Text style={styles.workerName}>{worker.name}</Text>
-          <Text style={styles.workerMeta}>
-            {worker.role} · {worker.preset ?? 'no preset'}
-          </Text>
-        </View>
-      </View>
-      <StatusBadge status={worker.status} />
-    </View>
-    <Text style={styles.workerTask}>{currentTaskFor(worker)}</Text>
-    {expanded ? (
-      <View style={styles.expanded}>
-        <View style={styles.dispatchPreview}>
-          <Text style={styles.dispatchTitle}>Recent dispatch</Text>
-          <Text style={styles.dispatchBody}>{dispatchPreviewFor(worker)}</Text>
-        </View>
-        <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onOpenAgent}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>Details</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" onPress={onRestart} style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Restart</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            disabled={worker.status === 'stopped'}
-            onPress={onStop}
-            style={[styles.dangerButton, worker.status === 'stopped' ? styles.disabled : null]}
-          >
-            <Text style={styles.dangerButtonText}>Stop</Text>
-          </Pressable>
-        </View>
-      </View>
-    ) : null}
-  </Pressable>
-)
+}) => {
+  const bgColor = avatarColor(worker.name)
+  const accent = statusColor(worker.status)
 
-const currentTaskFor = (worker: MobileDashboardWorker) => {
-  if (worker.status === 'working') return 'Working on the latest assigned dispatch.'
-  if (worker.status === 'idle') return 'Ready for a quick follow-up.'
-  return 'Stopped. Restart when this role is needed.'
+  return (
+    <Pressable accessibilityRole="button" onPress={onToggle} style={styles.card}>
+      <View style={styles.workerHeader}>
+        <View style={styles.workerLeft}>
+          <View style={[styles.workerAvatar, { backgroundColor: bgColor }]}>
+            <Text style={styles.workerAvatarText}>{worker.name.slice(0, 1)}</Text>
+            <View style={[styles.workerStatusDot, { backgroundColor: accent }]} />
+          </View>
+          <View style={styles.workerInfo}>
+            <Text style={styles.workerName}>{worker.name}</Text>
+            <Text style={styles.workerTask}>{statusTextFor(worker)}</Text>
+          </View>
+        </View>
+        <StatusBadge status={worker.status} />
+      </View>
+
+      {expanded ? (
+        <View style={styles.expanded}>
+          <View style={styles.workerMetaGrid}>
+            <MetaChip label="CLI" value={cliLabel(worker.preset)} />
+            <MetaChip label="Role" value={worker.role} />
+            <MetaChip label="Status" value={statusTextFor(worker)} />
+          </View>
+
+          <View style={styles.expandedActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onStop}
+              style={[styles.expandedBtn, { backgroundColor: colors.errorSoft }]}
+            >
+              <Ionicons color={colors.error} name="stop-circle-outline" size={14} />
+              <Text style={[styles.expandedBtnText, { color: colors.error }]}>Stop</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onRestart}
+              style={[styles.expandedBtn, { backgroundColor: colors.accentSoft }]}
+            >
+              <Ionicons color={colors.accent} name="refresh-outline" size={14} />
+              <Text style={[styles.expandedBtnText, { color: colors.accent }]}>Restart</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onDispatch}
+              style={[styles.expandedBtn, { backgroundColor: colors.successSoft }]}
+            >
+              <Ionicons color={colors.success} name="send-outline" size={14} />
+              <Text style={[styles.expandedBtnText, { color: colors.success }]}>Dispatch</Text>
+            </Pressable>
+          </View>
+          <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.detailLink}>
+            <Text style={styles.detailLinkText}>View detail</Text>
+            <Ionicons color={colors.accent} name="chevron-forward" size={16} />
+          </Pressable>
+        </View>
+      ) : null}
+    </Pressable>
+  )
 }
 
-const dispatchPreviewFor = (worker: MobileDashboardWorker) => {
-  if (worker.status === 'working') return 'Running verification and preparing a concise report.'
-  if (worker.status === 'idle') return 'No open dispatch detected for this worker.'
-  return 'Last run is stopped; transcript remains available in details.'
+const MetaChip = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.metaChip}>
+    <Text style={styles.metaLabel}>{label}</Text>
+    <Text numberOfLines={1} style={styles.metaValue}>
+      {value}
+    </Text>
+  </View>
+)
+
+const statusTextFor = (worker: MobileDashboardWorker) => {
+  if (worker.status === 'working') return 'Working'
+  if (worker.status === 'idle') return 'Idle'
+  if (worker.status === 'stopped') return 'Stopped'
+  return worker.status
 }
 
 const styles = StyleSheet.create({
-  actions: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  body: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-  },
   card: {
-    backgroundColor: colors.card,
+    backgroundColor: 'rgba(22, 27, 34, 0.9)',
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -281,91 +369,62 @@ const styles = StyleSheet.create({
   cardLabel: {
     color: colors.muted,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     textTransform: 'uppercase',
   },
-  connectedDot: {
-    backgroundColor: colors.success,
-    borderRadius: 999,
-    height: 8,
-    width: 8,
-  },
-  connectedPill: {
-    alignItems: 'center',
-    backgroundColor: colors.successSoft,
-    borderColor: 'rgba(63, 185, 80, 0.34)',
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 7,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  connectedText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  dangerButton: {
-    alignItems: 'center',
-    backgroundColor: colors.error,
-    borderRadius: radius.sm,
-    flex: 1,
-    paddingVertical: 10,
-  },
-  dangerButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  disabled: {
-    opacity: 0.45,
-  },
-  dispatchBody: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 3,
-  },
-  dispatchPreview: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-  },
-  dispatchTitle: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  emptyBody: {
-    color: colors.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    maxWidth: 330,
-    textAlign: 'center',
-  },
-  emptyIcon: {
+  orchAvatar: {
     alignItems: 'center',
     backgroundColor: colors.accentSoft,
-    borderColor: 'rgba(88, 166, 255, 0.24)',
-    borderRadius: 28,
-    borderWidth: 1,
-    height: 82,
+    borderRadius: 999,
+    height: 40,
     justifyContent: 'center',
-    width: 82,
+    width: 40,
   },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  emptyWrap: {
+  orchCard: {
     alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+  },
+  orchHint: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  orchInfo: {
+    gap: 2,
+  },
+  orchLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  orchName: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  colDivider: {
+    backgroundColor: colors.borderMuted,
+    width: 1,
+  },
+  colItem: {
     flex: 1,
-    gap: spacing.md,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
+    gap: 3,
+  },
+  colLabel: {
+    color: colors.muted2,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  colValue: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
   },
   error: {
     color: colors.error,
@@ -377,41 +436,48 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingTop: spacing.sm,
   },
-  eyebrow: {
-    color: colors.accent,
+  expandedActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  expandedBtn: {
+    alignItems: 'center',
+    borderColor: colors.borderMuted,
+    borderWidth: 1,
+    minHeight: 44,
+    borderRadius: radius.sm,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    paddingVertical: 9,
+  },
+  expandedBtnText: {
     fontSize: 12,
+    fontWeight: '700',
+  },
+  detailLink: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 2,
+    minHeight: 36,
+  },
+  detailLinkText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  expandedSectionTitle: {
+    color: colors.muted,
+    fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
-  footerCard: {
-    backgroundColor: colors.cardElevated,
-    borderColor: colors.borderMuted,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md,
-  },
-  footerMeta: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  footerRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  footerText: {
-    flex: 1,
-    gap: 2,
-  },
-  footerTitle: {
+  expandedTaskName: {
     color: colors.text,
     fontSize: 14,
-    fontWeight: '800',
-  },
-  generatedAt: {
-    color: colors.muted,
-    fontSize: 12,
     fontWeight: '700',
   },
   header: {
@@ -419,26 +485,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  metric: {
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: radius.sm,
-    flex: 1,
-    padding: spacing.sm,
+  onlineDot: {
+    backgroundColor: colors.success,
+    borderRadius: 999,
+    height: 7,
+    width: 7,
   },
-  metricLabel: {
-    color: colors.muted,
+  onlinePill: {
+    alignItems: 'center',
+    backgroundColor: colors.successSoft,
+    borderColor: 'rgba(63, 185, 80, 0.34)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  onlineText: {
+    color: colors.success,
     fontSize: 11,
     fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  metricRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  metricValue: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: '900',
   },
   overviewCard: {
     backgroundColor: colors.cardElevated,
@@ -448,55 +515,101 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.md,
   },
-  overviewTop: {
-    alignItems: 'flex-start',
+  overviewHeader: {
+    alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    minHeight: 44,
   },
-  phase: {
+  overviewHeaderLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  overviewSummary: {
+    color: colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  inlineToggle: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    justifyContent: 'center',
+  },
+  inlineToggleText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  metaChip: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    minWidth: 88,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  metaLabel: {
+    color: colors.muted2,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  metaValue: {
     color: colors.text,
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
   },
-  primaryButton: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    paddingHorizontal: 20,
-    paddingVertical: 13,
-  },
-  primaryButtonText: {
-    color: colors.background,
-    fontSize: 15,
-    fontWeight: '900',
+  progressBullets: {
+    gap: 4,
   },
   progressFill: {
     backgroundColor: colors.accent,
     borderRadius: 999,
     height: '100%',
   },
+  progressMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  progressPct: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+    width: 38,
+  },
+  progressSection: {
+    gap: 6,
+  },
+  progressTitle: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
   progressTrack: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 999,
-    height: 8,
+    flex: 1,
+    height: 6,
     overflow: 'hidden',
+  },
+  progressWrap: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  pullHint: {
+    color: colors.muted2,
+    fontSize: 12,
+    textAlign: 'center',
   },
   scroll: {
     gap: spacing.sm,
     paddingBottom: spacing.lg,
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    paddingVertical: 10,
-  },
-  secondaryButtonText: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: '800',
   },
   sectionHeader: {
     alignItems: 'center',
@@ -504,36 +617,61 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: spacing.xs,
   },
-  sectionMeta: {
+  sectionLink: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
+  sectionLinkText: {
     color: colors.muted,
-    fontSize: 13,
+    fontSize: 14,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
   },
-  stateText: {
-    color: colors.muted2,
-    fontSize: 13,
+  statGrid: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  statItem: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: radius.sm,
+    flex: 1,
+    gap: 2,
+    paddingVertical: spacing.sm,
+  },
+  statLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  statValue: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
   },
   title: {
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
   },
+  twoCol: {
+    flexDirection: 'row',
+  },
   workerAvatar: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    height: 42,
+    borderRadius: 999,
+    height: 40,
     justifyContent: 'center',
-    width: 42,
+    position: 'relative',
+    width: 40,
   },
   workerAvatarText: {
-    color: colors.text,
-    fontSize: 16,
+    color: '#ffffff',
+    fontSize: 15,
     fontWeight: '900',
   },
   workerHeader: {
@@ -541,28 +679,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  workerInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  workerMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
   workerLeft: {
     alignItems: 'center',
     flex: 1,
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  workerMeta: {
-    color: colors.muted,
-    fontSize: 12,
-  },
   workerName: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
   },
   workerTask: {
     color: colors.textSoft,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 19,
   },
-  workerText: {
-    flex: 1,
-    gap: 3,
+  workerProgressFill: {
+    borderRadius: 999,
+    height: '100%',
+  },
+  workerProgressTrack: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 999,
+    height: 5,
+    overflow: 'hidden',
+  },
+  workerStatusDot: {
+    borderColor: colors.card,
+    borderRadius: 999,
+    borderWidth: 2,
+    bottom: -1,
+    height: 12,
+    position: 'absolute',
+    right: -1,
+    width: 12,
   },
 })

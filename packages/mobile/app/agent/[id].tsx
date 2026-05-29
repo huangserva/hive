@@ -1,17 +1,73 @@
+import { Ionicons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native'
 
 import type { MobileWorkerTranscript, MobileWorkspaceTasks } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
-import { StatusBadge } from '../../src/components/StatusBadge'
+import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
+import { colors, radius, spacing } from '../../src/theme'
+
+const WORKER_ROLES: Record<string, string> = {
+  coder: 'Software Engineer',
+  designer: 'UI Designer',
+  reviewer: 'Code Reviewer',
+  sentinel: 'Sentinel Watcher',
+  tester: 'QA Engineer',
+}
+
+const roleLabel = (role: string) => WORKER_ROLES[role] ?? role
+
+const CLI_LABELS: Record<string, string> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  opencode: 'OpenCode',
+}
+
+const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
+
+const dispatchStatusLabel = (status: string) => {
+  if (status === 'done') return 'Completed'
+  if (status === 'cancelled') return 'Cancelled'
+  return 'In Progress'
+}
+
+const dispatchStatusColor = (status: string) => {
+  if (status === 'done') return colors.success
+  if (status === 'cancelled') return colors.muted
+  return colors.accent
+}
+
+const dispatchIcon = (status: string): keyof typeof Ionicons.glyphMap => {
+  if (status === 'done') return 'checkmark-circle'
+  if (status === 'cancelled') return 'close-circle'
+  return 'time-outline'
+}
 
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>()
   const router = useRouter()
-  const { dashboard, error, getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, state } =
-    useMobileRuntime()
+  const {
+    dashboard,
+    error,
+    getWorkerTranscript,
+    getWorkspaceTasks,
+    restartWorker,
+    selectedWorkspaceId,
+    state,
+    stopWorker,
+  } = useMobileRuntime()
   const workerId = typeof id === 'string' ? id : ''
   const worker = useMemo(
     () => dashboard?.workers.find((item) => item.id === workerId) ?? null,
@@ -20,17 +76,15 @@ export default function AgentDetailScreen() {
   const [transcript, setTranscript] = useState<MobileWorkerTranscript | null>(null)
   const [tasks, setTasks] = useState<MobileWorkspaceTasks | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [autoScroll, setAutoScroll] = useState(true)
 
   const load = useCallback(async () => {
     if (!workerId || !selectedWorkspaceId) return
     setRefreshing(true)
     try {
-      const [nextTranscript, nextTasks] = await Promise.all([
-        getWorkerTranscript(workerId),
-        getWorkspaceTasks(),
-      ])
-      setTranscript(nextTranscript)
-      setTasks(nextTasks)
+      const [t, tk] = await Promise.all([getWorkerTranscript(workerId), getWorkspaceTasks()])
+      setTranscript(t)
+      setTasks(tk)
     } finally {
       setRefreshing(false)
     }
@@ -40,63 +94,233 @@ export default function AgentDetailScreen() {
     void load()
   }, [load])
 
+  // 每 3 秒轮询终端输出
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  useEffect(() => {
+    if (!workerId || !selectedWorkspaceId) return
+    pollRef.current = setInterval(async () => {
+      try {
+        const t = await getWorkerTranscript(workerId)
+        if (t) setTranscript(t)
+      } catch {}
+    }, 3000)
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [getWorkerTranscript, selectedWorkspaceId, workerId])
+
+  const workerRun = useMemo(
+    () => dashboard?.runs.find((r) => worker && r.agent_name === worker.name) ?? null,
+    [dashboard, worker]
+  )
+
+  const uptimeText = useMemo(() => {
+    if (!workerRun?.started_at) return '--'
+    const ms = Date.now() - new Date(workerRun.started_at).getTime()
+    const mins = Math.floor(ms / 60000)
+    if (mins < 60) return `${mins}m`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ${mins % 60}m`
+    return `${Math.floor(hrs / 24)}d ${hrs % 24}h`
+  }, [workerRun])
+
+  const startedText = useMemo(() => {
+    if (!workerRun?.started_at) return '--'
+    return new Date(workerRun.started_at).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }, [workerRun])
+
   const relevantDispatches =
-    tasks?.dispatches.filter((dispatch) => !worker || dispatch.worker_name === worker.name) ?? []
+    tasks?.dispatches.filter((d) => !worker || d.worker_name === worker.name) ?? []
+
+  const confirmStop = () => {
+    if (!worker) return
+    Alert.alert('Stop worker', `Stop ${worker.name}?`, [
+      { style: 'cancel', text: 'Cancel' },
+      { onPress: () => void stopWorker(worker.id), style: 'destructive', text: 'Stop' },
+    ])
+  }
+
+  const confirmRestart = () => {
+    if (!worker) return
+    Alert.alert('Restart worker', `Restart ${worker.name}?`, [
+      { style: 'cancel', text: 'Cancel' },
+      { onPress: () => void restartWorker(worker.id), text: 'Restart' },
+    ])
+  }
+
+  const copyId = () => {
+    if (worker) Alert.alert('Copied', worker.id)
+  }
 
   return (
     <Screen>
       <ScrollView
         contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl onRefresh={load} refreshing={refreshing} />}
+        refreshControl={
+          <RefreshControl onRefresh={load} refreshing={refreshing} tintColor={colors.accent} />
+        }
       >
-        <View style={styles.header}>
-          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.back}>
-            <Text style={styles.backText}>Back</Text>
+        <View style={styles.navBar}>
+          <Pressable accessibilityRole="button" hitSlop={12} onPress={() => router.back()}>
+            <Ionicons color={colors.accent} name="arrow-back" size={22} />
           </Pressable>
-          <View style={styles.headerText}>
-            <Text style={styles.title}>{worker?.name ?? transcript?.worker_name ?? 'Agent'}</Text>
-            <Text style={styles.meta}>Workspace: {selectedWorkspaceId ?? 'not selected'}</Text>
-          </View>
-          {worker ? <StatusBadge status={worker.status} /> : null}
+          <Text style={styles.navTitle}>Worker Detail</Text>
+          <Pressable accessibilityRole="button" hitSlop={12}>
+            <Ionicons color={colors.muted} name="ellipsis-horizontal" size={22} />
+          </Pressable>
         </View>
+        <Text style={styles.pullHint}>Pull down to refresh</Text>
+
+        {!worker && state !== 'connected' ? (
+          <View style={styles.card}>
+            <Text style={styles.body}>Connect in Settings first. State: {state}</Text>
+          </View>
+        ) : null}
 
         {worker ? (
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Worker</Text>
-            <Text style={styles.body}>Role: {worker.role}</Text>
-            <Text style={styles.body}>Preset: {worker.preset ?? 'none'}</Text>
-          </View>
-        ) : (
-          <Text style={styles.body}>Connect in Settings first. State: {state}</Text>
-        )}
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Terminal transcript</Text>
-          {transcript?.truncated ? (
-            <Text style={styles.meta}>Showing the latest 100 lines.</Text>
-          ) : null}
-          <ScrollView horizontal style={styles.terminalWrap}>
-            <Text style={styles.terminalText}>
-              {transcript?.lines.length ? transcript.lines.join('\n') : 'No terminal output yet.'}
-            </Text>
-          </ScrollView>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Recent dispatches</Text>
-          {relevantDispatches.length === 0 ? (
-            <Text style={styles.body}>No dispatches for this worker.</Text>
-          ) : null}
-          {relevantDispatches.map((dispatch) => (
-            <View key={dispatch.id} style={styles.dispatchRow}>
-              <View style={styles.dispatchHeader}>
-                <Text style={styles.dispatchStatus}>{dispatch.status}</Text>
-                <Text style={styles.meta}>{new Date(dispatch.created_at).toLocaleString()}</Text>
+          <>
+            {/* Profile card */}
+            <View style={styles.profileCard}>
+              <View style={styles.avatarRow}>
+                <View
+                  style={[
+                    styles.avatar,
+                    {
+                      backgroundColor: `${statusColor(worker.status)}22`,
+                      borderColor: statusColor(worker.status),
+                    },
+                  ]}
+                >
+                  <Text style={styles.avatarText}>{worker.name.slice(0, 2).toUpperCase()}</Text>
+                </View>
+                <View style={styles.profileInfo}>
+                  <Text style={styles.workerName}>{worker.name}</Text>
+                  <Text style={styles.workerRole}>{roleLabel(worker.role)}</Text>
+                  <Pressable onPress={copyId} style={styles.idRow}>
+                    <Text style={styles.agentId}>Agent ID: {worker.id}</Text>
+                    <Ionicons color={colors.muted} name="copy-outline" size={13} />
+                  </Pressable>
+                </View>
               </View>
-              <Text style={styles.body}>{dispatch.task_summary}</Text>
+              <View style={styles.profileMetaGrid}>
+                <InfoPill label="CLI" value={cliLabel(worker.preset)} />
+                <InfoPill label="Role" value={worker.role} />
+              </View>
+              <View style={styles.badgeActionRow}>
+                <StatusBadge status={worker.status} />
+                <View style={styles.actionBtns}>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={worker.status === 'stopped'}
+                    onPress={confirmStop}
+                    style={[styles.stopBtn, worker.status === 'stopped' && styles.btnDisabled]}
+                  >
+                    <Ionicons color="#fff" name="stop" size={12} />
+                    <Text style={styles.btnLabel}>Stop</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={confirmRestart}
+                    style={styles.restartBtn}
+                  >
+                    <Ionicons color="#fff" name="refresh" size={12} />
+                    <Text style={styles.btnLabel}>Restart</Text>
+                  </Pressable>
+                </View>
+              </View>
             </View>
-          ))}
-        </View>
+
+            {/* Stats row */}
+            <View style={styles.statsCard}>
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Workspace</Text>
+                <Text style={styles.statValue}>
+                  {dashboard?.workspace.name ?? selectedWorkspaceId ?? '--'}
+                </Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Uptime</Text>
+                <Text style={styles.statValue}>{uptimeText}</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Started</Text>
+                <Text style={styles.statValue}>{startedText}</Text>
+              </View>
+            </View>
+
+            {/* Terminal */}
+            <View style={styles.terminalCard}>
+              <View style={styles.terminalHeader}>
+                <View style={styles.terminalTitleRow}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.sectionTitle}>Terminal (Live)</Text>
+                </View>
+                <View style={styles.autoScrollRow}>
+                  <Text style={styles.autoScrollLabel}>Auto-scroll</Text>
+                  <Switch
+                    onValueChange={setAutoScroll}
+                    thumbColor="#fff"
+                    trackColor={{ false: colors.border, true: colors.accent }}
+                    value={autoScroll}
+                  />
+                </View>
+              </View>
+              <View style={styles.terminal}>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {transcript?.lines.length ? (
+                    transcript.lines.map((line) => (
+                      <Text key={line} style={[styles.termLine, termLineColor(line)]}>
+                        {line}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={styles.termLine}>No terminal output yet.</Text>
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Dispatch History */}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Dispatch History</Text>
+              {relevantDispatches.length === 0 ? (
+                <Text style={styles.body}>No dispatches for this worker.</Text>
+              ) : null}
+              {relevantDispatches.map((d) => (
+                <View key={d.id} style={styles.dispatchItem}>
+                  <Ionicons
+                    color={dispatchStatusColor(d.status)}
+                    name={dispatchIcon(d.status)}
+                    size={20}
+                  />
+                  <View style={styles.dispatchContent}>
+                    <Text style={styles.dispatchTitle}>{d.task_summary}</Text>
+                    <Text style={styles.dispatchMeta}>
+                      {new Date(d.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.dispatchBadge,
+                      { backgroundColor: `${dispatchStatusColor(d.status)}22` },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.dispatchBadgeText, { color: dispatchStatusColor(d.status) }]}
+                    >
+                      {dispatchStatusLabel(d.status)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
@@ -104,93 +328,278 @@ export default function AgentDetailScreen() {
   )
 }
 
+const termLineColor = (line: string) => {
+  if (line.startsWith('$') || line.startsWith('>')) return { color: colors.success }
+  if (/error|fail|ERR/i.test(line)) return { color: colors.error }
+  return {}
+}
+
+const InfoPill = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.infoPill}>
+    <Text style={styles.infoLabel}>{label}</Text>
+    <Text numberOfLines={1} style={styles.infoValue}>
+      {value}
+    </Text>
+  </View>
+)
+
 const styles = StyleSheet.create({
-  back: {
-    backgroundColor: '#30363d',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+  actionBtns: {
+    flexDirection: 'row',
+    gap: spacing.xs,
   },
-  backText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
+  agentId: {
+    color: colors.muted2,
+    fontSize: 12,
   },
-  body: {
-    color: '#8b949e',
-    fontSize: 15,
-    lineHeight: 22,
+  autoScrollLabel: {
+    color: colors.muted,
+    fontSize: 12,
   },
-  card: {
-    backgroundColor: '#161b22',
-    borderColor: '#30363d',
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 10,
-    padding: 16,
-  },
-  dispatchHeader: {
+  autoScrollRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
-    justifyContent: 'space-between',
-  },
-  dispatchRow: {
-    borderColor: '#30363d',
-    borderRadius: 10,
-    borderWidth: 1,
     gap: 6,
-    padding: 12,
   },
-  dispatchStatus: {
-    color: '#e6edf3',
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+  avatar: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 999,
+    borderWidth: 3,
+    height: 56,
+    justifyContent: 'center',
+    width: 56,
   },
-  error: {
-    color: '#ff7b72',
+  avatarRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  avatarText: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  badgeActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  body: {
+    color: colors.muted,
     fontSize: 14,
   },
-  header: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
+  btnDisabled: {
+    opacity: 0.4,
   },
-  headerText: {
-    flex: 1,
-    gap: 5,
-  },
-  meta: {
-    color: '#8b949e',
+  btnLabel: {
+    color: '#fff',
     fontSize: 13,
+    fontWeight: '700',
   },
-  scroll: {
-    gap: 14,
-    paddingBottom: 24,
+  card: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
   },
-  sectionTitle: {
-    color: '#e6edf3',
+  dispatchBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  dispatchBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  dispatchContent: {
+    flex: 1,
+    gap: 2,
+  },
+  dispatchItem: {
+    alignItems: 'center',
+    borderTopColor: colors.borderMuted,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    paddingVertical: 12,
+  },
+  dispatchMeta: {
+    color: colors.muted2,
+    fontSize: 12,
+  },
+  dispatchTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  error: {
+    color: colors.error,
+    fontSize: 14,
+  },
+  idRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 2,
+  },
+  infoLabel: {
+    color: colors.muted2,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  infoPill: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  infoValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  liveDot: {
+    backgroundColor: colors.success,
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  navBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  navTitle: {
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
   },
-  terminalText: {
-    color: '#c9d1d9',
+  profileCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  profileInfo: {
+    flex: 1,
+    gap: 1,
+  },
+  profileMetaGrid: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  pullHint: {
+    color: colors.muted2,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  restartBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  scroll: {
+    gap: 14,
+    paddingBottom: 32,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  statDivider: {
+    backgroundColor: colors.border,
+    height: '100%',
+    width: 1,
+  },
+  statItem: {
+    flex: 1,
+    gap: 4,
+    paddingHorizontal: 8,
+  },
+  statLabel: {
+    color: colors.muted2,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  statValue: {
+    color: colors.textSoft,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statsCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    padding: spacing.md,
+  },
+  stopBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.error,
+    borderRadius: radius.sm,
+    flexDirection: 'row',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  terminal: {
+    backgroundColor: '#010409',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    maxHeight: 260,
+    minHeight: 120,
+    padding: spacing.sm,
+  },
+  terminalCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+  },
+  terminalHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  terminalTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  termLine: {
+    color: colors.textSoft,
     fontFamily: 'Courier',
     fontSize: 12,
     lineHeight: 18,
   },
-  terminalWrap: {
-    backgroundColor: '#0d1117',
-    borderColor: '#30363d',
-    borderRadius: 10,
-    borderWidth: 1,
-    maxHeight: 320,
-    padding: 12,
+  workerName: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '800',
   },
-  title: {
-    color: '#e6edf3',
-    fontSize: 24,
-    fontWeight: '700',
+  workerRole: {
+    color: colors.muted,
+    fontSize: 14,
   },
 })

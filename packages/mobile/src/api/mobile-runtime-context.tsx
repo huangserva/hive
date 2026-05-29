@@ -1,4 +1,3 @@
-import { encodeBase64, generateKeyPair } from '@huangserva/hippoteam-relay-crypto'
 import * as SecureStore from 'expo-secure-store'
 import {
   createContext,
@@ -10,18 +9,17 @@ import {
   useRef,
   useState,
 } from 'react'
+import { DEMO_CHAT_MESSAGES, DEMO_DASHBOARD } from '../demo-data'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
   createRuntimeClient,
   DEFAULT_RUNTIME_HOST,
+  type MobileCockpitData,
   type MobileConnectionMode,
   type MobileDashboard,
   type MobileDeviceSummary,
   type MobileDispatchResponse,
-  type MobilePairRedeemResponse,
-  type MobilePairResponse,
-  type MobileRelayConfig,
   type MobileWorkerTranscript,
   type MobileWorkspace,
   type MobileWorkspaceTasks,
@@ -39,22 +37,24 @@ export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 interface StoredRelayConfig extends Omit<RelayTransportConfig, 'device_token'> {}
 
 interface MobileRuntimeContextValue {
+  answerQuestion: (questionId: string, answer: string) => Promise<boolean>
   approveRequest: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   chatMessages: ChatMessage[]
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
   connectionMode: MobileConnectionMode
   dashboard: MobileDashboard | null
+  demoMode: boolean
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
+  enableDemoMode: () => void
   error: string | null
   fetchChatMessages: () => Promise<void>
+  getCockpit: () => Promise<MobileCockpitData | null>
   getWorkerTranscript: (workerId: string) => Promise<MobileWorkerTranscript | null>
   getWorkspaceTasks: () => Promise<MobileWorkspaceTasks | null>
   host: string
-  pairHost: (nextHost: string) => Promise<MobilePairResponse | null>
   pairedDevice: MobileDeviceSummary | null
   relayConfig: StoredRelayConfig | null
-  redeemPairingCode: (nextHost: string, code: string) => Promise<MobilePairRedeemResponse | null>
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
   restartWorker: (workerId: string) => Promise<boolean>
   runtimeStatus: RuntimeStatus | null
@@ -67,6 +67,11 @@ interface MobileRuntimeContextValue {
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
+  uploadMedia: (
+    data: string,
+    filename: string,
+    mimeType: string
+  ) => Promise<{ file_id: string; url: string } | null>
   workspaces: MobileWorkspace[]
 }
 
@@ -101,24 +106,6 @@ const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: st
   workspaces[0]?.id ??
   null
 
-const buildStoredRelayConfig = (
-  relay: MobileRelayConfig,
-  device: MobileDeviceSummary
-): StoredRelayConfig => {
-  const keypair = generateKeyPair()
-  return {
-    capabilities: device.capabilities ?? [],
-    daemon_public_key: relay.daemon_public_key,
-    device_id: device.id,
-    device_keypair: {
-      publicKey: encodeBase64(keypair.publicKey),
-      secretKey: encodeBase64(keypair.secretKey),
-    },
-    relay_url: relay.relay_url,
-    room_id: relay.room_id,
-  }
-}
-
 const parseStoredRelayConfig = (value: string | null): StoredRelayConfig | null => {
   if (!value) return null
   try {
@@ -141,6 +128,7 @@ const parseStoredRelayConfig = (value: string | null): StoredRelayConfig | null 
 export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [host, setHost] = useState(DEFAULT_RUNTIME_HOST)
   const [token, setToken] = useState('')
+  const [demoMode, setDemoMode] = useState(false)
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
   const [workspaces, setWorkspaces] = useState<MobileWorkspace[]>([])
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus | null>(null)
@@ -178,7 +166,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         await nextClient.registerPushToken(pushToken)
       } catch {
-        // Push is best-effort; connection and pairing should still succeed without it.
+        // Push is best-effort; connection should still succeed without it.
       }
     },
     [client]
@@ -192,22 +180,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       unsubscribe()
     }
   }, [client])
-
-  const pairHost = useCallback(async (nextHost: string) => {
-    setState('checking')
-    setError(null)
-    try {
-      const pair = await createRuntimeClient({ host: nextHost }).pairMobile()
-      setToken(pair.token)
-      await secureSet(MOBILE_TOKEN_KEY, pair.token)
-      return pair
-    } catch (pairError) {
-      const message = pairError instanceof Error ? pairError.message : String(pairError)
-      setError(message)
-      setState('error')
-      return null
-    }
-  }, [])
 
   const refreshDashboard = useCallback(
     async (workspaceId = selectedWorkspaceId) => {
@@ -275,35 +247,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       }
     },
     [createRelay, registerPushToken, relayConfig, selectedWorkspaceId]
-  )
-
-  const redeemPairingCode = useCallback(
-    async (nextHost: string, code: string) => {
-      setState('checking')
-      setError(null)
-      await secureSet(RUNTIME_HOST_KEY, nextHost)
-      try {
-        const redeemed = await createRuntimeClient({ host: nextHost }).redeemPairingCode(code)
-        const nextRelayConfig = redeemed.relay
-          ? buildStoredRelayConfig(redeemed.relay, redeemed.device)
-          : null
-        setPairedDevice(redeemed.device)
-        setRelayConfig(nextRelayConfig)
-        if (nextRelayConfig) {
-          await secureSet(RELAY_CONFIG_KEY, JSON.stringify(nextRelayConfig))
-        } else {
-          await secureDelete(RELAY_CONFIG_KEY)
-        }
-        await connect(nextHost, redeemed.token, nextRelayConfig)
-        return redeemed
-      } catch (pairError) {
-        const message = pairError instanceof Error ? pairError.message : String(pairError)
-        setError(message)
-        setState('error')
-        return null
-      }
-    },
-    [connect]
   )
 
   const selectWorkspace = useCallback(
@@ -428,6 +371,41 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     }
   }, [client, selectedWorkspaceId])
 
+  const getCockpit = useCallback(async () => {
+    if (!selectedWorkspaceId) {
+      setError('Select a workspace before reading cockpit')
+      return null
+    }
+    setError(null)
+    try {
+      return await client.getCockpit(selectedWorkspaceId)
+    } catch (cockpitError) {
+      const message = cockpitError instanceof Error ? cockpitError.message : String(cockpitError)
+      setError(message)
+      return null
+    }
+  }, [client, selectedWorkspaceId])
+
+  const answerQuestion = useCallback(
+    async (questionId: string, answer: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before answering questions')
+        return false
+      }
+      setError(null)
+      try {
+        await client.answerQuestion(selectedWorkspaceId, questionId, answer)
+        await refreshDashboard(selectedWorkspaceId)
+        return true
+      } catch (answerError) {
+        const message = answerError instanceof Error ? answerError.message : String(answerError)
+        setError(message)
+        return false
+      }
+    },
+    [client, refreshDashboard, selectedWorkspaceId]
+  )
+
   const transcribeVoice = useCallback(
     async (audioBase64: string, format = 'm4a') => {
       setError(null)
@@ -461,6 +439,25 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         const message = promptError instanceof Error ? promptError.message : String(promptError)
         setError(message)
         return false
+      }
+    },
+    [client, selectedWorkspaceId]
+  )
+
+  const uploadMedia = useCallback(
+    async (data: string, filename: string, mimeType: string) => {
+      if (!selectedWorkspaceId) {
+        setError('Select a workspace before uploading')
+        return null
+      }
+      setError(null)
+      try {
+        const result = await client.uploadMedia(selectedWorkspaceId, data, filename, mimeType)
+        return { file_id: result.file_id, url: result.url }
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : String(uploadError)
+        setError(message)
+        return null
       }
     },
     [client, selectedWorkspaceId]
@@ -565,24 +562,33 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     return () => clearInterval(interval)
   }, [fetchChatMessages, selectedWorkspaceId, state])
 
+  const enableDemoMode = useCallback(() => {
+    setDemoMode(true)
+    setDashboard(DEMO_DASHBOARD)
+    setChatMessages(DEMO_CHAT_MESSAGES)
+    setState('connected')
+  }, [])
+
   const value = useMemo<MobileRuntimeContextValue>(
     () => ({
+      answerQuestion,
       approveRequest,
-      chatMessages,
+      chatMessages: demoMode ? DEMO_CHAT_MESSAGES : chatMessages,
       connect,
-      connectionMode,
-      dashboard,
+      connectionMode: demoMode ? 'lan' : connectionMode,
+      dashboard: demoMode ? DEMO_DASHBOARD : dashboard,
+      demoMode,
       disconnect,
       dispatchTask,
+      enableDemoMode,
       error,
       fetchChatMessages,
+      getCockpit,
       getWorkerTranscript,
       getWorkspaceTasks,
       host,
-      pairHost,
       pairedDevice,
       relayConfig,
-      redeemPairingCode,
       refreshDashboard,
       restartWorker,
       runtimeStatus,
@@ -591,29 +597,32 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       sendPromptToOrchestrator,
       setHost,
       setToken,
-      state,
+      state: demoMode ? 'connected' : state,
       stopWorker,
       token,
       transcribeVoice,
+      uploadMedia,
       workspaces,
     }),
     [
+      answerQuestion,
       approveRequest,
       chatMessages,
       connect,
       connectionMode,
       dashboard,
+      demoMode,
       disconnect,
       dispatchTask,
+      enableDemoMode,
       error,
       fetchChatMessages,
+      getCockpit,
       getWorkerTranscript,
       getWorkspaceTasks,
       host,
-      pairHost,
       pairedDevice,
       relayConfig,
-      redeemPairingCode,
       refreshDashboard,
       restartWorker,
       runtimeStatus,
@@ -624,6 +633,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       stopWorker,
       token,
       transcribeVoice,
+      uploadMedia,
       workspaces,
     ]
   )

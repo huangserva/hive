@@ -16,17 +16,15 @@ cd packages/mobile
 npx expo start
 ```
 
-The app is LAN-first. Enter the host running Hive, for example `192.168.1.20:4010`, then pair with a code generated from the HippoTeam web settings page.
+The app is LAN-first. Enter the host running Hive, for example `192.168.1.20:4010`, then paste a permanent mobile token created in the HippoTeam web settings page.
 
-## Pairing Flow
+## Token Flow
 
 1. Open HippoTeam web on the host machine.
-2. Generate a mobile pairing code from Workspace Settings.
+2. Create a mobile token from Workspace Settings.
 3. Open the mobile app Settings tab.
-4. Enter the runtime host and six-digit pairing code.
-5. The app stores the device token in SecureStore and registers an Expo push token when notification permission is granted.
-
-Manual token entry remains available as an advanced fallback for development.
+4. Enter the runtime host and paste the token.
+5. The app stores the token in SecureStore and registers an Expo push token when notification permission is granted.
 
 ## EAS Builds
 
@@ -43,7 +41,7 @@ Production submit settings intentionally use `PLACEHOLDER` values. Replace them 
 ## Architecture
 
 - **LAN-first transport**: direct HTTP and WebSocket calls to the local runtime.
-- **Relay fallback**: encrypted relay transport is available when pairing returns relay metadata.
+- **Relay fallback**: encrypted relay transport is available when relay metadata is configured for the token/device.
 - **E2E encryption**: relay frames use the shared `packages/relay-crypto` NaCl channel.
 - **Capability gates**: device tokens carry capabilities such as `read_dashboard`, `send_prompt`, `approve_risk`, and `admin_runtime`.
 - **Push notifications**: worker completion and high-priority Cockpit actions use Expo push as best-effort delivery.

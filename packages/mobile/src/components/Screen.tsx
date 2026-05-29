@@ -13,8 +13,10 @@ export const Screen = ({ children }: PropsWithChildren) => (
 const styles = StyleSheet.create({
   content: {
     flex: 1,
-    gap: spacing.md,
-    padding: spacing.md,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: 0,
   },
   safeArea: {
     backgroundColor: colors.background,

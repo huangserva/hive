@@ -21,13 +21,8 @@ interface RuntimeClientOptions {
   token?: string | null
 }
 
-export interface MobilePairResponse {
-  host: string
-  port: number
-  token: string
-}
-
 export interface MobileDeviceSummary {
+  active?: boolean
   capabilities?: string[]
   created_at?: string
   device_type?: string
@@ -35,13 +30,7 @@ export interface MobileDeviceSummary {
   last_seen_at?: string | null
   name: string
   revoked_at?: string | null
-}
-
-export interface MobilePairRedeemResponse {
-  device: MobileDeviceSummary
-  expires_after_inactive_days?: number
-  relay?: MobileRelayConfig | null
-  token: string
+  source?: 'manual'
 }
 
 export interface MobileWorkspace {
@@ -117,6 +106,69 @@ export interface MobileWorkspaceTask {
 export interface MobileWorkspaceTasks {
   dispatches: MobileWorkspaceTask[]
   workspace_id: string
+}
+
+export interface MobileCockpitMilestone {
+  id: string
+  title: string
+  status: 'shipped' | 'blocked' | 'proposed' | 'open' | 'in_progress'
+  date?: string
+  items: { text: string; done: boolean }[]
+  doneCount: number
+  totalCount: number
+  progress: number
+  body: string
+}
+
+export interface MobileCockpitPlan {
+  frontmatter: { title?: string; current_phase?: string; [key: string]: string | undefined }
+  goal: string | null
+  milestones: MobileCockpitMilestone[]
+  currentPhase: string | null
+}
+
+export interface MobileCockpitQuestion {
+  id: string
+  text: string
+  priority: 'high' | 'medium' | 'low'
+  answered?: boolean
+  answer?: string
+}
+
+export interface MobileCockpitQuestions {
+  high: MobileCockpitQuestion[]
+  medium: MobileCockpitQuestion[]
+  low: MobileCockpitQuestion[]
+  answered: MobileCockpitQuestion[]
+}
+
+export interface MobileCockpitIdea {
+  id: string
+  text: string
+  addedAt: string | null
+  promoted: boolean
+}
+
+export interface MobileCockpitIdeas {
+  inbox: MobileCockpitIdea[]
+  promoted: MobileCockpitIdea[]
+}
+
+export interface MobileCockpitAction {
+  id: string
+  text: string
+  action: string
+  priority: 'high' | 'medium' | 'low'
+  type: string
+  targetTab: string
+}
+
+export interface MobileCockpitData {
+  aiActions: MobileCockpitAction[]
+  ideas: MobileCockpitIdeas
+  plan: MobileCockpitPlan
+  questions: MobileCockpitQuestions
+  tasks: { sections: unknown[]; totalDone: number; totalOpen: number }
 }
 
 export interface MobileRelayConfig {
@@ -219,15 +271,6 @@ export const createRuntimeClient = ({
   }
 
   return {
-    async pairMobile(): Promise<MobilePairResponse> {
-      return readJson<MobilePairResponse>('/api/mobile/pair')
-    },
-    async redeemPairingCode(code: string): Promise<MobilePairRedeemResponse> {
-      return readJson<MobilePairRedeemResponse>('/api/mobile/pair/redeem', false, {
-        body: { code },
-        method: 'POST',
-      })
-    },
     async getRuntimeStatus(): Promise<RuntimeStatus> {
       return readJson<RuntimeStatus>('/api/runtime/status')
     },
@@ -259,6 +302,28 @@ export const createRuntimeClient = ({
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/tasks`,
         'workspace.tasks',
         { workspace_id: workspaceId }
+      )
+    },
+    async getCockpit(workspaceId: string): Promise<MobileCockpitData> {
+      return readMobileJson<MobileCockpitData>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/cockpit`,
+        'workspace.cockpit',
+        { workspace_id: workspaceId }
+      )
+    },
+    async answerQuestion(
+      workspaceId: string,
+      questionId: string,
+      answer: string
+    ): Promise<{ ok: boolean }> {
+      return readMobileJson<{ ok: boolean }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/cockpit/questions/${encodeURIComponent(questionId)}/answer`,
+        'workspace.cockpit.question.answer',
+        { answer, question_id: questionId, workspace_id: workspaceId },
+        {
+          body: { answer },
+          method: 'POST',
+        }
       )
     },
     async stopWorker(workspaceId: string, workerId: string): Promise<void> {
@@ -336,6 +401,22 @@ export const createRuntimeClient = ({
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/chat/messages?${params}`,
         'workspace.chat.messages',
         { limit, since, workspace_id: workspaceId }
+      )
+    },
+    async uploadMedia(
+      workspaceId: string,
+      data: string,
+      filename: string,
+      mimeType: string
+    ): Promise<{ file_id: string; url: string; ok: boolean }> {
+      return readMobileJson<{ file_id: string; url: string; ok: boolean }>(
+        `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/upload`,
+        'workspace.upload',
+        { data, filename, mime_type: mimeType, workspace_id: workspaceId },
+        {
+          body: { data, filename, mime_type: mimeType },
+          method: 'POST',
+        }
       )
     },
     async approveRequest(

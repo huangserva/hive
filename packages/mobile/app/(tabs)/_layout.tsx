@@ -1,13 +1,24 @@
 import { Ionicons } from '@expo/vector-icons'
 import { Tabs } from 'expo-router'
-import type { ColorValue } from 'react-native'
+import { type ColorValue, View } from 'react-native'
 
 import { colors } from '../../src/theme'
 
 const tabIcon =
   (name: keyof typeof Ionicons.glyphMap) =>
-  ({ color, size }: { color: ColorValue; size: number }) => (
-    <Ionicons color={String(color)} name={name} size={size} />
+  ({ color, focused, size }: { color: ColorValue; focused: boolean; size: number }) => (
+    <View
+      style={{
+        alignItems: 'center',
+        backgroundColor: focused ? colors.accent : 'transparent',
+        borderRadius: 10,
+        height: 34,
+        justifyContent: 'center',
+        width: 34,
+      }}
+    >
+      <Ionicons color={focused ? colors.text : String(color)} name={name} size={size} />
+    </View>
   )
 
 export default function TabsLayout() {
@@ -19,10 +30,10 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         tabBarStyle: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.background,
           borderTopColor: colors.border,
-          height: 68,
-          paddingBottom: 10,
+          height: 78,
+          paddingBottom: 14,
           paddingTop: 8,
         },
       }}
@@ -36,12 +47,12 @@ export default function TabsLayout() {
         options={{ tabBarIcon: tabIcon('pulse-outline'), title: 'Status' }}
       />
       <Tabs.Screen
-        name="tasks"
-        options={{ href: null, tabBarIcon: tabIcon('checkbox-outline'), title: 'Tasks' }}
+        name="cockpit"
+        options={{ tabBarIcon: tabIcon('grid-outline'), title: 'Cockpit' }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ tabBarIcon: tabIcon('options-outline'), title: 'Settings' }}
+        options={{ tabBarIcon: tabIcon('settings-outline'), title: 'Settings' }}
       />
     </Tabs>
   )
