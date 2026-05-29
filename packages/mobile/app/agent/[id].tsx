@@ -3,12 +3,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native'
 
@@ -55,11 +57,121 @@ const dispatchIcon = (status: string): keyof typeof Ionicons.glyphMap => {
   return 'time-outline'
 }
 
+const WorkerActions = ({
+  onDispatch,
+  onRestart,
+  onStop,
+  status,
+}: {
+  onDispatch: () => void
+  onRestart: () => void
+  onStop: () => void
+  status: string
+}) => {
+  const isWorking = status === 'working'
+  const isStopped = status === 'stopped'
+  return (
+    <View style={styles.actionBtns}>
+      {!isWorking && !isStopped ? (
+        <ActionButton icon="send-outline" label="Dispatch" onPress={onDispatch} tone="success" />
+      ) : null}
+      <ActionButton icon="refresh-outline" label="Restart" onPress={onRestart} tone="accent" />
+      {!isStopped ? (
+        <ActionButton icon="stop-circle-outline" label="Stop" onPress={onStop} tone="danger" />
+      ) : null}
+    </View>
+  )
+}
+
+const ActionButton = ({
+  icon,
+  label,
+  onPress,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  onPress: () => void
+  tone: 'accent' | 'danger' | 'success'
+}) => {
+  const toneColor =
+    tone === 'danger' ? colors.error : tone === 'success' ? colors.success : colors.accent
+  const toneBackground =
+    tone === 'danger'
+      ? colors.errorSoft
+      : tone === 'success'
+        ? colors.successSoft
+        : colors.accentSoft
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.actionBtn, { backgroundColor: toneBackground }]}
+    >
+      <Ionicons color={toneColor} name={icon} size={13} />
+      <Text style={[styles.actionBtnText, { color: toneColor }]}>{label}</Text>
+    </Pressable>
+  )
+}
+
+const DispatchModal = ({
+  dispatching,
+  onChangeText,
+  onClose,
+  onSubmit,
+  task,
+  visible,
+  workerName,
+}: {
+  dispatching: boolean
+  onChangeText: (value: string) => void
+  onClose: () => void
+  onSubmit: () => void
+  task: string
+  visible: boolean
+  workerName: string
+}) => (
+  <Modal animationType="fade" transparent visible={visible}>
+    <View style={styles.modalBackdrop}>
+      <View style={styles.dispatchModal}>
+        <Text style={styles.modalTitle}>Dispatch to {workerName}</Text>
+        <Text style={styles.modalHint}>Send a task directly to this worker.</Text>
+        <TextInput
+          autoFocus
+          multiline
+          onChangeText={onChangeText}
+          placeholder="Describe the task..."
+          placeholderTextColor={colors.muted2}
+          style={styles.dispatchInput}
+          value={task}
+        />
+        <View style={styles.modalActions}>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
+            <Text style={styles.modalCancelText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={dispatching || task.trim().length === 0}
+            onPress={onSubmit}
+            style={[
+              styles.modalSubmitBtn,
+              (dispatching || task.trim().length === 0) && styles.btnDisabled,
+            ]}
+          >
+            <Text style={styles.modalSubmitText}>{dispatching ? 'Sending...' : 'Send Task'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)
+
 export default function AgentDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>()
   const router = useRouter()
   const {
     dashboard,
+    dispatchTask,
     error,
     getWorkerTranscript,
     getWorkspaceTasks,
@@ -77,6 +189,9 @@ export default function AgentDetailScreen() {
   const [tasks, setTasks] = useState<MobileWorkspaceTasks | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [dispatchText, setDispatchText] = useState('')
+  const [dispatching, setDispatching] = useState(false)
+  const [dispatchOpen, setDispatchOpen] = useState(false)
 
   const load = useCallback(async () => {
     if (!workerId || !selectedWorkspaceId) return
@@ -151,6 +266,31 @@ export default function AgentDetailScreen() {
     ])
   }
 
+  const openDispatch = () => {
+    setDispatchText('')
+    setDispatchOpen(true)
+  }
+
+  const closeDispatch = () => {
+    if (dispatching) return
+    setDispatchOpen(false)
+    setDispatchText('')
+  }
+
+  const submitDispatch = async () => {
+    const task = dispatchText.trim()
+    if (!worker || !task) return
+    setDispatching(true)
+    const result = await dispatchTask(worker.id, task)
+    setDispatching(false)
+    if (result) {
+      Alert.alert('Dispatch sent', `Task sent to ${worker.name}.`)
+      closeDispatch()
+      return
+    }
+    Alert.alert('Dispatch failed', error ?? 'Unable to send this task.')
+  }
+
   const copyId = () => {
     if (worker) Alert.alert('Copied', worker.id)
   }
@@ -211,25 +351,12 @@ export default function AgentDetailScreen() {
               </View>
               <View style={styles.badgeActionRow}>
                 <StatusBadge status={worker.status} />
-                <View style={styles.actionBtns}>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={worker.status === 'stopped'}
-                    onPress={confirmStop}
-                    style={[styles.stopBtn, worker.status === 'stopped' && styles.btnDisabled]}
-                  >
-                    <Ionicons color="#fff" name="stop" size={12} />
-                    <Text style={styles.btnLabel}>Stop</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={confirmRestart}
-                    style={styles.restartBtn}
-                  >
-                    <Ionicons color="#fff" name="refresh" size={12} />
-                    <Text style={styles.btnLabel}>Restart</Text>
-                  </Pressable>
-                </View>
+                <WorkerActions
+                  onDispatch={openDispatch}
+                  onRestart={confirmRestart}
+                  onStop={confirmStop}
+                  status={worker.status}
+                />
               </View>
             </View>
 
@@ -324,6 +451,15 @@ export default function AgentDetailScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
+      <DispatchModal
+        dispatching={dispatching}
+        onChangeText={setDispatchText}
+        onClose={closeDispatch}
+        onSubmit={submitDispatch}
+        task={dispatchText}
+        visible={dispatchOpen}
+        workerName={worker?.name ?? 'worker'}
+      />
     </Screen>
   )
 }
@@ -345,8 +481,25 @@ const InfoPill = ({ label, value }: { label: string; value: string }) => (
 
 const styles = StyleSheet.create({
   actionBtns: {
+    flex: 1,
     flexDirection: 'row',
     gap: spacing.xs,
+    justifyContent: 'flex-end',
+  },
+  actionBtn: {
+    alignItems: 'center',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 36,
+    paddingHorizontal: 10,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   agentId: {
     color: colors.muted2,
@@ -431,10 +584,30 @@ const styles = StyleSheet.create({
     color: colors.muted2,
     fontSize: 12,
   },
+  dispatchInput: {
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    minHeight: 120,
+    padding: spacing.md,
+    textAlignVertical: 'top',
+  },
   dispatchTitle: {
     color: colors.text,
     fontSize: 14,
     fontWeight: '600',
+  },
+  dispatchModal: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+    width: '100%',
   },
   error: {
     color: colors.error,
@@ -472,6 +645,54 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     height: 8,
     width: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  modalCancelBtn: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  modalCancelText: {
+    color: colors.textSoft,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  modalHint: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  modalSubmitBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  modalSubmitText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
   },
   navBar: {
     alignItems: 'center',

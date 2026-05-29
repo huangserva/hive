@@ -1,7 +1,17 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useRouter } from 'expo-router'
 import { useCallback, useMemo, useState } from 'react'
-import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import {
+  Alert,
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 
 import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
@@ -27,11 +37,22 @@ const CLI_LABELS: Record<string, string> = {
 
 const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
 
+const WORKER_ROLES: Record<string, string> = {
+  coder: 'Software Engineer',
+  designer: 'UI Designer',
+  reviewer: 'Code Reviewer',
+  sentinel: 'Sentinel Watcher',
+  tester: 'QA Engineer',
+}
+
+const roleLabel = (role: string) => WORKER_ROLES[role] ?? role
+
 export default function StatusTab() {
   const {
     connect,
     connectionMode,
     dashboard,
+    dispatchTask,
     error,
     host,
     refreshDashboard,
@@ -41,10 +62,12 @@ export default function StatusTab() {
     token,
   } = useMobileRuntime()
   const router = useRouter()
-  const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
   const [overviewExpanded, setOverviewExpanded] = useState(false)
   const [phaseExpanded, setPhaseExpanded] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [dispatchWorker, setDispatchWorker] = useState<MobileDashboardWorker | null>(null)
+  const [dispatchText, setDispatchText] = useState('')
+  const [dispatching, setDispatching] = useState(false)
   const activeWorkers = useMemo(
     () => dashboard?.workers.filter((w) => w.status !== 'stopped').length ?? 0,
     [dashboard]
@@ -77,6 +100,31 @@ export default function StatusTab() {
       { style: 'cancel', text: 'Cancel' },
       { onPress: () => void restartWorker(worker.id), text: 'Restart' },
     ])
+  }
+
+  const openDispatch = (worker: MobileDashboardWorker) => {
+    setDispatchWorker(worker)
+    setDispatchText('')
+  }
+
+  const closeDispatch = () => {
+    if (dispatching) return
+    setDispatchWorker(null)
+    setDispatchText('')
+  }
+
+  const submitDispatch = async () => {
+    const task = dispatchText.trim()
+    if (!dispatchWorker || !task) return
+    setDispatching(true)
+    const result = await dispatchTask(dispatchWorker.id, task)
+    setDispatching(false)
+    if (result) {
+      Alert.alert('Dispatch sent', `Task sent to ${dispatchWorker.name}.`)
+      closeDispatch()
+      return
+    }
+    Alert.alert('Dispatch failed', error ?? 'Unable to send this task.')
   }
 
   if (!dashboard) {
@@ -228,19 +276,25 @@ export default function StatusTab() {
 
         {dashboard.workers.map((worker) => (
           <WorkerCard
-            expanded={expandedWorkerId === worker.id}
             key={worker.id}
-            onDispatch={() => router.push('/')}
+            onDispatch={() => openDispatch(worker)}
             onOpenDetail={() => router.push(`/agent/${worker.id}`)}
             onRestart={() => confirmRestart(worker)}
             onStop={() => confirmStop(worker)}
-            onToggle={() => setExpandedWorkerId((cur) => (cur === worker.id ? null : worker.id))}
             worker={worker}
           />
         ))}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </ScrollView>
+      <DispatchModal
+        dispatching={dispatching}
+        onChangeText={setDispatchText}
+        onClose={closeDispatch}
+        onSubmit={submitDispatch}
+        task={dispatchText}
+        worker={dispatchWorker}
+      />
     </Screen>
   )
 }
@@ -262,27 +316,23 @@ const StatItem = ({
 )
 
 const WorkerCard = ({
-  expanded,
   onDispatch,
   onOpenDetail,
   onRestart,
   onStop,
-  onToggle,
   worker,
 }: {
-  expanded: boolean
   onDispatch: () => void
   onOpenDetail: () => void
   onRestart: () => void
   onStop: () => void
-  onToggle: () => void
   worker: MobileDashboardWorker
 }) => {
   const bgColor = avatarColor(worker.name)
   const accent = statusColor(worker.status)
 
   return (
-    <Pressable accessibilityRole="button" onPress={onToggle} style={styles.card}>
+    <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.card}>
       <View style={styles.workerHeader}>
         <View style={styles.workerLeft}>
           <View style={[styles.workerAvatar, { backgroundColor: bgColor }]}>
@@ -291,52 +341,27 @@ const WorkerCard = ({
           </View>
           <View style={styles.workerInfo}>
             <Text style={styles.workerName}>{worker.name}</Text>
-            <Text style={styles.workerTask}>{statusTextFor(worker)}</Text>
+            <Text style={styles.workerTask}>
+              {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
+            </Text>
           </View>
         </View>
-        <StatusBadge status={worker.status} />
+        <View style={styles.workerRight}>
+          <StatusBadge status={worker.status} />
+          <Ionicons color={colors.muted} name="chevron-forward" size={18} />
+        </View>
       </View>
 
-      {expanded ? (
-        <View style={styles.expanded}>
-          <View style={styles.workerMetaGrid}>
-            <MetaChip label="CLI" value={cliLabel(worker.preset)} />
-            <MetaChip label="Role" value={worker.role} />
-            <MetaChip label="Status" value={statusTextFor(worker)} />
-          </View>
-
-          <View style={styles.expandedActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={onStop}
-              style={[styles.expandedBtn, { backgroundColor: colors.errorSoft }]}
-            >
-              <Ionicons color={colors.error} name="stop-circle-outline" size={14} />
-              <Text style={[styles.expandedBtnText, { color: colors.error }]}>Stop</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={onRestart}
-              style={[styles.expandedBtn, { backgroundColor: colors.accentSoft }]}
-            >
-              <Ionicons color={colors.accent} name="refresh-outline" size={14} />
-              <Text style={[styles.expandedBtnText, { color: colors.accent }]}>Restart</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={onDispatch}
-              style={[styles.expandedBtn, { backgroundColor: colors.successSoft }]}
-            >
-              <Ionicons color={colors.success} name="send-outline" size={14} />
-              <Text style={[styles.expandedBtnText, { color: colors.success }]}>Dispatch</Text>
-            </Pressable>
-          </View>
-          <Pressable accessibilityRole="button" onPress={onOpenDetail} style={styles.detailLink}>
-            <Text style={styles.detailLinkText}>View detail</Text>
-            <Ionicons color={colors.accent} name="chevron-forward" size={16} />
-          </Pressable>
-        </View>
-      ) : null}
+      <View style={styles.workerMetaGrid}>
+        <MetaChip label="Role" value={worker.role} />
+        <MetaChip label="Status" value={statusTextFor(worker)} />
+      </View>
+      <WorkerActions
+        onDispatch={onDispatch}
+        onRestart={onRestart}
+        onStop={onStop}
+        status={worker.status}
+      />
     </Pressable>
   )
 }
@@ -350,6 +375,116 @@ const MetaChip = ({ label, value }: { label: string; value: string }) => (
   </View>
 )
 
+const WorkerActions = ({
+  onDispatch,
+  onRestart,
+  onStop,
+  status,
+}: {
+  onDispatch: () => void
+  onRestart: () => void
+  onStop: () => void
+  status: MobileDashboardWorker['status']
+}) => {
+  const isWorking = status === 'working'
+  const isStopped = status === 'stopped'
+  return (
+    <View style={styles.quickActions}>
+      {!isWorking && !isStopped ? (
+        <ActionButton icon="send-outline" label="Dispatch" onPress={onDispatch} tone="success" />
+      ) : null}
+      <ActionButton icon="refresh-outline" label="Restart" onPress={onRestart} tone="accent" />
+      {!isStopped ? (
+        <ActionButton icon="stop-circle-outline" label="Stop" onPress={onStop} tone="danger" />
+      ) : null}
+    </View>
+  )
+}
+
+const ActionButton = ({
+  icon,
+  label,
+  onPress,
+  tone,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  onPress: () => void
+  tone: 'accent' | 'danger' | 'success'
+}) => {
+  const toneColor =
+    tone === 'danger' ? colors.error : tone === 'success' ? colors.success : colors.accent
+  const toneBackground =
+    tone === 'danger'
+      ? colors.errorSoft
+      : tone === 'success'
+        ? colors.successSoft
+        : colors.accentSoft
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={(event) => {
+        event.stopPropagation()
+        onPress()
+      }}
+      style={[styles.actionBtn, { backgroundColor: toneBackground }]}
+    >
+      <Ionicons color={toneColor} name={icon} size={14} />
+      <Text style={[styles.actionBtnText, { color: toneColor }]}>{label}</Text>
+    </Pressable>
+  )
+}
+
+const DispatchModal = ({
+  dispatching,
+  onChangeText,
+  onClose,
+  onSubmit,
+  task,
+  worker,
+}: {
+  dispatching: boolean
+  onChangeText: (value: string) => void
+  onClose: () => void
+  onSubmit: () => void
+  task: string
+  worker: MobileDashboardWorker | null
+}) => (
+  <Modal animationType="fade" transparent visible={worker !== null}>
+    <View style={styles.modalBackdrop}>
+      <View style={styles.dispatchModal}>
+        <Text style={styles.modalTitle}>Dispatch to {worker?.name ?? 'worker'}</Text>
+        <Text style={styles.modalHint}>Send a task directly to this worker.</Text>
+        <TextInput
+          autoFocus
+          multiline
+          onChangeText={onChangeText}
+          placeholder="Describe the task..."
+          placeholderTextColor={colors.muted2}
+          style={styles.dispatchInput}
+          value={task}
+        />
+        <View style={styles.modalActions}>
+          <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalCancelBtn}>
+            <Text style={styles.modalCancelText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={dispatching || task.trim().length === 0}
+            onPress={onSubmit}
+            style={[
+              styles.modalSubmitBtn,
+              (dispatching || task.trim().length === 0) && styles.btnDisabled,
+            ]}
+          >
+            <Text style={styles.modalSubmitText}>{dispatching ? 'Sending...' : 'Send Task'}</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  </Modal>
+)
+
 const statusTextFor = (worker: MobileDashboardWorker) => {
   if (worker.status === 'working') return 'Working'
   if (worker.status === 'idle') return 'Idle'
@@ -358,6 +493,25 @@ const statusTextFor = (worker: MobileDashboardWorker) => {
 }
 
 const styles = StyleSheet.create({
+  actionBtn: {
+    alignItems: 'center',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 8,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  btnDisabled: {
+    opacity: 0.45,
+  },
   card: {
     backgroundColor: 'rgba(22, 27, 34, 0.9)',
     borderColor: colors.borderMuted,
@@ -429,6 +583,26 @@ const styles = StyleSheet.create({
   error: {
     color: colors.error,
     fontSize: 14,
+  },
+  dispatchInput: {
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 15,
+    minHeight: 120,
+    padding: spacing.md,
+    textAlignVertical: 'top',
+  },
+  dispatchModal: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md,
+    width: '100%',
   },
   expanded: {
     borderTopColor: colors.borderMuted,
@@ -563,6 +737,54 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.68)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  modalCancelBtn: {
+    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  modalCancelText: {
+    color: colors.textSoft,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  modalHint: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  modalSubmitBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  modalSubmitText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
   progressBullets: {
     gap: 4,
   },
@@ -601,6 +823,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: spacing.xs,
+  },
+  quickActions: {
+    borderTopColor: colors.borderMuted,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingTop: spacing.sm,
   },
   pullHint: {
     color: colors.muted2,
@@ -698,6 +927,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     fontWeight: '800',
+  },
+  workerRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   workerTask: {
     color: colors.textSoft,
