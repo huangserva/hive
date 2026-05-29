@@ -1123,6 +1123,51 @@ describe('mobile API', () => {
     }
   }, 15000)
 
+  test('returns orchestrator transcript for a paired mobile client', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(
+        workspacePath,
+        'Mobile Orchestrator Transcript'
+      )
+      const orchestratorId = `${workspace.id}:orchestrator`
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        command: process.execPath,
+        args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      })
+      const run = await server.store.startAgent(workspace.id, orchestratorId, { hivePort: '4010' })
+      server.store
+        .getPtyOutputBus()
+        .publish(run.runId, '\u001b[32morchestrator ready\u001b[0m\nplanning next step\n')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${encodeURIComponent(orchestratorId)}/transcript`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        lines: string[]
+        status: string
+        truncated: boolean
+        worker_id: string
+        worker_name: string
+      }
+
+      expect(response.status).toBe(200)
+      expect(body).toEqual({
+        lines: ['orchestrator ready', 'planning next step'],
+        status: 'idle',
+        truncated: false,
+        worker_id: orchestratorId,
+        worker_name: 'Orchestrator',
+      })
+    } finally {
+      await server.close()
+    }
+  }, 15000)
+
   test('returns mobile dispatch task history with compact summaries', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()

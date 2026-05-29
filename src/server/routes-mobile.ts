@@ -148,7 +148,7 @@ export const buildMobileWorkerTranscript = async (
   workspaceId: string,
   workerId: string
 ) => {
-  const worker = store.getWorker(workspaceId, workerId)
+  const worker = store.getAgent(workspaceId, workerId)
   const snapshot = await store.getPtySnapshotForAgent(workspaceId, workerId)
   const transcript = transcriptLinesFromSnapshot(snapshot)
   return {
@@ -485,7 +485,7 @@ export const mobileRoutes: RouteDefinition[] = [
     'GET',
     '/api/mobile/workspaces/:workspaceId/workers/:workerId/transcript',
     async ({ params, request, response, store }) => {
-      requireMobileCapability(request, store, 'read_dashboard')
+      requireMobileCapability(request, store, 'read_terminal')
       const workspaceId = getRequiredParam(
         response,
         params,

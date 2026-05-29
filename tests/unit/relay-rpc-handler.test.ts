@@ -39,21 +39,22 @@ describe('relay RPC handler', () => {
     ).rejects.toThrow('Missing mobile capability: send_prompt')
   })
 
-  it('serves worker transcript RPC with read_dashboard capability', async () => {
+  it('serves worker transcript RPC with read_terminal capability', async () => {
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
       store: {
+        getAgent: () => ({ id: 'worker-1', name: 'Alice', status: 'working' }),
         getPtySnapshotForAgent: async () => '\u001b[32mfirst\u001b[0m\nsecond\n',
         getWorker: () => ({ id: 'worker-1', name: 'Alice', status: 'working' }),
         requireMobileCapability: (_device: unknown, capability: string) => {
-          if (capability !== 'read_dashboard') throw new Error(`wrong capability ${capability}`)
+          if (capability !== 'read_terminal') throw new Error(`wrong capability ${capability}`)
         },
       },
     })
 
     await expect(
       handler('worker.transcript', { worker_id: 'worker-1', workspace_id: 'ws-1' }, 'device-1', [
-        'read_dashboard',
+        'read_terminal',
       ])
     ).resolves.toEqual({
       lines: ['first', 'second'],

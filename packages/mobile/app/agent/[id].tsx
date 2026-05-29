@@ -229,15 +229,11 @@ export default function AgentDetailScreen() {
     try {
       const tk = await getWorkspaceTasks()
       setTasks(tk)
-      if (isOrchestrator) {
-        setTranscript(null)
-      } else {
-        setTranscript(await getWorkerTranscript(workerId))
-      }
+      setTranscript(await getWorkerTranscript(workerId))
     } finally {
       setRefreshing(false)
     }
-  }, [getWorkerTranscript, getWorkspaceTasks, isOrchestrator, selectedWorkspaceId, workerId])
+  }, [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, workerId])
 
   useEffect(() => {
     void load()
@@ -246,7 +242,7 @@ export default function AgentDetailScreen() {
   // 每 3 秒轮询终端输出
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    if (!workerId || !selectedWorkspaceId || isOrchestrator) return
+    if (!workerId || !selectedWorkspaceId) return
     pollRef.current = setInterval(async () => {
       try {
         const t = await getWorkerTranscript(workerId)
@@ -256,7 +252,7 @@ export default function AgentDetailScreen() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [getWorkerTranscript, isOrchestrator, selectedWorkspaceId, workerId])
+  }, [getWorkerTranscript, selectedWorkspaceId, workerId])
 
   const workerRun = useMemo(
     () =>
@@ -462,11 +458,6 @@ export default function AgentDetailScreen() {
                         {line}
                       </Text>
                     ))
-                  ) : isOrchestrator ? (
-                    <Text style={styles.termLine}>
-                      Orchestrator terminal transcript is not exposed by the current mobile worker
-                      transcript API.
-                    </Text>
                   ) : (
                     <Text style={styles.termLine}>No terminal output yet.</Text>
                   )}

@@ -28,6 +28,7 @@ interface RelayRpcHandlerDeps {
     | 'approvalLedger'
     | 'dispatchTask'
     | 'getActiveRunByAgentId'
+    | 'getAgent'
     | 'getPtySnapshotForAgent'
     | 'getWorker'
     | 'listDispatches'
@@ -105,7 +106,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
     }
 
     if (method === 'worker.transcript') {
-      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      requireCapability(deps.store, deviceId, capabilities, 'read_terminal')
       return buildMobileWorkerTranscript(
         deps.store as RuntimeStore,
         readStringParam(params, 'workspace_id'),
