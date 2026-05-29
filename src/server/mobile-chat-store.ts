@@ -61,10 +61,14 @@ export const createMobileChatStore = (db: Database) => {
   )
   const listAll = db.prepare(
     `SELECT id, workspace_id, direction, message_type, content_json, created_at
-     FROM mobile_chat_messages
-     WHERE workspace_id = ?
-     ORDER BY created_at ASC, id ASC
-     LIMIT ?`
+     FROM (
+       SELECT id, workspace_id, direction, message_type, content_json, created_at
+       FROM mobile_chat_messages
+       WHERE workspace_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?
+     )
+     ORDER BY created_at ASC, id ASC`
   )
   const listSince = db.prepare(
     `SELECT id, workspace_id, direction, message_type, content_json, created_at

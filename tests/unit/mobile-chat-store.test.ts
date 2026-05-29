@@ -41,4 +41,26 @@ describe('mobile chat store', () => {
     ])
     expect(store.listChatMessages('ws-1', first.created_at, 10)).toEqual([second, third])
   })
+
+  test('lists the latest page in ascending order when no since cursor is provided', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000)
+    const store = createStore()
+
+    const messages = Array.from({ length: 8 }, (_, index) =>
+      store.insertChatMessage('ws-1', 'outbound', 'orch_reply', `{"text":"message-${index + 1}"}`)
+    )
+
+    expect(store.listChatMessages('ws-1', undefined, 5)).toEqual(messages.slice(3))
+  })
+
+  test('lists messages after the since cursor in ascending order', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1700000000000)
+    const store = createStore()
+
+    const messages = Array.from({ length: 8 }, (_, index) =>
+      store.insertChatMessage('ws-1', 'outbound', 'orch_reply', `{"text":"message-${index + 1}"}`)
+    )
+
+    expect(store.listChatMessages('ws-1', messages[2].created_at, 5)).toEqual(messages.slice(3))
+  })
 })
