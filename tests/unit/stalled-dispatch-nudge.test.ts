@@ -13,6 +13,8 @@ describe('stalled dispatch nudge (Fix B)', () => {
   // 控制哪些 worker「alive」（有 active run）。真实状态机用真 sqlite，alive 是注入的边界。
   let aliveWorkers: Set<string>
   let nudges: Array<{ message: string; workspaceId: string }>
+  let workerNudges: Array<{ agentId: string; message: string; workspaceId: string }>
+  let workerOutput: Map<string, string>
   let clock: number
 
   const seedSubmitted = (toAgentId: string) => {
@@ -43,11 +45,30 @@ describe('stalled dispatch nudge (Fix B)', () => {
       staleMs: STALE_MS,
     })
 
+  const makeIdleNudge = () =>
+    createStalledDispatchNudge({
+      getActiveRunByAgentId: (_workspaceId, agentId) =>
+        aliveWorkers.has(agentId) ? { runId: `run-${agentId}` } : undefined,
+      getWorkerOutputSinceActivity: (_workspaceId: string, agentId: string) =>
+        workerOutput.get(agentId) ?? '',
+      injectNudge: (workspaceId, message) => nudges.push({ message, workspaceId }),
+      injectWorkerNudge: (workspaceId: string, agentId: string, message: string) =>
+        workerNudges.push({ agentId, message, workspaceId }),
+      idleGraceMs: 20_000,
+      listOpenDispatchesForWorkspace: (workspaceId) =>
+        ledger.listOpenDispatchesForWorkspace(workspaceId),
+      listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      now: () => clock,
+      staleMs: STALE_MS,
+    })
+
   beforeEach(() => {
     db = openRuntimeDatabase()
     ledger = createDispatchLedgerStore(db)
     aliveWorkers = new Set()
     nudges = []
+    workerNudges = []
+    workerOutput = new Map()
   })
 
   afterEach(() => {
@@ -136,5 +157,142 @@ describe('stalled dispatch nudge (Fix B)', () => {
     clock += 5 * 60_000
     nudge.tick()
     expect(nudges).toHaveLength(1)
+  })
+
+  test('directly reminds an idle worker with a submitted dispatch after the prompt stays ready for the grace window', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'finished work\n❯ ')
+    clock = dispatch.submittedAt
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    expect(workerNudges).toHaveLength(0)
+
+    clock += 20_000
+    nudge.tick()
+
+    expect(workerNudges).toEqual([
+      expect.objectContaining({
+        agentId: 'worker-1',
+        workspaceId: WS,
+      }),
+    ])
+    expect(workerNudges[0]?.message).toContain(dispatch.id)
+    expect(workerNudges[0]?.message).toContain('team report')
+    expect(workerNudges[0]?.message).toContain('写文字总结不算汇报')
+    expect(nudges).toHaveLength(0)
+  })
+
+  test('does not remind a worker that is still producing non-prompt output', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'running tests\nstill working\n')
+    clock = dispatch.submittedAt
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    clock += 60_000
+    nudge.tick()
+
+    expect(workerNudges).toHaveLength(0)
+    expect(nudges).toHaveLength(0)
+  })
+
+  test('falls back to the orchestrator nudge after two direct idle reminders for the same dispatch', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'ready\n❯ ')
+    clock = dispatch.submittedAt
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+
+    expect(workerNudges).toHaveLength(2)
+    expect(workerNudges.every((entry) => entry.message.includes(dispatch.id))).toBe(true)
+    expect(nudges).toHaveLength(1)
+    expect(nudges[0]?.message).toContain(dispatch.id)
+  })
+
+  test('stops direct reminders once the worker reports the dispatch', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'ready\n❯ ')
+    clock = dispatch.submittedAt
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+    ledger.markReportedByWorker({
+      artifacts: [],
+      dispatchId: dispatch.id,
+      reportText: 'reported after reminder',
+      toAgentId: 'worker-1',
+      workspaceId: WS,
+    })
+    clock += 20_000
+    nudge.tick()
+
+    expect(workerNudges).toHaveLength(1)
+    expect(nudges).toHaveLength(0)
+  })
+
+  test('does not trigger on an old prompt when the new-output slice is empty', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', '')
+    clock = dispatch.submittedAt
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    clock += 60_000
+    nudge.tick()
+
+    expect(workerNudges).toHaveLength(0)
+    expect(nudges).toHaveLength(0)
+  })
+
+  test('uses active-run output baselines so prompts that predate the dispatch do not trigger reminders', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'old session prompt\n❯ ')
+    clock = dispatch.submittedAt
+    const writtenInputs: Array<{ input: string; runId: string }> = []
+    const nudge = createStalledDispatchNudge({
+      getActiveRunByAgentId: (_workspaceId, agentId) =>
+        aliveWorkers.has(agentId)
+          ? { output: workerOutput.get(agentId) ?? '', runId: `run-${agentId}` }
+          : undefined,
+      injectNudge: (workspaceId, message) => nudges.push({ message, workspaceId }),
+      idleGraceMs: 20_000,
+      listOpenDispatchesForWorkspace: (workspaceId) =>
+        ledger.listOpenDispatchesForWorkspace(workspaceId),
+      listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      now: () => clock,
+      staleMs: STALE_MS,
+      writeRunInput: (runId, input) => writtenInputs.push({ input, runId }),
+    })
+
+    nudge.tick()
+    clock += 60_000
+    nudge.tick()
+    expect(writtenInputs).toHaveLength(0)
+
+    workerOutput.set('worker-1', 'old session prompt\n❯ \nactual task finished\n❯ ')
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+
+    expect(writtenInputs).toHaveLength(1)
+    expect(writtenInputs[0]?.runId).toBe('run-worker-1')
+    expect(writtenInputs[0]?.input).toContain(dispatch.id)
+    expect(writtenInputs[0]?.input).toContain('team report')
   })
 })

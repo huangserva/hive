@@ -47,7 +47,7 @@ export const PM_DISPATCH_REMINDER = [
  */
 export const buildWorkerReminderTail = (dispatchId: string) =>
   '<hive-system-reminder>\n' +
-  `You are a Hive Worker. Do not launch nested CLI subagents (Task / Explore / etc.) — finish the task yourself. When the task is done, blocked, or has failed, report with: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies).\n` +
+  `You are a Hive Worker. Do not launch nested CLI subagents (Task / Explore / etc.) — finish the task yourself. When the task is done, blocked, or has failed, report with: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies); writing a text recap is not a report. Before ending every turn, self-check: did you actually run \`team report\`? If not complete, still report partial progress or blocked status.\n` +
   'PM 文档共维护职责：如果任务触碰调研、plan milestone、决策、drift、open questions、ideas 或 baseline，你必须自己同步维护对应 `.hive/` 文档（尤其调研类 `.hive/reports/` + `.hive/research/` 必须并存），不要等 orchestrator 事后补。\n' +
   '</hive-system-reminder>'
 
@@ -80,7 +80,7 @@ const ORCHESTRATOR_RULES = [
 const WORKER_RULES = [
   '你是 Hive 右侧卡片里的真实 CLI worker，不是你所在 CLI 的内置 subagent。',
   '不要调用 team send，也不要再启动你所在 CLI 的内置 subagent / 子代理工具（如 Task / Explore 等）来替你完成派单。',
-  '完成或阻塞已派发任务时必须用 `team report` 汇报给 Orchestrator。',
+  '完成、失败、阻塞或部分完成已派发任务时，必须真正运行 `team report` CLI 汇报给 Orchestrator；写一段文字总结不算汇报。每个 turn 结束前自检：我是否真的运行了 `team report`？如果还没完成，也要 report 部分进展或阻塞。',
   '如果当前没有明确派发任务，只是汇报待命、环境或状态，使用 `team status "<当前状态>"`。',
   '`team --help` 只用于查命令语法，**绝不是** 汇报手段；其输出不会进入 Orchestrator 视野，跑完后仍需正式调用 `team report` / `team status`。',
   '`team report` / `team status` 报错时会同时打印 USAGE，按 USAGE 修正参数后重试；不要把 `team --help` 当成"自我探查"的替身。',

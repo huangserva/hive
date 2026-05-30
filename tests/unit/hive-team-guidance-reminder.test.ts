@@ -67,6 +67,14 @@ describe('buildWorkerReminderTail', () => {
     expect(tail).toContain('team report --stdin --dispatch disp-abc')
   })
 
+  test('makes explicit that a text recap is not a report and workers must self-check before the turn ends', () => {
+    const tail = buildWorkerReminderTail('disp-abc')
+    expect(tail).toContain('writing a text recap is not a report')
+    expect(tail).toContain('Before ending every turn')
+    expect(tail).toContain('actually run')
+    expect(tail).toContain('team report')
+  })
+
   test('different dispatch_ids produce different reminder bodies', () => {
     const left = buildWorkerReminderTail('disp-1')
     const right = buildWorkerReminderTail('disp-2')
@@ -147,5 +155,12 @@ describe('buildProtocolDoc', () => {
     const doc = buildProtocolDoc()
     expect(doc).toContain('手机 App 来源用 `team mobile-reply`')
     expect(doc).toContain('已撤销，请提供替代方案')
+  })
+
+  test('renders the worker rule that plain text summaries do not count as dispatch reports', () => {
+    const doc = buildProtocolDoc()
+    expect(doc).toContain('写一段文字总结不算汇报')
+    expect(doc).toContain('每个 turn 结束前自检')
+    expect(doc).toContain('是否真的运行了 `team report`')
   })
 })
