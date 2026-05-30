@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
-import { useRouter } from 'expo-router'
+import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
@@ -102,6 +102,7 @@ export default function ChatTab() {
   const [attachments, setAttachments] = useState<StagedAttachment[]>([])
   const [headerExpanded, setHeaderExpanded] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const flatListRef = useRef<FlatList<DisplayMessage>>(null)
   const contentFitsViewportRef = useRef(false)
   const contentHeightRef = useRef(0)
@@ -281,6 +282,7 @@ export default function ChatTab() {
       if (fitsViewport) {
         forceScrollToEndRef.current = false
         hasInitialAutoScrolledRef.current = true
+        setShowScrollToBottom(false)
         cancelScheduledScroll()
       }
     },
@@ -291,6 +293,7 @@ export default function ChatTab() {
     (animated: boolean) => {
       if (isDraggingRef.current || contentFitsViewportRef.current) return
       cancelScheduledScroll()
+      setShowScrollToBottom(false)
       scrollFrameRef.current = requestAnimationFrame(() => {
         scrollFrameRef.current = null
         scrollTimeoutRef.current = setTimeout(() => {
@@ -348,6 +351,11 @@ export default function ChatTab() {
       }
       const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height)
       isNearBottomRef.current = distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX
+      const shouldShowScrollToBottom =
+        !contentFitsViewportRef.current && distanceFromBottom > AUTO_SCROLL_THRESHOLD_PX
+      setShowScrollToBottom((current) =>
+        current === shouldShowScrollToBottom ? current : shouldShowScrollToBottom
+      )
     },
     [updateContentFit]
   )
@@ -359,11 +367,34 @@ export default function ChatTab() {
 
   const handleScrollEndDrag = useCallback(() => {
     isDraggingRef.current = false
-  }, [])
+    if (forceScrollToEndRef.current) {
+      maybeAutoScrollToEnd(false)
+    }
+  }, [maybeAutoScrollToEnd])
 
   const handleMomentumScrollEnd = useCallback(() => {
     isDraggingRef.current = false
-  }, [])
+    if (forceScrollToEndRef.current) {
+      maybeAutoScrollToEnd(false)
+    }
+  }, [maybeAutoScrollToEnd])
+
+  const scrollToLatestMessage = useCallback(
+    (animated: boolean) => {
+      forceScrollToEndRef.current = true
+      setShowScrollToBottom(false)
+      maybeAutoScrollToEnd(animated)
+    },
+    [maybeAutoScrollToEnd]
+  )
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!allMessages.length) return undefined
+      scrollToLatestMessage(true)
+      return undefined
+    }, [allMessages.length, scrollToLatestMessage])
+  )
 
   useEffect(() => {
     if (latestMessageToken) {
@@ -558,6 +589,21 @@ export default function ChatTab() {
             />
           )}
         />
+
+        {showScrollToBottom ? (
+          <Pressable
+            accessibilityHint={t('chat.scrollToBottom.hint')}
+            accessibilityLabel={t('chat.scrollToBottom.label')}
+            accessibilityRole="button"
+            onPress={() => scrollToLatestMessage(true)}
+            style={[
+              styles.scrollToBottomButton,
+              { bottom: keyboardInset > 0 ? keyboardInset + 84 : 84 },
+            ]}
+          >
+            <Ionicons color={colors.background} name="arrow-down" size={20} />
+          </Pressable>
+        ) : null}
 
         {attachments.length > 0 && (
           <View style={styles.attachmentPreview}>
@@ -1361,6 +1407,23 @@ const styles = StyleSheet.create({
   keyboardLiftSpacer: { flexShrink: 0 },
   messageList: { flex: 1, minHeight: 0 },
   messages: { gap: spacing.md, paddingBottom: spacing.md },
+  scrollToBottomButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    bottom: 84,
+    elevation: 5,
+    height: 48,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: spacing.md,
+    shadowColor: colors.background,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    width: 48,
+    zIndex: 10,
+  },
   moreButton: { display: 'none' },
   onlineBadge: {
     alignItems: 'center',
