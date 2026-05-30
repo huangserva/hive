@@ -101,11 +101,11 @@ export function IdeasView() {
         </View>
       )}
 
-      {inbox.map((idea, idx) => (
+      {inbox.map((idea) => (
         <View key={idea.id} style={s.ideaCard}>
           <View style={s.ideaHeader}>
             <View style={s.ideaLeft}>
-              <Text style={s.ideaNum}>#{idx + 1}</Text>
+              <Text style={s.ideaNum}>{idea.id}</Text>
               <Ionicons color="#A064FF" name="bulb-outline" size={18} />
             </View>
             {idea.addedAt ? <Text style={s.ideaDate}>{idea.addedAt}</Text> : null}
