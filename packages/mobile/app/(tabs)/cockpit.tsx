@@ -86,7 +86,7 @@ export default function CockpitTab() {
       </View>
 
       {activeTab === 'plan' && <PlanView dashboard={dashboard} />}
-      {activeTab === 'tasks' && <TasksView dashboard={dashboard} />}
+      {activeTab === 'tasks' && <TasksView />}
       {activeTab === 'questions' && <QuestionsView dashboard={dashboard} />}
       {activeTab === 'ideas' && <IdeasView />}
       {activeTab === 'actions' && <ActionsView dashboard={dashboard} />}

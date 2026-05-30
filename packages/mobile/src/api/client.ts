@@ -221,12 +221,45 @@ export interface MobileCockpitAction {
   targetTab: string
 }
 
+// tasks.md sprint 段（与后端 pm-tasks-doc.ts 的 ParsedTasks / PMTaskSection 对齐，
+// cockpit endpoint 直接发 cockpit.tasks，web TasksTab 用同一结构渲染）。
+export interface MobileTaskItem {
+  done: boolean
+  raw: string
+  text: string
+}
+
+export interface MobileTaskSubsection {
+  doneCount: number
+  openCount: number
+  title: string
+  totalCount: number
+  items: MobileTaskItem[]
+}
+
+export interface MobileTaskSection {
+  doneCount: number
+  key: 'in_progress' | 'open' | 'done' | 'other'
+  openCount: number
+  subsections: MobileTaskSubsection[]
+  title: string
+  totalCount: number
+  items: MobileTaskItem[]
+}
+
+export interface MobileCockpitTasks {
+  parseError?: string | null
+  sections: MobileTaskSection[]
+  totalDone: number
+  totalOpen: number
+}
+
 export interface MobileCockpitData {
   aiActions: MobileCockpitAction[]
   ideas: MobileCockpitIdeas
   plan: MobileCockpitPlan
   questions: MobileCockpitQuestions
-  tasks: { sections: unknown[]; totalDone: number; totalOpen: number }
+  tasks: MobileCockpitTasks
 }
 
 export interface MobileRelayConfig {

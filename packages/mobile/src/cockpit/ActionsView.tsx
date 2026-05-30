@@ -70,7 +70,10 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     []
   )
 
-  const actions = (cockpit?.aiActions ?? []).filter((action) => !dismissedIds.has(action.id))
+  // 与 web ActionBar 一致：最多展示前 10 条（slice(0,10)），避免手机上长列表跟 PC 数量不一致。
+  const actions = (cockpit?.aiActions ?? [])
+    .filter((action) => !dismissedIds.has(action.id))
+    .slice(0, 10)
   const actionCount = actions.length
 
   const runAction = async (actionId: string, text: string) => {

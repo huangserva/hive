@@ -1,52 +1,41 @@
-import { Ionicons } from '@expo/vector-icons'
 import { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import type { MobileDashboard, MobileWorkspaceTask } from '../api/client'
+import type {
+  MobileCockpitData,
+  MobileCockpitTasks,
+  MobileTaskItem,
+  MobileTaskSection,
+  MobileTaskSubsection,
+} from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
 
-const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff']
-const avatarColor = (name: string) => {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]
+const completionPercent = (done: number, open: number) => {
+  const total = done + open
+  return total === 0 ? 0 : Math.round((done / total) * 100)
 }
 
-const statusColor = (status: string) => {
-  if (status === 'done') return colors.success
-  if (status === 'cancelled') return colors.muted
-  return colors.accent
-}
-
-const newestFirst = (a: MobileWorkspaceTask, b: MobileWorkspaceTask) =>
-  new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-
-export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
-  const { getWorkspaceTasks, syncRevision } = useMobileRuntime()
+// 内容对齐 web TasksTab：渲染 .hive/tasks.md 的 sprint 段（段标题 + done/total + [x]/[ ] 项 + 子段），
+// 后端 cockpit endpoint 直接发 cockpit.tasks（与 web 同一 ParsedTasks）。不再渲染派单 ledger。
+export function TasksView() {
+  const { getCockpit, syncRevision } = useMobileRuntime()
   const t = useT()
-  const [dispatches, setDispatches] = useState<MobileWorkspaceTask[]>([])
+  const [tasks, setTasks] = useState<MobileCockpitTasks | null>(null)
   const [loading, setLoading] = useState(true)
-  const [showDone, setShowDone] = useState(false)
 
   const load = useCallback(async () => {
     void syncRevision
     setLoading(true)
-    const data = await getWorkspaceTasks()
-    setDispatches([...(data?.dispatches ?? [])].sort(newestFirst))
+    const data: MobileCockpitData | null = await getCockpit()
+    setTasks(data?.tasks ?? null)
     setLoading(false)
-  }, [getWorkspaceTasks, syncRevision])
+  }, [getCockpit, syncRevision])
 
   useEffect(() => {
     void load()
   }, [load])
-
-  const inProgress = dispatches.filter((d) => d.status === 'pending')
-  const done = dispatches.filter((d) => d.status === 'done')
-  const cancelled = dispatches.filter((d) => d.status === 'cancelled')
-  const totalTasks = dashboard.tasks.total_open + dashboard.tasks.total_done
-  const pct = totalTasks > 0 ? Math.round((dashboard.tasks.total_done / totalTasks) * 100) : 0
 
   if (loading) {
     return (
@@ -56,168 +45,160 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
     )
   }
 
+  const sections = tasks?.sections ?? []
+  const totalDone = tasks?.totalDone ?? 0
+  const totalOpen = tasks?.totalOpen ?? 0
+  const overallPct = completionPercent(totalDone, totalOpen)
+
   return (
     <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
-      <View style={s.sprintCard}>
-        <Text style={s.sprintLabel}>{t('cockpit.tasks.sprintNarrative')}</Text>
-        <View style={s.progressRow}>
-          <View style={s.progressTrack}>
-            <View style={[s.progressFill, { width: `${pct}%` }]} />
-          </View>
-          <Text style={s.pctText}>{pct}%</Text>
+      <View style={s.overallCard}>
+        <View style={s.overallHeader}>
+          <Text style={s.overallTitle}>{t('cockpit.tasks.title')}</Text>
+          <Text style={s.overallCount}>
+            {totalDone}/{totalDone + totalOpen}
+          </Text>
         </View>
+        <ProgressBar percent={overallPct} />
       </View>
 
-      <View style={s.timelineHeader}>
-        <Text style={s.timelineTitle}>{t('cockpit.tasks.dispatchTimeline')}</Text>
-        <View style={s.filterBtn}>
-          <Ionicons color={colors.muted} name="filter-outline" size={14} />
-          <Text style={s.filterText}>{t('cockpit.tasks.filter')}</Text>
+      {sections.length === 0 ? (
+        <View style={s.emptyCard}>
+          <Text style={s.emptyText}>{t('cockpit.tasks.empty')}</Text>
         </View>
-      </View>
-
-      {inProgress.length > 0 && (
-        <>
-          <Text style={s.groupLabel}>{t('cockpit.tasks.inProgress')}</Text>
-          {inProgress.map((d) => (
-            <DispatchItem key={d.id} dispatch={d} />
-          ))}
-        </>
-      )}
-
-      {inProgress.length === 0 && (
-        <View style={s.emptyOpenCard}>
-          <Text style={s.emptyOpenText}>{t('cockpit.tasks.noOpen')}</Text>
-        </View>
-      )}
-
-      <Pressable onPress={() => setShowDone(!showDone)} style={s.toggleRow}>
-        <Text style={s.toggleText}>
-          {t(showDone ? 'cockpit.tasks.hideDone' : 'cockpit.tasks.showDone', {
-            count: done.length,
-          })}
-        </Text>
-        <Ionicons color={colors.muted} name={showDone ? 'chevron-up' : 'chevron-down'} size={14} />
-      </Pressable>
-
-      {showDone && done.map((d) => <DispatchItem key={d.id} dispatch={d} />)}
-
-      {cancelled.length > 0 && (
-        <>
-          <Text style={s.groupLabelMuted}>{t('cockpit.tasks.cancelled')}</Text>
-          {cancelled.map((d) => (
-            <DispatchItem key={d.id} dispatch={d} />
-          ))}
-        </>
+      ) : (
+        sections.map((section) => <SectionBlock key={section.title} section={section} t={t} />)
       )}
     </ScrollView>
   )
 }
 
-const DispatchItem = ({ dispatch }: { dispatch: MobileWorkspaceTask }) => {
-  const dotColor = statusColor(dispatch.status)
+const SectionBlock = ({
+  section,
+  t,
+}: {
+  section: MobileTaskSection
+  t: ReturnType<typeof useT>
+}) => {
+  const pct = completionPercent(section.doneCount, section.openCount)
   return (
-    <View style={s.dispatchCard}>
-      <View style={s.dispatchHeader}>
-        <View style={s.dispatchLeft}>
-          <View style={[s.avatar, { borderColor: dotColor }]}>
-            <Text style={[s.avatarText, { color: avatarColor(dispatch.worker_name) }]}>
-              {dispatch.worker_name.slice(0, 1)}
-            </Text>
-          </View>
-          <View style={s.dispatchInfo}>
-            <Text style={s.dispatchTitle}>{dispatch.task_summary}</Text>
-            <Text style={s.dispatchMeta}>
-              {dispatch.worker_name} · {new Date(dispatch.created_at).toLocaleDateString()}
-            </Text>
-          </View>
+    <View style={s.sectionCard}>
+      <View style={s.sectionHeader}>
+        <View style={s.sectionHeadCopy}>
+          <Text style={s.sectionTitle}>{section.title}</Text>
+          <Text style={s.sectionMeta}>
+            {section.openCount} {t('cockpit.tasks.open')} · {section.doneCount}{' '}
+            {t('cockpit.tasks.done')}
+          </Text>
         </View>
-        <View style={[s.statusDot, { backgroundColor: dotColor }]} />
+        <Text style={s.sectionPct}>{pct}%</Text>
+      </View>
+      <ProgressBar percent={pct} />
+      <View style={s.taskLines}>
+        <TaskLines items={section.items} />
+        {section.subsections.map((subsection) => (
+          <SubsectionBlock key={subsection.title} subsection={subsection} />
+        ))}
       </View>
     </View>
   )
 }
 
+const SubsectionBlock = ({ subsection }: { subsection: MobileTaskSubsection }) => (
+  <View style={s.subCard}>
+    <View style={s.subHeader}>
+      <Text style={s.subTitle}>{subsection.title}</Text>
+      <Text style={s.subCount}>
+        {subsection.doneCount}/{subsection.totalCount}
+      </Text>
+    </View>
+    <TaskLines items={subsection.items} />
+  </View>
+)
+
+const TaskLines = ({ items }: { items: MobileTaskItem[] }) =>
+  items.length === 0 ? null : (
+    <View style={s.lineWrap}>
+      {items.map((item) => (
+        <View key={item.raw} style={s.taskLine}>
+          <Text style={[s.checkMark, item.done ? s.checkMarkDone : s.checkMarkOpen]}>
+            {item.done ? '[x]' : '[ ]'}
+          </Text>
+          <Text style={[s.taskText, item.done && s.taskTextDone]}>{item.text}</Text>
+        </View>
+      ))}
+    </View>
+  )
+
+const ProgressBar = ({ percent }: { percent: number }) => (
+  <View style={s.progressTrack}>
+    <View style={[s.progressFill, { width: `${Math.max(0, Math.min(percent, 100))}%` }]} />
+  </View>
+)
+
 const s = StyleSheet.create({
-  avatar: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 999,
-    borderWidth: 2,
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
-  },
-  avatarText: { fontSize: 12, fontWeight: '900' },
+  checkMark: { fontSize: 13, fontWeight: '700' },
+  checkMarkDone: { color: colors.accent },
+  checkMarkOpen: { color: colors.muted },
   container: { gap: spacing.sm, paddingBottom: 40 },
-  dispatchCard: {
-    backgroundColor: colors.card,
-    borderColor: colors.borderMuted,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: 6,
-    padding: spacing.sm,
-  },
-  dispatchHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  dispatchInfo: { flex: 1, gap: 2 },
-  dispatchLeft: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: spacing.sm },
-  dispatchMeta: { color: colors.muted, fontSize: 11 },
-  dispatchTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
-  emptyOpenCard: {
+  emptyCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
     borderRadius: radius.md,
     borderWidth: 1,
     padding: spacing.md,
   },
-  emptyOpenText: { color: colors.muted, fontSize: 13 },
-  filterBtn: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: colors.borderMuted,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  filterText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  groupLabel: { color: colors.accent, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
-  groupLabelMuted: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
+  emptyText: { color: colors.muted, fontSize: 13 },
+  lineWrap: { gap: 6 },
   loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
-  pctText: { color: colors.text, fontSize: 13, fontWeight: '800', width: 36 },
-  progressFill: { backgroundColor: colors.accent, borderRadius: 999, height: '100%' },
-  progressRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
-  progressTrack: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 999,
-    flex: 1,
-    height: 6,
-    overflow: 'hidden',
-  },
-  sprintCard: {
+  overallCard: {
     backgroundColor: colors.cardElevated,
     borderColor: colors.borderMuted,
     borderRadius: radius.lg,
     borderWidth: 1,
-    gap: spacing.xs,
+    gap: spacing.sm,
     padding: spacing.md,
   },
-  sprintLabel: { color: colors.muted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
-  statusDot: { borderRadius: 999, height: 8, width: 8 },
-  timelineHeader: {
-    alignItems: 'center',
+  overallCount: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  overallHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  overallTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  progressFill: { backgroundColor: colors.accent, borderRadius: 999, height: '100%' },
+  progressTrack: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 999,
+    height: 6,
+    overflow: 'hidden',
+  },
+  sectionCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.sm,
+  },
+  sectionHeadCopy: { flex: 1, gap: 2 },
+  sectionHeader: {
+    alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: spacing.xs,
   },
-  timelineTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
-  toggleRow: { alignItems: 'center', flexDirection: 'row', gap: 4 },
-  toggleText: { color: colors.muted, fontSize: 13, fontWeight: '700' },
+  sectionMeta: { color: colors.muted, fontSize: 12 },
+  sectionPct: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  sectionTitle: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  subCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    gap: 6,
+    padding: spacing.sm,
+  },
+  subCount: { color: colors.muted, fontSize: 11, fontWeight: '700' },
+  subHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
+  subTitle: { color: colors.textSoft, fontSize: 13, fontWeight: '700' },
+  taskLine: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.sm },
+  taskLines: { gap: spacing.sm },
+  taskText: { color: colors.textSoft, flex: 1, fontSize: 13, lineHeight: 19 },
+  taskTextDone: { color: colors.muted, textDecorationLine: 'line-through' },
 })

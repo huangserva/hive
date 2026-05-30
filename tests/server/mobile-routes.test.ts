@@ -397,12 +397,29 @@ describe('mobile API', () => {
         ideas: unknown
         plan: { currentPhase: string | null }
         questions: { high: Array<{ id: string; text: string }> }
-        tasks: { totalDone: number; totalOpen: number }
+        tasks: {
+          sections: Array<{
+            title: string
+            items: Array<{ done: boolean; text: string }>
+          }>
+          totalDone: number
+          totalOpen: number
+        }
       }
 
       expect(response.status).toBe(200)
       expect(body.plan.currentPhase).toBe('m19a-lan-dashboard')
       expect(body.tasks).toEqual(expect.objectContaining({ totalDone: 1, totalOpen: 1 }))
+      // mobile TasksView 渲染 tasks.md sprint 段，endpoint 必须把解析后的 sections 发给手机
+      // （与 web TasksTab 同一结构）；只发 totalDone/totalOpen 会让手机 Tasks tab 空白。
+      const inProgress = body.tasks.sections.find((section) => section.title === 'In progress')
+      expect(inProgress?.items).toContainEqual(
+        expect.objectContaining({ done: false, text: 'Build mobile API' })
+      )
+      const doneSection = body.tasks.sections.find((section) => section.title === 'Done')
+      expect(doneSection?.items).toContainEqual(
+        expect.objectContaining({ done: true, text: 'Protocol audit' })
+      )
       expect(body.questions.high).toContainEqual(
         expect.objectContaining({
           id: 'Q1',
