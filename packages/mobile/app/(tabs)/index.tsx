@@ -28,9 +28,9 @@ import {
   normalizeRuntimeHost,
 } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
-import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
+import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
 type OptimisticMessage = {
@@ -84,10 +84,7 @@ export default function ChatTab() {
   const {
     approveRequest,
     chatMessages,
-    connect,
-    connectionMode,
     dashboard,
-    error,
     fetchChatMessages,
     host,
     sendPromptToOrchestrator,
@@ -113,6 +110,7 @@ export default function ChatTab() {
   const forceScrollToEndRef = useRef(false)
   const scrollFrameRef = useRef<number | null>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const forceScrollRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dimensionSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardInsetRef = useRef(0)
@@ -132,7 +130,7 @@ export default function ChatTab() {
       done: dashboard?.tasks.total_done ?? 0,
       inProgress: dashboard?.tasks.total_open ?? 0,
       name: dashboard?.workspace.name ?? 'Workspace',
-      phase: dashboard?.plan.current_phase ?? null,
+      phase: stripInlineMarkdown(dashboard?.plan.current_phase ?? null) || null,
     }),
     [dashboard]
   )
@@ -158,76 +156,6 @@ export default function ChatTab() {
     const latest = allMessages.at(-1)
     return latest ? `${allMessages.length}:${latest.id}:${latest.created_at}` : ''
   }, [allMessages])
-
-  const sendMessage = useCallback(async () => {
-    const body = draft.trim()
-    if (!body && attachments.length === 0) return
-    if (sending) return
-    const msgId = `opt-${Date.now()}`
-    const firstAttachment = attachments[0]
-    const optimisticContent = firstAttachment
-      ? {
-          media: {
-            file_id: `local-${msgId}`,
-            filename: firstAttachment.filename,
-            mime_type: firstAttachment.mimeType,
-            url: firstAttachment.uri,
-          },
-          text: body || `[${firstAttachment.filename}]`,
-        }
-      : { text: body }
-    const msg: OptimisticMessage = {
-      id: msgId,
-      direction: 'inbound',
-      message_type: 'user_text',
-      content_json: JSON.stringify(optimisticContent),
-      created_at: Date.now(),
-      pending: true,
-    }
-    forceScrollToEndRef.current = true
-    isNearBottomRef.current = true
-    setOptimistic((prev) => [...prev, msg])
-    setDraft('')
-    const stagedFiles = [...attachments]
-    setAttachments([])
-    setSending(true)
-    try {
-      const uploadedFiles: string[] = []
-      for (const file of stagedFiles) {
-        await uploadMedia(file.base64, file.filename, file.mimeType)
-        uploadedFiles.push(file.filename)
-      }
-      const parts: string[] = []
-      if (uploadedFiles.length > 0) {
-        parts.push(`[附件: ${uploadedFiles.join(', ')}]`)
-      }
-      if (body) {
-        parts.push(body)
-      }
-      let sent = true
-      if (parts.length > 0) {
-        sent = await sendPromptToOrchestrator(parts.join('\n'))
-      }
-      const queued = !sent && state !== 'connected'
-      setOptimistic((prev) =>
-        prev.map((m) =>
-          m.id === msgId
-            ? queued
-              ? { ...m, pending: false, queued: true }
-              : sent
-                ? { ...m, pending: false }
-                : { ...m, error: true, pending: false }
-            : m
-        )
-      )
-      if (sent) void fetchChatMessages()
-    } catch {
-      setOptimistic((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, error: true, pending: false } : m))
-      )
-    }
-    setSending(false)
-  }, [attachments, draft, fetchChatMessages, sendPromptToOrchestrator, sending, state, uploadMedia])
 
   const pickImages = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -283,6 +211,10 @@ export default function ChatTab() {
     if (scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current)
       scrollTimeoutRef.current = null
+    }
+    if (forceScrollRetryRef.current) {
+      clearTimeout(forceScrollRetryRef.current)
+      forceScrollRetryRef.current = null
     }
   }, [])
 
@@ -340,6 +272,21 @@ export default function ChatTab() {
     [scrollToEnd]
   )
 
+  const scheduleForceScrollRetry = useCallback(
+    (animated: boolean) => {
+      if (forceScrollRetryRef.current) {
+        clearTimeout(forceScrollRetryRef.current)
+      }
+      forceScrollRetryRef.current = setTimeout(() => {
+        forceScrollRetryRef.current = null
+        if (isDraggingRef.current || contentFitsViewportRef.current) return
+        forceScrollToEndRef.current = true
+        maybeAutoScrollToEnd(animated)
+      }, 120)
+    },
+    [maybeAutoScrollToEnd]
+  )
+
   const handleMessageListLayout = useCallback(
     (event: LayoutChangeEvent) => {
       updateContentFit(contentHeightRef.current, event.nativeEvent.layout.height)
@@ -352,8 +299,11 @@ export default function ChatTab() {
       updateContentFit(height, viewportHeightRef.current)
       if (isDraggingRef.current) return
       maybeAutoScrollToEnd(false, 'content')
+      if (forceScrollToEndRef.current) {
+        scheduleForceScrollRetry(false)
+      }
     },
-    [maybeAutoScrollToEnd, updateContentFit]
+    [maybeAutoScrollToEnd, scheduleForceScrollRetry, updateContentFit]
   )
 
   const handleChatScroll = useCallback(
@@ -397,9 +347,93 @@ export default function ChatTab() {
       forceScrollToEndRef.current = true
       setShowScrollToBottom(false)
       maybeAutoScrollToEnd(animated)
+      scheduleForceScrollRetry(animated)
     },
-    [maybeAutoScrollToEnd]
+    [maybeAutoScrollToEnd, scheduleForceScrollRetry]
   )
+
+  const sendMessage = useCallback(async () => {
+    const body = draft.trim()
+    if (!body && attachments.length === 0) return
+    if (sending) return
+    const msgId = `opt-${Date.now()}`
+    const firstAttachment = attachments[0]
+    const optimisticContent = firstAttachment
+      ? {
+          media: {
+            file_id: `local-${msgId}`,
+            filename: firstAttachment.filename,
+            mime_type: firstAttachment.mimeType,
+            url: firstAttachment.uri,
+          },
+          text: body || `[${firstAttachment.filename}]`,
+        }
+      : { text: body }
+    const msg: OptimisticMessage = {
+      id: msgId,
+      direction: 'inbound',
+      message_type: 'user_text',
+      content_json: JSON.stringify(optimisticContent),
+      created_at: Date.now(),
+      pending: true,
+    }
+    forceScrollToEndRef.current = true
+    isNearBottomRef.current = true
+    setOptimistic((prev) => [...prev, msg])
+    scrollToLatestMessage(true)
+    setDraft('')
+    const stagedFiles = [...attachments]
+    setAttachments([])
+    setSending(true)
+    try {
+      const uploadedFiles: string[] = []
+      for (const file of stagedFiles) {
+        await uploadMedia(file.base64, file.filename, file.mimeType)
+        uploadedFiles.push(file.filename)
+      }
+      const parts: string[] = []
+      if (uploadedFiles.length > 0) {
+        parts.push(`[附件: ${uploadedFiles.join(', ')}]`)
+      }
+      if (body) {
+        parts.push(body)
+      }
+      let sent = true
+      if (parts.length > 0) {
+        sent = await sendPromptToOrchestrator(parts.join('\n'))
+      }
+      const queued = !sent && state !== 'connected'
+      setOptimistic((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? queued
+              ? { ...m, pending: false, queued: true }
+              : sent
+                ? { ...m, pending: false }
+                : { ...m, error: true, pending: false }
+            : m
+        )
+      )
+      if (sent) {
+        void fetchChatMessages()
+        scrollToLatestMessage(true)
+      }
+    } catch {
+      setOptimistic((prev) =>
+        prev.map((m) => (m.id === msgId ? { ...m, error: true, pending: false } : m))
+      )
+    }
+    setSending(false)
+  }, [
+    attachments,
+    draft,
+    fetchChatMessages,
+    scrollToLatestMessage,
+    sendPromptToOrchestrator,
+    sending,
+    state,
+    uploadMedia,
+  ])
 
   useFocusEffect(
     useCallback(() => {
@@ -419,6 +453,9 @@ export default function ChatTab() {
     () => () => {
       if (dimensionSettleTimeoutRef.current) {
         clearTimeout(dimensionSettleTimeoutRef.current)
+      }
+      if (forceScrollRetryRef.current) {
+        clearTimeout(forceScrollRetryRef.current)
       }
       if (scrollFrameRef.current !== null) {
         cancelAnimationFrame(scrollFrameRef.current)
@@ -493,20 +530,6 @@ export default function ChatTab() {
       }
     }
   }, [scrollToEnd])
-
-  if (!isConnected) {
-    return (
-      <Screen>
-        <OfflineScreen
-          connectionMode={connectionMode}
-          error={error}
-          host={host}
-          onOpenSettings={() => router.push('/settings')}
-          onRetry={() => void connect(host, token)}
-        />
-      </Screen>
-    )
-  }
 
   return (
     <Screen>

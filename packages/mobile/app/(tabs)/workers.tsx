@@ -16,10 +16,10 @@ import {
 import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { AddWorkerModal } from '../../src/components/AddWorkerModal'
-import { OfflineScreen } from '../../src/components/OfflineScreen'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { useT } from '../../src/i18n'
+import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
 const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39d2c0']
@@ -88,23 +88,9 @@ const STATUS_RANK: Record<string, number> = {
 
 const statusRank = (status: string) => STATUS_RANK[status] ?? 99
 
-const stripInlineMarkdown = (value: string | null | undefined) => {
-  if (!value) return ''
-  return value
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/__(.+?)__/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/_(.+?)_/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
-    .trim()
-}
-
 export default function StatusTab() {
   const {
     connect,
-    connectionMode,
     createWorker,
     dashboard,
     dispatchTask,
@@ -215,13 +201,44 @@ export default function StatusTab() {
   if (!dashboard) {
     return (
       <Screen>
-        <OfflineScreen
-          connectionMode={connectionMode}
-          error={error}
-          host={host}
-          onOpenSettings={() => router.push('/settings')}
-          onRetry={() => void connect(host, token)}
-        />
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          refreshControl={
+            <RefreshControl
+              onRefresh={onRefresh}
+              refreshing={refreshing}
+              tintColor={colors.accent}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.offlineCard}>
+            <View style={styles.offlineHeader}>
+              <View style={styles.offlinePill}>
+                <View style={styles.offlineDot} />
+                <Text style={styles.offlinePillText}>{t('offline.disconnected')}</Text>
+              </View>
+              <Text style={styles.offlineTitle}>{t('offline.subtitle')}</Text>
+            </View>
+            <Text style={styles.offlineBody}>{t('offline.copy')}</Text>
+            <View style={styles.offlineActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void connect(host, token)}
+                style={styles.offlinePrimary}
+              >
+                <Text style={styles.offlinePrimaryText}>{t('offline.retry')}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/settings')}
+                style={styles.offlineSecondary}
+              >
+                <Text style={styles.offlineSecondaryText}>{t('offline.openSettings')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
       </Screen>
     )
   }
@@ -912,6 +929,83 @@ const styles = StyleSheet.create({
   error: {
     color: colors.error,
     fontSize: 14,
+  },
+  offlineActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  offlineBody: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  offlineCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+  },
+  offlineDot: {
+    backgroundColor: colors.error,
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  offlineHeader: {
+    gap: 10,
+  },
+  offlinePill: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  offlinePillText: {
+    color: colors.error,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  offlinePrimary: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.sm,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  offlinePrimaryText: {
+    color: colors.background,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  offlineSecondary: {
+    alignItems: 'center',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  offlineSecondaryText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  offlineTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
   },
   dispatchInput: {
     backgroundColor: colors.cardElevated,
