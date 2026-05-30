@@ -3,6 +3,7 @@ import {
   decodeBase64,
   decodeJson,
   type EncryptedChannel,
+  encodeBase64,
   encodeJson,
   type KeyPair,
 } from '@huangserva/hippoteam-relay-crypto'
@@ -255,19 +256,23 @@ export const createRelayTransport = (
             setStatus('handshaking')
             if (!handshake) throw new Error('Relay handshake missing')
             sendFrame({
-              payload: JSON.stringify({
-                capabilities: config.capabilities,
-                device_id: config.device_id,
-                device_public_key: config.device_keypair.publicKey,
-                // Field names must match the daemon's handshake contract
-                // (relay-connector.ts isHandshakeHello): a nested `handshake`
-                // init-message object and a `token` field. The relay only
-                // forwards opaque payloads, so a mismatch here is invisible
-                // until a real device handshakes over relay (4G), not LAN.
-                handshake: handshake.getInitMessage(),
-                token: config.device_token,
-                type: 'e2ee_hello',
-              }),
+              // Clear handshake frames go on the wire as base64(JSON) to match
+              // the daemon's encodeClearFrame/decodeClearFrame (relay-connector.ts).
+              // Plain JSON.stringify here makes the daemon's decodeBase64 throw, so
+              // it never recognises the hello as a handshake and replies
+              // unknown_session. Field names must also match isHandshakeHello: a
+              // nested `handshake` init-message object and a `token`. Both are
+              // invisible until a real device handshakes over relay (4G), not LAN.
+              payload: encodeBase64(
+                encodeJson({
+                  capabilities: config.capabilities,
+                  device_id: config.device_id,
+                  device_public_key: config.device_keypair.publicKey,
+                  handshake: handshake.getInitMessage(),
+                  token: config.device_token,
+                  type: 'e2ee_hello',
+                })
+              ),
               room: config.room_id,
               type: 'data',
             })
@@ -275,9 +280,10 @@ export const createRelayTransport = (
           }
           if (frame.type !== 'data' || typeof frame.payload !== 'string') return
           if (!channel) {
-            // The daemon replies with the response nested under `handshake`
-            // (relay-connector.ts e2ee_ready), not flattened at the top level.
-            const ready = JSON.parse(frame.payload) as {
+            // The daemon's e2ee_ready is base64(JSON) with the response nested
+            // under `handshake` (relay-connector.ts encodeClearFrame), not plain
+            // JSON flattened at the top level.
+            const ready = decodeJson(decodeBase64(frame.payload)) as {
               handshake?: { ephemeral_public_key?: string }
               type?: string
             }

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import {
   createHandshakeResponder,
+  decodeBase64,
   decodeJson,
+  encodeBase64,
   encodeJson,
   generateKeyPair,
 } from '../../relay-crypto/src/index.js'
@@ -89,16 +91,17 @@ const setupReadyRelay = async () => {
   socket.receive({ type: 'joined' })
   const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
   expect(helloFrame.type).toBe('data')
-  const hello = JSON.parse(helloFrame.payload) as {
+  // Contract guard: the hello goes on the wire as base64(JSON) and must match the
+  // daemon's decodeClearFrame + isHandshakeHello (relay-connector.ts) — a nested
+  // `handshake` init-message object and a `token` field. Plain JSON or wrong field
+  // names only surface on a real relay handshake (4G), never on LAN, so decode it
+  // exactly as the daemon does.
+  const hello = decodeJson(decodeBase64(helloFrame.payload)) as {
     device_id: string
     handshake: { ephemeral_public_key: string }
     token: string
     type: string
   }
-  // Contract guard: the hello MUST match what the daemon's isHandshakeHello
-  // requires (relay-connector.ts) — a nested `handshake` init-message object
-  // and a `token` field. The relay forwards opaque payloads, so a wrong field
-  // name here only surfaces on a real relay handshake (4G), never on LAN.
   expect(hello).toMatchObject({
     device_id: 'device-1',
     token: 'mobile-token',
@@ -107,10 +110,10 @@ const setupReadyRelay = async () => {
   expect(typeof hello.handshake?.ephemeral_public_key).toBe('string')
   const responder = createHandshakeResponder(generateKeyPair())
   // Drive the handshake exactly as relay-connector does: processInit(frame.handshake)
-  // and reply with the response nested under `handshake`.
+  // and reply with base64(JSON) carrying the response nested under `handshake`.
   responder.processInit(hello.handshake)
   socket.receive({
-    payload: JSON.stringify({ type: 'e2ee_ready', handshake: responder.getResponse() }),
+    payload: encodeBase64(encodeJson({ type: 'e2ee_ready', handshake: responder.getResponse() })),
     type: 'data',
   })
   await connectPromise
@@ -225,11 +228,13 @@ describe('relay transport', () => {
     const socket = latestSocket()
     socket.receive({ type: 'joined' })
     const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
-    const hello = JSON.parse(helloFrame.payload) as { handshake: { ephemeral_public_key: string } }
+    const hello = decodeJson(decodeBase64(helloFrame.payload)) as {
+      handshake: { ephemeral_public_key: string }
+    }
     const responder = createHandshakeResponder(generateKeyPair())
     responder.processInit(hello.handshake)
     socket.receive({
-      payload: JSON.stringify({ type: 'e2ee_ready', handshake: responder.getResponse() }),
+      payload: encodeBase64(encodeJson({ type: 'e2ee_ready', handshake: responder.getResponse() })),
       type: 'data',
     })
 
