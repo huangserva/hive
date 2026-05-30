@@ -3,9 +3,10 @@ import type { RuntimeStore } from './runtime-store.js'
 
 export interface FeishuInboundChatEvent {
   chatId: string
+  imagePath?: string | undefined
   messageId?: string | undefined
   senderName: string
-  sourceType?: 'text' | 'voice'
+  sourceType?: 'image' | 'text' | 'voice'
   text: string
   userId: string
 }
@@ -34,7 +35,7 @@ export const formatFeishuInboundPrompt = (event: FeishuInboundChatEvent) =>
   [
     event.sourceType === 'voice'
       ? `[来自飞书语音] chat=${event.chatId}，sender=${event.senderName} user_id=${event.userId}${event.messageId ? ` message_id=${event.messageId}` : ''}`
-      : `[来自飞书 chat=${event.chatId}，sender=${event.senderName} user_id=${event.userId}${event.messageId ? ` message_id=${event.messageId}` : ''}]`,
+      : `[来自飞书 chat=${event.chatId}，sender=${event.senderName} user_id=${event.userId}${event.messageId ? ` message_id=${event.messageId}` : ''}${event.imagePath ? ` image=${event.imagePath}` : ''}]`,
     '请用 team feishu reply 回复（Phase 2 接通后生效）。',
     '---',
     event.text,

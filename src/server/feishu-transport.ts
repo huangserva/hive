@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import type { EventHandles } from '@larksuiteoapi/node-sdk'
 import * as lark from '@larksuiteoapi/node-sdk'
@@ -23,11 +24,14 @@ import {
   getSenderUserId,
   parseApprovalCardAction,
   parseAudioContent,
+  parseFileContent,
+  parseImageContent,
   parseTextContent,
   stripLeadingMentions,
 } from './feishu-transport-utils.js'
 import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
 import type { HiveLogger } from './logger.js'
+import { getUploadsDir } from './mobile-media-store.js'
 import type { RuntimeStore } from './runtime-store.js'
 
 type MessageReceiveEvent = Parameters<NonNullable<EventHandles['im.message.receive_v1']>>[0]
@@ -78,6 +82,8 @@ const FEISHU_REACTION_RECEIVED_EMOJI = 'GLANCE'
 const FEISHU_REACTION_DONE_EMOJI = 'OK'
 const FEISHU_AUDIO_RECOGNIZE_ENGINE = '16k_auto'
 const FEISHU_AUDIO_RECOGNIZE_FORMAT = 'opus'
+const FEISHU_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+const FEISHU_IMAGE_FILE_EXTS = new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp'])
 
 const stringifyFeishuError = (error: unknown) => {
   const response =
@@ -365,6 +371,7 @@ export class FeishuTransport implements FeishuOutboundTransport {
 
     const inboundEvent: FeishuInboundChatEvent = {
       chatId,
+      ...(inboundText.imagePath ? { imagePath: inboundText.imagePath } : {}),
       ...(messageId ? { messageId } : {}),
       senderName: senderUserId,
       sourceType: inboundText.sourceType,
@@ -447,14 +454,130 @@ export class FeishuTransport implements FeishuOutboundTransport {
 
   private async extractInboundText(
     event: MessageReceiveEvent
-  ): Promise<{ sourceType: 'text' | 'voice'; text: string } | null> {
+  ): Promise<{ imagePath?: string; sourceType: 'image' | 'text' | 'voice'; text: string } | null> {
     const { message } = event
     if (message.message_type === 'audio') {
       const transcript = await this.extractAudioTranscript(event)
       return transcript ? { sourceType: 'voice', text: transcript } : null
     }
+    if (message.message_type === 'image') {
+      return this.extractInboundImage(event)
+    }
+    if (message.message_type === 'file') {
+      return this.extractInboundImageFile(event)
+    }
     const text = this.extractText(event)
     return text === null ? null : { sourceType: 'text', text }
+  }
+
+  private async extractInboundImage(
+    event: MessageReceiveEvent
+  ): Promise<{ imagePath?: string; sourceType: 'image'; text: string }> {
+    const { message } = event
+    let image: ReturnType<typeof parseImageContent> | null = null
+    try {
+      image = parseImageContent(message.content)
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound image failed reason=invalid_image_content chat_id=${message.chat_id}`,
+        error
+      )
+      return { sourceType: 'image', text: '收到图片但处理失败：图片消息格式无法解析。' }
+    }
+    if (!image) {
+      this.logger.warn(
+        `feishu inbound image failed reason=missing_image_key chat_id=${message.chat_id}`
+      )
+      return { sourceType: 'image', text: '收到图片但处理失败：缺少图片资源标识。' }
+    }
+
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        params: { type: 'image' },
+        path: {
+          file_key: image.imageKey,
+          message_id: message.message_id,
+        },
+      })
+      const imageBuffer = await readableToBuffer(resource.getReadableStream())
+      const imagePath = await this.saveFeishuImageBuffer(imageBuffer, '.png', message.chat_id)
+      return {
+        imagePath,
+        sourceType: 'image',
+        text: '收到一张来自飞书的图片。请用 Read 工具打开上方 image= 路径查看。',
+      }
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound image failed reason=image_download_failed chat_id=${message.chat_id} image_key=${image.imageKey}`,
+        stringifyFeishuError(error)
+      )
+      return { sourceType: 'image', text: '收到图片但处理失败：无法下载飞书图片资源。' }
+    }
+  }
+
+  private async extractInboundImageFile(
+    event: MessageReceiveEvent
+  ): Promise<{ imagePath?: string; sourceType: 'image'; text: string } | null> {
+    const { message } = event
+    let file: ReturnType<typeof parseFileContent> | null = null
+    try {
+      file = parseFileContent(message.content)
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound file failed reason=invalid_file_content chat_id=${message.chat_id}`,
+        error
+      )
+      return { sourceType: 'image', text: '收到图片但处理失败：文件消息格式无法解析。' }
+    }
+    if (!file) {
+      this.logger.info(`feishu inbound dropped reason=missing_file_key chat_id=${message.chat_id}`)
+      return null
+    }
+
+    const ext = extname(file.fileName).toLowerCase()
+    if (!FEISHU_IMAGE_FILE_EXTS.has(ext)) {
+      this.logger.info(
+        `feishu inbound dropped reason=unsupported_file_type chat_id=${message.chat_id} file_name=${JSON.stringify(file.fileName)}`
+      )
+      return null
+    }
+
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        params: { type: 'file' },
+        path: {
+          file_key: file.fileKey,
+          message_id: message.message_id,
+        },
+      })
+      const imageBuffer = await readableToBuffer(resource.getReadableStream())
+      const imagePath = await this.saveFeishuImageBuffer(imageBuffer, ext, message.chat_id)
+      return {
+        imagePath,
+        sourceType: 'image',
+        text: `收到一张来自飞书文件附件的图片：${file.fileName}。请用 Read 工具打开上方 image= 路径查看。`,
+      }
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound file failed reason=file_download_failed chat_id=${message.chat_id} file_key=${file.fileKey}`,
+        stringifyFeishuError(error)
+      )
+      return { sourceType: 'image', text: '收到图片但处理失败：无法下载飞书文件资源。' }
+    }
+  }
+
+  private async saveFeishuImageBuffer(buffer: Buffer, ext: string, chatId: string) {
+    if (buffer.length > FEISHU_IMAGE_MAX_BYTES) {
+      this.logger.warn(
+        `feishu inbound image failed reason=image_too_large chat_id=${chatId} size=${buffer.length}`
+      )
+      throw new Error('Feishu image exceeds 20MB limit')
+    }
+    const uploadsDir = getUploadsDir()
+    await mkdir(uploadsDir, { recursive: true })
+    const imagePath = join(uploadsDir, `${randomUUID()}${ext}`)
+    await writeFile(imagePath, buffer)
+    return imagePath
   }
 
   private async extractAudioTranscript(event: MessageReceiveEvent): Promise<string | null> {

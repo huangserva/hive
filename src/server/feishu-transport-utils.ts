@@ -37,9 +37,27 @@ interface AudioContent {
   file_key?: unknown
 }
 
+interface ImageContent {
+  image_key?: unknown
+}
+
+interface FileContent {
+  file_key?: unknown
+  file_name?: unknown
+}
+
 export interface ParsedAudioContent {
   duration?: number
   fileKey: string
+}
+
+export interface ParsedImageContent {
+  imageKey: string
+}
+
+export interface ParsedFileContent {
+  fileKey: string
+  fileName: string
 }
 
 const UNKNOWN_SENDER = 'unknown'
@@ -64,6 +82,19 @@ export const parseAudioContent = (content: string): ParsedAudioContent | null =>
     ...(typeof parsed.duration === 'number' ? { duration: parsed.duration } : {}),
     fileKey: parsed.file_key,
   }
+}
+
+export const parseImageContent = (content: string): ParsedImageContent | null => {
+  const parsed = JSON.parse(content) as ImageContent
+  if (typeof parsed.image_key !== 'string' || parsed.image_key.length === 0) return null
+  return { imageKey: parsed.image_key }
+}
+
+export const parseFileContent = (content: string): ParsedFileContent | null => {
+  const parsed = JSON.parse(content) as FileContent
+  if (typeof parsed.file_key !== 'string' || parsed.file_key.length === 0) return null
+  if (typeof parsed.file_name !== 'string' || parsed.file_name.length === 0) return null
+  return { fileKey: parsed.file_key, fileName: parsed.file_name }
 }
 
 export const stripLeadingMentions = (text: string, mentions: readonly FeishuMention[]) => {

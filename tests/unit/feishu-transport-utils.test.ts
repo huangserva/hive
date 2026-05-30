@@ -5,6 +5,8 @@ import {
   type FeishuMessageSender,
   getSenderUserId,
   parseAudioContent,
+  parseFileContent,
+  parseImageContent,
   parseTextContent,
   stripLeadingMentions,
 } from '../../src/server/feishu-transport-utils.js'
@@ -113,6 +115,34 @@ describe('parseAudioContent', () => {
   test('returns null when file_key is missing or invalid', () => {
     expect(parseAudioContent('{"duration":1200}')).toBeNull()
     expect(parseAudioContent('{"file_key":123,"duration":1200}')).toBeNull()
+  })
+})
+
+describe('parseImageContent', () => {
+  test('returns image_key from valid Feishu image JSON', () => {
+    expect(parseImageContent('{"image_key":"img_key_1"}')).toEqual({
+      imageKey: 'img_key_1',
+    })
+  })
+
+  test('returns null when image_key is missing or invalid', () => {
+    expect(parseImageContent('{"file_key":"not_image"}')).toBeNull()
+    expect(parseImageContent('{"image_key":123}')).toBeNull()
+  })
+})
+
+describe('parseFileContent', () => {
+  test('returns file key and name from valid Feishu file JSON', () => {
+    expect(parseFileContent('{"file_key":"file_key_1","file_name":"screenshot.jpg"}')).toEqual({
+      fileKey: 'file_key_1',
+      fileName: 'screenshot.jpg',
+    })
+  })
+
+  test('returns null when file fields are missing or invalid', () => {
+    expect(parseFileContent('{"file_key":"file_key_1"}')).toBeNull()
+    expect(parseFileContent('{"file_name":"screenshot.jpg"}')).toBeNull()
+    expect(parseFileContent('{"file_key":123,"file_name":"screenshot.jpg"}')).toBeNull()
   })
 })
 
