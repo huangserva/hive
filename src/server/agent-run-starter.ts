@@ -29,6 +29,8 @@ interface AgentRunStarterInput {
   getAgent: ((workspaceId: string, agentId: string) => AgentSummary | undefined) | undefined
   logger?: HiveLogger | undefined
   restartPolicy: RestartPolicy
+  // M25 Phase 1：runtime state 目录，用于解析 codex per-agent managed CODEX_HOME。
+  dataDir?: string | undefined
 }
 
 export const createAgentRunStarter = ({
@@ -42,6 +44,7 @@ export const createAgentRunStarter = ({
   getAgent,
   logger,
   restartPolicy,
+  dataDir,
 }: AgentRunStarterInput) => {
   const agentsWithSessionStartReview = new Set<string>()
   const takeSessionStartReviewMessage = (agentId: string) => {
@@ -66,7 +69,8 @@ export const createAgentRunStarter = ({
       config,
       sessionStore,
       getCommandPreset,
-      agent
+      agent,
+      dataDir
     )
     const handledRunExits = new Set<string>()
     const abortedRunIds = new Set<string>()

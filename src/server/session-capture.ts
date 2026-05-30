@@ -65,7 +65,10 @@ export const parseSessionIdCapture = (value: unknown): SessionIdCaptureConfig | 
 export const snapshotSessionIdsForCapture = (
   cwd: string,
   capture: SessionIdCaptureConfig | null | undefined,
-  discriminator?: SessionCaptureSnapshot['discriminator']
+  discriminator?: SessionCaptureSnapshot['discriminator'],
+  // M25 Phase 1：codex 有 managed CODEX_HOME 时，snapshot/capture 必须读 managed sessions 根，
+  // 不再扫全局 `~/.codex`——这是消除多 codex worker session 串线的关键。仅对 codex 生效。
+  codexHomeOverride?: string
 ) => {
   if (!capture) return undefined
   if (capture.source === 'claude_project_jsonl_dir') {
@@ -78,7 +81,7 @@ export const snapshotSessionIdsForCapture = (
     }
   }
   if (capture.source === 'codex_session_jsonl_dir') {
-    const codexHome = getCodexHome(capture.pattern)
+    const codexHome = codexHomeOverride ?? getCodexHome(capture.pattern)
     return {
       env: { CODEX_HOME: codexHome },
       knownSessionIds: snapshotCodexSessionIds(cwd, codexHome),

@@ -197,7 +197,8 @@ export const createRuntimeStoreServices = (
     },
     restartPolicy,
     (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
-    options.logger
+    options.logger,
+    options.dataDir
   )
   const milestoneCompletionTrigger = createMilestoneCompletionTrigger({
     getWorkspacePath: (workspaceId) =>
@@ -208,6 +209,30 @@ export const createRuntimeStoreServices = (
   planFileWatchCallbacks.add((workspaceId, content) => {
     milestoneCompletionTrigger.handlePlanUpdated(workspaceId, content)
   })
+  const writeAgentRunInput = (runId: string, input: string) => {
+    const activeAgent = workspaceStore
+      .listWorkspaces()
+      .flatMap((workspace) =>
+        workspaceStore
+          .getWorkspaceSnapshot(workspace.id)
+          .agents.map((agent) => ({ agent, workspaceId: workspace.id }))
+      )
+      .find(
+        ({ agent, workspaceId }) =>
+          agentRuntime.getActiveRunByAgentId(workspaceId, agent.id)?.runId === runId
+      )
+    const config = activeAgent
+      ? agentRuntime.peekAgentLaunchConfig(activeAgent.workspaceId, activeAgent.agent.id)
+      : undefined
+    if (options.agentManager && config) {
+      createPostStartInputWriter(options.agentManager, config.interactiveCommand ?? config.command)(
+        runId,
+        input
+      )
+      return
+    }
+    options.agentManager?.writeInput(runId, input)
+  }
   const sentinelHeartbeat = options.agentManager
     ? createSentinelHeartbeat({
         getActiveRunByAgentId: (workspaceId, agentId) =>
@@ -219,30 +244,7 @@ export const createRuntimeStoreServices = (
         listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
         listWorkspaces: () => workspaceStore.listWorkspaces(),
         ...(options.logger ? { logger: options.logger } : {}),
-        writeRunInput: (runId, input) => {
-          const activeAgent = workspaceStore
-            .listWorkspaces()
-            .flatMap((workspace) =>
-              workspaceStore
-                .getWorkspaceSnapshot(workspace.id)
-                .agents.map((agent) => ({ agent, workspaceId: workspace.id }))
-            )
-            .find(
-              ({ agent, workspaceId }) =>
-                agentRuntime.getActiveRunByAgentId(workspaceId, agent.id)?.runId === runId
-            )
-          const config = activeAgent
-            ? agentRuntime.peekAgentLaunchConfig(activeAgent.workspaceId, activeAgent.agent.id)
-            : undefined
-          if (options.agentManager && config) {
-            createPostStartInputWriter(
-              options.agentManager,
-              config.interactiveCommand ?? config.command
-            )(runId, input)
-            return
-          }
-          options.agentManager?.writeInput(runId, input)
-        },
+        writeRunInput: writeAgentRunInput,
       })
     : null
   // Fix B 兜底：周期巡检「活着但卡住」的 submitted dispatch，nudge orchestrator 核实/重投。
@@ -255,6 +257,7 @@ export const createRuntimeStoreServices = (
       dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
     listWorkspaces: () => workspaceStore.listWorkspaces(),
     ...(options.logger ? { logger: options.logger } : {}),
+    ...(options.agentManager ? { writeRunInput: writeAgentRunInput } : {}),
   })
   const teamOps = createTeamOperations({
     agentRuntime,

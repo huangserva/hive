@@ -30,7 +30,9 @@ export const createAgentRuntime = (
   onAgentExit: (workspaceId: string, agentId: string) => void,
   restartPolicy: RestartPolicy = createNoopRestartPolicy(),
   getAgent?: (workspaceId: string, agentId: string) => AgentSummary | undefined,
-  logger?: HiveLogger
+  logger?: HiveLogger,
+  // M25 Phase 1：runtime state 目录；codex agent 据此获得物理隔离的 managed CODEX_HOME。
+  dataDir?: string
 ): AgentRuntime => {
   const registry = createLiveRunRegistry()
   const launchCache = createAgentLaunchCache(agentRunStore)
@@ -63,6 +65,7 @@ export const createAgentRuntime = (
     getAgent,
     logger,
     restartPolicy,
+    dataDir,
   })
 
   return {

@@ -10,6 +10,7 @@ import {
 } from './agent-startup-instructions.js'
 import type { CommandPresetRecord } from './command-preset-store.js'
 import { withPresetResumeArgs } from './preset-launch-support.js'
+import { isCodexCaptureSource, materializeCodexManagedProfile } from './provider-runtime-profile.js'
 import {
   captureSessionIdForCapture,
   getSessionCaptureEnvironment,
@@ -93,7 +94,10 @@ export const buildAgentRunBootstrap = (
   config: AgentLaunchConfigInput,
   sessionStore: AgentSessionStorePort,
   getCommandPreset: (id: string) => CommandPresetRecord | undefined,
-  agent?: AgentSummary
+  agent?: AgentSummary,
+  // M25 Phase 1：runtime state 目录。提供时，codex agent 获得物理隔离的 managed CODEX_HOME；
+  // 未提供（如内存 runtime / 老测试）时退回原全局 `~/.codex` 行为，保持向后兼容。
+  dataDir?: string
 ) => {
   const preset = resolveLaunchPreset(config, getCommandPreset)
   const discriminator = createSessionCaptureDiscriminator(workspace, agent)
@@ -106,18 +110,30 @@ export const buildAgentRunBootstrap = (
     () => sessionStore.clearLastSessionId(workspace.id, agentId)
   )
   const startConfigWithThinking = withThinkingLevelArgs(startConfig)
+
+  // codex 且有 dataDir → 物化 per-agent managed home（建目录 + 投影 config/auth），
+  // 拿到要钉死的 CODEX_HOME / CODEX_SESSION_ROOT。fresh-start 与 resume 都要设这套 env：
+  // resume 时 snapshot 为 undefined，若不在此显式注入，codex 会回落全局 home 找不到 managed session。
+  const codexManaged =
+    dataDir && isCodexCaptureSource(startConfigWithThinking.sessionIdCapture?.source)
+      ? materializeCodexManagedProfile(dataDir, agentId)
+      : undefined
+
   const sessionCaptureSnapshot = startConfig.resumedSessionId
     ? undefined
     : snapshotSessionIdsForCapture(
         workspace.path,
         startConfigWithThinking.sessionIdCapture,
-        discriminator
+        discriminator,
+        codexManaged?.home
       )
   return {
     sessionCaptureSnapshot,
     startConfig: startConfigWithThinking,
     startEnv: {
       ...getSessionCaptureEnvironment(sessionCaptureSnapshot),
+      // managed CODEX_HOME / CODEX_SESSION_ROOT 必须压过 snapshot env，且 resume 路径也要带。
+      ...(codexManaged ? codexManaged.env : {}),
       HIVE_PORT: '',
       HIVE_PROJECT_ID: workspace.id,
       HIVE_AGENT_ID: agentId,
