@@ -91,19 +91,26 @@ const setupReadyRelay = async () => {
   expect(helloFrame.type).toBe('data')
   const hello = JSON.parse(helloFrame.payload) as {
     device_id: string
-    ephemeral_public_key: string
-    token_proof: string
+    handshake: { ephemeral_public_key: string }
+    token: string
     type: string
   }
+  // Contract guard: the hello MUST match what the daemon's isHandshakeHello
+  // requires (relay-connector.ts) — a nested `handshake` init-message object
+  // and a `token` field. The relay forwards opaque payloads, so a wrong field
+  // name here only surfaces on a real relay handshake (4G), never on LAN.
   expect(hello).toMatchObject({
     device_id: 'device-1',
-    token_proof: 'mobile-token',
+    token: 'mobile-token',
     type: 'e2ee_hello',
   })
+  expect(typeof hello.handshake?.ephemeral_public_key).toBe('string')
   const responder = createHandshakeResponder(generateKeyPair())
-  responder.processInit({ ephemeral_public_key: hello.ephemeral_public_key })
+  // Drive the handshake exactly as relay-connector does: processInit(frame.handshake)
+  // and reply with the response nested under `handshake`.
+  responder.processInit(hello.handshake)
   socket.receive({
-    payload: JSON.stringify({ type: 'e2ee_ready', ...responder.getResponse() }),
+    payload: JSON.stringify({ type: 'e2ee_ready', handshake: responder.getResponse() }),
     type: 'data',
   })
   await connectPromise
@@ -218,11 +225,11 @@ describe('relay transport', () => {
     const socket = latestSocket()
     socket.receive({ type: 'joined' })
     const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
-    const hello = JSON.parse(helloFrame.payload) as { ephemeral_public_key: string }
+    const hello = JSON.parse(helloFrame.payload) as { handshake: { ephemeral_public_key: string } }
     const responder = createHandshakeResponder(generateKeyPair())
-    responder.processInit({ ephemeral_public_key: hello.ephemeral_public_key })
+    responder.processInit(hello.handshake)
     socket.receive({
-      payload: JSON.stringify({ type: 'e2ee_ready', ...responder.getResponse() }),
+      payload: JSON.stringify({ type: 'e2ee_ready', handshake: responder.getResponse() }),
       type: 'data',
     })
 

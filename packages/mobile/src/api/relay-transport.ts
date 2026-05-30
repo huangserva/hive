@@ -232,8 +232,13 @@ export const createRelayTransport = (
                 capabilities: config.capabilities,
                 device_id: config.device_id,
                 device_public_key: config.device_keypair.publicKey,
-                ephemeral_public_key: handshake.getInitMessage().ephemeral_public_key,
-                token_proof: config.device_token,
+                // Field names must match the daemon's handshake contract
+                // (relay-connector.ts isHandshakeHello): a nested `handshake`
+                // init-message object and a `token` field. The relay only
+                // forwards opaque payloads, so a mismatch here is invisible
+                // until a real device handshakes over relay (4G), not LAN.
+                handshake: handshake.getInitMessage(),
+                token: config.device_token,
                 type: 'e2ee_hello',
               }),
               room: config.room_id,
@@ -243,15 +248,17 @@ export const createRelayTransport = (
           }
           if (frame.type !== 'data' || typeof frame.payload !== 'string') return
           if (!channel) {
+            // The daemon replies with the response nested under `handshake`
+            // (relay-connector.ts e2ee_ready), not flattened at the top level.
             const ready = JSON.parse(frame.payload) as {
-              ephemeral_public_key?: string
+              handshake?: { ephemeral_public_key?: string }
               type?: string
             }
-            if (ready.type !== 'e2ee_ready' || !ready.ephemeral_public_key || !handshake) {
+            if (ready.type !== 'e2ee_ready' || !ready.handshake?.ephemeral_public_key || !handshake) {
               throw new Error('Invalid relay handshake response')
             }
             channel = handshake.processResponse({
-              ephemeral_public_key: ready.ephemeral_public_key,
+              ephemeral_public_key: ready.handshake.ephemeral_public_key,
             })
             handshake = null
             reconnectAttempts = 0
