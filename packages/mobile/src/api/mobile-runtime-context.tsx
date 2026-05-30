@@ -51,7 +51,7 @@ import {
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import { generateDeviceKeypair } from './relay-device-keys'
-import { createRelayTransport } from './relay-transport'
+import { createRelayTransportRegistry } from './relay-transport-registry'
 
 export type { RelayPairingInput }
 
@@ -165,6 +165,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const outboxFlushInFlightRef = useRef(false)
   const outboxLoadedRef = useRef(false)
+  const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const hostRef = useRef(host)
   const tokenRef = useRef(token)
@@ -180,22 +181,20 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   stateRef.current = state
   outboxRef.current = outbox
 
-  const createRelay = useCallback(
-    (nextToken: string, nextRelayConfig = relayConfig) =>
-      nextRelayConfig
-        ? createRelayTransport({ ...nextRelayConfig, device_token: nextToken.trim() })
-        : null,
-    [relayConfig]
+  const getRelayTransport = useCallback(
+    (nextToken: string, nextRelayConfig: StoredRelayConfig | null) =>
+      relayTransportRegistryRef.current.get(nextToken, nextRelayConfig),
+    []
   )
 
   const client = useMemo(
     () =>
       createRuntimeClient({
         host,
-        relayTransport: token.trim() ? createRelay(token) : null,
+        relayTransport: getRelayTransport(token, relayConfig),
         token: token.trim() || null,
       }),
-    [createRelay, host, token]
+    [getRelayTransport, host, relayConfig, token]
   )
 
   const registerPushToken = useCallback(
@@ -340,7 +339,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         const nextClient = createRuntimeClient({
           host: nextHost,
-          relayTransport: createRelay(trimmedToken, nextRelayConfig),
+          relayTransport: getRelayTransport(trimmedToken, nextRelayConfig),
           token: trimmedToken,
         })
         const [nextStatus, nextWorkspaces] = await Promise.all([
@@ -390,8 +389,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     },
     [
       bumpSyncRevision,
-      createRelay,
       flushOutbox,
+      getRelayTransport,
       registerPushToken,
       relayConfig,
       selectedWorkspaceId,
@@ -425,6 +424,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setSelectedWorkspaceId(null)
     setPairedDevice(null)
     setRelayConfig(null)
+    relayTransportRegistryRef.current.close()
     setConnectionMode('disconnected')
     setState('idle')
     setError(null)
@@ -910,6 +910,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(
     () => () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      relayTransportRegistryRef.current.close()
     },
     []
   )
