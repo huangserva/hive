@@ -13,6 +13,9 @@ export interface RelayTransportConfig {
   device_id: string
   device_keypair: { publicKey: string; secretKey: string }
   device_token: string
+  // 进 relay room 的门禁 token，必须与 relay server 的 RELAY_AUTH_TOKEN 一致；
+  // 随 join 帧上送，否则 relay server 直接以 unauthorized 拒绝。
+  relay_auth_token: string
   relay_url: string
   room_id: string
 }
@@ -160,6 +163,7 @@ export const createRelayTransport = (
       nextSocket.onopen = () => {
         try {
           sendFrame({
+            auth_token: config.relay_auth_token,
             connection_id: config.device_id,
             role: 'device',
             room: config.room_id,

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from 'react'
 
 import {
   createMobileToken,
+  getRelayConnectionInfo,
   listMobileDevices,
   type MobileCapability,
   type MobileDevice,
+  type RelayConnectionInfo,
   revokeMobileDevice,
   updateMobileDevice,
 } from '../api.js'
@@ -115,6 +117,7 @@ export const MobileDevicesSection = () => {
   const [createdToken, setCreatedToken] = useState<{ deviceId: string; token: string } | null>(null)
   const [createdTokenQr, setCreatedTokenQr] = useState<string | null>(null)
   const [createdTokenQrError, setCreatedTokenQrError] = useState<string | null>(null)
+  const [relayInfo, setRelayInfo] = useState<RelayConnectionInfo | null>(null)
   const [creating, setCreating] = useState(false)
   const [showGenerator, setShowGenerator] = useState(false)
   const [genName, setGenName] = useState('')
@@ -138,6 +141,22 @@ export const MobileDevicesSection = () => {
     loadDevices()
   }, [loadDevices])
 
+  // relay 配对信息：relay.json 配好（enabled）时 QR 会额外带 relay_url/room/公钥；
+  // 没配则 { enabled:false }，QR 退回纯 host/token（LAN 行为不变）。失败也不阻断 LAN QR。
+  useEffect(() => {
+    let alive = true
+    getRelayConnectionInfo()
+      .then((info) => {
+        if (alive) setRelayInfo(info)
+      })
+      .catch(() => {
+        if (alive) setRelayInfo({ enabled: false })
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const currentLanAddress = runtimeStatus?.lanAddresses[0] ?? null
   const currentMobileHost =
     currentLanAddress && runtimeStatus?.port ? `${currentLanAddress}:${runtimeStatus.port}` : null
@@ -152,7 +171,21 @@ export const MobileDevicesSection = () => {
       return
     }
 
-    QRCode.toDataURL(JSON.stringify({ host: currentMobileHost, token: createdToken.token }), {
+    const qrPayload =
+      relayInfo?.enabled === true
+        ? {
+            capabilities: genCaps,
+            daemon_public_key: relayInfo.daemon_public_key,
+            device_id: createdToken.deviceId,
+            host: currentMobileHost,
+            relay_auth_token: relayInfo.relay_auth_token,
+            relay_url: relayInfo.relay_url,
+            room_id: relayInfo.room_id,
+            token: createdToken.token,
+          }
+        : { host: currentMobileHost, token: createdToken.token }
+
+    QRCode.toDataURL(JSON.stringify(qrPayload), {
       errorCorrectionLevel: 'M',
       margin: 1,
       scale: 6,
@@ -166,7 +199,7 @@ export const MobileDevicesSection = () => {
     return () => {
       alive = false
     }
-  }, [createdToken, currentMobileHost])
+  }, [createdToken, currentMobileHost, relayInfo, genCaps])
 
   const handleGenerate = () => {
     if (!genName.trim()) return

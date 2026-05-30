@@ -131,6 +131,7 @@ export const createApp = ({
   const staticAvailablePromise = canServeStatic(staticDir)
   const dataDir =
     runtimeInfo?.dataDir ?? process.env.HIVE_DATA_DIR ?? join(homedir(), '.config', 'hive')
+  const mobilePushService = createMobilePushService({ store })
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET'
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
@@ -151,6 +152,7 @@ export const createApp = ({
           response,
           store,
           feishuTransport,
+          mobilePushService,
           relayConnector,
           logger,
           runtimeInfo: {
@@ -191,7 +193,6 @@ export const createApp = ({
   })
   createTerminalWebSocketServer(server, store, tasksFileService, logger)
   const mobileDashboardWss = createMobileDashboardWebSocketServer(server, store, logger)
-  const mobilePushService = createMobilePushService({ store })
   const notifyHighAiActions = createHighAiActionNotifier(mobilePushService)
   const disposeMobileCockpitListener = store.registerCockpitListener((workspaceId) => {
     mobileDashboardWss.publish(workspaceId)

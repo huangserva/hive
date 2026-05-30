@@ -90,3 +90,34 @@ export const loadRelayConfig = async (
     runtime_id: requireString(config.runtime_id, 'runtime_id'),
   }
 }
+
+export type RelayConnectionInfo =
+  | { enabled: false }
+  | {
+      enabled: true
+      relay_url: string
+      room_id: string
+      relay_auth_token: string
+      daemon_public_key: string
+    }
+
+/**
+ * 给配对二维码 / Settings 用的 relay 连接信息。relay.json 未配置（或 enabled:false）时
+ * 返回 { enabled:false }，此时 QR 只放 host/token，纯 LAN 行为不变。
+ * 配置时返回 relay_url / room_id / relay_auth_token + daemon 公钥（base64）。
+ * 注意：本 endpoint 受 UI token 保护、只在本机浏览器会话可读，QR 由 user 自己屏幕扫给自己手机，
+ * 与设备 token 同信任级别；只暴露 daemon **公钥**，绝不含 daemon 私钥。
+ */
+export const loadRelayConnectionInfo = async (
+  options: LoadRelayConfigOptions = {}
+): Promise<RelayConnectionInfo> => {
+  const config = await loadRelayConfig(options)
+  if (!config.enabled) return { enabled: false }
+  return {
+    daemon_public_key: encodeBase64(config.daemon_keypair.publicKey),
+    enabled: true,
+    relay_auth_token: config.relay_auth_token,
+    relay_url: config.relay_url,
+    room_id: config.room_id,
+  }
+}

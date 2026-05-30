@@ -922,6 +922,23 @@ export const listMobileDevices = async (): Promise<MobileDevice[]> => {
   return body.tokens
 }
 
+export type RelayConnectionInfo =
+  | { enabled: false }
+  | {
+      daemon_public_key: string
+      enabled: true
+      relay_auth_token: string
+      relay_url: string
+      room_id: string
+    }
+
+export const getRelayConnectionInfo = async (): Promise<RelayConnectionInfo> => {
+  const response = await apiFetch('/api/relay/connection-info')
+  if (!response.ok)
+    throw new Error(await readErrorMessage(response, 'Failed to load relay connection info'))
+  return (await response.json()) as RelayConnectionInfo
+}
+
 export const updateMobileDevice = async (
   deviceId: string,
   patch: { capabilities?: MobileCapability[]; name?: string }

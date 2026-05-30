@@ -11,6 +11,12 @@ import {
 } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { DEMO_CHAT_MESSAGES, DEMO_DASHBOARD } from '../demo-data'
+import type { RelayPairingInput } from '../lib/connection-qr'
+import {
+  buildStoredRelayConfig,
+  parseStoredRelayConfig,
+  type StoredRelayConfig,
+} from '../lib/relay-config-store'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -44,7 +50,10 @@ import {
   serializeOutboxState,
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
-import { createRelayTransport, type RelayTransportConfig } from './relay-transport'
+import { generateDeviceKeypair } from './relay-device-keys'
+import { createRelayTransport } from './relay-transport'
+
+export type { RelayPairingInput }
 
 const RUNTIME_HOST_KEY = 'hippoteam.runtimeHost'
 const MOBILE_TOKEN_KEY = 'hippoteam.mobileToken'
@@ -55,13 +64,12 @@ const OUTBOX_KEY = 'hippoteam.mobileOutbox'
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 type RuntimeClient = ReturnType<typeof createRuntimeClient>
 
-interface StoredRelayConfig extends Omit<RelayTransportConfig, 'device_token'> {}
-
 interface MobileRuntimeContextValue {
   answerQuestion: (questionId: string, answer: string) => Promise<boolean>
   approveRequest: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   chatMessages: ChatMessage[]
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
+  configureRelay: (input: RelayPairingInput) => Promise<void>
   connectionMode: MobileConnectionMode
   createWorker: (input: MobileCreateWorkerInput) => Promise<MobileCreateWorkerResponse | null>
   dashboard: MobileDashboard | null
@@ -133,25 +141,6 @@ const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: st
   workspaces.find((workspace) => workspace.id === preferredWorkspaceId)?.id ??
   workspaces[0]?.id ??
   null
-
-const parseStoredRelayConfig = (value: string | null): StoredRelayConfig | null => {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(value) as StoredRelayConfig
-    if (
-      typeof parsed.relay_url !== 'string' ||
-      typeof parsed.room_id !== 'string' ||
-      typeof parsed.daemon_public_key !== 'string' ||
-      typeof parsed.device_id !== 'string' ||
-      !Array.isArray(parsed.capabilities)
-    ) {
-      return null
-    }
-    return parsed
-  } catch {
-    return null
-  }
-}
 
 export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [host, setHost] = useState(DEFAULT_RUNTIME_HOST)
@@ -444,6 +433,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       secureDelete(WORKSPACE_ID_KEY),
       secureDelete(RELAY_CONFIG_KEY),
     ])
+  }, [])
+
+  // 把扫码 / 手动录入的 relay 配置 + 本机生成的 device keypair 持久化到 SecureStore，
+  // 并更新 relayConfig state。relayConfig 一变，下面的 client useMemo 会重建带 relayTransport 的
+  // client，LAN 连不上时即可回落 relay。
+  const configureRelay = useCallback(async (input: RelayPairingInput) => {
+    const next = buildStoredRelayConfig(input, generateDeviceKeypair())
+    relayConfigRef.current = next
+    setRelayConfig(next)
+    await secureSet(RELAY_CONFIG_KEY, JSON.stringify(next))
   }, [])
 
   const stopWorker = useCallback(
@@ -976,6 +975,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       answerQuestion,
       approveRequest,
       chatMessages: demoMode ? DEMO_CHAT_MESSAGES : chatMessages,
+      configureRelay,
       connect,
       connectionMode: demoMode ? 'lan' : connectionMode,
       createWorker,
@@ -1017,6 +1017,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       answerQuestion,
       approveRequest,
       chatMessages,
+      configureRelay,
       connect,
       connectionMode,
       createWorker,

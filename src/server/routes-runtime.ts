@@ -1,6 +1,7 @@
 import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 
+import { loadRelayConnectionInfo } from './relay-config.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { ConfigureAgentLaunchBody, RouteDefinition } from './route-types.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
@@ -192,5 +193,11 @@ export const runtimeRoutes: RouteDefinition[] = [
         room_id: null,
       }
     )
+  }),
+  // 给配对二维码用的 relay 公开连接信息（relay_url / room_id / daemon 公钥）。
+  // relay.json 未配置则 { enabled:false }，QR 退回纯 host/token。只暴露公钥，不含 auth token / 私钥。
+  route('GET', '/api/relay/connection-info', async ({ request, response, runtimeInfo, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    sendJson(response, 200, await loadRelayConnectionInfo({ dataDir: runtimeInfo.dataDir }))
   }),
 ]

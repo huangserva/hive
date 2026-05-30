@@ -59,6 +59,7 @@ const buildConfig = (): RelayTransportConfig => {
       secretKey: toBase64(device.secretKey),
     },
     device_token: 'mobile-token',
+    relay_auth_token: 'relay-secret',
     relay_url: 'wss://relay.example.test/v1',
     room_id: 'room-1',
   }
@@ -79,7 +80,12 @@ const setupReadyRelay = async () => {
   const connectPromise = transport.connect()
   await vi.advanceTimersByTimeAsync(0)
   const socket = latestSocket()
-  expect(socket.sent[0]).toMatchObject({ role: 'device', room: 'room-1', type: 'join' })
+  expect(socket.sent[0]).toMatchObject({
+    auth_token: 'relay-secret',
+    role: 'device',
+    room: 'room-1',
+    type: 'join',
+  })
   socket.receive({ type: 'joined' })
   const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
   expect(helloFrame.type).toBe('data')

@@ -17,6 +17,11 @@ import {
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { type TFunction, useLanguage, useT } from '../../src/i18n'
+import {
+  ALL_MOBILE_CAPABILITIES,
+  parseConnectionQr,
+  type RelayPairingInput,
+} from '../../src/lib/connection-qr'
 import { colors, radius, spacing } from '../../src/theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -25,6 +30,7 @@ export default function SettingsTab() {
   const { language, setLanguage } = useLanguage()
   const t = useT()
   const {
+    configureRelay,
     connectionMode,
     connect,
     demoMode,
@@ -48,6 +54,12 @@ export default function SettingsTab() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanLocked, setScanLocked] = useState(false)
+  const [relayFormOpen, setRelayFormOpen] = useState(false)
+  const [relayUrl, setRelayUrl] = useState('')
+  const [relayRoom, setRelayRoom] = useState('')
+  const [relayAuthToken, setRelayAuthToken] = useState('')
+  const [relayDaemonKey, setRelayDaemonKey] = useState('')
+  const [relayDeviceId, setRelayDeviceId] = useState('')
 
   useEffect(() => {
     setDraftHost(host)
@@ -97,10 +109,36 @@ export default function SettingsTab() {
     setDraftToken(payload.token)
     setHost(payload.host)
     setToken(payload.token)
+    // QR 若带 relay 段，先落 relay 配置（含本机生成的 device keypair），LAN 失败时才能回落 relay。
+    if (payload.relay) await configureRelay(payload.relay)
     const connected = await connect(payload.host, payload.token)
     if (connected) {
       Alert.alert(t('common.connected'), t('settings.connectedFromQr'))
     }
+  }
+
+  const onSaveManualRelay = async () => {
+    const input: RelayPairingInput = {
+      capabilities: ALL_MOBILE_CAPABILITIES,
+      daemon_public_key: relayDaemonKey.trim(),
+      device_id: relayDeviceId.trim(),
+      relay_auth_token: relayAuthToken.trim(),
+      relay_url: relayUrl.trim(),
+      room_id: relayRoom.trim(),
+    }
+    if (
+      !input.relay_url ||
+      !input.room_id ||
+      !input.relay_auth_token ||
+      !input.daemon_public_key ||
+      !input.device_id
+    ) {
+      Alert.alert(t('settings.relayManualIncompleteTitle'), t('settings.relayManualIncompleteBody'))
+      return
+    }
+    await configureRelay(input)
+    setRelayFormOpen(false)
+    Alert.alert(t('settings.relayManualSavedTitle'), t('settings.relayManualSavedBody'))
   }
 
   const onDisconnect = () => {
@@ -345,6 +383,54 @@ export default function SettingsTab() {
           <Text style={styles.runtimeVersion}>{appBuildLabel}</Text>
         </View>
 
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setRelayFormOpen((open) => !open)}
+          style={styles.relayToggle}
+        >
+          <Ionicons color={colors.accent} name="globe-outline" size={18} />
+          <Text style={styles.relayToggleText}>{t('settings.relayManual')}</Text>
+          <Ionicons
+            color={colors.muted}
+            name={relayFormOpen ? 'chevron-up' : 'chevron-down'}
+            size={18}
+          />
+        </Pressable>
+        {relayFormOpen ? (
+          <View style={styles.relayForm}>
+            <Text style={styles.formHint}>{t('settings.relayManualHint')}</Text>
+            {(
+              [
+                ['settings.relayUrl', relayUrl, setRelayUrl, 'wss://relay.example.com'],
+                ['settings.relayRoom', relayRoom, setRelayRoom, 'room-...'],
+                ['settings.relayAuthToken', relayAuthToken, setRelayAuthToken, 'auth token'],
+                ['settings.relayDaemonKey', relayDaemonKey, setRelayDaemonKey, 'daemon public key'],
+                ['settings.relayDeviceId', relayDeviceId, setRelayDeviceId, 'device id'],
+              ] as const
+            ).map(([labelKey, value, setter, placeholder]) => (
+              <View key={labelKey} style={styles.inputShell}>
+                <TextInput
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  onChangeText={setter}
+                  placeholder={placeholder}
+                  placeholderTextColor={colors.muted2}
+                  style={styles.input}
+                  value={value}
+                />
+              </View>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void onSaveManualRelay()}
+              style={styles.primaryButton}
+            >
+              <Ionicons color={colors.background} name="save-outline" size={19} />
+              <Text style={styles.primaryButtonText}>{t('settings.relayManualSave')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {!demoMode ? (
           <Pressable accessibilityRole="button" onPress={enableDemoMode} style={styles.demoButton}>
             <Ionicons color={colors.accent} name="eye-outline" size={18} />
@@ -446,32 +532,6 @@ const formatCapability = (capability: string) =>
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(' ')
-
-const parseConnectionQr = (raw: string): { host: string; token: string } | null => {
-  const fromObject = (value: unknown) => {
-    if (!value || typeof value !== 'object') return null
-    const candidate = value as { host?: unknown; token?: unknown }
-    if (typeof candidate.host !== 'string' || typeof candidate.token !== 'string') return null
-    const host = candidate.host.trim()
-    const token = candidate.token.trim()
-    return host && token ? { host, token } : null
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    const payload = fromObject(parsed)
-    if (payload) return payload
-  } catch {}
-
-  try {
-    const url = new URL(raw)
-    const host = url.searchParams.get('host')?.trim()
-    const token = url.searchParams.get('token')?.trim()
-    return host && token ? { host, token } : null
-  } catch {
-    return null
-  }
-}
 
 const Capability = ({ icon, label }: { icon?: IconName; label: string }) => (
   <View style={styles.capabilityChip}>
@@ -703,6 +763,21 @@ const styles = StyleSheet.create({
   fieldSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 18 },
   fieldTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   formHint: { color: colors.muted, fontSize: 13, lineHeight: 18 },
+  relayToggle: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  relayToggleText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  relayForm: {
+    gap: spacing.sm,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
