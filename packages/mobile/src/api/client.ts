@@ -17,6 +17,11 @@ type FetchLike = typeof fetch
 interface RuntimeClientOptions {
   fetchImpl?: FetchLike
   host?: string
+  // LAN fetch 超时（毫秒）。4G 下连不通的 LAN 会让裸 fetch 挂几十秒，
+  // catch 永不触发 → relay 回落永不发生。超时即 abort → 抛错 → 进 catch 回落 relay。
+  lanTimeoutMs?: number
+  // relayTransport.connect() 超时（毫秒），防止 WebSocket 既不 open 也不 error 时静默挂死。
+  relayConnectTimeoutMs?: number
   relayTransport?: RelayTransport | null
   token?: string | null
 }
@@ -238,6 +243,8 @@ export const normalizeRuntimeHost = (host: string) => {
 export const createRuntimeClient = ({
   fetchImpl = fetch,
   host = DEFAULT_RUNTIME_HOST,
+  lanTimeoutMs = 4000,
+  relayConnectTimeoutMs = 8000,
   relayTransport = null,
   token = null,
 }: RuntimeClientOptions = {}) => {
@@ -267,11 +274,21 @@ export const createRuntimeClient = ({
     init: { body?: unknown; method?: 'GET' | 'POST' | 'PATCH' | 'DELETE' } = {}
   ): Promise<T> => {
     const hasBody = init.body !== undefined
-    const response = await fetchImpl(`${baseUrl}${path}`, {
-      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-      headers: jsonHeaders(auth, hasBody),
-      ...(init.method === undefined ? {} : { method: init.method }),
-    })
+    // 给 LAN fetch 套 AbortController 超时：连不通的 LAN（如 4G 下的 192.168.x）
+    // 不会再无限 hang，超时即 abort → 抛 AbortError → readMobileJson 的 catch 回落 relay。
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), lanTimeoutMs)
+    let response: Awaited<ReturnType<FetchLike>>
+    try {
+      response = await fetchImpl(`${baseUrl}${path}`, {
+        ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+        headers: jsonHeaders(auth, hasBody),
+        signal: controller.signal,
+        ...(init.method === undefined ? {} : { method: init.method }),
+      })
+    } finally {
+      clearTimeout(timer)
+    }
     if (!response.ok) {
       let serverMessage = ''
       try {
@@ -283,9 +300,23 @@ export const createRuntimeClient = ({
     return (await response.json()) as T
   }
 
+  const connectRelay = async (transport: RelayTransport): Promise<void> => {
+    // connect() 失败必须抛错（别静默挂死）：套一层超时，WebSocket 若既不 open
+    // 也不 error，到点 reject，relayCall 抛错上抛 → 上层进 error 态而非永久卡住。
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Relay connect timed out')), relayConnectTimeoutMs)
+    })
+    try {
+      await Promise.race([transport.connect(), timeout])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
   const relayCall = async <T>(method: string, params?: unknown): Promise<T> => {
     if (!relayTransport) throw new Error('Relay transport is not configured')
-    if (relayTransport.status() !== 'ready') await relayTransport.connect()
+    if (relayTransport.status() !== 'ready') await connectRelay(relayTransport)
     setMode('relay')
     return params === undefined
       ? relayTransport.call<T>(method)
