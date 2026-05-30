@@ -62,7 +62,7 @@ describe('post-start input writer', () => {
 
   test('waits longer before submitting large pasted prompts after acknowledgement', () => {
     vi.useFakeTimers()
-    let output = 'Welcome back\n❯ '
+    let output = 'Welcome back\n'
     const manager = {
       getRun: vi.fn(() => ({ output })),
       writeInput: vi.fn(),
@@ -71,6 +71,8 @@ describe('post-start input writer', () => {
     const write = createPostStartInputWriter(manager as never, 'claude')
     write('run-1', 'payload\n'.repeat(600))
 
+    output = 'Welcome back\n❯ '
+    vi.advanceTimersByTime(50)
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
     output += '[Pasted text #1 +600 lines]\n'
     vi.advanceTimersByTime(200)
@@ -83,13 +85,18 @@ describe('post-start input writer', () => {
 
   test('submits Claude pasted input after timeout when no paste acknowledgement is emitted', () => {
     vi.useFakeTimers()
+    let output = 'Welcome back\n'
     const manager = {
-      getRun: vi.fn(() => ({ output: 'Welcome back\n❯ ' })),
+      getRun: vi.fn(() => ({ output })),
       writeInput: vi.fn(),
     }
 
     const write = createPostStartInputWriter(manager as never, 'claude')
     write('run-1', 'payload')
+
+    output = 'Welcome back\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(2999)
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
@@ -154,7 +161,7 @@ describe('post-start input writer', () => {
 
   test('does not submit delayed Enter after the PTY exits', () => {
     vi.useFakeTimers()
-    let output = 'Welcome back\n❯ '
+    let output = 'Welcome back\n'
     let status = 'running'
     const manager = {
       getRun: vi.fn(() => ({ output, status })),
@@ -164,6 +171,8 @@ describe('post-start input writer', () => {
     const write = createPostStartInputWriter(manager as never, 'claude')
     write('run-1', 'payload')
 
+    output = 'Welcome back\n❯ '
+    vi.advanceTimersByTime(50)
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
     status = 'exited'
     output += '[Pasted text #1 +1 lines]\n'
@@ -189,6 +198,115 @@ describe('post-start input writer', () => {
     vi.advanceTimersByTime(50)
 
     expect(manager.writeInput).not.toHaveBeenCalled()
+  })
+
+  // 根因 A 回归：resume 后 run.output 仍含 restart 前的旧提示符，注入不能被它误触发。
+  test('after resume, ignores the stale prompt already in output and waits for a fresh one', () => {
+    vi.useFakeTimers()
+    // 模拟 resume：注入开始时 output 里已经有 restart 前留下的旧 ❯。
+    let output = 'Welcome back after restart\n❯ '
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'claude')
+    write('run-1', 'payload')
+
+    // 旧提示符不算就绪：CLI 还没真正接受输入，绝不能在这上面粘贴。
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(2000)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    // CLI 真正就绪后追加一个【新】提示符，这时才注入。
+    output += 'thinking...\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
+  })
+
+  test('fresh start with no prior prompt still injects when the prompt first appears', () => {
+    vi.useFakeTimers()
+    let output = ''
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'claude')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output = 'booting\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
+  })
+
+  test('claude timeout fallback still fires when no fresh prompt appears after resume', () => {
+    vi.useFakeTimers()
+    // 旧提示符在 baseline 之前，新提示符始终不来：到 8s 仍按 timeout 兜底注入（claude 允许）。
+    const manager = {
+      getRun: vi.fn(() => ({ output: 'Welcome back after restart\n❯ ', status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'claude')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(7999)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
+  })
+
+  test('gemini recognizes its prompt marker only in output after the injection baseline', () => {
+    vi.useFakeTimers()
+    // resume：旧的 "Type your message" 已在 output 里；gemini 不做 timeout 兜底，绝不能误触发。
+    let output = 'Gemini CLI v0.35.3\n* Type your message or @path/to/file'
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'gemini')
+    write('run-1', 'payload')
+
+    // 仍在轮询窗口内（< 8s readiness timeout，gemini 超时后会停轮询）：
+    // 旧 marker 在 baseline 之前，slice 后看不到，故不注入。
+    vi.advanceTimersByTime(5000)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output += '\nrunning task\n* Type your message or @path/to/file'
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', 'payload')
+    expect(manager.writeInput.mock.calls[0]?.[1]).not.toContain('[200~')
+  })
+
+  test('opencode recognizes its prompt marker only in output after the injection baseline', () => {
+    vi.useFakeTimers()
+    let output = 'OpenCode\nAsk anything...'
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'opencode')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output += '\ndone\nAsk anything...'
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
   })
 
   test('writes non-interactive commands immediately', () => {

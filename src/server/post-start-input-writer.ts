@@ -128,6 +128,11 @@ export const createPostStartInputWriter = (
   return (runId, text) => {
     const startedAt = Date.now()
     let isInitialAttempt = true
+    // 注入起点 baseline：第一次拿到可写 output 时捕获一次，之后不刷新。
+    // resume 后 run.output 仍含 restart 前的旧提示符（❯/›），若检测累积的全量输出会被旧提示符
+    // 立刻误触发——在 CLI 还没真正就绪时就粘贴 + 回车，注入落空，派单卡在 submitted。
+    // 故提示符就绪只检测 baseline 之后的【新输出】，让 resume 后等真正的新提示符再注入。
+    let readinessBaseline: number | null = null
     const tryWrite = () => {
       let output: string | null
       try {
@@ -137,9 +142,10 @@ export const createPostStartInputWriter = (
         return
       }
       if (output === null) return
+      if (readinessBaseline === null) readinessBaseline = output.length
       const timedOut = Date.now() - startedAt >= READY_TIMEOUT_MS
       if (
-        hasInteractivePromptReady(output, command) ||
+        hasInteractivePromptReady(output.slice(readinessBaseline), command) ||
         (canTimeoutBeforePromptReady(command) && timedOut)
       ) {
         const baselineLength = output.length
