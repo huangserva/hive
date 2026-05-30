@@ -136,22 +136,69 @@ describe('relay server', () => {
     expect(server.roomCount()).toBe(0)
   })
 
-  it('rejects a second daemon in the same room', async () => {
+  it('replaces a stale device with a newer connection and rewires it to the daemon', async () => {
+    const server = await startRelay()
+    const daemon = await connect(server)
+    const firstDevice = await connect(server)
+
+    await joinRoom(daemon, 'room-replace', 'daemon')
+    await joinRoom(firstDevice, 'room-replace', 'device')
+
+    // The first device socket goes stale (e.g. the mobile app was reopened and the
+    // old socket lingers as a zombie behind a proxy). A fresh device socket joins
+    // the same room and must take over the slot instead of being rejected.
+    const secondDevice = await connect(server)
+    sendJson(secondDevice, {
+      type: 'join',
+      room: 'room-replace',
+      role: 'device',
+      auth_token: 'secret',
+    })
+
+    // Old device is evicted...
+    await expect(nextMessage(firstDevice)).resolves.toMatchObject({
+      type: 'error',
+      code: 'replaced',
+    })
+    // ...and the new device is admitted.
+    await expect(nextMessage(secondDevice)).resolves.toMatchObject({
+      type: 'joined',
+      room: 'room-replace',
+      role: 'device',
+    })
+
+    // The new device is wired to the daemon end-to-end: its data forwards through.
+    sendJson(secondDevice, { type: 'data', payload: 'cmVrZXk=' })
+    await expect(nextMessage(daemon)).resolves.toEqual({ type: 'data', payload: 'cmVrZXk=' })
+  })
+
+  it('replaces a stale daemon with a newer connection (runtime restart)', async () => {
     const server = await startRelay()
     const firstDaemon = await connect(server)
     const secondDaemon = await connect(server)
 
-    await joinRoom(firstDaemon, 'room-duplicate', 'daemon')
+    await joinRoom(firstDaemon, 'room-daemon-restart', 'daemon')
     sendJson(secondDaemon, {
       type: 'join',
-      room: 'room-duplicate',
+      room: 'room-daemon-restart',
       role: 'daemon',
       auth_token: 'secret',
     })
 
-    await expect(nextMessage(secondDaemon)).resolves.toMatchObject({
+    await expect(nextMessage(firstDaemon)).resolves.toMatchObject({
       type: 'error',
-      code: 'role_occupied',
+      code: 'replaced',
     })
+    await expect(nextMessage(secondDaemon)).resolves.toMatchObject({
+      type: 'joined',
+      room: 'room-daemon-restart',
+      role: 'daemon',
+    })
+
+    // A device joining now reaches the NEW daemon, not the evicted one.
+    const device = await connect(server)
+    await joinRoom(device, 'room-daemon-restart', 'device')
+    sendJson(device, { type: 'data', payload: 'aGVsbG8=' })
+    await expect(nextMessage(secondDaemon)).resolves.toEqual({ type: 'data', payload: 'aGVsbG8=' })
   })
 })

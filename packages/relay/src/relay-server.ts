@@ -149,9 +149,23 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
     const room = rooms.get(frame.room) ?? { lastActivityAt: Date.now() }
     rooms.set(frame.room, room)
 
-    if (getPeerSlot(room, frame.role)) {
-      reject(ws, 'role_occupied', `Room already has a ${frame.role}`)
-      return
+    const existing = getPeerSlot(room, frame.role)
+    if (existing) {
+      // A newer connection for the same role replaces the stale one. Mobile apps
+      // (reopen / foreground / network change) and the runtime (4010 restart) open
+      // a fresh socket while the previous one can linger as a zombie behind a proxy
+      // and would otherwise hold the slot forever — rejecting every reconnect with
+      // role_occupied. Newest connection wins; the daemon re-keys its e2ee session
+      // by device_id when the new device sends its hello. We delete the old peer
+      // from `peers` BEFORE closing it so the async close handler's removePeer is a
+      // no-op and can't wipe the slot we're about to hand to the new connection.
+      peers.delete(existing.ws)
+      sendJson(existing.ws, {
+        type: 'error',
+        code: 'replaced',
+        message: `Replaced by a newer ${frame.role} connection`,
+      })
+      existing.ws.close(1008, 'replaced')
     }
 
     const peer: JoinedPeer = { ws, room: frame.room, role: frame.role }

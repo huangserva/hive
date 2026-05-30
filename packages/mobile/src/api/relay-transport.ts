@@ -81,8 +81,10 @@ export const createRelayTransport = (
   >()
   let channel: EncryptedChannel | null = null
   let closedByUser = false
+  let connectPromise: Promise<void> | null = null
   let heartbeat: ReturnType<typeof setInterval> | null = null
   let reconnectAttempts = 0
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let rpcCounter = 0
   let socket: RelayWebSocket | null = null
   let state: RelayTransportStatus = 'disconnected'
@@ -120,15 +122,30 @@ export const createRelayTransport = (
     }, 20_000)
   }
 
+  const detachSocketHandlers = (target: RelayWebSocket) => {
+    target.onclose = null
+    target.onerror = null
+    target.onmessage = null
+    target.onopen = null
+  }
+
+  const clearReconnectTimer = () => {
+    if (!reconnectTimer) return
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+
   const scheduleReconnect = () => {
     if (closedByUser) return
+    if (reconnectTimer) return
     stopHeartbeat()
     channel = null
     const delay = Math.min(reconnectBaseMs * 2 ** reconnectAttempts, reconnectMaxMs)
     reconnectAttempts += 1
-    setTimeout(() => {
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
       if (closedByUser) return
-      void connectInternal().catch(() => {
+      void connect().catch(() => {
         setStatus('error')
         scheduleReconnect()
       })
@@ -154,11 +171,26 @@ export const createRelayTransport = (
   const connectInternal = () =>
     new Promise<void>((resolve, reject) => {
       setStatus('connecting')
+      stopHeartbeat()
+      channel = null
+      if (socket) {
+        const previousSocket = socket
+        detachSocketHandlers(previousSocket)
+        previousSocket.close(1000, 'replaced')
+        socket = null
+      }
       const nextSocket = new WebSocketCtor(config.relay_url)
       socket = nextSocket
+      let settled = false
       let handshake: ReturnType<typeof createHandshakeInitiator> | null = createHandshakeInitiator(
         decodeKeyPair(config.device_keypair)
       )
+
+      const failConnect = (error: Error) => {
+        if (settled) return
+        settled = true
+        reject(error)
+      }
 
       nextSocket.onopen = () => {
         try {
@@ -171,18 +203,21 @@ export const createRelayTransport = (
             version: 1,
           })
         } catch (error) {
-          reject(error instanceof Error ? error : new Error(String(error)))
+          failConnect(error instanceof Error ? error : new Error(String(error)))
         }
       }
 
       nextSocket.onerror = (event: unknown) => {
         setStatus('error')
-        reject(event instanceof Error ? event : new Error('Relay socket error'))
+        failConnect(event instanceof Error ? event : new Error('Relay socket error'))
       }
 
       nextSocket.onclose = () => {
         for (const request of pending.values()) request.reject(new Error('Relay socket closed'))
         pending.clear()
+        if (socket === nextSocket) socket = null
+        setStatus('disconnected')
+        failConnect(new Error('Relay socket closed'))
         if (!closedByUser) scheduleReconnect()
       }
 
@@ -222,13 +257,14 @@ export const createRelayTransport = (
             reconnectAttempts = 0
             setStatus('ready')
             startHeartbeat()
+            settled = true
             resolve()
             return
           }
           handleEncryptedPayload(frame.payload)
         } catch (error) {
           setStatus('error')
-          reject(error instanceof Error ? error : new Error(String(error)))
+          failConnect(error instanceof Error ? error : new Error(String(error)))
         }
       }
     })
@@ -236,7 +272,11 @@ export const createRelayTransport = (
   const connect = () => {
     closedByUser = false
     if (state === 'ready') return Promise.resolve()
-    return connectInternal()
+    if (connectPromise) return connectPromise
+    connectPromise = connectInternal().finally(() => {
+      connectPromise = null
+    })
+    return connectPromise
   }
 
   return {
@@ -257,8 +297,13 @@ export const createRelayTransport = (
     },
     close() {
       closedByUser = true
+      clearReconnectTimer()
       stopHeartbeat()
-      socket?.close(1000, 'closed')
+      if (socket) {
+        const currentSocket = socket
+        detachSocketHandlers(currentSocket)
+        currentSocket.close(1000, 'closed')
+      }
       socket = null
       channel = null
       setStatus('disconnected')

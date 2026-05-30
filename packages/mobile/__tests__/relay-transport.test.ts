@@ -200,6 +200,58 @@ describe('relay transport', () => {
     expect(transport.status()).toBe('connecting')
     expect(FakeRelaySocket.instances).toHaveLength(2)
   })
+
+  test('reuses one in-flight connect for concurrent callers', async () => {
+    const config = buildConfig()
+    const transport = createRelayTransport(config, {
+      WebSocketCtor: FakeRelaySocket,
+      reconnectBaseMs: 10,
+    })
+
+    const first = transport.connect()
+    const second = transport.connect()
+    const third = transport.connect()
+
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = latestSocket()
+    socket.receive({ type: 'joined' })
+    const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
+    const hello = JSON.parse(helloFrame.payload) as { ephemeral_public_key: string }
+    const responder = createHandshakeResponder(generateKeyPair())
+    responder.processInit({ ephemeral_public_key: hello.ephemeral_public_key })
+    socket.receive({
+      payload: JSON.stringify({ type: 'e2ee_ready', ...responder.getResponse() }),
+      type: 'data',
+    })
+
+    await expect(Promise.all([first, second, third])).resolves.toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
+
+  test('does not open a new socket when connect is called after ready', async () => {
+    const { transport } = await setupReadyRelay()
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    await transport.connect()
+
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+  })
+
+  test('deduplicates reconnect timers after repeated close notifications', async () => {
+    const { socket } = await setupReadyRelay()
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    socket.close(1006, 'network')
+    socket.close(1006, 'network')
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(FakeRelaySocket.instances).toHaveLength(2)
+  })
 })
 
 describe('runtime client relay fallback', () => {
