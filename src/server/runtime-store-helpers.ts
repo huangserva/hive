@@ -27,6 +27,7 @@ import { openRuntimeDatabase } from './runtime-database.js'
 import { buildRuntimeRestartPolicy } from './runtime-restart-policy.js'
 import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
 import { createSettingsStore } from './settings-store.js'
+import { createStalledDispatchNudge } from './stalled-dispatch-nudge.js'
 import { createTasksFileService } from './tasks-file.js'
 import { createTasksFileWatcher } from './tasks-file-watcher.js'
 import { createTeamOperations } from './team-operations.js'
@@ -55,6 +56,7 @@ export interface RuntimeStoreServices {
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
   planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   sentinelHeartbeat: ReturnType<typeof createSentinelHeartbeat> | null
+  stalledDispatchNudge: ReturnType<typeof createStalledDispatchNudge>
   tasksFileWatcher: ReturnType<typeof createTasksFileWatcher>
   tasksFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   tasksFileService: ReturnType<typeof createTasksFileService>
@@ -243,6 +245,17 @@ export const createRuntimeStoreServices = (
         },
       })
     : null
+  // Fix B 兜底：周期巡检「活着但卡住」的 submitted dispatch，nudge orchestrator 核实/重投。
+  const stalledDispatchNudge = createStalledDispatchNudge({
+    getActiveRunByAgentId: (workspaceId, agentId) =>
+      agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
+    injectNudge: (workspaceId, message) =>
+      agentRuntime.writeTasksNarrativeNudgePrompt(workspaceId, message),
+    listOpenDispatchesForWorkspace: (workspaceId) =>
+      dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
+    listWorkspaces: () => workspaceStore.listWorkspaces(),
+    ...(options.logger ? { logger: options.logger } : {}),
+  })
   const teamOps = createTeamOperations({
     agentRuntime,
     createDispatch: dispatchLedgerStore.createDispatch,
@@ -265,6 +278,7 @@ export const createRuntimeStoreServices = (
   })
   startExistingWorkspaceWatches()
   sentinelHeartbeat?.start()
+  stalledDispatchNudge.start()
 
   // 启动时收尾历史孤儿派单：runtime 重启后所有 worker 都是 stopped 且无 active run，
   // 此时把卡在 submitted 已过期的孤儿统一标成 cancelled（tasks.md 同步），清掉噪音。
@@ -298,6 +312,7 @@ export const createRuntimeStoreServices = (
     shellRuntime,
     planFileWatchCallbacks,
     sentinelHeartbeat,
+    stalledDispatchNudge,
     tasksFileWatcher,
     tasksFileWatchCallbacks,
     tasksFileService,
@@ -376,6 +391,7 @@ export const createRuntimeStoreLifecycle = ({
   return {
     close: async () => {
       services.sentinelHeartbeat?.close()
+      services.stalledDispatchNudge.close()
       services.shellRuntime.close()
       await services.agentRuntime.close()
       await services.tasksFileWatcher.close()
