@@ -196,6 +196,9 @@ export const createApp = ({
   const notifyHighAiActions = createHighAiActionNotifier(mobilePushService)
   const disposeMobileCockpitListener = store.registerCockpitListener((workspaceId) => {
     mobileDashboardWss.publish(workspaceId)
+    // M27 Part B：同一通知点把 dashboard 变更也推给 relay 设备（4G 下没有 LAN 的 dashboard WS）。
+    // 推轻量信号，设备收到即拉一次最新 dashboard——治 5s 轮询延迟，不复制快照构建逻辑。
+    relayConnector?.pushEvent('dashboard_update', { workspace_id: workspaceId })
     try {
       const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
       void notifyHighAiActions(workspaceId, parseCockpit(workspacePath).aiActions)
@@ -205,6 +208,8 @@ export const createApp = ({
   })
   const disposeMobileChatListener = store.registerMobileChatListener((workspaceId, message) => {
     mobileDashboardWss.publishChatMessage(workspaceId, message)
+    // M27 Part B：chat 消息带完整 payload 推给 relay 设备，设备即时 merge（治聊天 5s 延迟，体感最强）。
+    relayConnector?.pushEvent('chat_message', { message, workspace_id: workspaceId })
   })
   server.on('close', () => {
     disposeMobileCockpitListener()

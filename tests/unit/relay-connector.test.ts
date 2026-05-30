@@ -283,6 +283,36 @@ describe('relay connector', () => {
     })
   })
 
+  it('pushEvent encrypts a no-id event frame to the active device session (M27 Part B)', async () => {
+    const relay = await startRelay()
+    const { connector } = createConnector(configFor(relay))
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshake(device)
+
+    connector.pushEvent('chat_message', { message: { id: 'm1' }, workspace_id: 'ws-1' })
+
+    const event = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array()) as {
+      id?: string
+      kind: string
+      payload: { message: { id: string }; workspace_id: string }
+      type: string
+    }
+    // 事件帧：type:'event' + kind + payload，且**无 RPC id**（设备端据此路由到 onEvent 而非当回应）。
+    expect(event.type).toBe('event')
+    expect(event.kind).toBe('chat_message')
+    expect(event.id).toBeUndefined()
+    expect(event.payload).toEqual({ message: { id: 'm1' }, workspace_id: 'ws-1' })
+  })
+
+  it('pushEvent is a no-op when no device session is active', async () => {
+    const relay = await startRelay()
+    const { connector } = createConnector(configFor(relay))
+    await waitFor(() => connector.status().mode === 'connected')
+    // 无握手过的设备 session → 不抛错、不发送（sessions 为空）。
+    expect(() => connector.pushEvent('dashboard_update', { workspace_id: 'ws-1' })).not.toThrow()
+  })
+
   it('enters backoff after relay disconnects and reconnects when relay returns', async () => {
     const relay = await startRelay()
     const config = configFor(relay)

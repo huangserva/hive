@@ -31,6 +31,9 @@ export interface RelayConnectionStatus {
 
 export interface RelayConnectorHandle {
   status(): RelayConnectionStatus
+  // M27 Part B：往所有已鉴权设备 session 主动推一帧加密事件（type:'event'，无 RPC id），
+  // 治 app 5s 轮询延迟。复用现有 channel.encrypt，relay 只转发密文。无 session 时 no-op。
+  pushEvent(kind: string, payload: unknown): void
   close(): void
 }
 
@@ -379,6 +382,13 @@ export const createRelayConnector = (
       socket?.close()
       socket = null
       sessions.clear()
+    },
+    pushEvent(kind: string, payload: unknown) {
+      // 给每个活跃 session 用其会话密钥各加密一份；事件帧无 id，设备端按 type:'event' 路由到
+      // onEvent，不会被误当 RPC 回应。socket 未连或无 session 自然 no-op（sendRelayFrame 守 OPEN）。
+      for (const session of sessions.values()) {
+        sendEncryptedResponse(session, { kind, payload, type: 'event' })
+      }
     },
     status() {
       return { ...status }

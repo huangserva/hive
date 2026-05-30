@@ -274,6 +274,59 @@ describe('relay transport', () => {
     expect(FakeRelaySocket.instances).toHaveLength(1)
   })
 
+  test('routes a no-id event frame to onEvent without touching pending RPCs (M27 Part B)', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const events: Array<{ kind: string; payload?: unknown }> = []
+    transport.onEvent((event) => events.push(event))
+
+    // 同时挂一个 RPC，证明事件帧不会误 resolve 它。
+    const callPromise = transport.call<{ version: string }>('runtime.status')
+    let callResolved = false
+    void callPromise.then(() => {
+      callResolved = true
+    })
+
+    // 服务器主动推送：加密的 type:'event' 帧，无 id。
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson({ kind: 'chat_message', payload: { message: { id: 'm1' } }, type: 'event' })
+      ),
+      type: 'data',
+    })
+
+    expect(events).toEqual([{ kind: 'chat_message', payload: { message: { id: 'm1' } } }])
+    // 事件帧没有 id，绝不能解掉在途 RPC。
+    await Promise.resolve()
+    expect(callResolved).toBe(false)
+
+    // 之后真正的 RPC 回应仍正常 resolve（事件路由没破坏请求-回应）。
+    const encryptedRequest = socket.sent.at(-1) as { payload: string }
+    const request = decodeJson(channel.decrypt(encryptedRequest.payload) ?? new Uint8Array()) as {
+      id: string
+    }
+    socket.receive({
+      payload: channel.encrypt(encodeJson({ id: request.id, result: { version: '2.0.0' } })),
+      type: 'data',
+    })
+    await expect(callPromise).resolves.toEqual({ version: '2.0.0' })
+  })
+
+  test('onEvent unsubscribe stops further event delivery', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const events: unknown[] = []
+    const unsubscribe = transport.onEvent((event) => events.push(event))
+    unsubscribe()
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson({ kind: 'dashboard_update', payload: {}, type: 'event' })
+      ),
+      type: 'data',
+    })
+
+    expect(events).toEqual([])
+  })
+
   test('repeated close notifications never self-open a new socket', async () => {
     const { socket, transport } = await setupReadyRelay()
     expect(FakeRelaySocket.instances).toHaveLength(1)
@@ -294,6 +347,7 @@ describe('runtime client relay fallback', () => {
       call: vi.fn().mockResolvedValue({ version: 'relay-version' }),
       close: vi.fn(),
       connect: vi.fn().mockResolvedValue(undefined),
+      onEvent: vi.fn(() => () => {}),
       onStatusChange: vi.fn(() => () => {}),
       status: vi.fn(() => 'ready' as const),
     }

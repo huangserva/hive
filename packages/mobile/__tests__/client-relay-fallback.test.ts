@@ -27,6 +27,9 @@ const makeRelay = (
       }
       status = overrides.statusAfterConnect ?? 'ready'
     },
+    onEvent() {
+      return () => {}
+    },
     onStatusChange() {
       return () => {}
     },

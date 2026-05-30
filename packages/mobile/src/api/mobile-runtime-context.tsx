@@ -59,6 +59,7 @@ import {
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import { generateDeviceKeypair } from './relay-device-keys'
+import type { RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
 
 export type { RelayPairingInput }
@@ -180,6 +181,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const outboxLoadedRef = useRef(false)
   const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
   const relayDiagnosticsUnsubscribeRef = useRef<(() => void) | null>(null)
+  // M27 Part B：relay 服务器推送事件的处理器（指向最新闭包，避免 getRelayTransport 依赖 churn）
+  // + 订阅取消句柄。事件→即时 merge chat / 刷新 dashboard，治 5s 轮询延迟。
+  const relayEventHandlerRef = useRef<(event: RelayTransportEvent) => void>(() => {})
+  const relayEventUnsubscribeRef = useRef<(() => void) | null>(null)
   const observedRelayTransportRef = useRef<ReturnType<
     ReturnType<typeof createRelayTransportRegistry>['get']
   > | null>(null)
@@ -227,7 +232,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (observedRelayTransportRef.current === transport) return transport
       relayDiagnosticsUnsubscribeRef.current?.()
       relayDiagnosticsUnsubscribeRef.current = null
+      relayEventUnsubscribeRef.current?.()
+      relayEventUnsubscribeRef.current = null
       observedRelayTransportRef.current = transport
+      // M27 Part B：订阅服务器推送事件（chat/dashboard），通过 ref 转发到最新处理器闭包，
+      // 不把 mergeChatMessages/refreshDashboard 拉进 getRelayTransport 依赖（否则 client useMemo 连锁重建）。
+      if (transport) {
+        relayEventUnsubscribeRef.current = transport.onEvent((event) =>
+          relayEventHandlerRef.current(event)
+        )
+      }
       if (transport?.onDiagnosticsEvent) {
         relayDiagnosticsUnsubscribeRef.current = transport.onDiagnosticsEvent((event) => {
           const detail =
@@ -335,6 +349,25 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     },
     [client, selectedWorkspaceId]
   )
+
+  // M27 Part B：把 relay 服务器推送事件落到 state（只处理当前 workspace）。
+  // chat 消息直接 merge（store 消息字段是 mobile ChatMessage 超集，安全）；dashboard 信号触发即时刷新。
+  // 每次 render 重指最新闭包，始终用最新 mergeChatMessages/refreshDashboard。
+  relayEventHandlerRef.current = (event: RelayTransportEvent) => {
+    if (event.kind === 'chat_message') {
+      const data = event.payload as { message?: ChatMessage; workspace_id?: string }
+      if (data?.message?.id && data.workspace_id === selectedWorkspaceIdRef.current) {
+        mergeChatMessages([data.message])
+      }
+      return
+    }
+    if (event.kind === 'dashboard_update') {
+      const data = event.payload as { workspace_id?: string }
+      if (data?.workspace_id && data.workspace_id === selectedWorkspaceIdRef.current) {
+        void refreshDashboard(data.workspace_id)
+      }
+    }
+  }
 
   const syncWorkspaceData = useCallback(
     async (workspaceId: string, options: { bumpRevision?: boolean; resetChat?: boolean } = {}) => {
@@ -505,6 +538,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setRelayConfig(null)
     relayDiagnosticsUnsubscribeRef.current?.()
     relayDiagnosticsUnsubscribeRef.current = null
+    relayEventUnsubscribeRef.current?.()
+    relayEventUnsubscribeRef.current = null
     observedRelayTransportRef.current = null
     relayTransportRegistryRef.current.close()
     setConnectionMode('disconnected')
@@ -993,6 +1028,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     () => () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
       relayDiagnosticsUnsubscribeRef.current?.()
+      relayEventUnsubscribeRef.current?.()
       relayTransportRegistryRef.current.close()
     },
     []
@@ -1068,7 +1104,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     if (state !== 'connected' || !selectedWorkspaceId) return
     void fetchChatMessages()
-    const interval = setInterval(() => void fetchChatMessages(), 5000)
+    // M27 Part B：relay 推送（transport.onEvent → mergeChatMessages）是主路径，轮询降为兜底（5s→20s），
+    // 推送漏了最多 20s 补上，4G 下少发请求。
+    const interval = setInterval(() => void fetchChatMessages(), 20_000)
     return () => clearInterval(interval)
   }, [fetchChatMessages, selectedWorkspaceId, state])
 

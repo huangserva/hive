@@ -22,6 +22,7 @@ const createFakeTransport = () => {
     call: vi.fn(),
     close: vi.fn(),
     connect: vi.fn(),
+    onEvent: vi.fn(() => () => {}),
     onStatusChange: vi.fn(() => () => {}),
     status: vi.fn((): RelayTransportStatus => 'disconnected'),
   }

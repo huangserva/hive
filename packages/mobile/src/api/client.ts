@@ -22,6 +22,9 @@ interface RuntimeClientOptions {
   lanTimeoutMs?: number
   // relayTransport.connect() 超时（毫秒），防止 WebSocket 既不 open 也不 error 时静默挂死。
   relayConnectTimeoutMs?: number
+  // LAN 确认不可达后的 relay-only 冷却窗口（毫秒）。4G 下 LAN 一旦失败，窗口内的请求
+  // 直接走 relay、跳过每请求 ~4s 的 LAN 空试；窗口到期后再探一次 LAN，回到 WiFi 即恢复直连优先。
+  lanCooldownMs?: number
   relayTransport?: RelayTransport | null
   onDiagnosticsEvent?: (event: RuntimeClientDiagnosticEvent) => void
   token?: string | null
@@ -255,6 +258,7 @@ export const normalizeRuntimeHost = (host: string) => {
 export const createRuntimeClient = ({
   fetchImpl = fetch,
   host = DEFAULT_RUNTIME_HOST,
+  lanCooldownMs = 30_000,
   lanTimeoutMs = 4000,
   onDiagnosticsEvent,
   relayConnectTimeoutMs = 8000,
@@ -264,6 +268,8 @@ export const createRuntimeClient = ({
   const baseUrl = normalizeRuntimeHost(host)
   const modeListeners = new Set<(mode: string) => void>()
   let mode: MobileConnectionMode = 'disconnected'
+  // LAN 不可达冷却到期时间戳（0 = 不冷却，正常 LAN 优先）。
+  let lanCooldownUntil = 0
 
   const setMode = (nextMode: MobileConnectionMode) => {
     if (mode === nextMode) return
@@ -381,12 +387,20 @@ export const createRuntimeClient = ({
     relayParams?: unknown,
     init: { body?: unknown; method?: 'GET' | 'POST' | 'PATCH' | 'DELETE' } = {}
   ): Promise<T> => {
+    // relay-only 冷却窗口内（LAN 刚确认不可达）直接走 relay，跳过每请求 ~4s 的 LAN 空试，
+    // 也不再每请求闪"连接中"。窗口外仍 LAN 优先（在家 WiFi 直连快）。
+    if (relayTransport !== null && lanCooldownUntil > Date.now()) {
+      return relayCall<T>(relayMethod, relayParams)
+    }
     try {
       const result = await readJson<T>(path, true, init)
       setMode('lan')
+      lanCooldownUntil = 0 // LAN 成功 → 解除冷却，恢复 LAN 优先
       return result
     } catch (error) {
       if (!relayTransport) throw error
+      // LAN 确认不可达 → 开冷却窗口，后续请求在窗口内跳过 LAN 直接走 relay。
+      lanCooldownUntil = Date.now() + lanCooldownMs
       return relayCall<T>(relayMethod, relayParams)
     }
   }
@@ -571,6 +585,11 @@ export const createRuntimeClient = ({
     },
     connectionMode() {
       return mode
+    },
+    // 强制下次 readMobileJson 立即重探 LAN（context 可在网络变化 / 回前台时调，
+    // 比等冷却自然到期更快恢复 WiFi 直连优先）。
+    resetLanCooldown() {
+      lanCooldownUntil = 0
     },
     onConnectionModeChange(cb: (mode: string) => void) {
       modeListeners.add(cb)

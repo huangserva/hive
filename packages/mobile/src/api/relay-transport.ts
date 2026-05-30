@@ -32,11 +32,18 @@ export interface RelayTransportDiagnosticEvent {
   type: 'socket_close' | 'socket_error' | 'status'
 }
 
+// 服务器主动推送的事件帧（M27 Part B），无 RPC id，type:'event'。
+export interface RelayTransportEvent {
+  kind: string
+  payload?: unknown
+}
+
 export interface RelayTransport {
   call<T>(method: string, params?: unknown): Promise<T>
   close(): void
   connect(): Promise<void>
   onDiagnosticsEvent?: (cb: (event: RelayTransportDiagnosticEvent) => void) => () => void
+  onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
   status(): RelayTransportStatus
 }
@@ -84,6 +91,7 @@ export const createRelayTransport = (
   // 到点仍没等到 onclose 就放行新连，避免无限期阻塞（代价是换位最多慢 ~0.5s）。
   const CLOSE_GRACE_MS = 500
   const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
+  const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
   const pending = new Map<
     string,
@@ -173,7 +181,19 @@ export const createRelayTransport = (
     if (!channel) return
     const decrypted = channel.decrypt(payload)
     if (!decrypted) return
-    const message = decodeJson(decrypted) as JsonRpcResponse
+    const message = decodeJson(decrypted) as JsonRpcResponse & {
+      kind?: string
+      payload?: unknown
+      type?: string
+    }
+    // M27 Part B：服务器主动推送的事件帧（type:'event'，无 RPC id）→ 路由到 onEvent 监听器，
+    // 不当作 RPC 回应。放在 id 匹配之前，避免事件帧（无 id）被静默丢弃。
+    if (message.type === 'event' && typeof message.kind === 'string') {
+      for (const listener of eventListeners) {
+        listener({ kind: message.kind, payload: message.payload })
+      }
+      return
+    }
     if (!message.id) return
     const request = pending.get(message.id)
     if (!request) return
@@ -374,6 +394,10 @@ export const createRelayTransport = (
     onDiagnosticsEvent(cb) {
       diagnosticsListeners.add(cb)
       return () => diagnosticsListeners.delete(cb)
+    },
+    onEvent(cb) {
+      eventListeners.add(cb)
+      return () => eventListeners.delete(cb)
     },
     onStatusChange(cb) {
       listeners.add(cb)
