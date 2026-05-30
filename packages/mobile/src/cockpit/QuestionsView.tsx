@@ -27,7 +27,7 @@ type Feedback = {
 }
 
 export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { answerQuestion, getCockpit } = useMobileRuntime()
+  const { answerQuestion, getCockpit, syncRevision } = useMobileRuntime()
   const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -49,11 +49,12 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
   }, [])
 
   const load = useCallback(async () => {
+    void syncRevision
     setLoading(true)
     const data = await getCockpit()
     setCockpit(data)
     setLoading(false)
-  }, [getCockpit])
+  }, [getCockpit, syncRevision])
 
   useEffect(() => {
     void load()

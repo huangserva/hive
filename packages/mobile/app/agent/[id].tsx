@@ -239,6 +239,7 @@ export default function AgentDetailScreen() {
     selectedWorkspaceId,
     state,
     stopWorker,
+    syncRevision,
   } = useMobileRuntime()
   const workerId = typeof id === 'string' ? id : ''
   const worker = useMemo(
@@ -297,6 +298,7 @@ export default function AgentDetailScreen() {
   const fullscreenScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
+    void syncRevision
     if (!workerId || !selectedWorkspaceId) return
     setRefreshing(true)
     try {
@@ -306,7 +308,7 @@ export default function AgentDetailScreen() {
     } finally {
       setRefreshing(false)
     }
-  }, [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, workerId])
+  }, [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, syncRevision, workerId])
 
   useEffect(() => {
     void load()

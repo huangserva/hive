@@ -36,6 +36,7 @@ import { colors, radius, spacing } from '../../src/theme'
 type OptimisticMessage = {
   id: string
   direction: 'inbound'
+  queued?: boolean
   message_type: 'user_text'
   content_json: string
   created_at: number
@@ -203,18 +204,30 @@ export default function ChatTab() {
       if (body) {
         parts.push(body)
       }
+      let sent = true
       if (parts.length > 0) {
-        await sendPromptToOrchestrator(parts.join('\n'))
+        sent = await sendPromptToOrchestrator(parts.join('\n'))
       }
-      setOptimistic((prev) => prev.map((m) => (m.id === msgId ? { ...m, pending: false } : m)))
-      void fetchChatMessages()
+      const queued = !sent && state !== 'connected'
+      setOptimistic((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? queued
+              ? { ...m, pending: false, queued: true }
+              : sent
+                ? { ...m, pending: false }
+                : { ...m, error: true, pending: false }
+            : m
+        )
+      )
+      if (sent) void fetchChatMessages()
     } catch {
       setOptimistic((prev) =>
         prev.map((m) => (m.id === msgId ? { ...m, error: true, pending: false } : m))
       )
     }
     setSending(false)
-  }, [draft, sending, attachments, sendPromptToOrchestrator, uploadMedia, fetchChatMessages])
+  }, [attachments, draft, fetchChatMessages, sendPromptToOrchestrator, sending, state, uploadMedia])
 
   const pickImages = useCallback(async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
@@ -857,6 +870,7 @@ const MessageCard = ({
   const content = parseContent(message.content_json)
   const isPending = 'pending' in message && message.pending
   const isError = 'error' in message && message.error
+  const isQueued = 'queued' in message && message.queued
   const time = formatMessageTime(message.created_at)
   const media = parseMedia(message.content_json)
 
@@ -876,6 +890,8 @@ const MessageCard = ({
             <ActivityIndicator color="rgba(13, 17, 23, 0.5)" size={10} />
           ) : isError ? (
             <Ionicons color={colors.error} name="alert-circle" size={12} />
+          ) : isQueued ? (
+            <Ionicons color={colors.warning} name="time-outline" size={12} />
           ) : (
             <Ionicons color="rgba(13, 17, 23, 0.5)" name="checkmark-done" size={12} />
           )}

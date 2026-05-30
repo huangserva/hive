@@ -114,6 +114,7 @@ export default function StatusTab() {
     refreshDashboard,
     restartWorker,
     selectedWorkspaceId,
+    state,
     stopWorker,
     token,
   } = useMobileRuntime()
@@ -200,6 +201,11 @@ export default function StatusTab() {
         t('status.dispatchSent'),
         t('status.dispatchSentBody', { name: dispatchWorker.name })
       )
+      closeDispatch()
+      return
+    }
+    if (state !== 'connected') {
+      Alert.alert(t('outbox.queuedTitle'), t('outbox.queued'))
       closeDispatch()
       return
     }

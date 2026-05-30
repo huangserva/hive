@@ -75,7 +75,7 @@ export default function ApprovalCenter() {
   const { approvalId } = useLocalSearchParams<{ approvalId?: string }>()
   const router = useRouter()
   const t = useT()
-  const { approveRequest, chatMessages, fetchChatMessages } = useMobileRuntime()
+  const { approveRequest, chatMessages, fetchChatMessages, state } = useMobileRuntime()
   const [submitting, setSubmitting] = useState<'allow' | 'deny' | null>(null)
 
   const approvalMessage = useMemo(
@@ -115,11 +115,16 @@ export default function ApprovalCenter() {
     setSubmitting(decision)
     const ok = await approveRequest(approval.approval_id, decision)
     setSubmitting(null)
+    const queued = !ok && state !== 'connected'
     Alert.alert(
-      ok ? t('chat.approval.recorded') : t('chat.approval.failed'),
-      ok ? decisionLabel(decision, t) : ''
+      ok
+        ? t('chat.approval.recorded')
+        : queued
+          ? t('outbox.queuedTitle')
+          : t('chat.approval.failed'),
+      ok ? decisionLabel(decision, t) : queued ? t('outbox.queued') : ''
     )
-    if (ok) router.back()
+    if (ok || queued) router.back()
   }
 
   return (

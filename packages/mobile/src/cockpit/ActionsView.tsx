@@ -33,7 +33,7 @@ type Feedback = {
 }
 
 export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { getCockpit, sendPromptToOrchestrator } = useMobileRuntime()
+  const { getCockpit, sendPromptToOrchestrator, state, syncRevision } = useMobileRuntime()
   const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,11 +52,12 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
   }, [])
 
   const load = useCallback(async () => {
+    void syncRevision
     setLoading(true)
     const data = await getCockpit()
     setCockpit(data)
     setLoading(false)
-  }, [getCockpit])
+  }, [getCockpit, syncRevision])
 
   useEffect(() => {
     void load()
@@ -79,8 +80,13 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     const ok = await sendPromptToOrchestrator(`Please execute this AI action: ${text}`)
     setSendingId(null)
     showFeedback({
-      kind: ok ? 'success' : 'error',
-      text: ok ? t('cockpit.actions.sent') : t('cockpit.actions.failed'),
+      kind: ok || state !== 'connected' ? 'success' : 'error',
+      text:
+        ok || state !== 'connected'
+          ? ok
+            ? t('cockpit.actions.sent')
+            : t('outbox.queued')
+          : t('cockpit.actions.failed'),
     })
   }
 

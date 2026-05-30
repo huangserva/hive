@@ -59,18 +59,19 @@ const STATUS_CONFIG: Record<
 }
 
 export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { getCockpit } = useMobileRuntime()
+  const { getCockpit, syncRevision } = useMobileRuntime()
   const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState('')
 
   const load = useCallback(async () => {
+    void syncRevision
     setLoading(true)
     const data = await getCockpit()
     setCockpit(data)
     setLoading(false)
-  }, [getCockpit])
+  }, [getCockpit, syncRevision])
 
   useEffect(() => {
     void load()

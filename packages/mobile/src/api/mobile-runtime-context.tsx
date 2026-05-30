@@ -29,6 +29,20 @@ import {
   type MobileWorkspaceTasks,
   type RuntimeStatus,
 } from './client'
+import {
+  createApprovalOutboxItem,
+  createDispatchOutboxItem,
+  createMobileOutboxState,
+  createPromptOutboxItem,
+  enqueueOutboxItem,
+  flushOutboxState,
+  getOutboxCounts,
+  hasQueuedOutboxItems,
+  type MobileOutboxState,
+  parseOutboxState,
+  retryFailedOutboxItems,
+  serializeOutboxState,
+} from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import { createRelayTransport, type RelayTransportConfig } from './relay-transport'
 
@@ -36,6 +50,7 @@ const RUNTIME_HOST_KEY = 'hippoteam.runtimeHost'
 const MOBILE_TOKEN_KEY = 'hippoteam.mobileToken'
 const WORKSPACE_ID_KEY = 'hippoteam.mobileWorkspaceId'
 const RELAY_CONFIG_KEY = 'hippoteam.mobileRelayConfig'
+const OUTBOX_KEY = 'hippoteam.mobileOutbox'
 
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 type RuntimeClient = ReturnType<typeof createRuntimeClient>
@@ -62,16 +77,21 @@ interface MobileRuntimeContextValue {
   getWorkspaceTasks: () => Promise<MobileWorkspaceTasks | null>
   host: string
   pairedDevice: MobileDeviceSummary | null
+  outboxFailedCount: number
+  outboxPendingCount: number
+  outboxSendingCount: number
   relayConfig: StoredRelayConfig | null
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
   restartWorker: (workerId: string) => Promise<boolean>
   runtimeStatus: RuntimeStatus | null
+  retryOutbox: () => Promise<void>
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
   sendPromptToOrchestrator: (text: string) => Promise<boolean>
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
+  syncRevision: number
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
@@ -147,23 +167,29 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [outbox, setOutbox] = useState<MobileOutboxState>(createMobileOutboxState())
+  const [syncRevision, setSyncRevision] = useState(0)
   const chatSinceRef = useRef<number | undefined>(undefined)
   const chatFetchFailureCountRef = useRef(0)
   const reconnectAttemptRef = useRef(0)
   const reconnectInFlightRef = useRef(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const outboxFlushInFlightRef = useRef(false)
+  const outboxLoadedRef = useRef(false)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const hostRef = useRef(host)
   const tokenRef = useRef(token)
   const relayConfigRef = useRef(relayConfig)
   const selectedWorkspaceIdRef = useRef(selectedWorkspaceId)
   const stateRef = useRef(state)
+  const outboxRef = useRef(outbox)
 
   hostRef.current = host
   tokenRef.current = token
   relayConfigRef.current = relayConfig
   selectedWorkspaceIdRef.current = selectedWorkspaceId
   stateRef.current = state
+  outboxRef.current = outbox
 
   const createRelay = useCallback(
     (nextToken: string, nextRelayConfig = relayConfig) =>
@@ -221,14 +247,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [mergeChatMessages]
   )
 
-  useEffect(() => {
-    const unsubscribe = client.onConnectionModeChange((mode) =>
-      setConnectionMode(mode as MobileConnectionMode)
-    )
-    return () => {
-      unsubscribe()
-    }
-  }, [client])
+  const bumpSyncRevision = useCallback(() => {
+    setSyncRevision((current) => current + 1)
+  }, [])
 
   const refreshDashboard = useCallback(
     async (workspaceId = selectedWorkspaceId) => {
@@ -249,6 +270,78 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     },
     [client, selectedWorkspaceId]
   )
+
+  const syncWorkspaceData = useCallback(
+    async (workspaceId: string, options: { bumpRevision?: boolean; resetChat?: boolean } = {}) => {
+      if (selectedWorkspaceIdRef.current !== workspaceId) return
+      await refreshDashboard(workspaceId)
+      try {
+        await syncChatMessages(client, workspaceId, {
+          resetSince: options.resetChat ?? false,
+        })
+      } catch {
+        // Chat catch-up is best-effort; the poller and reconnect loop keep retrying.
+      }
+      if (options.bumpRevision ?? true) {
+        bumpSyncRevision()
+      }
+    },
+    [bumpSyncRevision, client, refreshDashboard, syncChatMessages]
+  )
+
+  const flushOutbox = useCallback(async () => {
+    if (outboxFlushInFlightRef.current) return
+    if (stateRef.current !== 'connected') return
+    if (!hasQueuedOutboxItems(outboxRef.current)) return
+    outboxFlushInFlightRef.current = true
+    try {
+      const { sentCount, state: nextOutbox } = await flushOutboxState(
+        outboxRef.current,
+        async (item) => {
+          if (item.kind === 'prompt') {
+            await client.sendPromptToOrchestrator(item.workspaceId, item.payload.text)
+            await syncWorkspaceData(item.workspaceId, {
+              bumpRevision: false,
+              resetChat: true,
+            })
+            return
+          }
+          if (item.kind === 'dispatch') {
+            await client.dispatchTask(item.workspaceId, item.payload.workerId, item.payload.task)
+            await syncWorkspaceData(item.workspaceId, {
+              bumpRevision: false,
+              resetChat: true,
+            })
+            return
+          }
+          await client.approveRequest(
+            item.workspaceId,
+            item.payload.approvalId,
+            item.payload.decision
+          )
+          await syncWorkspaceData(item.workspaceId, {
+            bumpRevision: false,
+            resetChat: true,
+          })
+        }
+      )
+      setOutbox(nextOutbox)
+      if (sentCount > 0) {
+        bumpSyncRevision()
+      }
+    } finally {
+      outboxFlushInFlightRef.current = false
+    }
+  }, [bumpSyncRevision, client, syncWorkspaceData])
+
+  useEffect(() => {
+    const unsubscribe = client.onConnectionModeChange((mode) =>
+      setConnectionMode(mode as MobileConnectionMode)
+    )
+    return () => {
+      unsubscribe()
+    }
+  }, [client])
 
   const connect = useCallback(
     async (nextHost: string, nextToken: string, nextRelayConfig = relayConfig) => {
@@ -294,6 +387,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
             // Chat catch-up is retried by the poller/reconnect loop; do not fail a healthy connect.
           }
         }
+        bumpSyncRevision()
+        void flushOutbox()
         return nextStatus
       } catch (connectError) {
         const message = connectError instanceof Error ? connectError.message : String(connectError)
@@ -304,7 +399,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
     },
-    [createRelay, registerPushToken, relayConfig, selectedWorkspaceId, syncChatMessages]
+    [
+      bumpSyncRevision,
+      createRelay,
+      flushOutbox,
+      registerPushToken,
+      relayConfig,
+      selectedWorkspaceId,
+      syncChatMessages,
+    ]
   )
   const connectRef = useRef(connect)
   connectRef.current = connect
@@ -314,8 +417,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setSelectedWorkspaceId(workspaceId)
       await secureSet(WORKSPACE_ID_KEY, workspaceId)
       await refreshDashboard(workspaceId)
+      bumpSyncRevision()
     },
-    [refreshDashboard]
+    [bumpSyncRevision, refreshDashboard]
   )
 
   const disconnect = useCallback(async () => {
@@ -352,6 +456,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         await client.stopWorker(selectedWorkspaceId, workerId)
         await refreshDashboard(selectedWorkspaceId)
+        bumpSyncRevision()
         return true
       } catch (stopError) {
         const message = stopError instanceof Error ? stopError.message : String(stopError)
@@ -359,7 +464,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
     },
-    [client, refreshDashboard, selectedWorkspaceId]
+    [bumpSyncRevision, client, refreshDashboard, selectedWorkspaceId]
   )
 
   const restartWorker = useCallback(
@@ -372,6 +477,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         await client.restartWorker(selectedWorkspaceId, workerId)
         await refreshDashboard(selectedWorkspaceId)
+        bumpSyncRevision()
         return true
       } catch (restartError) {
         const message = restartError instanceof Error ? restartError.message : String(restartError)
@@ -379,7 +485,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
     },
-    [client, refreshDashboard, selectedWorkspaceId]
+    [bumpSyncRevision, client, refreshDashboard, selectedWorkspaceId]
   )
 
   const dispatchTask = useCallback(
@@ -389,18 +495,44 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
       setError(null)
+      if (stateRef.current !== 'connected') {
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createDispatchOutboxItem({
+              task,
+              workerId,
+              workspaceId: selectedWorkspaceId,
+            })
+          )
+        )
+        return null
+      }
       try {
         const dispatch = await client.dispatchTask(selectedWorkspaceId, workerId, task)
-        await refreshDashboard(selectedWorkspaceId)
+        await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return dispatch
       } catch (dispatchError) {
         const message =
           dispatchError instanceof Error ? dispatchError.message : String(dispatchError)
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createDispatchOutboxItem(
+              {
+                task,
+                workerId,
+                workspaceId: selectedWorkspaceId,
+              },
+              { status: 'failed' }
+            )
+          )
+        )
         setError(message)
         return null
       }
     },
-    [client, refreshDashboard, selectedWorkspaceId]
+    [client, selectedWorkspaceId, syncWorkspaceData]
   )
 
   const listCommandPresets = useCallback(async () => {
@@ -424,6 +556,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         const result = await client.createWorker(selectedWorkspaceId, input)
         await refreshDashboard(selectedWorkspaceId)
+        bumpSyncRevision()
         return result
       } catch (createError) {
         const message = createError instanceof Error ? createError.message : String(createError)
@@ -431,7 +564,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return null
       }
     },
-    [client, refreshDashboard, selectedWorkspaceId]
+    [bumpSyncRevision, client, refreshDashboard, selectedWorkspaceId]
   )
 
   const getWorkerTranscript = useCallback(
@@ -483,6 +616,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     }
   }, [client, selectedWorkspaceId])
 
+  const outboxCounts = useMemo(
+    () => getOutboxCounts(demoMode ? createMobileOutboxState() : outbox),
+    [demoMode, outbox]
+  )
+
   const answerQuestion = useCallback(
     async (questionId: string, answer: string) => {
       if (!selectedWorkspaceId) {
@@ -492,7 +630,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setError(null)
       try {
         await client.answerQuestion(selectedWorkspaceId, questionId, answer)
-        await refreshDashboard(selectedWorkspaceId)
+        await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return true
       } catch (answerError) {
         const message = answerError instanceof Error ? answerError.message : String(answerError)
@@ -500,7 +638,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
     },
-    [client, refreshDashboard, selectedWorkspaceId]
+    [client, selectedWorkspaceId, syncWorkspaceData]
   )
 
   const transcribeVoice = useCallback(
@@ -529,19 +667,42 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
       setError(null)
+      if (stateRef.current !== 'connected') {
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createPromptOutboxItem({
+              text,
+              workspaceId: selectedWorkspaceId,
+            })
+          )
+        )
+        return false
+      }
       try {
         await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
-        if (stateRef.current !== 'connected') setState('connected')
         chatFetchFailureCountRef.current = 0
-        void syncChatMessages(client, selectedWorkspaceId, { resetSince: true })
+        await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return true
       } catch (promptError) {
         const message = promptError instanceof Error ? promptError.message : String(promptError)
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createPromptOutboxItem(
+              {
+                text,
+                workspaceId: selectedWorkspaceId,
+              },
+              { status: 'failed' }
+            )
+          )
+        )
         setError(message)
         return false
       }
     },
-    [client, selectedWorkspaceId, syncChatMessages]
+    [client, selectedWorkspaceId, syncWorkspaceData]
   )
 
   const uploadMedia = useCallback(
@@ -583,7 +744,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         reconnectAttemptRef.current = 0
         const workspaceId = selectedWorkspaceIdRef.current
         if (options.forceFullSync && workspaceId) {
-          await syncChatMessages(client, workspaceId, { resetSince: true })
+          await syncWorkspaceData(workspaceId, { resetChat: true })
         }
         return true
       } catch (reconnectError) {
@@ -595,7 +756,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
     },
-    [client, syncChatMessages]
+    [syncWorkspaceData]
   )
 
   const scheduleReconnect = useCallback(
@@ -646,16 +807,44 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setError('Select a workspace before approving')
         return false
       }
+      setError(null)
+      if (stateRef.current !== 'connected') {
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createApprovalOutboxItem({
+              approvalId,
+              decision,
+              workspaceId: selectedWorkspaceId,
+            })
+          )
+        )
+        return false
+      }
       try {
         await client.approveRequest(selectedWorkspaceId, approvalId, decision)
+        await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return true
       } catch (approveError) {
         const message = approveError instanceof Error ? approveError.message : String(approveError)
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createApprovalOutboxItem(
+              {
+                approvalId,
+                decision,
+                workspaceId: selectedWorkspaceId,
+              },
+              { status: 'failed' }
+            )
+          )
+        )
         setError(message)
         return false
       }
     },
-    [client, selectedWorkspaceId]
+    [client, selectedWorkspaceId, syncWorkspaceData]
   )
 
   useEffect(() => {
@@ -665,7 +854,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       secureGet(MOBILE_TOKEN_KEY),
       secureGet(WORKSPACE_ID_KEY),
       secureGet(RELAY_CONFIG_KEY),
-    ]).then(([storedHost, storedToken, storedWorkspaceId, storedRelay]) => {
+      secureGet(OUTBOX_KEY),
+    ]).then(([storedHost, storedToken, storedWorkspaceId, storedRelay, storedOutbox]) => {
       if (cancelled) return
       const nextHost = storedHost || DEFAULT_RUNTIME_HOST
       const nextRelayConfig = parseStoredRelayConfig(storedRelay)
@@ -673,6 +863,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (storedToken) setToken(storedToken)
       if (storedWorkspaceId) setSelectedWorkspaceId(storedWorkspaceId)
       if (nextRelayConfig) setRelayConfig(nextRelayConfig)
+      setOutbox(parseOutboxState(storedOutbox))
+      outboxLoadedRef.current = true
       if (storedToken) {
         void connectRef.current(nextHost, storedToken, nextRelayConfig)
       }
@@ -686,6 +878,20 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     if (state === 'connected' || state === 'checking') return
     scheduleReconnect()
   }, [scheduleReconnect, state])
+
+  useEffect(() => {
+    if (!outboxLoadedRef.current) return
+    void secureSet(OUTBOX_KEY, serializeOutboxState(outbox))
+  }, [outbox])
+
+  useEffect(() => {
+    if (state !== 'connected' || outboxCounts.queuedCount === 0) return
+    void flushOutbox()
+  }, [flushOutbox, outboxCounts.queuedCount, state])
+
+  const retryOutbox = useCallback(async () => {
+    setOutbox((current) => retryFailedOutboxItems(current))
+  }, [])
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -786,16 +992,21 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       getWorkspaceTasks,
       host,
       pairedDevice,
+      outboxFailedCount: outboxCounts.failedCount,
+      outboxPendingCount: outboxCounts.queuedCount,
+      outboxSendingCount: outboxCounts.sendingCount,
       relayConfig,
       refreshDashboard,
       restartWorker,
       runtimeStatus,
+      retryOutbox,
       selectWorkspace,
       selectedWorkspaceId,
       sendPromptToOrchestrator,
       setHost,
       setToken,
       state: demoMode ? 'connected' : state,
+      syncRevision,
       stopWorker,
       token,
       transcribeVoice,
@@ -822,6 +1033,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       getWorkspaceTasks,
       host,
       pairedDevice,
+      outboxCounts,
+      retryOutbox,
       relayConfig,
       refreshDashboard,
       restartWorker,
@@ -830,6 +1043,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       selectedWorkspaceId,
       sendPromptToOrchestrator,
       state,
+      syncRevision,
       stopWorker,
       token,
       transcribeVoice,

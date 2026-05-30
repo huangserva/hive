@@ -24,18 +24,19 @@ const newestFirst = (a: MobileWorkspaceTask, b: MobileWorkspaceTask) =>
   new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
 
 export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
-  const { getWorkspaceTasks } = useMobileRuntime()
+  const { getWorkspaceTasks, syncRevision } = useMobileRuntime()
   const t = useT()
   const [dispatches, setDispatches] = useState<MobileWorkspaceTask[]>([])
   const [loading, setLoading] = useState(true)
   const [showDone, setShowDone] = useState(false)
 
   const load = useCallback(async () => {
+    void syncRevision
     setLoading(true)
     const data = await getWorkspaceTasks()
     setDispatches([...(data?.dispatches ?? [])].sort(newestFirst))
     setLoading(false)
-  }, [getWorkspaceTasks])
+  }, [getWorkspaceTasks, syncRevision])
 
   useEffect(() => {
     void load()

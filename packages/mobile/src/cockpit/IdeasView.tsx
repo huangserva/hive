@@ -15,7 +15,7 @@ type Feedback = {
 }
 
 export function IdeasView() {
-  const { getCockpit, sendPromptToOrchestrator } = useMobileRuntime()
+  const { getCockpit, sendPromptToOrchestrator, state, syncRevision } = useMobileRuntime()
   const t = useT()
   const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -34,11 +34,12 @@ export function IdeasView() {
   }, [])
 
   const load = useCallback(async () => {
+    void syncRevision
     setLoading(true)
     const data = await getCockpit()
     setCockpit(data)
     setLoading(false)
-  }, [getCockpit])
+  }, [getCockpit, syncRevision])
 
   useEffect(() => {
     void load()
@@ -64,6 +65,11 @@ export function IdeasView() {
       showFeedback({
         kind: 'success',
         text: t('cockpit.ideas.sent'),
+      })
+    } else if (state !== 'connected') {
+      showFeedback({
+        kind: 'success',
+        text: t('outbox.queued'),
       })
     } else {
       showFeedback({
