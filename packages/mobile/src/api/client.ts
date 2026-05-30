@@ -23,7 +23,19 @@ interface RuntimeClientOptions {
   // relayTransport.connect() 超时（毫秒），防止 WebSocket 既不 open 也不 error 时静默挂死。
   relayConnectTimeoutMs?: number
   relayTransport?: RelayTransport | null
+  onDiagnosticsEvent?: (event: RuntimeClientDiagnosticEvent) => void
   token?: string | null
+}
+
+export interface RuntimeClientDiagnosticEvent {
+  durationMs?: number
+  error?: string
+  method?: string
+  ok: boolean
+  path?: string
+  status?: string
+  ts: number
+  type: 'lan_attempt' | 'relay_rpc'
 }
 
 export interface MobileDeviceSummary {
@@ -244,6 +256,7 @@ export const createRuntimeClient = ({
   fetchImpl = fetch,
   host = DEFAULT_RUNTIME_HOST,
   lanTimeoutMs = 4000,
+  onDiagnosticsEvent,
   relayConnectTimeoutMs = 8000,
   relayTransport = null,
   token = null,
@@ -277,27 +290,45 @@ export const createRuntimeClient = ({
     // 给 LAN fetch 套 AbortController 超时：连不通的 LAN（如 4G 下的 192.168.x）
     // 不会再无限 hang，超时即 abort → 抛 AbortError → readMobileJson 的 catch 回落 relay。
     const controller = new AbortController()
+    const startedAt = Date.now()
     const timer = setTimeout(() => controller.abort(), lanTimeoutMs)
-    let response: Awaited<ReturnType<FetchLike>>
     try {
-      response = await fetchImpl(`${baseUrl}${path}`, {
+      const response = await fetchImpl(`${baseUrl}${path}`, {
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
         headers: jsonHeaders(auth, hasBody),
         signal: controller.signal,
         ...(init.method === undefined ? {} : { method: init.method }),
       })
+      if (!response.ok) {
+        let serverMessage = ''
+        try {
+          const body = (await response.json()) as { error?: string }
+          if (body.error) serverMessage = body.error
+        } catch {}
+        throw new Error(serverMessage || `${path} failed: HTTP ${response.status}`)
+      }
+      const result = (await response.json()) as T
+      onDiagnosticsEvent?.({
+        durationMs: Date.now() - startedAt,
+        ok: true,
+        path,
+        ts: Date.now(),
+        type: 'lan_attempt',
+      })
+      return result
+    } catch (error) {
+      onDiagnosticsEvent?.({
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        ok: false,
+        path,
+        ts: Date.now(),
+        type: 'lan_attempt',
+      })
+      throw error
     } finally {
       clearTimeout(timer)
     }
-    if (!response.ok) {
-      let serverMessage = ''
-      try {
-        const body = (await response.json()) as { error?: string }
-        if (body.error) serverMessage = body.error
-      } catch {}
-      throw new Error(serverMessage || `${path} failed: HTTP ${response.status}`)
-    }
-    return (await response.json()) as T
   }
 
   const connectRelay = async (transport: RelayTransport): Promise<void> => {
@@ -316,11 +347,32 @@ export const createRuntimeClient = ({
 
   const relayCall = async <T>(method: string, params?: unknown): Promise<T> => {
     if (!relayTransport) throw new Error('Relay transport is not configured')
-    if (relayTransport.status() !== 'ready') await connectRelay(relayTransport)
-    setMode('relay')
-    return params === undefined
-      ? relayTransport.call<T>(method)
-      : relayTransport.call<T>(method, params)
+    try {
+      if (relayTransport.status() !== 'ready') await connectRelay(relayTransport)
+      setMode('relay')
+      const result =
+        params === undefined
+          ? await relayTransport.call<T>(method)
+          : await relayTransport.call<T>(method, params)
+      onDiagnosticsEvent?.({
+        method,
+        ok: true,
+        status: relayTransport.status(),
+        ts: Date.now(),
+        type: 'relay_rpc',
+      })
+      return result
+    } catch (error) {
+      onDiagnosticsEvent?.({
+        error: error instanceof Error ? error.message : String(error),
+        method,
+        ok: false,
+        status: relayTransport.status(),
+        ts: Date.now(),
+        type: 'relay_rpc',
+      })
+      throw error
+    }
   }
 
   const readMobileJson = async <T>(

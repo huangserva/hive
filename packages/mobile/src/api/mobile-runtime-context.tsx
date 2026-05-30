@@ -33,8 +33,16 @@ import {
   type MobileWorkerTranscript,
   type MobileWorkspace,
   type MobileWorkspaceTasks,
+  type RuntimeClientDiagnosticEvent,
   type RuntimeStatus,
 } from './client'
+import {
+  appendConnectionEvent,
+  buildConnectionDiagnosticsText,
+  createInitialConnectionDiagnostics,
+  type MobileConnectionDiagnostics,
+  sanitizeRelayConfigForDiagnostics,
+} from './mobile-diagnostics'
 import {
   createApprovalOutboxItem,
   createDispatchOutboxItem,
@@ -71,6 +79,8 @@ interface MobileRuntimeContextValue {
   connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
   configureRelay: (input: RelayPairingInput) => Promise<void>
   connectionMode: MobileConnectionMode
+  connectionDiagnostics: MobileConnectionDiagnostics
+  connectionDiagnosticsText: string
   createWorker: (input: MobileCreateWorkerInput) => Promise<MobileCreateWorkerResponse | null>
   dashboard: MobileDashboard | null
   demoMode: boolean
@@ -153,6 +163,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [pairedDevice, setPairedDevice] = useState<MobileDeviceSummary | null>(null)
   const [relayConfig, setRelayConfig] = useState<StoredRelayConfig | null>(null)
   const [connectionMode, setConnectionMode] = useState<MobileConnectionMode>('disconnected')
+  const [connectionDiagnostics, setConnectionDiagnostics] = useState<MobileConnectionDiagnostics>(
+    () => createInitialConnectionDiagnostics()
+  )
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
@@ -166,6 +179,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const outboxFlushInFlightRef = useRef(false)
   const outboxLoadedRef = useRef(false)
   const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
+  const relayDiagnosticsUnsubscribeRef = useRef<(() => void) | null>(null)
+  const observedRelayTransportRef = useRef<ReturnType<
+    ReturnType<typeof createRelayTransportRegistry>['get']
+  > | null>(null)
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const hostRef = useRef(host)
   const tokenRef = useRef(token)
@@ -181,20 +198,80 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   stateRef.current = state
   outboxRef.current = outbox
 
-  const getRelayTransport = useCallback(
-    (nextToken: string, nextRelayConfig: StoredRelayConfig | null) =>
-      relayTransportRegistryRef.current.get(nextToken, nextRelayConfig),
+  const appendDiagnosticEvent = useCallback(
+    (event: { detail?: string; ts?: number; type: string }) => {
+      setConnectionDiagnostics((current) => appendConnectionEvent(current, event))
+    },
     []
+  )
+
+  const recordClientDiagnosticEvent = useCallback((event: RuntimeClientDiagnosticEvent) => {
+    setConnectionDiagnostics((current) => {
+      const detail =
+        event.type === 'lan_attempt'
+          ? `${event.ok ? 'ok' : 'failed'} ${event.path ?? 'unknown path'}${event.durationMs === undefined ? '' : ` ${event.durationMs}ms`}${event.error ? ` ${event.error}` : ''}`
+          : `${event.ok ? 'ok' : 'failed'} ${event.method ?? 'unknown method'} status=${event.status ?? 'unknown'}${event.error ? ` ${event.error}` : ''}`
+      const next = appendConnectionEvent(current, {
+        detail,
+        ts: event.ts,
+        type: event.type,
+      })
+      if (event.type === 'lan_attempt') return { ...next, lastLanAttempt: event }
+      return { ...next, lastRelayResult: event }
+    })
+  }, [])
+
+  const getRelayTransport = useCallback(
+    (nextToken: string, nextRelayConfig: StoredRelayConfig | null) => {
+      const transport = relayTransportRegistryRef.current.get(nextToken, nextRelayConfig)
+      if (observedRelayTransportRef.current === transport) return transport
+      relayDiagnosticsUnsubscribeRef.current?.()
+      relayDiagnosticsUnsubscribeRef.current = null
+      observedRelayTransportRef.current = transport
+      if (transport?.onDiagnosticsEvent) {
+        relayDiagnosticsUnsubscribeRef.current = transport.onDiagnosticsEvent((event) => {
+          const detail =
+            event.type === 'status'
+              ? event.status
+              : event.type === 'socket_close'
+                ? `code=${event.code ?? 'unknown'} reason=${event.reason ?? 'none'}`
+                : event.error
+          appendDiagnosticEvent({
+            detail,
+            ts: event.ts,
+            type: `relay_${event.type}`,
+          })
+          if (event.type === 'status' && event.status) {
+            setConnectionDiagnostics((current) => ({
+              ...current,
+              lastRelayResult: {
+                ...(current.lastRelayResult ?? { ok: false, ts: event.ts }),
+                ok: event.status === 'ready',
+                status: event.status,
+                ts: event.ts,
+              },
+            }))
+          }
+        })
+      } else if (transport) {
+        relayDiagnosticsUnsubscribeRef.current = transport.onStatusChange((status) =>
+          appendDiagnosticEvent({ detail: status, type: 'relay_status' })
+        )
+      }
+      return transport
+    },
+    [appendDiagnosticEvent]
   )
 
   const client = useMemo(
     () =>
       createRuntimeClient({
         host,
+        onDiagnosticsEvent: recordClientDiagnosticEvent,
         relayTransport: getRelayTransport(token, relayConfig),
         token: token.trim() || null,
       }),
-    [getRelayTransport, host, relayConfig, token]
+    [getRelayTransport, host, recordClientDiagnosticEvent, relayConfig, token]
   )
 
   const registerPushToken = useCallback(
@@ -339,6 +416,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         const nextClient = createRuntimeClient({
           host: nextHost,
+          onDiagnosticsEvent: recordClientDiagnosticEvent,
           relayTransport: getRelayTransport(trimmedToken, nextRelayConfig),
           token: trimmedToken,
         })
@@ -392,6 +470,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       flushOutbox,
       getRelayTransport,
       registerPushToken,
+      recordClientDiagnosticEvent,
       relayConfig,
       selectedWorkspaceId,
       syncChatMessages,
@@ -424,6 +503,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setSelectedWorkspaceId(null)
     setPairedDevice(null)
     setRelayConfig(null)
+    relayDiagnosticsUnsubscribeRef.current?.()
+    relayDiagnosticsUnsubscribeRef.current = null
+    observedRelayTransportRef.current = null
     relayTransportRegistryRef.current.close()
     setConnectionMode('disconnected')
     setState('idle')
@@ -910,10 +992,36 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(
     () => () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      relayDiagnosticsUnsubscribeRef.current?.()
       relayTransportRegistryRef.current.close()
     },
     []
   )
+
+  useEffect(() => {
+    setConnectionDiagnostics((current) => ({
+      ...current,
+      connectionMode,
+      error,
+      host,
+      relay: sanitizeRelayConfigForDiagnostics(relayConfig, token),
+      state,
+    }))
+  }, [connectionMode, error, host, relayConfig, state, token])
+
+  useEffect(() => {
+    appendDiagnosticEvent({ detail: connectionMode, type: 'connection_mode' })
+  }, [appendDiagnosticEvent, connectionMode])
+
+  useEffect(() => {
+    if (state === 'idle') return
+    appendDiagnosticEvent({ detail: state, type: 'runtime_state' })
+  }, [appendDiagnosticEvent, state])
+
+  useEffect(() => {
+    if (!error) return
+    appendDiagnosticEvent({ detail: error, type: 'last_error' })
+  }, [appendDiagnosticEvent, error])
 
   useEffect(() => {
     if (connectionMode === 'relay') return
@@ -979,6 +1087,24 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       configureRelay,
       connect,
       connectionMode: demoMode ? 'lan' : connectionMode,
+      connectionDiagnostics: demoMode
+        ? {
+            ...connectionDiagnostics,
+            connectionMode: 'lan',
+            error: null,
+            state: 'connected',
+          }
+        : connectionDiagnostics,
+      connectionDiagnosticsText: buildConnectionDiagnosticsText(
+        demoMode
+          ? {
+              ...connectionDiagnostics,
+              connectionMode: 'lan',
+              error: null,
+              state: 'connected',
+            }
+          : connectionDiagnostics
+      ),
       createWorker,
       dashboard: demoMode ? DEMO_DASHBOARD : dashboard,
       demoMode,
@@ -1021,6 +1147,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       configureRelay,
       connect,
       connectionMode,
+      connectionDiagnostics,
       createWorker,
       dashboard,
       demoMode,

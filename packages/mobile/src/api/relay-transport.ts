@@ -22,10 +22,20 @@ export interface RelayTransportConfig {
 
 export type RelayTransportStatus = 'disconnected' | 'connecting' | 'handshaking' | 'ready' | 'error'
 
+export interface RelayTransportDiagnosticEvent {
+  code?: number
+  error?: string
+  reason?: string
+  status?: RelayTransportStatus
+  ts: number
+  type: 'socket_close' | 'socket_error' | 'status'
+}
+
 export interface RelayTransport {
   call<T>(method: string, params?: unknown): Promise<T>
   close(): void
   connect(): Promise<void>
+  onDiagnosticsEvent?: (cb: (event: RelayTransportDiagnosticEvent) => void) => () => void
   onStatusChange(cb: (status: string) => void): () => void
   status(): RelayTransportStatus
 }
@@ -71,6 +81,7 @@ export const createRelayTransport = (
     deps.WebSocketCtor ?? (WebSocket as unknown as new (url: string) => RelayWebSocket)
   const reconnectBaseMs = deps.reconnectBaseMs ?? 1000
   const reconnectMaxMs = deps.reconnectMaxMs ?? 30_000
+  const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
   const listeners = new Set<(status: string) => void>()
   const pending = new Map<
     string,
@@ -93,6 +104,9 @@ export const createRelayTransport = (
     if (state === next) return
     state = next
     for (const listener of listeners) listener(next)
+    for (const listener of diagnosticsListeners) {
+      listener({ status: next, ts: Date.now(), type: 'status' })
+    }
   }
 
   const sendFrame = (frame: unknown) => {
@@ -209,14 +223,27 @@ export const createRelayTransport = (
 
       nextSocket.onerror = (event: unknown) => {
         setStatus('error')
-        failConnect(event instanceof Error ? event : new Error('Relay socket error'))
+        const error = event instanceof Error ? event.message : 'Relay socket error'
+        for (const listener of diagnosticsListeners) {
+          listener({ error, ts: Date.now(), type: 'socket_error' })
+        }
+        failConnect(event instanceof Error ? event : new Error(error))
       }
 
-      nextSocket.onclose = () => {
+      nextSocket.onclose = (event: unknown) => {
         for (const request of pending.values()) request.reject(new Error('Relay socket closed'))
         pending.clear()
         if (socket === nextSocket) socket = null
         setStatus('disconnected')
+        const closeEvent = event as { code?: unknown; reason?: unknown }
+        for (const listener of diagnosticsListeners) {
+          listener({
+            code: typeof closeEvent?.code === 'number' ? closeEvent.code : undefined,
+            reason: typeof closeEvent?.reason === 'string' ? closeEvent.reason : undefined,
+            ts: Date.now(),
+            type: 'socket_close',
+          })
+        }
         failConnect(new Error('Relay socket closed'))
         if (!closedByUser) scheduleReconnect()
       }
@@ -254,7 +281,11 @@ export const createRelayTransport = (
               handshake?: { ephemeral_public_key?: string }
               type?: string
             }
-            if (ready.type !== 'e2ee_ready' || !ready.handshake?.ephemeral_public_key || !handshake) {
+            if (
+              ready.type !== 'e2ee_ready' ||
+              !ready.handshake?.ephemeral_public_key ||
+              !handshake
+            ) {
               throw new Error('Invalid relay handshake response')
             }
             channel = handshake.processResponse({
@@ -316,6 +347,10 @@ export const createRelayTransport = (
       setStatus('disconnected')
     },
     connect,
+    onDiagnosticsEvent(cb) {
+      diagnosticsListeners.add(cb)
+      return () => diagnosticsListeners.delete(cb)
+    },
     onStatusChange(cb) {
       listeners.add(cb)
       return () => listeners.delete(cb)

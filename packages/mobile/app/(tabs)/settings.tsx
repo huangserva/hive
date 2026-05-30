@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
+import * as Clipboard from 'expo-clipboard'
 import Constants from 'expo-constants'
 import type { ComponentProps } from 'react'
 import { useEffect, useState } from 'react'
@@ -13,7 +14,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-
+import type { MobileConnectionDiagnostics } from '../../src/api/mobile-diagnostics'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { type TFunction, useLanguage, useT } from '../../src/i18n'
@@ -32,6 +33,8 @@ export default function SettingsTab() {
   const {
     configureRelay,
     connectionMode,
+    connectionDiagnostics,
+    connectionDiagnosticsText,
     connect,
     demoMode,
     disconnect,
@@ -60,6 +63,7 @@ export default function SettingsTab() {
   const [relayAuthToken, setRelayAuthToken] = useState('')
   const [relayDaemonKey, setRelayDaemonKey] = useState('')
   const [relayDeviceId, setRelayDeviceId] = useState('')
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
 
   useEffect(() => {
     setDraftHost(host)
@@ -152,6 +156,11 @@ export default function SettingsTab() {
         text: t('settings.deviceDisconnect'),
       },
     ])
+  }
+
+  const onCopyDiagnostics = async () => {
+    await Clipboard.setStringAsync(connectionDiagnosticsText)
+    Alert.alert(t('settings.diagnosticsCopiedTitle'), t('settings.diagnosticsCopiedBody'))
   }
 
   const isConnected = state === 'connected'
@@ -385,6 +394,101 @@ export default function SettingsTab() {
 
         <Pressable
           accessibilityRole="button"
+          onPress={() => setDiagnosticsOpen((open) => !open)}
+          style={styles.diagnosticsToggle}
+        >
+          <Ionicons color={colors.accent} name="pulse-outline" size={18} />
+          <View style={styles.diagnosticsToggleCopy}>
+            <Text style={styles.diagnosticsToggleText}>{t('settings.diagnosticsTitle')}</Text>
+            <Text style={styles.diagnosticsToggleHint}>{t('settings.diagnosticsHint')}</Text>
+          </View>
+          <Ionicons
+            color={colors.muted}
+            name={diagnosticsOpen ? 'chevron-up' : 'chevron-down'}
+            size={18}
+          />
+        </Pressable>
+        {diagnosticsOpen ? (
+          <View style={styles.diagnosticsCard}>
+            <View style={styles.diagnosticsGrid}>
+              <DiagnosticRow
+                label={t('settings.diagnosticsState')}
+                value={connectionDiagnostics.state}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsMode')}
+                tone={connectionDiagnostics.connectionMode}
+                value={connectionDiagnostics.connectionMode}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsLastError')}
+                value={connectionDiagnostics.error ?? t('common.unknown')}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsHost')}
+                value={connectionDiagnostics.host}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsRelayConfigured')}
+                value={
+                  connectionDiagnostics.relay.configured
+                    ? t('common.available')
+                    : t('common.unavailable')
+                }
+              />
+              <DiagnosticRow
+                label={t('settings.relayUrl')}
+                value={connectionDiagnostics.relay.relay_url ?? t('common.unknown')}
+              />
+              <DiagnosticRow
+                label={t('settings.relayRoom')}
+                value={connectionDiagnostics.relay.room_id ?? t('common.unknown')}
+              />
+              <DiagnosticRow
+                label={t('settings.relayDeviceId')}
+                value={connectionDiagnostics.relay.device_id ?? t('common.unknown')}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsToken')}
+                value={connectionDiagnostics.relay.token}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsLanAttempt')}
+                value={formatLanDiagnostic(connectionDiagnostics.lastLanAttempt, t)}
+              />
+              <DiagnosticRow
+                label={t('settings.diagnosticsRelayAttempt')}
+                value={formatRelayDiagnostic(connectionDiagnostics.lastRelayResult, t)}
+              />
+            </View>
+            <View style={styles.divider} />
+            <Text style={styles.diagnosticsEventTitle}>{t('settings.diagnosticsEvents')}</Text>
+            {connectionDiagnostics.events.length === 0 ? (
+              <Text style={styles.detail}>{t('settings.diagnosticsNoEvents')}</Text>
+            ) : (
+              connectionDiagnostics.events.map((event) => (
+                <Text
+                  key={`${event.ts}-${event.type}-${event.detail ?? ''}`}
+                  style={styles.eventLine}
+                >
+                  {formatEventTime(event.ts)} · {event.type}
+                  {event.detail ? ` · ${event.detail}` : ''}
+                </Text>
+              ))
+            )}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => void onCopyDiagnostics()}
+              style={styles.copyDiagnosticsButton}
+            >
+              <Ionicons color={colors.background} name="copy-outline" size={18} />
+              <Text style={styles.primaryButtonText}>{t('settings.diagnosticsCopy')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        <Pressable
+          accessibilityRole="button"
           onPress={() => setRelayFormOpen((open) => !open)}
           style={styles.relayToggle}
         >
@@ -574,6 +678,56 @@ const ConnectionDetailRow = ({
   )
 }
 
+const DiagnosticRow = ({
+  label,
+  tone,
+  value,
+}: {
+  label: string
+  tone?: 'disconnected' | 'lan' | 'relay'
+  value: string
+}) => {
+  const toneColor =
+    tone === 'relay' ? colors.accent : tone === 'lan' ? colors.success : colors.muted
+  return (
+    <View style={styles.diagnosticRow}>
+      <Text style={styles.diagnosticLabel}>{label}</Text>
+      <Text selectable style={[styles.diagnosticValue, tone ? { color: toneColor } : null]}>
+        {value}
+      </Text>
+    </View>
+  )
+}
+
+const formatLanDiagnostic = (
+  attempt: MobileConnectionDiagnostics['lastLanAttempt'],
+  t: TFunction
+) => {
+  if (!attempt) return t('settings.diagnosticsNone')
+  const result = attempt.ok ? t('common.available') : t('common.unavailable')
+  const duration = attempt.durationMs === undefined ? '' : ` · ${attempt.durationMs}ms`
+  const error = attempt.error ? ` · ${attempt.error}` : ''
+  return `${result} · ${attempt.path ?? 'LAN'}${duration}${error}`
+}
+
+const formatRelayDiagnostic = (
+  attempt: MobileConnectionDiagnostics['lastRelayResult'],
+  t: TFunction
+) => {
+  if (!attempt) return t('settings.diagnosticsNone')
+  const result = attempt.ok ? t('common.available') : t('common.unavailable')
+  const status = attempt.status ? ` · ${attempt.status}` : ''
+  const error = attempt.error ? ` · ${attempt.error}` : ''
+  return `${result} · ${attempt.method ?? 'relay'}${status}${error}`
+}
+
+const formatEventTime = (ts: number) =>
+  new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(new Date(ts))
+
 const ConnectionBadge = ({ state }: { state: 'idle' | 'checking' | 'connected' | 'error' }) => {
   const isConnected = state === 'connected'
   return (
@@ -704,6 +858,70 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  copyDiagnosticsButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    gap: 7,
+    justifyContent: 'center',
+    marginTop: 4,
+    paddingVertical: 11,
+  },
+  diagnosticLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  diagnosticRow: {
+    gap: 3,
+  },
+  diagnosticValue: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  diagnosticsCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 10,
+    padding: spacing.sm,
+  },
+  diagnosticsEventTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  diagnosticsGrid: {
+    gap: 9,
+  },
+  diagnosticsToggle: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    padding: spacing.sm,
+  },
+  diagnosticsToggleCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  diagnosticsToggleHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  diagnosticsToggleText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
   deviceCard: {
     backgroundColor: colors.card,
     borderColor: colors.borderMuted,
@@ -758,6 +976,11 @@ const styles = StyleSheet.create({
   error: {
     color: colors.error,
     fontSize: 12,
+  },
+  eventLine: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
   },
   fieldHeader: { gap: 3 },
   fieldSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 18 },
