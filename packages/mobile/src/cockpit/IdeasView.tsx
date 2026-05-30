@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 
-import type { MobileCockpitData } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
+import { CockpitScroll } from './CockpitScroll'
+import { useRefreshableData } from './useRefreshableCockpit'
 
 const stripMarkdown = (text: string) => text.replace(/[*`#]/gu, '').trim()
 
@@ -15,10 +16,9 @@ type Feedback = {
 }
 
 export function IdeasView() {
-  const { getCockpit, sendPromptToOrchestrator, state, syncRevision } = useMobileRuntime()
+  const { getCockpit, sendPromptToOrchestrator, state } = useMobileRuntime()
   const t = useT()
-  const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data: cockpit, loading, refreshing, error, onRefresh } = useRefreshableData(getCockpit)
   const [promotingId, setPromotingId] = useState<string | null>(null)
   const [promotedId, setPromotedId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -32,18 +32,6 @@ export function IdeasView() {
       feedbackTimerRef.current = null
     }, 3000)
   }, [])
-
-  const load = useCallback(async () => {
-    void syncRevision
-    setLoading(true)
-    const data = await getCockpit()
-    setCockpit(data)
-    setLoading(false)
-  }, [getCockpit, syncRevision])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   useEffect(
     () => () => {
@@ -80,16 +68,14 @@ export function IdeasView() {
     setPromotingId(null)
   }
 
-  if (loading) {
-    return (
-      <View style={s.loadingWrap}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    )
-  }
-
   return (
-    <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+    <CockpitScroll
+      contentContainerStyle={s.container}
+      error={error}
+      loading={loading}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
+    >
       <Text style={s.sectionTitle}>{t('cockpit.ideas.inbox')}</Text>
 
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
@@ -142,7 +128,7 @@ export function IdeasView() {
           ))}
         </>
       )}
-    </ScrollView>
+    </CockpitScroll>
   )
 }
 
@@ -206,7 +192,6 @@ const s = StyleSheet.create({
   ideaLeft: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   ideaNum: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   ideaTitle: { color: colors.text, fontSize: 14, fontWeight: '700', lineHeight: 20 },
-  loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   promoteBtn: {
     backgroundColor: 'rgba(160,100,255,0.14)',
     borderRadius: radius.sm,

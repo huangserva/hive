@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 
-import type { MobileCockpitData, MobileDashboard } from '../api/client'
+import type { MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
+import { CockpitScroll } from './CockpitScroll'
+import { useRefreshableData } from './useRefreshableCockpit'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 
@@ -33,10 +35,9 @@ type Feedback = {
 }
 
 export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { getCockpit, sendPromptToOrchestrator, state, syncRevision } = useMobileRuntime()
+  const { getCockpit, sendPromptToOrchestrator, state } = useMobileRuntime()
   const t = useT()
-  const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data: cockpit, loading, refreshing, error, onRefresh } = useRefreshableData(getCockpit)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set())
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -50,18 +51,6 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
       feedbackTimerRef.current = null
     }, 3000)
   }, [])
-
-  const load = useCallback(async () => {
-    void syncRevision
-    setLoading(true)
-    const data = await getCockpit()
-    setCockpit(data)
-    setLoading(false)
-  }, [getCockpit, syncRevision])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   useEffect(
     () => () => {
@@ -105,16 +94,14 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     })
   }
 
-  if (loading) {
-    return (
-      <View style={s.loadingWrap}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    )
-  }
-
   return (
-    <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+    <CockpitScroll
+      contentContainerStyle={s.container}
+      error={error}
+      loading={loading}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
+    >
       <View style={s.headerRow}>
         <Text style={s.sectionTitle}>{t('cockpit.actions.title')}</Text>
         <View style={s.filterBtn}>
@@ -181,7 +168,7 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
           <Text style={s.emptyText}>{t('cockpit.actions.empty')}</Text>
         </View>
       )}
-    </ScrollView>
+    </CockpitScroll>
   )
 }
 
@@ -271,7 +258,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     width: 28,
   },
-  loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   priorityBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   priorityText: { fontSize: 11, fontWeight: '800' },
   sectionTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },

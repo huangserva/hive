@@ -1,19 +1,13 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native'
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 
-import type { MobileCockpitData, MobileDashboard } from '../api/client'
+import type { MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
+import { CockpitScroll } from './CockpitScroll'
+import { useRefreshableData } from './useRefreshableCockpit'
 
 const PRIORITY_CONFIG = {
   high: { bg: colors.errorSoft, color: colors.error },
@@ -27,10 +21,9 @@ type Feedback = {
 }
 
 export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { answerQuestion, getCockpit, syncRevision } = useMobileRuntime()
+  const { answerQuestion, getCockpit } = useMobileRuntime()
   const t = useT()
-  const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data: cockpit, loading, refreshing, error, onRefresh } = useRefreshableData(getCockpit)
   const [answerText, setAnswerText] = useState('')
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null)
   const [showAnswered, setShowAnswered] = useState(false)
@@ -47,18 +40,6 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
       feedbackTimerRef.current = null
     }, 3000)
   }, [])
-
-  const load = useCallback(async () => {
-    void syncRevision
-    setLoading(true)
-    const data = await getCockpit()
-    setCockpit(data)
-    setLoading(false)
-  }, [getCockpit, syncRevision])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   useEffect(
     () => () => {
@@ -93,7 +74,7 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
         kind: 'success',
         text: t('cockpit.answer.sent'),
       })
-      await load()
+      onRefresh()
     } else {
       showFeedback({
         kind: 'error',
@@ -103,115 +84,115 @@ export function QuestionsView({ dashboard: _dashboard }: { dashboard: MobileDash
     setSubmitting(false)
   }
 
-  if (loading) {
-    return (
-      <View style={s.loadingWrap}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    )
-  }
-
-  if (questions.length === 0 && answered.length === 0) {
-    return (
-      <View style={s.emptyWrap}>
-        <Ionicons color={colors.success} name="checkmark-circle" size={40} />
-        <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
-        <Text style={s.emptyText}>{t('cockpit.answer.emptyBody')}</Text>
-      </View>
-    )
-  }
-
   return (
-    <ScrollView contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
-      <View style={s.headerRow}>
-        <Text style={s.sectionTitle}>{t('cockpit.answer.title')}</Text>
-        <Text style={s.sortHint}>{t('cockpit.answer.sortHint')}</Text>
-      </View>
-
+    <CockpitScroll
+      contentContainerStyle={s.container}
+      error={error}
+      loading={loading}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
+    >
       {feedback ? <FeedbackBanner feedback={feedback} /> : null}
 
-      {!hasOpenQuestions ? (
-        <View style={s.emptyCard}>
-          <Ionicons color={colors.success} name="checkmark-circle" size={24} />
-          <View style={s.emptyCopy}>
-            <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
-            <Text style={s.emptyText}>{t('cockpit.answer.emptyBodyHistory')}</Text>
-          </View>
+      {questions.length === 0 && answered.length === 0 ? (
+        <View style={s.emptyWrap}>
+          <Ionicons color={colors.success} name="checkmark-circle" size={40} />
+          <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
+          <Text style={s.emptyText}>{t('cockpit.answer.emptyBody')}</Text>
         </View>
-      ) : null}
+      ) : (
+        <>
+          <View style={s.headerRow}>
+            <Text style={s.sectionTitle}>{t('cockpit.answer.title')}</Text>
+            <Text style={s.sortHint}>{t('cockpit.answer.sortHint')}</Text>
+          </View>
 
-      {questions.map((q) => {
-        const cfg = PRIORITY_CONFIG[q.priority]
-        return (
-          <View key={q.id} style={[s.qCard, selectedQuestionId === q.id && s.qCardSelected]}>
-            <View style={s.qHeader}>
-              <View style={[s.priorityBadge, { backgroundColor: cfg.bg }]}>
-                <Text style={[s.priorityText, { color: cfg.color }]}>
-                  {t(
-                    q.priority === 'high'
-                      ? 'cockpit.priority.high'
-                      : q.priority === 'medium'
-                        ? 'cockpit.priority.medium'
-                        : 'cockpit.priority.low'
-                  )}
-                </Text>
+          {!hasOpenQuestions ? (
+            <View style={s.emptyCard}>
+              <Ionicons color={colors.success} name="checkmark-circle" size={24} />
+              <View style={s.emptyCopy}>
+                <Text style={s.emptyTitle}>{t('cockpit.answer.emptyTitle')}</Text>
+                <Text style={s.emptyText}>{t('cockpit.answer.emptyBodyHistory')}</Text>
               </View>
             </View>
-            <Text style={s.qTitle}>{q.text}</Text>
-            <Text style={s.qContext}>{t('cockpit.answer.context', { id: q.id })}</Text>
-            <View style={s.qFooter}>
-              <Pressable onPress={() => selectQuestion(q.id)} style={s.answerBtn}>
-                <Text style={s.answerBtnText}>{t('cockpit.answer.button')}</Text>
+          ) : null}
+
+          {questions.map((q) => {
+            const cfg = PRIORITY_CONFIG[q.priority]
+            return (
+              <View key={q.id} style={[s.qCard, selectedQuestionId === q.id && s.qCardSelected]}>
+                <View style={s.qHeader}>
+                  <View style={[s.priorityBadge, { backgroundColor: cfg.bg }]}>
+                    <Text style={[s.priorityText, { color: cfg.color }]}>
+                      {t(
+                        q.priority === 'high'
+                          ? 'cockpit.priority.high'
+                          : q.priority === 'medium'
+                            ? 'cockpit.priority.medium'
+                            : 'cockpit.priority.low'
+                      )}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={s.qTitle}>{q.text}</Text>
+                <Text style={s.qContext}>{t('cockpit.answer.context', { id: q.id })}</Text>
+                <View style={s.qFooter}>
+                  <Pressable onPress={() => selectQuestion(q.id)} style={s.answerBtn}>
+                    <Text style={s.answerBtnText}>{t('cockpit.answer.button')}</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )
+          })}
+
+          {selectedQuestion ? (
+            <View style={s.inputCard}>
+              <Text style={s.inputLabel}>{t('cockpit.answer.inputLabel')}</Text>
+              <Text numberOfLines={2} style={s.selectedQuestionText}>
+                {selectedQuestion.text}
+              </Text>
+              <TextInput
+                ref={inputRef}
+                multiline
+                onChangeText={setAnswerText}
+                placeholder={t('cockpit.answer.placeholder')}
+                placeholderTextColor={colors.muted2}
+                style={s.textInput}
+                value={answerText}
+              />
+              <Pressable
+                disabled={!answerText.trim() || submitting}
+                onPress={submitAnswer}
+                style={[s.submitBtn, (!answerText.trim() || submitting) && s.submitDisabled]}
+              >
+                <Text style={s.submitText}>
+                  {submitting ? t('cockpit.answer.submitting') : t('cockpit.answer.submit')}
+                </Text>
               </Pressable>
             </View>
-          </View>
-        )
-      })}
+          ) : null}
 
-      {selectedQuestion ? (
-        <View style={s.inputCard}>
-          <Text style={s.inputLabel}>{t('cockpit.answer.inputLabel')}</Text>
-          <Text numberOfLines={2} style={s.selectedQuestionText}>
-            {selectedQuestion.text}
-          </Text>
-          <TextInput
-            ref={inputRef}
-            multiline
-            onChangeText={setAnswerText}
-            placeholder={t('cockpit.answer.placeholder')}
-            placeholderTextColor={colors.muted2}
-            style={s.textInput}
-            value={answerText}
-          />
-          <Pressable
-            disabled={!answerText.trim() || submitting}
-            onPress={submitAnswer}
-            style={[s.submitBtn, (!answerText.trim() || submitting) && s.submitDisabled]}
-          >
-            <Text style={s.submitText}>
-              {submitting ? t('cockpit.answer.submitting') : t('cockpit.answer.submit')}
+          <Pressable onPress={() => setShowAnswered(!showAnswered)} style={s.toggleRow}>
+            <Text style={s.toggleText}>
+              {t('cockpit.answer.answered', { count: answered.length })}
             </Text>
+            <Ionicons
+              color={colors.muted}
+              name={showAnswered ? 'chevron-up' : 'chevron-down'}
+              size={14}
+            />
           </Pressable>
-        </View>
-      ) : null}
 
-      <Pressable onPress={() => setShowAnswered(!showAnswered)} style={s.toggleRow}>
-        <Text style={s.toggleText}>{t('cockpit.answer.answered', { count: answered.length })}</Text>
-        <Ionicons
-          color={colors.muted}
-          name={showAnswered ? 'chevron-up' : 'chevron-down'}
-          size={14}
-        />
-      </Pressable>
-
-      {showAnswered &&
-        answered.map((q) => (
-          <View key={q.id} style={s.qCard}>
-            <Text style={s.qTitle}>{q.text}</Text>
-            {q.answer ? <Text style={s.answerPreview}>{q.answer}</Text> : null}
-          </View>
-        ))}
-    </ScrollView>
+          {showAnswered &&
+            answered.map((q) => (
+              <View key={q.id} style={s.qCard}>
+                <Text style={s.qTitle}>{q.text}</Text>
+                {q.answer ? <Text style={s.answerPreview}>{q.answer}</Text> : null}
+              </View>
+            ))}
+        </>
+      )}
+    </CockpitScroll>
   )
 }
 
@@ -283,7 +264,6 @@ const s = StyleSheet.create({
     padding: spacing.sm,
   },
   inputLabel: { color: colors.text, fontSize: 13, fontWeight: '800' },
-  loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   priorityBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
   priorityText: { fontSize: 11, fontWeight: '800' },
   qCard: {

@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons'
 import type { ComponentProps } from 'react'
-import { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useState } from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
 
-import type { MobileCockpitData, MobileCockpitMilestone, MobileDashboard } from '../api/client'
+import type { MobileCockpitMilestone, MobileDashboard } from '../api/client'
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { type TFunction, useT } from '../i18n'
 import { colors, spacing } from '../theme'
+import { CockpitScroll } from './CockpitScroll'
+import { useRefreshableData } from './useRefreshableCockpit'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 type MilestoneStatus = MobileCockpitMilestone['status']
@@ -59,23 +61,10 @@ const STATUS_CONFIG: Record<
 }
 
 export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard }) {
-  const { getCockpit, syncRevision } = useMobileRuntime()
+  const { getCockpit } = useMobileRuntime()
   const t = useT()
-  const [cockpit, setCockpit] = useState<MobileCockpitData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data: cockpit, loading, refreshing, error, onRefresh } = useRefreshableData(getCockpit)
   const [expandedId, setExpandedId] = useState('')
-
-  const load = useCallback(async () => {
-    void syncRevision
-    setLoading(true)
-    const data = await getCockpit()
-    setCockpit(data)
-    setLoading(false)
-  }, [getCockpit, syncRevision])
-
-  useEffect(() => {
-    void load()
-  }, [load])
 
   const milestones = cockpit?.plan.milestones ?? []
   const displayMilestones = [...milestones].reverse()
@@ -84,19 +73,13 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
   const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0
   const remainingCount = Math.max(0, totalCount - doneCount)
 
-  if (loading) {
-    return (
-      <View style={styles.loadingWrap}>
-        <ActivityIndicator color={colors.accent} />
-      </View>
-    )
-  }
-
   return (
-    <ScrollView
+    <CockpitScroll
       contentContainerStyle={styles.container}
-      showsVerticalScrollIndicator={false}
-      style={{ flex: 1 }}
+      error={error}
+      loading={loading}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
     >
       <View style={styles.progressCard}>
         <View style={styles.progressHeader}>
@@ -136,7 +119,7 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
           />
         ))}
       </View>
-    </ScrollView>
+    </CockpitScroll>
   )
 }
 
@@ -293,7 +276,6 @@ const styles = StyleSheet.create({
   detailsBody: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
   detailsTitle: { color: '#E6EDF3', fontSize: 13, fontWeight: '700' },
   expanded: { gap: spacing.sm, paddingTop: spacing.lg },
-  loadingWrap: { alignItems: 'center', flex: 1, justifyContent: 'center', paddingTop: 60 },
   milestoneDateRow: {
     alignItems: 'center',
     flexDirection: 'row',
