@@ -131,7 +131,6 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
             isLast={index === displayMilestones.length - 1}
             key={milestone.id}
             milestone={milestone}
-            ordinal={milestones.length - index}
             onPress={() => setExpandedId(expandedId === milestone.id ? '' : milestone.id)}
             t={t}
           />
@@ -146,14 +145,12 @@ const MilestoneCard = ({
   isLast,
   milestone,
   onPress,
-  ordinal,
   t,
 }: {
   isExpanded: boolean
   isLast: boolean
   milestone: MobileCockpitMilestone
   onPress: () => void
-  ordinal: number
   t: TFunction
 }) => {
   const status = STATUS_CONFIG[milestone.status] ?? STATUS_CONFIG.open
@@ -182,7 +179,8 @@ const MilestoneCard = ({
         <View style={styles.milestoneTopRow}>
           <View style={styles.milestoneCopy}>
             <Text numberOfLines={2} style={styles.milestoneTitle}>
-              {ordinal}. {milestone.title}
+              {milestone.id ? `${milestone.id} · ` : ''}
+              {milestone.title}
             </Text>
             {milestone.date ? (
               <Text numberOfLines={1} style={styles.milestoneSubtitle}>
