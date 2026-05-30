@@ -1,0 +1,29 @@
+# HippoTeam relay — systemd unit
+# 放到 /etc/systemd/system/hippoteam-relay.service，按需改 User/WorkingDirectory/ExecStart 路径。
+# 启用：sudo systemctl daemon-reload && sudo systemctl enable --now hippoteam-relay
+# 看日志：journalctl -u hippoteam-relay -f
+
+[Unit]
+Description=HippoTeam relay server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hippoteam
+WorkingDirectory=/opt/hippoteam-relay
+# relay 只监听 127.0.0.1:8787，由 Caddy/Nginx 反代上 TLS。
+Environment=PORT=8787
+# 把 <PASTE_RELAY_AUTH_TOKEN> 换成 keygen 生成的 RELAY_AUTH_TOKEN（与手机端 relay.json 一致）。
+Environment=RELAY_AUTH_TOKEN=<PASTE_RELAY_AUTH_TOKEN>
+ExecStart=/usr/bin/node dist/src/index.js
+Restart=always
+RestartSec=3
+# 加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
