@@ -14,7 +14,7 @@ interface ExpoPushResponse {
 
 interface ExpoPushMessage {
   body: string
-  data: { type: string; workspaceId: string }
+  data: Record<string, string>
   title: string
   to: string
 }
@@ -26,6 +26,14 @@ export interface MobilePushService {
     taskSummary: string,
     dispatchId?: string
   ): Promise<void>
+  notifyApprovalRequested(
+    workspaceId: string,
+    approval: {
+      action: string
+      approvalId: string
+      risk: string
+    }
+  ): Promise<void>
   notifyHighAiAction(workspaceId: string, actionTitle: string): Promise<void>
 }
 
@@ -35,6 +43,7 @@ export const createMobilePushService = (deps: {
 }): MobilePushService => {
   const fetchImpl = deps.fetchImpl ?? fetch
   const sentDispatchIds = new Set<string>()
+  const sentApprovalIds = new Set<string>()
 
   const recipients = () =>
     deps.store
@@ -78,6 +87,23 @@ export const createMobilePushService = (deps: {
           body: taskSummary,
           data: { type: 'worker_done', workspaceId },
           title: `${workerName} completed a task`,
+          to: token,
+        }))
+      )
+    },
+    async notifyApprovalRequested(workspaceId, approval) {
+      if (sentApprovalIds.has(approval.approvalId)) return
+      sentApprovalIds.add(approval.approvalId)
+      await send(
+        recipients().map((token) => ({
+          body: approval.action,
+          data: {
+            action: approval.action,
+            approvalId: approval.approvalId,
+            type: 'approval',
+            workspaceId,
+          },
+          title: 'Approval required',
           to: token,
         }))
       )

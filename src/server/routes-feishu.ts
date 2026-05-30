@@ -149,7 +149,7 @@ export const feishuRoutes: RouteDefinition[] = [
   route(
     'POST',
     '/internal/feishu/approval-request',
-    async ({ feishuTransport, logger, request, response, store }) => {
+    async ({ feishuTransport, logger, mobilePushService, request, response, store }) => {
       const agentId = getAgentId(request.headers['x-hive-agent-id'])
       const token = getBearerToken(request.headers.authorization)
       if (!agentId) {
@@ -194,6 +194,15 @@ export const feishuRoutes: RouteDefinition[] = [
         workspaceName: workspace.summary.name,
       })
       approval.messageId = card.messageId
+      await mobilePushService
+        ?.notifyApprovalRequested(workspaceId, {
+          action,
+          approvalId: approval.approvalId,
+          risk,
+        })
+        .catch((error) => {
+          logger?.error(`mobile approval push failed approval_id=${approval.approvalId}`, error)
+        })
       logger?.info(
         `feishu approval card sent message_id=${card.messageId} chat_id=${chatId} approval_id=${approval.approvalId}`
       )

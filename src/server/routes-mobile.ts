@@ -348,7 +348,11 @@ export const createMobileWorker = async (
     throw new BadRequestError(`Command preset not found: ${presetId}`)
   }
 
-  const worker = store.addWorker(workspaceId, { name, role: role as WorkerRole, description })
+  const worker = store.addWorker(workspaceId, {
+    name,
+    role: role as WorkerRole,
+    ...(description === undefined ? {} : { description }),
+  })
   if (launchConfig) {
     try {
       store.configureAgentLaunch(workspaceId, worker.id, launchConfig)

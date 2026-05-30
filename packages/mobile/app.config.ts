@@ -54,6 +54,7 @@ const config: ExpoConfigWithSplash = {
   plugins: [
     'expo-router',
     'expo-localization',
+    'expo-notifications',
     [
       'expo-camera',
       {

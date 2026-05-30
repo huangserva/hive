@@ -22,9 +22,10 @@ afterEach(() => {
 const postApproval = async (
   baseUrl: string,
   body: Record<string, unknown>,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
+  fetchImpl: typeof fetch = fetch
 ) => {
-  const response = await fetch(`${baseUrl}/internal/feishu/approval-request`, {
+  const response = await fetchImpl(`${baseUrl}/internal/feishu/approval-request`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -225,6 +226,52 @@ describe('POST /internal/feishu/approval-request', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     )
     expect(body.message_id).toBe('msg_001')
+  })
+
+  test('approval creation sends a mobile approval push to devices with push tokens', async () => {
+    const sentBodies: unknown[] = []
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
+      sentBodies.push(JSON.parse(String(init?.body ?? '[]')) as unknown)
+      return Response.json({ data: [{ status: 'ok' }] })
+    })
+    const serverFetch = globalThis.fetch
+    globalThis.fetch = fetchImpl as typeof fetch
+
+    try {
+      const { agentId, baseUrl, token, workspace, store } = await setupApprovalTest()
+      const mobileDevice = store.createMobileDeviceToken('Mobile device', ['read_dashboard'])
+      store.updateMobilePushToken(mobileDevice.device.id, 'ExponentPushToken[mobile]')
+      const { status, body } = await postApproval(
+        baseUrl,
+        {
+          action: 'Delete generated files',
+          chatId: 'oc_target',
+          risk: 'high',
+          target: 'Alice',
+          workspaceId: workspace.id,
+        },
+        authHeaders(agentId, token),
+        serverFetch
+      )
+      expect(status).toBe(200)
+      expect(body).toEqual(expect.objectContaining({ approval_id: expect.any(String) }))
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(sentBodies.at(-1)).toEqual([
+        expect.objectContaining({
+          body: 'Delete generated files',
+          data: {
+            action: 'Delete generated files',
+            approvalId: body.approval_id,
+            type: 'approval',
+            workspaceId: workspace.id,
+          },
+          title: 'Approval required',
+          to: 'ExponentPushToken[mobile]',
+        }),
+      ])
+    } finally {
+      globalThis.fetch = serverFetch
+    }
   })
 
   test('200 uses last chat when chatId is omitted', async () => {

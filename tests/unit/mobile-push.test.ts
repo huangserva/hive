@@ -94,6 +94,46 @@ describe('mobile push service', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  test('sends approval requested notifications to active devices with approval data', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ data: [{ status: 'ok' }] }))
+    const service = createMobilePushService({
+      fetchImpl,
+      store: {
+        clearMobilePushToken: vi.fn(),
+        listMobileDevices: () => [
+          device({ id: 'active', push_token: 'ExponentPushToken[active]' }),
+        ],
+      } as never,
+    })
+
+    await service.notifyApprovalRequested('workspace-1', {
+      action: 'Delete old files',
+      approvalId: 'approval-1',
+      risk: 'high',
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as Array<{
+      body: string
+      data: { action: string; approvalId: string; type: string; workspaceId: string }
+      title: string
+      to: string
+    }>
+    expect(body).toEqual([
+      {
+        body: 'Delete old files',
+        data: {
+          action: 'Delete old files',
+          approvalId: 'approval-1',
+          type: 'approval',
+          workspaceId: 'workspace-1',
+        },
+        title: 'Approval required',
+        to: 'ExponentPushToken[active]',
+      },
+    ])
+  })
+
   test('notifies high aiActions once per action id', async () => {
     const notifyHighAiAction = vi.fn(async () => {})
     const notifier = createHighAiActionNotifier({ notifyHighAiAction })

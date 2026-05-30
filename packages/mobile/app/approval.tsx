@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import type { ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import type { ChatMessage } from '../src/api/client'
@@ -75,7 +75,7 @@ export default function ApprovalCenter() {
   const { approvalId } = useLocalSearchParams<{ approvalId?: string }>()
   const router = useRouter()
   const t = useT()
-  const { approveRequest, chatMessages } = useMobileRuntime()
+  const { approveRequest, chatMessages, fetchChatMessages } = useMobileRuntime()
   const [submitting, setSubmitting] = useState<'allow' | 'deny' | null>(null)
 
   const approvalMessage = useMemo(
@@ -104,6 +104,11 @@ export default function ApprovalCenter() {
   const pendingCount = chatMessages.filter(
     (message) => message.message_type === 'approval_request'
   ).length
+
+  useEffect(() => {
+    if (!approvalId) return
+    void fetchChatMessages({ resetSince: true })
+  }, [approvalId, fetchChatMessages])
 
   const decide = async (decision: 'allow' | 'deny') => {
     if (!approval.approval_id) return
