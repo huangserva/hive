@@ -106,6 +106,57 @@ describe('mobile token flow integration', () => {
     }
   })
 
+  test('UI session can retrieve an existing device token for QR display', async () => {
+    const server = await startTestServer()
+    tempDirs.push(server.dataDir)
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const { body: created } = await createToken(server.baseUrl, cookie, [
+        'read_dashboard',
+        'send_prompt',
+      ])
+
+      const response = await fetch(`${server.baseUrl}/api/mobile/tokens/${created.device_id}`, {
+        headers: jsonHeaders({ cookie }),
+      })
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as {
+        device: { capabilities: string[]; id: string; name: string }
+        token: string
+      }
+      expect(body.token).toBe(created.token)
+      expect(body.device).toMatchObject({
+        capabilities: ['read_dashboard', 'send_prompt'],
+        id: created.device_id,
+        name: 'Test phone',
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('existing device token retrieval requires UI auth', async () => {
+    const server = await startTestServer()
+    tempDirs.push(server.dataDir)
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const { body: created } = await createToken(server.baseUrl, cookie)
+
+      const response = await fetch(`${server.baseUrl}/api/mobile/tokens/${created.device_id}`)
+      expect(response.status).toBe(403)
+
+      const mobileAuthResponse = await fetch(
+        `${server.baseUrl}/api/mobile/tokens/${created.device_id}`,
+        {
+          headers: jsonHeaders({ token: created.token }),
+        }
+      )
+      expect(mobileAuthResponse.status).toBe(403)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('device token can access dashboard of any workspace', async () => {
     const server = await startTestServer()
     tempDirs.push(server.dataDir)

@@ -31,7 +31,7 @@ import { serializeCommandPreset } from './routes-settings.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
-import { readCookie } from './ui-auth-helpers.js'
+import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 const pendingUploadPaths = new Map<string, string[]>()
@@ -418,6 +418,17 @@ export const mobileRoutes: RouteDefinition[] = [
     requireUiSessionOrMobileAdmin(request, store)
     sendJson(response, 200, {
       tokens: store.listMobileDevices().map(mobileDeviceSummary),
+    })
+  }),
+  route('GET', '/api/mobile/tokens/:deviceId', ({ params, request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    const deviceId = getRequiredParam(response, params, 'deviceId', 'Device id is required')
+    if (!deviceId) return
+    const device = store.listMobileDevices().find((item) => item.id === deviceId)
+    if (!device) throw new NotFoundError(`Mobile device not found: ${deviceId}`)
+    sendJson(response, 200, {
+      token: device.token,
+      device: mobileDeviceSummary(device),
     })
   }),
   route('PATCH', '/api/mobile/tokens/:deviceId', async ({ params, request, response, store }) => {

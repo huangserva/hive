@@ -495,6 +495,7 @@ const enMessages = {
   'mobile.createToken': 'Create Token',
   'mobile.createdToken': 'Token created',
   'mobile.creating': 'Creating…',
+  'mobile.connectionQr': 'Connection QR',
   'mobile.delete': 'Delete',
   'mobile.deleteConfirm': 'Delete token "{name}"? This device will lose access immediately.',
   'mobile.deviceName': 'Device name',
@@ -508,8 +509,9 @@ const enMessages = {
   'mobile.revokeConfirm': 'Revoke device "{name}"? It will lose access immediately.',
   'mobile.revoked': 'Revoked',
   'mobile.save': 'Save',
+  'mobile.showQr': 'Show QR code',
   'mobile.sourceManual': 'Manual token',
-  'mobile.tokenShownOnce': 'Copy it now. The full token is only shown once.',
+  'mobile.tokenShownOnce': 'You can reopen this connection QR from the device row later.',
   // common.* additions
   'common.closeDialog': 'Close dialog',
   // misc namespaces
@@ -1006,6 +1008,7 @@ const zhMessages: Record<TranslationKey, string> = {
   'mobile.createToken': '创建 Token',
   'mobile.createdToken': 'Token 已创建',
   'mobile.creating': '创建中…',
+  'mobile.connectionQr': '连接二维码',
   'mobile.delete': '删除',
   'mobile.deleteConfirm': '删除 token "{name}"？该设备将立即失去访问权限。',
   'mobile.deviceName': '设备名称',
@@ -1019,8 +1022,9 @@ const zhMessages: Record<TranslationKey, string> = {
   'mobile.revokeConfirm': '吊销设备 "{name}"？它将立即失去访问权限。',
   'mobile.revoked': '已吊销',
   'mobile.save': '保存',
+  'mobile.showQr': '显示二维码',
   'mobile.sourceManual': '手动 token',
-  'mobile.tokenShownOnce': '现在复制。完整 token 只显示一次。',
+  'mobile.tokenShownOnce': '之后也可以从设备行重新打开这个连接二维码。',
   // common.*
   'common.closeDialog': '关闭对话框',
   // misc

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import {
   createMobileToken,
+  getMobileDeviceToken,
   getRelayConnectionInfo,
   listMobileDevices,
   type MobileCapability,
@@ -32,6 +33,41 @@ const CAPABILITY_LABELS: Record<MobileCapability, string> = {
   send_prompt: 'Prompt',
 }
 
+interface MobileConnectionQrInput {
+  capabilities: MobileCapability[]
+  deviceId: string
+  host: string
+  relayInfo: RelayConnectionInfo | null
+  token: string
+}
+
+export const buildMobileConnectionQrPayload = ({
+  capabilities,
+  deviceId,
+  host,
+  relayInfo,
+  token,
+}: MobileConnectionQrInput) =>
+  relayInfo?.enabled === true
+    ? {
+        capabilities,
+        daemon_public_key: relayInfo.daemon_public_key,
+        device_id: deviceId,
+        host,
+        relay_auth_token: relayInfo.relay_auth_token,
+        relay_url: relayInfo.relay_url,
+        room_id: relayInfo.room_id,
+        token,
+      }
+    : { host, token }
+
+const createMobileConnectionQr = (input: MobileConnectionQrInput) =>
+  QRCode.toDataURL(JSON.stringify(buildMobileConnectionQrPayload(input)), {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    scale: 6,
+  })
+
 interface FieldLabelProps {
   children: React.ReactNode
 }
@@ -43,11 +79,13 @@ const FieldLabel = ({ children }: FieldLabelProps) => (
 interface DeviceRowProps {
   device: MobileDevice
   onEdit: () => void
+  onShowQr: () => void
   onDelete: () => void
+  qrLoading: boolean
   t: ReturnType<typeof useI18n>['t']
 }
 
-const DeviceRow = ({ device, onDelete, onEdit, t }: DeviceRowProps) => {
+const DeviceRow = ({ device, onDelete, onEdit, onShowQr, qrLoading, t }: DeviceRowProps) => {
   const isRevoked = device.revoked_at !== null
   const lastSeen = device.last_seen_at
     ? new Date(device.last_seen_at).toLocaleString()
@@ -89,6 +127,19 @@ const DeviceRow = ({ device, onDelete, onEdit, t }: DeviceRowProps) => {
           <button
             type="button"
             className="worker-card__action"
+            aria-label={t('mobile.showQr')}
+            onClick={onShowQr}
+            disabled={qrLoading}
+          >
+            {qrLoading ? (
+              <LoaderCircle size={12} className="animate-spin" aria-hidden />
+            ) : (
+              <QrCode size={12} aria-hidden />
+            )}
+          </button>
+          <button
+            type="button"
+            className="worker-card__action"
             aria-label={t('mobile.edit')}
             onClick={onEdit}
           >
@@ -114,9 +165,19 @@ export const MobileDevicesSection = () => {
   const [devices, setDevices] = useState<MobileDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [createdToken, setCreatedToken] = useState<{ deviceId: string; token: string } | null>(null)
+  const [createdToken, setCreatedToken] = useState<{
+    capabilities: MobileCapability[]
+    deviceId: string
+    token: string
+  } | null>(null)
   const [createdTokenQr, setCreatedTokenQr] = useState<string | null>(null)
   const [createdTokenQrError, setCreatedTokenQrError] = useState<string | null>(null)
+  const [deviceQr, setDeviceQr] = useState<{
+    deviceName: string
+    host: string
+    qrDataUrl: string
+  } | null>(null)
+  const [qrLoadingDeviceId, setQrLoadingDeviceId] = useState<string | null>(null)
   const [relayInfo, setRelayInfo] = useState<RelayConnectionInfo | null>(null)
   const [creating, setCreating] = useState(false)
   const [showGenerator, setShowGenerator] = useState(false)
@@ -171,24 +232,12 @@ export const MobileDevicesSection = () => {
       return
     }
 
-    const qrPayload =
-      relayInfo?.enabled === true
-        ? {
-            capabilities: genCaps,
-            daemon_public_key: relayInfo.daemon_public_key,
-            device_id: createdToken.deviceId,
-            host: currentMobileHost,
-            relay_auth_token: relayInfo.relay_auth_token,
-            relay_url: relayInfo.relay_url,
-            room_id: relayInfo.room_id,
-            token: createdToken.token,
-          }
-        : { host: currentMobileHost, token: createdToken.token }
-
-    QRCode.toDataURL(JSON.stringify(qrPayload), {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      scale: 6,
+    createMobileConnectionQr({
+      capabilities: createdToken.capabilities,
+      deviceId: createdToken.deviceId,
+      host: currentMobileHost,
+      relayInfo,
+      token: createdToken.token,
     })
       .then((dataUrl) => {
         if (alive) setCreatedTokenQr(dataUrl)
@@ -199,7 +248,7 @@ export const MobileDevicesSection = () => {
     return () => {
       alive = false
     }
-  }, [createdToken, currentMobileHost, relayInfo, genCaps])
+  }, [createdToken, currentMobileHost, relayInfo])
 
   const handleGenerate = () => {
     if (!genName.trim()) return
@@ -207,7 +256,11 @@ export const MobileDevicesSection = () => {
     setError(null)
     createMobileToken(genName.trim(), genCaps)
       .then((result) => {
-        setCreatedToken({ deviceId: result.device_id, token: result.token })
+        setCreatedToken({
+          capabilities: [...genCaps],
+          deviceId: result.device_id,
+          token: result.token,
+        })
         setShowGenerator(false)
         setGenName('')
         setGenCaps([...ALL_CAPABILITIES])
@@ -225,6 +278,28 @@ export const MobileDevicesSection = () => {
         setDeleteTarget(null)
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+  }
+
+  const handleShowQr = (device: MobileDevice) => {
+    if (!currentMobileHost) {
+      setError('No LAN IPv4 address detected on this runtime.')
+      return
+    }
+    setQrLoadingDeviceId(device.id)
+    setError(null)
+    getMobileDeviceToken(device.id)
+      .then(async ({ device: freshDevice, token }) => {
+        const qrDataUrl = await createMobileConnectionQr({
+          capabilities: freshDevice.capabilities,
+          deviceId: freshDevice.id,
+          host: currentMobileHost,
+          relayInfo,
+          token,
+        })
+        setDeviceQr({ deviceName: freshDevice.name, host: currentMobileHost, qrDataUrl })
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setQrLoadingDeviceId(null))
   }
 
   const handleEditSave = () => {
@@ -398,7 +473,9 @@ export const MobileDevicesSection = () => {
                 setEditName(device.name)
                 setEditCaps([...device.capabilities])
               }}
+              onShowQr={() => handleShowQr(device)}
               onDelete={() => setDeleteTarget(device)}
+              qrLoading={qrLoadingDeviceId === device.id}
               t={t}
             />
           ))}
@@ -445,6 +522,35 @@ export const MobileDevicesSection = () => {
               onClick={handleEditSave}
             >
               {editSaving ? t('common.saving') : t('mobile.save')}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {deviceQr ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div
+            className="flex w-full max-w-sm flex-col items-center gap-3 rounded border px-4 py-4 shadow-xl"
+            style={{ borderColor: 'var(--border)', background: 'var(--bg-2)' }}
+            data-testid="device-qr-dialog"
+          >
+            <span className="inline-flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-ter">
+              <QrCode size={13} aria-hidden />
+              {t('mobile.connectionQr')}
+            </span>
+            <span className="max-w-full truncate text-sm font-medium text-pri">
+              {deviceQr.deviceName}
+            </span>
+            <img
+              alt="Mobile token connection QR code"
+              className="h-52 w-52 rounded bg-white p-2"
+              src={deviceQr.qrDataUrl}
+            />
+            <span className="mono max-w-full break-all text-xs text-ter">
+              host: {deviceQr.host}
+            </span>
+            <button type="button" className="icon-btn" onClick={() => setDeviceQr(null)}>
+              {t('common.closeDialog')}
             </button>
           </div>
         </div>

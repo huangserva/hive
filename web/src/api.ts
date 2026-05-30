@@ -902,6 +902,11 @@ export interface MobileTokenCreated {
   token: string
 }
 
+export interface MobileDeviceToken {
+  device: MobileDevice
+  token: string
+}
+
 export const createMobileToken = async (
   name: string,
   capabilities: MobileCapability[]
@@ -920,6 +925,12 @@ export const listMobileDevices = async (): Promise<MobileDevice[]> => {
   if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to load devices'))
   const body = (await response.json()) as { tokens: MobileDevice[] }
   return body.tokens
+}
+
+export const getMobileDeviceToken = async (deviceId: string): Promise<MobileDeviceToken> => {
+  const response = await apiFetch(`/api/mobile/tokens/${encodeURIComponent(deviceId)}`)
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to load device token'))
+  return (await response.json()) as MobileDeviceToken
 }
 
 export type RelayConnectionInfo =
