@@ -200,15 +200,35 @@ describe('relay transport', () => {
     connectPromise.catch(() => {})
   })
 
-  test('reconnects with backoff after an established socket closes', async () => {
+  test('stays disconnected after socket closes and does not self-reconnect (context is the sole reconnect engine)', async () => {
     const { socket, transport } = await setupReadyRelay()
     expect(FakeRelaySocket.instances).toHaveLength(1)
 
     socket.close(1006, 'network')
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(50)
 
-    expect(transport.status()).toBe('connecting')
+    // transport 是被动连接器：断了停在 disconnected，绝不自开第二条 socket（churn 根因之一已除）。
+    expect(transport.status()).toBe('disconnected')
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+  })
+
+  test('external connect() after a close drives reconnection (no overlapping sockets)', async () => {
+    const { socket, transport } = await setupReadyRelay()
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    socket.close(1006, 'network')
+    await vi.advanceTimersByTimeAsync(50)
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    // 旧 socket 已关（socket=null），connect() 同步开新连。
+    void transport.connect()
+    await vi.advanceTimersByTimeAsync(0)
     expect(FakeRelaySocket.instances).toHaveLength(2)
+    expect(transport.status()).toBe('connecting')
+
+    // 新 socket 握手推进正常。
+    latestSocket().receive({ type: 'joined' })
+    expect(transport.status()).toBe('handshaking')
   })
 
   test('reuses one in-flight connect for concurrent callers', async () => {
@@ -254,15 +274,17 @@ describe('relay transport', () => {
     expect(FakeRelaySocket.instances).toHaveLength(1)
   })
 
-  test('deduplicates reconnect timers after repeated close notifications', async () => {
-    const { socket } = await setupReadyRelay()
+  test('repeated close notifications never self-open a new socket', async () => {
+    const { socket, transport } = await setupReadyRelay()
     expect(FakeRelaySocket.instances).toHaveLength(1)
 
     socket.close(1006, 'network')
     socket.close(1006, 'network')
-    await vi.advanceTimersByTimeAsync(10)
+    await vi.advanceTimersByTimeAsync(50)
 
-    expect(FakeRelaySocket.instances).toHaveLength(2)
+    // 删掉 transport 自带重连后，无论收到多少 close 通知都不会自开 socket。
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+    expect(transport.status()).toBe('disconnected')
   })
 })
 

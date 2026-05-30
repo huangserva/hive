@@ -80,8 +80,9 @@ export const createRelayTransport = (
 ): RelayTransport => {
   const WebSocketCtor =
     deps.WebSocketCtor ?? (WebSocket as unknown as new (url: string) => RelayWebSocket)
-  const reconnectBaseMs = deps.reconnectBaseMs ?? 1000
-  const reconnectMaxMs = deps.reconnectMaxMs ?? 30_000
+  // 换 socket 时等旧 socket 真正 close 的兜底超时：4G 下旧 socket 的 close 帧可能在途，
+  // 到点仍没等到 onclose 就放行新连，避免无限期阻塞（代价是换位最多慢 ~0.5s）。
+  const CLOSE_GRACE_MS = 500
   const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
   const listeners = new Set<(status: string) => void>()
   const pending = new Map<
@@ -92,11 +93,12 @@ export const createRelayTransport = (
     }
   >()
   let channel: EncryptedChannel | null = null
-  let closedByUser = false
+  // in-flight 守卫：connectInternal 入口置 true，到 ready 或任一失败路径清 false。
+  // 覆盖 ready→evict→disconnected 之间 connectPromise 已被 finally 清空的窗口，
+  // 防止 connect() 因 connectPromise===null 重进 connectInternal 叠开第二条 socket。
+  let connecting = false
   let connectPromise: Promise<void> | null = null
   let heartbeat: ReturnType<typeof setInterval> | null = null
-  let reconnectAttempts = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let rpcCounter = 0
   let socket: RelayWebSocket | null = null
   let state: RelayTransportStatus = 'disconnected'
@@ -144,28 +146,28 @@ export const createRelayTransport = (
     target.onopen = null
   }
 
-  const clearReconnectTimer = () => {
-    if (!reconnectTimer) return
-    clearTimeout(reconnectTimer)
-    reconnectTimer = null
-  }
-
-  const scheduleReconnect = () => {
-    if (closedByUser) return
-    if (reconnectTimer) return
-    stopHeartbeat()
-    channel = null
-    const delay = Math.min(reconnectBaseMs * 2 ** reconnectAttempts, reconnectMaxMs)
-    reconnectAttempts += 1
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      if (closedByUser) return
-      void connect().catch(() => {
-        setStatus('error')
-        scheduleReconnect()
-      })
-    }, delay)
-  }
+  // 换 socket 前先关旧 socket 并等它真正关闭，再开新（消除 relay 槽重叠→evict 1008 churn 的关键）。
+  // 挂一个一次性 onclose：只 resolve closedPromise，绝不触发重连 / failConnect；旧 socket 的业务
+  // handlers 已 detach。等到 onclose 或 CLOSE_GRACE_MS 超时（取先到者）即放行。
+  const closePreviousSocket = (previousSocket: RelayWebSocket): Promise<void> =>
+    new Promise<void>((resolveClosed) => {
+      let settledClose = false
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const finish = () => {
+        if (settledClose) return
+        settledClose = true
+        if (timer) clearTimeout(timer)
+        resolveClosed()
+      }
+      detachSocketHandlers(previousSocket)
+      previousSocket.onclose = () => finish()
+      timer = setTimeout(finish, CLOSE_GRACE_MS)
+      try {
+        previousSocket.close(1000, 'replaced')
+      } catch {
+        finish()
+      }
+    })
 
   const handleEncryptedPayload = (payload: string) => {
     if (!channel) return
@@ -183,19 +185,12 @@ export const createRelayTransport = (
     request.resolve(message.result)
   }
 
-  const connectInternal = () =>
-    new Promise<void>((resolve, reject) => {
-      setStatus('connecting')
-      stopHeartbeat()
-      channel = null
-      if (socket) {
-        const previousSocket = socket
-        detachSocketHandlers(previousSocket)
-        previousSocket.close(1000, 'replaced')
-        socket = null
-      }
-      const nextSocket = new WebSocketCtor(config.relay_url)
-      socket = nextSocket
+  const connectInternal = (): Promise<void> => {
+    setStatus('connecting')
+    connecting = true
+    stopHeartbeat()
+    channel = null
+    return new Promise<void>((resolve, reject) => {
       let settled = false
       let handshake: ReturnType<typeof createHandshakeInitiator> | null = createHandshakeInitiator(
         decodeKeyPair(config.device_keypair)
@@ -204,119 +199,143 @@ export const createRelayTransport = (
       const failConnect = (error: Error) => {
         if (settled) return
         settled = true
+        connecting = false
         reject(error)
       }
 
-      nextSocket.onopen = () => {
-        try {
-          sendFrame({
-            auth_token: config.relay_auth_token,
-            connection_id: config.device_id,
-            role: 'device',
-            room: config.room_id,
-            type: 'join',
-            version: 1,
-          })
-        } catch (error) {
-          failConnect(error instanceof Error ? error : new Error(String(error)))
-        }
-      }
+      const openNewSocket = () => {
+        const nextSocket = new WebSocketCtor(config.relay_url)
+        socket = nextSocket
 
-      nextSocket.onerror = (event: unknown) => {
-        setStatus('error')
-        const error = event instanceof Error ? event.message : 'Relay socket error'
-        for (const listener of diagnosticsListeners) {
-          listener({ error, ts: Date.now(), type: 'socket_error' })
-        }
-        failConnect(event instanceof Error ? event : new Error(error))
-      }
-
-      nextSocket.onclose = (event: unknown) => {
-        for (const request of pending.values()) request.reject(new Error('Relay socket closed'))
-        pending.clear()
-        if (socket === nextSocket) socket = null
-        setStatus('disconnected')
-        const closeEvent = event as { code?: unknown; reason?: unknown }
-        for (const listener of diagnosticsListeners) {
-          listener({
-            code: typeof closeEvent?.code === 'number' ? closeEvent.code : undefined,
-            reason: typeof closeEvent?.reason === 'string' ? closeEvent.reason : undefined,
-            ts: Date.now(),
-            type: 'socket_close',
-          })
-        }
-        failConnect(new Error('Relay socket closed'))
-        if (!closedByUser) scheduleReconnect()
-      }
-
-      nextSocket.onmessage = (event: { data: string }) => {
-        try {
-          const frame = JSON.parse(String(event.data)) as RelayFrame
-          if (frame.type === 'joined') {
-            setStatus('handshaking')
-            if (!handshake) throw new Error('Relay handshake missing')
+        nextSocket.onopen = () => {
+          try {
             sendFrame({
-              // Clear handshake frames go on the wire as base64(JSON) to match
-              // the daemon's encodeClearFrame/decodeClearFrame (relay-connector.ts).
-              // Plain JSON.stringify here makes the daemon's decodeBase64 throw, so
-              // it never recognises the hello as a handshake and replies
-              // unknown_session. Field names must also match isHandshakeHello: a
-              // nested `handshake` init-message object and a `token`. Both are
-              // invisible until a real device handshakes over relay (4G), not LAN.
-              payload: encodeBase64(
-                encodeJson({
-                  capabilities: config.capabilities,
-                  device_id: config.device_id,
-                  device_public_key: config.device_keypair.publicKey,
-                  handshake: handshake.getInitMessage(),
-                  token: config.device_token,
-                  type: 'e2ee_hello',
-                })
-              ),
+              auth_token: config.relay_auth_token,
+              connection_id: config.device_id,
+              role: 'device',
               room: config.room_id,
-              type: 'data',
+              type: 'join',
+              version: 1,
             })
-            return
+          } catch (error) {
+            failConnect(error instanceof Error ? error : new Error(String(error)))
           }
-          if (frame.type !== 'data' || typeof frame.payload !== 'string') return
-          if (!channel) {
-            // The daemon's e2ee_ready is base64(JSON) with the response nested
-            // under `handshake` (relay-connector.ts encodeClearFrame), not plain
-            // JSON flattened at the top level.
-            const ready = decodeJson(decodeBase64(frame.payload)) as {
-              handshake?: { ephemeral_public_key?: string }
-              type?: string
-            }
-            if (
-              ready.type !== 'e2ee_ready' ||
-              !ready.handshake?.ephemeral_public_key ||
-              !handshake
-            ) {
-              throw new Error('Invalid relay handshake response')
-            }
-            channel = handshake.processResponse({
-              ephemeral_public_key: ready.handshake.ephemeral_public_key,
-            })
-            handshake = null
-            reconnectAttempts = 0
-            setStatus('ready')
-            startHeartbeat()
-            settled = true
-            resolve()
-            return
-          }
-          handleEncryptedPayload(frame.payload)
-        } catch (error) {
-          setStatus('error')
-          failConnect(error instanceof Error ? error : new Error(String(error)))
         }
+
+        nextSocket.onerror = (event: unknown) => {
+          setStatus('error')
+          const error = event instanceof Error ? event.message : 'Relay socket error'
+          for (const listener of diagnosticsListeners) {
+            listener({ error, ts: Date.now(), type: 'socket_error' })
+          }
+          failConnect(event instanceof Error ? event : new Error(error))
+        }
+
+        nextSocket.onclose = (event: unknown) => {
+          for (const request of pending.values()) request.reject(new Error('Relay socket closed'))
+          pending.clear()
+          if (socket === nextSocket) socket = null
+          stopHeartbeat()
+          setStatus('disconnected')
+          const closeEvent = event as { code?: unknown; reason?: unknown }
+          for (const listener of diagnosticsListeners) {
+            listener({
+              code: typeof closeEvent?.code === 'number' ? closeEvent.code : undefined,
+              reason: typeof closeEvent?.reason === 'string' ? closeEvent.reason : undefined,
+              ts: Date.now(),
+              type: 'socket_close',
+            })
+          }
+          // 不在此 scheduleReconnect：transport 是被动连接器，重连由 context 唯一引擎驱动。
+          failConnect(new Error('Relay socket closed'))
+        }
+
+        nextSocket.onmessage = (event: { data: string }) => {
+          try {
+            const frame = JSON.parse(String(event.data)) as RelayFrame
+            if (frame.type === 'joined') {
+              setStatus('handshaking')
+              if (!handshake) throw new Error('Relay handshake missing')
+              sendFrame({
+                // Clear handshake frames go on the wire as base64(JSON) to match
+                // the daemon's encodeClearFrame/decodeClearFrame (relay-connector.ts).
+                // Plain JSON.stringify here makes the daemon's decodeBase64 throw, so
+                // it never recognises the hello as a handshake and replies
+                // unknown_session. Field names must also match isHandshakeHello: a
+                // nested `handshake` init-message object and a `token`. Both are
+                // invisible until a real device handshakes over relay (4G), not LAN.
+                payload: encodeBase64(
+                  encodeJson({
+                    capabilities: config.capabilities,
+                    device_id: config.device_id,
+                    device_public_key: config.device_keypair.publicKey,
+                    handshake: handshake.getInitMessage(),
+                    token: config.device_token,
+                    type: 'e2ee_hello',
+                  })
+                ),
+                room: config.room_id,
+                type: 'data',
+              })
+              return
+            }
+            if (frame.type !== 'data' || typeof frame.payload !== 'string') return
+            if (!channel) {
+              // The daemon's e2ee_ready is base64(JSON) with the response nested
+              // under `handshake` (relay-connector.ts encodeClearFrame), not plain
+              // JSON flattened at the top level.
+              const ready = decodeJson(decodeBase64(frame.payload)) as {
+                handshake?: { ephemeral_public_key?: string }
+                type?: string
+              }
+              if (
+                ready.type !== 'e2ee_ready' ||
+                !ready.handshake?.ephemeral_public_key ||
+                !handshake
+              ) {
+                throw new Error('Invalid relay handshake response')
+              }
+              channel = handshake.processResponse({
+                ephemeral_public_key: ready.handshake.ephemeral_public_key,
+              })
+              handshake = null
+              // 注意：不在此清退避。「握手到 ready」会被下一条 socket 秒踢，ready 即清退避会
+              // 锁死 1s churn 周期。退避归零交给 context 在拿到真实业务 RPC 成功后做（改7）。
+              connecting = false
+              setStatus('ready')
+              startHeartbeat()
+              settled = true
+              resolve()
+              return
+            }
+            handleEncryptedPayload(frame.payload)
+          } catch (error) {
+            setStatus('error')
+            failConnect(error instanceof Error ? error : new Error(String(error)))
+          }
+        }
+      }
+
+      // 关旧再开新：仅当存在仍 CONNECTING/OPEN 的旧 socket 时才等其关闭（异步路径）；
+      // 否则（首连或旧 socket 已关）同步开新，保持原有同步建 socket 语义。
+      const previousSocket = socket
+      socket = null
+      if (previousSocket && (previousSocket.readyState === 0 || previousSocket.readyState === 1)) {
+        void closePreviousSocket(previousSocket).then(openNewSocket)
+      } else {
+        openNewSocket()
       }
     })
+  }
 
   const connect = () => {
-    closedByUser = false
-    if (state === 'ready') return Promise.resolve()
-    if (connectPromise) return connectPromise
+    // ready 短路必须校验真实 socket：4G 延迟 close 下 state 可能仍显示 ready 但 socket 已死，
+    // 此时不能短路（否则往死 socket 发 RPC），要放行重连。
+    if (state === 'ready' && socket && socket.readyState === 1) return Promise.resolve()
+    // 非稳定期任何 connect() 复用在途连接，绝不新建第二条。
+    if (connectPromise || connecting || state === 'connecting' || state === 'handshaking') {
+      return connectPromise ?? Promise.resolve()
+    }
     connectPromise = connectInternal().finally(() => {
       connectPromise = null
     })
@@ -340,8 +359,6 @@ export const createRelayTransport = (
       })
     },
     close() {
-      closedByUser = true
-      clearReconnectTimer()
       stopHeartbeat()
       if (socket) {
         const currentSocket = socket
@@ -350,6 +367,7 @@ export const createRelayTransport = (
       }
       socket = null
       channel = null
+      connecting = false
       setStatus('disconnected')
     },
     connect,
