@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
-
+import { parseCockpit } from './cockpit-doc.js'
 import { createLocalSttProvider } from './local-stt.js'
-import type { MobileCapability } from './mobile-auth.js'
+import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
+import { answerQuestionInFile } from './pm-questions-doc.js'
 import type { RuntimeInfo } from './route-types.js'
 import {
   buildMobileDashboard,
@@ -15,6 +17,7 @@ import {
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { getOrchestratorId } from './workspace-store-support.js'
 
 export type RelayRpcHandler = (
   method: string,
@@ -35,20 +38,26 @@ interface RelayRpcHandlerDeps {
     | 'getActiveRunByAgentId'
     | 'getAgent'
     | 'getPtySnapshotForAgent'
+    | 'getWorkspaceSnapshot'
     | 'getWorker'
     | 'listDispatches'
     | 'listWorkspaces'
+    | 'listMobileChatMessages'
     | 'recordUserInput'
     | 'requireMobileCapability'
     | 'settings'
     | 'startAgent'
     | 'stopAgentRun'
     | 'updateMobilePushToken'
+    | 'insertMobileChatMessage'
+    | 'notifyQuestionAnswered'
   > &
     Partial<RuntimeStore>
 }
 
 type RelayRpcParams = Record<string, unknown>
+const pendingUploadPaths = new Map<string, string[]>()
+const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
 const asParams = (value: unknown): RelayRpcParams =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RelayRpcParams) : {}
@@ -61,27 +70,38 @@ const readStringParam = (params: RelayRpcParams, key: string) => {
   return value.trim()
 }
 
+const readOptionalNumberParam = (params: RelayRpcParams, key: string, fallback: number) => {
+  const value = params[key]
+  if (value === undefined || value === null || value === '') return fallback
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${key} must be a number`)
+  }
+  return parsed
+}
+
+const getPendingUploadKey = (workspaceId: string, deviceId: string) => `${workspaceId}:${deviceId}`
+
 const requireCapability = (
   store: RelayRpcHandlerDeps['store'],
   deviceId: string,
   capabilities: string[],
   capability: Parameters<RuntimeStore['requireMobileCapability']>[1]
-) => {
-  store.requireMobileCapability(
-    {
-      capabilities: capabilities as MobileCapability[],
-      created_at: Date.now(),
-      device_type: 'relay',
-      id: deviceId,
-      last_seen_at: Date.now(),
-      name: 'Relay device',
-      push_token: null,
-      revoked_at: null,
-      source: 'manual',
-      token: '',
-    },
-    capability
-  )
+): MobileDeviceRecord => {
+  const device: MobileDeviceRecord = {
+    capabilities: capabilities as MobileCapability[],
+    created_at: Date.now(),
+    device_type: 'relay',
+    id: deviceId,
+    last_seen_at: Date.now(),
+    name: 'Relay device',
+    push_token: null,
+    revoked_at: null,
+    source: 'manual',
+    token: '',
+  }
+  store.requireMobileCapability(device, capability)
+  return device
 }
 
 export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandler => {
@@ -128,6 +148,44 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       )
     }
 
+    if (method === 'workspace.chat.messages') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      const limit = readOptionalNumberParam(params, 'limit', 50)
+      const since =
+        params.since === undefined || params.since === null || params.since === ''
+          ? undefined
+          : readOptionalNumberParam(params, 'since', 0)
+      return {
+        messages: deps.store.listMobileChatMessages(workspaceId, since, limit),
+      }
+    }
+
+    if (method === 'workspace.cockpit') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
+      const cockpit = parseCockpit(workspace.summary.path)
+      return {
+        aiActions: cockpit.aiActions,
+        ideas: cockpit.ideas,
+        plan: cockpit.plan,
+        questions: cockpit.questions,
+        tasks: cockpit.tasks,
+      }
+    }
+
+    if (method === 'workspace.cockpit.question.answer') {
+      requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      const questionId = readStringParam(params, 'question_id')
+      const answer = readStringParam(params, 'answer')
+      const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
+      answerQuestionInFile(workspace.summary.path, questionId, answer)
+      deps.store.notifyQuestionAnswered(workspaceId, questionId, answer)
+      return { ok: true }
+    }
+
     if (method === 'workspace.dispatch') {
       requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
       const workspaceId = readStringParam(params, 'workspace_id')
@@ -155,6 +213,50 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       return { approval_id: approvalId, decision, ok: true }
     }
 
+    if (method === 'workspace.approve') {
+      requireCapability(deps.store, deviceId, capabilities, 'approve_risk')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      const approvalId = readStringParam(params, 'approval_id')
+      const decision = readStringParam(params, 'decision')
+      if (decision !== 'allow' && decision !== 'deny') {
+        throw new Error('decision must be allow or deny')
+      }
+      const approval = deps.store.approvalLedger.get(approvalId)
+      if (!approval || approval.workspaceId !== workspaceId) {
+        throw new Error(`Approval not found: ${approvalId}`)
+      }
+      const resolved = deps.store.approvalLedger.resolve(approvalId, decision, `relay:${deviceId}`)
+      if (!resolved) throw new Error(`Approval not found or already resolved: ${approvalId}`)
+      injectApprovalDecision(deps.store, resolved)
+      return { approval_id: approvalId, decision, ok: true, status: 'recorded' }
+    }
+
+    if (method === 'workspace.prompt') {
+      const device = requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      const text = readStringParam(params, 'text')
+      const orchId = getOrchestratorId(workspaceId)
+      const activeRun = deps.store.getActiveRunByAgentId(workspaceId, orchId)
+      if (!activeRun) {
+        throw new Error('Orchestrator is not running')
+      }
+      const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
+      const uploadPaths = pendingUploadPaths.get(pendingUploadKey) ?? []
+      pendingUploadPaths.delete(pendingUploadKey)
+      const pathHints = uploadPaths.map((p) => `[Image: source: ${p}]`).join('\n')
+      const formatted = pathHints
+        ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
+        : `[来自手机 Mobile App]\n---\n${text}`
+      deps.store.recordUserInput(workspaceId, orchId, formatted)
+      deps.store.insertMobileChatMessage(
+        workspaceId,
+        'inbound',
+        'user_text',
+        JSON.stringify({ text })
+      )
+      return { ok: true, workspace_id: workspaceId }
+    }
+
     if (method === 'worker.stop') {
       requireCapability(deps.store, deviceId, capabilities, 'admin_runtime')
       const workspaceId = readStringParam(params, 'workspace_id')
@@ -176,6 +278,55 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         hivePort: String(deps.runtimeInfo.port ?? ''),
       })
       return { ok: true, run_id: run.runId, worker_id: workerId, workspace_id: workspaceId }
+    }
+
+    if (method === 'workspace.upload') {
+      const device = requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      const workspaceId = readStringParam(params, 'workspace_id')
+      deps.store.getWorkspaceSnapshot(workspaceId)
+      const data = readStringParam(params, 'data')
+      const filename =
+        typeof params.filename === 'string' && params.filename.trim()
+          ? params.filename.trim()
+          : 'upload'
+      const mimeType =
+        typeof params.mime_type === 'string' && params.mime_type.trim()
+          ? params.mime_type.trim()
+          : 'application/octet-stream'
+      const dataBuffer = Buffer.from(data, 'base64')
+      if (dataBuffer.length > MAX_UPLOAD_SIZE_BYTES) {
+        throw new Error('File too large (max 50MB)')
+      }
+      const dataDir = deps.runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
+      const uploadsDir = join(dataDir, 'uploads')
+      if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
+      const fileId = randomUUID()
+      const ext = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : ''
+      const storageName = `${fileId}${ext}`
+      const diskPath = join(uploadsDir, storageName)
+      writeFileSync(diskPath, dataBuffer)
+      const url = `/api/mobile/uploads/${fileId}${ext}`
+      const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
+      const pending = pendingUploadPaths.get(pendingUploadKey) ?? []
+      pending.push(diskPath)
+      pendingUploadPaths.set(pendingUploadKey, pending)
+      deps.store.insertMobileChatMessage(
+        workspaceId,
+        'inbound',
+        'user_text',
+        JSON.stringify({
+          media: { file_id: fileId, filename, mime_type: mimeType, size: dataBuffer.length, url },
+          text: `[${filename}]`,
+        })
+      )
+      return {
+        file_id: fileId,
+        filename,
+        mime_type: mimeType,
+        ok: true,
+        size: dataBuffer.length,
+        url,
+      }
     }
 
     if (method === 'command_presets.list') {
