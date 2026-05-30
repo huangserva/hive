@@ -59,6 +59,7 @@ import {
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import { generateDeviceKeypair } from './relay-device-keys'
+import { resolveRelayEventActions } from './relay-event-actions'
 import type { RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
 
@@ -354,19 +355,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   // chat 消息直接 merge（store 消息字段是 mobile ChatMessage 超集，安全）；dashboard 信号触发即时刷新。
   // 每次 render 重指最新闭包，始终用最新 mergeChatMessages/refreshDashboard。
   relayEventHandlerRef.current = (event: RelayTransportEvent) => {
-    if (event.kind === 'chat_message') {
-      const data = event.payload as { message?: ChatMessage; workspace_id?: string }
-      if (data?.message?.id && data.workspace_id === selectedWorkspaceIdRef.current) {
-        mergeChatMessages([data.message])
-      }
-      return
-    }
-    if (event.kind === 'dashboard_update') {
-      const data = event.payload as { workspace_id?: string }
-      if (data?.workspace_id && data.workspace_id === selectedWorkspaceIdRef.current) {
-        void refreshDashboard(data.workspace_id)
-      }
-    }
+    const actions = resolveRelayEventActions(event, selectedWorkspaceIdRef.current)
+    if (actions.mergeChatMessage) mergeChatMessages([actions.mergeChatMessage])
+    if (actions.refreshDashboardWorkspaceId)
+      void refreshDashboard(actions.refreshDashboardWorkspaceId)
+    // dashboard_update 才 bump：让 cockpit 各标签页（plan/tasks/questions/ideas/actions）随
+    // .hive 变更推送一起 refetch，整个 Cockpit 与 web（chokidar+WS）一样实时；chat_message 只 merge 不 bump。
+    if (actions.bumpSyncRevision) bumpSyncRevision()
   }
 
   const syncWorkspaceData = useCallback(
