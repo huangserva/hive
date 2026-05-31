@@ -80,6 +80,63 @@ describe('filterPendingOptimisticMessages', () => {
     expect(pending[0]?.id).toBe('opt-2')
   })
 
+  test('regression #23: a pre-existing history message must NOT consume a newer same-content send', () => {
+    const content_json = JSON.stringify({ text: 'gm' })
+    // 历史里早就有一条同文案（10:00:00）。
+    const history = chatMessage({
+      content_json,
+      created_at: Date.parse('2026-05-31T10:00:00Z'),
+      id: 'srv-old',
+    })
+    // user 之后又连发同一句（optimistic 创建于 10:05:00），它的 echo 还没到。
+    const optimistic = [
+      optimisticMessage({
+        clientNonce: 'nonce-new',
+        content_json,
+        created_at: Date.parse('2026-05-31T10:05:00Z'),
+        id: 'opt-new',
+      }),
+    ]
+
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [history],
+      optimisticMessages: optimistic,
+    })
+
+    // 旧历史早于新 optimistic → 不得消费它 → 新发的消息必须保留（不再被误删）。
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.id).toBe('opt-new')
+  })
+
+  test('regression #23: the fresh echo (created after the send) does consume it; stale history still does not', () => {
+    const content_json = JSON.stringify({ text: 'gm' })
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json,
+          created_at: Date.parse('2026-05-31T10:00:00Z'),
+          id: 'srv-old',
+        }),
+        chatMessage({
+          content_json,
+          created_at: Date.parse('2026-05-31T10:05:20Z'),
+          id: 'srv-echo',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'nonce-new',
+          content_json,
+          created_at: Date.parse('2026-05-31T10:05:00Z'),
+          id: 'opt-new',
+        }),
+      ],
+    })
+
+    // 旧历史(10:00)跳过，新鲜 echo(10:05:20 ≥ 10:05:00)消费 → optimistic 清掉。
+    expect(pending).toEqual([])
+  })
+
   test('keeps same-content messages distinct until each has a matching echo', () => {
     const content_json = JSON.stringify({ text: 'same text twice' })
     const optimistic = [

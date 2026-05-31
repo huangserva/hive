@@ -567,7 +567,7 @@ const WorkerCard = ({
         <View style={styles.expanded}>
           <View style={styles.workerMetaGrid}>
             <MetaChip label={t('common.role')} value={worker.role} />
-            <MetaChip label={t('common.status')} value={statusTextFor(worker)} />
+            <MetaChip label={t('common.status')} value={statusTextFor(worker, t)} />
           </View>
           <CapabilityChips capabilities={worker.capabilities} />
           <WorkerActions
@@ -844,10 +844,10 @@ const DispatchModal = ({
   )
 }
 
-const statusTextFor = (worker: MobileDashboardWorker) => {
-  if (worker.status === 'working') return 'Working'
-  if (worker.status === 'idle') return 'Idle'
-  if (worker.status === 'stopped') return 'Stopped'
+const statusTextFor = (worker: MobileDashboardWorker, t: ReturnType<typeof useT>) => {
+  if (worker.status === 'working') return t('status.workerState.working')
+  if (worker.status === 'idle') return t('status.workerState.idle')
+  if (worker.status === 'stopped') return t('status.workerState.stopped')
   return worker.status
 }
 

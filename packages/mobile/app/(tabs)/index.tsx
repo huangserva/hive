@@ -150,10 +150,10 @@ export default function ChatTab() {
       blocked: dashboard?.cockpit.high_ai_actions ?? 0,
       done: dashboard?.tasks.total_done ?? 0,
       inProgress: dashboard?.tasks.total_open ?? 0,
-      name: dashboard?.workspace.name ?? 'Workspace',
+      name: dashboard?.workspace.name ?? t('chat.workspace.fallbackName'),
       phase: stripInlineMarkdown(dashboard?.plan.current_phase ?? null) || null,
     }),
-    [dashboard]
+    [dashboard, t]
   )
 
   const allMessages = useMemo<DisplayMessage[]>(() => {

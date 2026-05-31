@@ -57,9 +57,30 @@ export const decodeConnectionQrFromRgba = (image: RgbaImage): ParsedConnectionQr
   return text === null ? null : parseConnectionQr(text)
 }
 
-// 顶层入口：相册图（image-manipulator 转出的 base64 PNG）→ 连接配置。
-// settings.tsx 拿到 base64 PNG 直接喂这里，全程纯 JS、不碰 scanFromURLAsync。
-export const decodeConnectionQrFromPngBase64 = (base64: string): ParsedConnectionQr | null => {
+// 区分相册解码的四种结局，让 UI 能给不同提示（不再全部笼统报"未找到二维码"）：
+// - ok：解出合法连接配置
+// - decode-failed：图片本身解不开（PNG/base64 坏）
+// - no-qr：图能解，但里面没有二维码
+// - not-connection：有二维码，但不是 HippoTeam 连接配置
+export type QrDecodeOutcome =
+  | { payload: ParsedConnectionQr; status: 'ok' }
+  | { status: 'decode-failed' }
+  | { status: 'no-qr' }
+  | { status: 'not-connection' }
+
+// 顶层入口（带分类结局）：settings.tsx 拿 image-manipulator 的 base64 PNG 喂这里。全程纯 JS。
+export const decodeConnectionQrOutcomeFromPngBase64 = (base64: string): QrDecodeOutcome => {
   const image = rgbaFromPngBase64(base64)
-  return image === null ? null : decodeConnectionQrFromRgba(image)
+  if (image === null) return { status: 'decode-failed' }
+  const text = decodeQrTextFromRgba(image)
+  if (text === null) return { status: 'no-qr' }
+  const payload = parseConnectionQr(text)
+  if (payload === null) return { status: 'not-connection' }
+  return { payload, status: 'ok' }
+}
+
+// 顶层入口（仅成功才回 payload）：保留旧签名，内部走分类结局。
+export const decodeConnectionQrFromPngBase64 = (base64: string): ParsedConnectionQr | null => {
+  const outcome = decodeConnectionQrOutcomeFromPngBase64(base64)
+  return outcome.status === 'ok' ? outcome.payload : null
 }

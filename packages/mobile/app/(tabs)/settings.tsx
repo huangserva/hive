@@ -25,7 +25,7 @@ import {
   parseConnectionQr,
   type RelayPairingInput,
 } from '../../src/lib/connection-qr'
-import { decodeConnectionQrFromPngBase64 } from '../../src/lib/qr-image-decode'
+import { decodeConnectionQrOutcomeFromPngBase64 } from '../../src/lib/qr-image-decode'
 import { colors, radius, spacing } from '../../src/theme'
 
 // 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
@@ -175,14 +175,24 @@ export default function SettingsTab() {
         base64: true,
         format: SaveFormat.PNG,
       })
-      const payload = normalized.base64 ? decodeConnectionQrFromPngBase64(normalized.base64) : null
-      if (!payload) {
-        Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
+      const outcome = normalized.base64
+        ? decodeConnectionQrOutcomeFromPngBase64(normalized.base64)
+        : ({ status: 'decode-failed' } as const)
+      if (outcome.status === 'ok') {
+        await applyScannedConnectionQr(outcome.payload)
         return
       }
-      await applyScannedConnectionQr(payload)
+      // 按结局给不同提示，不再一律"未找到二维码"。
+      if (outcome.status === 'not-connection') {
+        Alert.alert(t('settings.photoQrInvalidTitle'), t('settings.photoQrInvalidBody'))
+      } else if (outcome.status === 'decode-failed') {
+        Alert.alert(t('settings.photoQrDecodeFailedTitle'), t('settings.photoQrDecodeFailedBody'))
+      } else {
+        Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
+      }
     } catch {
-      Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
+      // manipulateAsync 等原生异常 = 图片读不出来。
+      Alert.alert(t('settings.photoQrDecodeFailedTitle'), t('settings.photoQrDecodeFailedBody'))
     } finally {
       setPhotoScanBusy(false)
     }
@@ -312,7 +322,7 @@ export default function SettingsTab() {
               autoCorrect={false}
               inputMode="url"
               onChangeText={setDraftHost}
-              placeholder="https://orchestrator.hippoteam.local"
+              placeholder={t('settings.connectHostPlaceholder')}
               placeholderTextColor={colors.muted2}
               style={styles.input}
               value={draftHost}

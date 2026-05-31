@@ -1,12 +1,23 @@
 import QRCode from 'qrcode'
+import UPNG from 'upng-js'
 import { describe, expect, it } from 'vitest'
 
 import {
   decodeConnectionQrFromPngBase64,
   decodeConnectionQrFromRgba,
+  decodeConnectionQrOutcomeFromPngBase64,
   decodeQrTextFromRgba,
   rgbaFromPngBase64,
 } from '../src/lib/qr-image-decode'
+
+// 一张可正常解码、但里面没有二维码的纯白 PNG —— 用于 no-qr 结局。
+const blankPngBase64 = (): string => {
+  const width = 80
+  const height = 80
+  const rgba = new Uint8Array(width * height * 4).fill(255)
+  const png = UPNG.encode([rgba.buffer], width, height, 0)
+  return Buffer.from(new Uint8Array(png)).toString('base64')
+}
 
 // 用 qrcode 真生成一张二维码 PNG（base64），全程纯 JS 解码（upng + jsQR），
 // 这正是华为机相册路径要走的链路；测它能解出预期内容 = 根治 scanFromURLAsync。
@@ -79,5 +90,29 @@ describe('qr-image-decode (pure, no native / no GMS)', () => {
     expect(
       decodeQrTextFromRgba({ data: new Uint8ClampedArray(10), height: 64, width: 64 })
     ).toBeNull()
+  })
+
+  describe('outcome split (#23: distinct failure states, not one blanket "no QR")', () => {
+    it('ok → returns the parsed connection payload', async () => {
+      const base64 = await qrPngBase64(JSON.stringify({ host: '1.2.3.4:4010', token: 'tok_ok' }))
+      const outcome = decodeConnectionQrOutcomeFromPngBase64(base64)
+      expect(outcome.status).toBe('ok')
+      if (outcome.status === 'ok') {
+        expect(outcome.payload).toEqual({ host: '1.2.3.4:4010', token: 'tok_ok' })
+      }
+    })
+
+    it('not-connection → a real QR that is not a HippoTeam connection code', async () => {
+      const base64 = await qrPngBase64('https://example.com/not-a-connection')
+      expect(decodeConnectionQrOutcomeFromPngBase64(base64).status).toBe('not-connection')
+    })
+
+    it('no-qr → a decodable image with no QR code in it', () => {
+      expect(decodeConnectionQrOutcomeFromPngBase64(blankPngBase64()).status).toBe('no-qr')
+    })
+
+    it('decode-failed → the image bytes cannot be decoded at all', () => {
+      expect(decodeConnectionQrOutcomeFromPngBase64('not-a-real-png').status).toBe('decode-failed')
+    })
   })
 })
