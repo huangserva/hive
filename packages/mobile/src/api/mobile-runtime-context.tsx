@@ -58,6 +58,10 @@ import {
   serializeOutboxState,
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
+import {
+  shouldProbeForegroundReconnect,
+  shouldQueuePromptBeforeSend,
+} from './mobile-runtime-context-logic'
 import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
 import type { RelayTransportEvent } from './relay-transport'
@@ -100,6 +104,7 @@ interface MobileRuntimeContextValue {
   outboxFailedCount: number
   outboxPendingCount: number
   outboxSendingCount: number
+  reconnecting: boolean
   relayConfig: StoredRelayConfig | null
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
   restartWorker: (workerId: string) => Promise<boolean>
@@ -170,6 +175,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [outbox, setOutbox] = useState<MobileOutboxState>(createMobileOutboxState())
   const [syncRevision, setSyncRevision] = useState(0)
@@ -196,6 +202,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const selectedWorkspaceIdRef = useRef(selectedWorkspaceId)
   const stateRef = useRef(state)
   const outboxRef = useRef(outbox)
+  const reconnectingRef = useRef(reconnecting)
 
   hostRef.current = host
   tokenRef.current = token
@@ -203,6 +210,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   selectedWorkspaceIdRef.current = selectedWorkspaceId
   stateRef.current = state
   outboxRef.current = outbox
+  reconnectingRef.current = reconnecting
+
+  const syncReconnectingState = useCallback(() => {
+    setReconnecting(Boolean(reconnectInFlightRef.current || reconnectTimerRef.current))
+  }, [])
 
   const appendDiagnosticEvent = useCallback(
     (event: { detail?: string; ts?: number; type: string }) => {
@@ -384,6 +396,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
 
   const flushOutbox = useCallback(async () => {
     if (outboxFlushInFlightRef.current) return
+    if (reconnectingRef.current) return
     if (stateRef.current !== 'connected') return
     if (!hasQueuedOutboxItems(outboxRef.current)) return
     outboxFlushInFlightRef.current = true
@@ -437,10 +450,17 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [client])
 
   const connect = useCallback(
-    async (nextHost: string, nextToken: string, nextRelayConfig = relayConfig) => {
+    async (
+      nextHost: string,
+      nextToken: string,
+      nextRelayConfig = relayConfig,
+      options: { preserveUiState?: boolean } = {}
+    ) => {
       const trimmedToken = nextToken.trim()
-      setState('checking')
-      setError(null)
+      if (!options.preserveUiState) {
+        setState('checking')
+        setError(null)
+      }
       try {
         const nextClient = createRuntimeClient({
           host: nextHost,
@@ -485,11 +505,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         void flushOutbox()
         return nextStatus
       } catch (connectError) {
-        const message = connectError instanceof Error ? connectError.message : String(connectError)
-        setError(message)
-        setDashboard(null)
-        setRuntimeStatus(null)
-        setState('error')
+        if (!options.preserveUiState) {
+          const message =
+            connectError instanceof Error ? connectError.message : String(connectError)
+          setError(message)
+          setDashboard(null)
+          setRuntimeStatus(null)
+          setState('error')
+        }
         return null
       }
     },
@@ -778,7 +801,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return false
       }
       setError(null)
-      if (stateRef.current !== 'connected') {
+      const relayTransportReady = observedRelayTransportRef.current
+        ? observedRelayTransportRef.current.status() === 'ready'
+        : true
+      if (
+        shouldQueuePromptBeforeSend({
+          connectionState: stateRef.current,
+          reconnecting: reconnectingRef.current,
+          relayTransportReady,
+        })
+      ) {
         setOutbox((current) =>
           enqueueOutboxItem(
             current,
@@ -797,6 +829,27 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return true
       } catch (promptError) {
         const message = promptError instanceof Error ? promptError.message : String(promptError)
+        const transportReady = observedRelayTransportRef.current
+          ? observedRelayTransportRef.current.status() === 'ready'
+          : true
+        if (
+          shouldQueuePromptBeforeSend({
+            connectionState: stateRef.current,
+            reconnecting: reconnectingRef.current,
+            relayTransportReady: transportReady,
+          })
+        ) {
+          setOutbox((current) =>
+            enqueueOutboxItem(
+              current,
+              createPromptOutboxItem({
+                text,
+                workspaceId: selectedWorkspaceId,
+              })
+            )
+          )
+          return false
+        }
         setOutbox((current) =>
           enqueueOutboxItem(
             current,
@@ -836,18 +889,23 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const attemptReconnect = useCallback(
-    async (options: { forceFullSync?: boolean } = {}) => {
+    async (options: { forceFullSync?: boolean; silent?: boolean } = {}) => {
       const nextHost = hostRef.current
       const nextToken = tokenRef.current.trim()
       if (!nextToken || reconnectInFlightRef.current) return false
       reconnectInFlightRef.current = true
+      syncReconnectingState()
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
+        syncReconnectingState()
       }
       try {
-        const status = await connectRef.current(nextHost, nextToken, relayConfigRef.current)
+        const status = await connectRef.current(nextHost, nextToken, relayConfigRef.current, {
+          preserveUiState: Boolean(options.silent),
+        })
         reconnectInFlightRef.current = false
+        syncReconnectingState()
         if (!status) {
           reconnectAttemptRef.current += 1
           return false
@@ -860,18 +918,21 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return true
       } catch (reconnectError) {
         reconnectInFlightRef.current = false
+        syncReconnectingState()
         reconnectAttemptRef.current += 1
-        const message =
-          reconnectError instanceof Error ? reconnectError.message : String(reconnectError)
-        setError(message)
+        if (!options.silent) {
+          const message =
+            reconnectError instanceof Error ? reconnectError.message : String(reconnectError)
+          setError(message)
+        }
         return false
       }
     },
-    [syncWorkspaceData]
+    [syncReconnectingState, syncWorkspaceData]
   )
 
   const scheduleReconnect = useCallback(
-    (options: { immediate?: boolean } = {}) => {
+    (options: { immediate?: boolean; silent?: boolean } = {}) => {
       if (
         !shouldAttemptAutoReconnect({
           demoMode,
@@ -886,12 +947,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       const delay = options.immediate ? 0 : nextReconnectDelayMs(reconnectAttemptRef.current)
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null
-        void attemptReconnect({ forceFullSync: true }).then((ok) => {
-          if (!ok) scheduleReconnect()
+        syncReconnectingState()
+        void attemptReconnect({ forceFullSync: true, silent: options.silent }).then((ok) => {
+          if (!ok) scheduleReconnect({ silent: options.silent })
         })
       }, delay)
+      syncReconnectingState()
     },
-    [attemptReconnect, demoMode]
+    [attemptReconnect, demoMode, syncReconnectingState]
   )
 
   const fetchChatMessages = useCallback(
@@ -997,8 +1060,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
 
   useEffect(() => {
     if (state !== 'connected' || outboxCounts.queuedCount === 0) return
+    if (reconnecting) return
     void flushOutbox()
-  }, [flushOutbox, outboxCounts.queuedCount, state])
+  }, [flushOutbox, outboxCounts.queuedCount, reconnecting, state])
 
   const retryOutbox = useCallback(async () => {
     setOutbox((current) => retryFailedOutboxItems(current))
@@ -1010,14 +1074,30 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         appStateRef.current === 'background' || appStateRef.current === 'inactive'
       appStateRef.current = nextState
       if (nextState !== 'active' || !wasBackgrounded || !tokenRef.current.trim()) return
-      void attemptReconnect({ forceFullSync: true }).then((ok) => {
-        if (!ok) scheduleReconnect({ immediate: true })
+      const shouldProbe = shouldProbeForegroundReconnect({
+        hasToken: Boolean(tokenRef.current.trim()),
+        isBackgrounded: wasBackgrounded,
+        isReconnecting: Boolean(reconnectInFlightRef.current || reconnectTimerRef.current),
+        state: stateRef.current,
       })
+      if (!shouldProbe) return
+      setReconnecting(true)
+      void client
+        .getMobileRuntimeStatus()
+        .then(() => {
+          setReconnecting(false)
+        })
+        .catch(() => {
+          void attemptReconnect({ forceFullSync: true, silent: true }).then((ok) => {
+            if (!ok) scheduleReconnect({ immediate: true, silent: true })
+            setReconnecting(Boolean(reconnectInFlightRef.current || reconnectTimerRef.current))
+          })
+        })
     })
     return () => {
       subscription.remove()
     }
-  }, [attemptReconnect, scheduleReconnect])
+  }, [attemptReconnect, client, scheduleReconnect])
 
   useEffect(
     () => () => {
@@ -1097,13 +1177,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [client, connectionMode, scheduleReconnect, selectedWorkspaceId, state, token])
 
   useEffect(() => {
-    if (state !== 'connected' || !selectedWorkspaceId) return
+    if (reconnecting || state !== 'connected' || !selectedWorkspaceId) return
     void fetchChatMessages()
     // M27 Part B：relay 推送（transport.onEvent → mergeChatMessages）是主路径，轮询降为兜底（5s→20s），
     // 推送漏了最多 20s 补上，4G 下少发请求。
     const interval = setInterval(() => void fetchChatMessages(), 20_000)
     return () => clearInterval(interval)
-  }, [fetchChatMessages, selectedWorkspaceId, state])
+  }, [fetchChatMessages, reconnecting, selectedWorkspaceId, state])
 
   const enableDemoMode = useCallback(() => {
     setDemoMode(true)
@@ -1155,6 +1235,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       outboxFailedCount: outboxCounts.failedCount,
       outboxPendingCount: outboxCounts.queuedCount,
       outboxSendingCount: outboxCounts.sendingCount,
+      reconnecting: demoMode ? false : reconnecting,
       relayConfig,
       refreshDashboard,
       restartWorker,
@@ -1196,6 +1277,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       host,
       pairedDevice,
       outboxCounts,
+      reconnecting,
       retryOutbox,
       relayConfig,
       refreshDashboard,

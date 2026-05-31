@@ -18,12 +18,13 @@ export const ConnectionModeBanner = () => {
     outboxFailedCount,
     outboxPendingCount,
     outboxSendingCount,
+    reconnecting,
     retryOutbox,
     state,
   } = useMobileRuntime()
 
   const displayMode: 'disconnected' | 'lan' | 'relay' =
-    state === 'connected' ? connectionMode : 'disconnected'
+    state === 'connected' || reconnecting ? connectionMode : 'disconnected'
   const modeKey =
     displayMode === 'lan'
       ? 'runtime.connectionMode.lan'
@@ -52,7 +53,7 @@ export const ConnectionModeBanner = () => {
           />
         </View>
         <Text style={s.modeText}>{modeLabel}</Text>
-        {state === 'checking' ? (
+        {state === 'checking' || reconnecting ? (
           <View style={s.loadingRow}>
             <ActivityIndicator color={colors.muted} size="small" />
             <Text style={s.loadingText}>{t('chat.status.connecting')}</Text>
