@@ -424,7 +424,7 @@ export default function StatusTab() {
                 <Ionicons color={colors.accent} name="terminal-outline" size={18} />
               </View>
               <View style={styles.orchInfo}>
-                <Text style={styles.orchName}>Orchestrator</Text>
+                <Text style={styles.orchName}>{t('status.orchestratorLabel')}</Text>
                 <Text style={styles.orchHint}>{t('status.viewOrchestratorTerminal')}</Text>
               </View>
             </View>
@@ -435,7 +435,7 @@ export default function StatusTab() {
         {/* Sentinel 哨兵专属区块：固定在普通 worker 之上、Orchestrator 之下，独立呈现 */}
         {sentinelWorkers.length > 0 ? (
           <View style={styles.sentinelSection}>
-            <Text style={styles.sentinelLabel}>Sentinel</Text>
+            <Text style={styles.sentinelLabel}>{t('status.sentinelLabel')}</Text>
             {sentinelWorkers.map((worker) => (
               <SentinelCard
                 key={worker.id}
@@ -653,7 +653,7 @@ const SentinelCard = ({
             style={styles.detailLink}
           >
             <Ionicons color={colors.accent} name="terminal-outline" size={15} />
-            <Text style={styles.detailLinkText}>Open terminal</Text>
+            <Text style={styles.detailLinkText}>{t('status.openTerminal')}</Text>
             <Ionicons color={colors.accent} name="chevron-forward" size={14} />
           </Pressable>
         </View>

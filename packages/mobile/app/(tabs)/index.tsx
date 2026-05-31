@@ -42,6 +42,7 @@ import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
 type OptimisticMessage = {
+  clientNonce: string
   id: string
   direction: 'inbound'
   queued?: boolean
@@ -71,6 +72,8 @@ const DEDUPE_MESSAGE_TYPES = new Set<DisplayMessage['message_type']>([
   'orch_reply',
   'worker_report',
 ])
+
+const createClientNonce = () => globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}`
 
 const messageContentKey = (message: Pick<DisplayMessage, 'content_json' | 'message_type'>) =>
   `${message.message_type}:${parseContent(message.content_json).replace(/\s+/g, ' ').trim()}`
@@ -375,7 +378,8 @@ export default function ChatTab() {
     const body = draft.trim()
     if (!body && attachments.length === 0) return
     if (sending) return
-    const msgId = `opt-${Date.now()}`
+    const clientNonce = createClientNonce()
+    const msgId = `opt-${clientNonce}`
     const firstAttachment = attachments[0]
     const optimisticContent = firstAttachment
       ? {
@@ -389,6 +393,7 @@ export default function ChatTab() {
         }
       : { text: body }
     const msg: OptimisticMessage = {
+      clientNonce,
       id: msgId,
       direction: 'inbound',
       message_type: 'user_text',
@@ -596,18 +601,20 @@ export default function ChatTab() {
                   <WorkspaceStat
                     color={colors.success}
                     icon="checkmark-circle-outline"
-                    text={`${workspaceStats.done} tasks done`}
+                    text={t('chat.workspace.tasksDone', { count: workspaceStats.done })}
                   />
                   <WorkspaceStat
                     color={colors.warning}
                     icon="ellipse-outline"
-                    text={`${workspaceStats.inProgress} in progress`}
+                    text={t('chat.workspace.tasksInProgress', {
+                      count: workspaceStats.inProgress,
+                    })}
                   />
                   {workspaceStats.blocked > 0 ? (
                     <WorkspaceStat
                       color={colors.error}
                       icon="warning-outline"
-                      text={`${workspaceStats.blocked} blocked`}
+                      text={t('chat.workspace.tasksBlocked', { count: workspaceStats.blocked })}
                     />
                   ) : null}
                 </View>

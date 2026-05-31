@@ -1,12 +1,8 @@
 import { Ionicons } from '@expo/vector-icons'
-import {
-  type BarcodeScanningResult,
-  CameraView,
-  scanFromURLAsync,
-  useCameraPermissions,
-} from 'expo-camera'
+import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
 import * as Clipboard from 'expo-clipboard'
 import Constants from 'expo-constants'
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator'
 import * as ImagePicker from 'expo-image-picker'
 import type { ComponentProps } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -29,8 +25,11 @@ import {
   parseConnectionQr,
   type RelayPairingInput,
 } from '../../src/lib/connection-qr'
-import { resolveConnectionQrFromScanResults } from '../../src/lib/connection-qr-scan'
+import { decodeConnectionQrFromPngBase64 } from '../../src/lib/qr-image-decode'
 import { colors, radius, spacing } from '../../src/theme'
+
+// 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
+const PHOTO_QR_MAX_EDGE = 1500
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 
@@ -161,8 +160,22 @@ export default function SettingsTab() {
       })
       const asset = result.canceled ? null : (result.assets?.[0] ?? null)
       if (!asset?.uri) return
-      const scanResults = await scanFromURLAsync(asset.uri, ['qr'])
-      const payload = resolveConnectionQrFromScanResults(scanResults)
+      // 绕开 expo-camera 的 scanFromURLAsync（安卓不靠谱）：把选中图归一成 PNG base64，
+      // 再用纯 JS（upng + jsQR）解码——不依赖原生/GMS，华为机能用。
+      const longestEdge = Math.max(asset.width ?? 0, asset.height ?? 0)
+      const resizeActions =
+        longestEdge > PHOTO_QR_MAX_EDGE
+          ? [
+              (asset.width ?? 0) >= (asset.height ?? 0)
+                ? { resize: { width: PHOTO_QR_MAX_EDGE } }
+                : { resize: { height: PHOTO_QR_MAX_EDGE } },
+            ]
+          : []
+      const normalized = await manipulateAsync(asset.uri, resizeActions, {
+        base64: true,
+        format: SaveFormat.PNG,
+      })
+      const payload = normalized.base64 ? decodeConnectionQrFromPngBase64(normalized.base64) : null
       if (!payload) {
         Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
         return
@@ -800,10 +813,18 @@ const formatEventTime = (ts: number) =>
   }).format(new Date(ts))
 
 const ConnectionBadge = ({ state }: { state: 'idle' | 'checking' | 'connected' | 'error' }) => {
+  const t = useT()
   const isConnected = state === 'connected'
+  const stateLabel = isConnected
+    ? t('settings.connState.connected')
+    : state === 'checking'
+      ? t('settings.connState.checking')
+      : state === 'error'
+        ? t('settings.connState.error')
+        : t('settings.connState.idle')
   return (
     <View style={[styles.badge, isConnected ? styles.badgeConnected : styles.badgeIdle]}>
-      <Text style={styles.badgeText}>{isConnected ? 'Orchestrator Online' : state}</Text>
+      <Text style={styles.badgeText}>{stateLabel}</Text>
       <View
         style={[styles.badgeDot, isConnected ? styles.badgeDotConnected : styles.badgeDotIdle]}
       />
