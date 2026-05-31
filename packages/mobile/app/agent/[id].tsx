@@ -21,6 +21,7 @@ import type {
   MobileWorkerTranscript,
   MobileWorkspaceTasks,
 } from '../../src/api/client'
+import { getRelevantDispatchHistory } from '../../src/api/mobile-dispatch-history'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
@@ -357,10 +358,7 @@ export default function AgentDetailScreen() {
     })
   }, [workerRun])
 
-  const relevantDispatches =
-    !isOrchestrator && worker
-      ? (tasks?.dispatches.filter((d) => d.worker_name === worker.name) ?? [])
-      : []
+  const relevantDispatches = getRelevantDispatchHistory(tasks?.dispatches, worker, isOrchestrator)
 
   const confirmStop = () => {
     if (!worker) return

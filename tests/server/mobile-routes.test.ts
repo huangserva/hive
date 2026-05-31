@@ -1225,6 +1225,7 @@ describe('mobile API', () => {
           id: string
           status: string
           task_summary: string
+          worker_id: string
           worker_name: string
         }>
         workspace_id: string
@@ -1243,6 +1244,7 @@ describe('mobile API', () => {
         'cancelled',
       ])
       expect(body.dispatches[0].worker_name).toBe('Alice')
+      expect(body.dispatches[0].worker_id).toBe(worker.id)
       expect(body.dispatches[0].task_summary.length).toBeLessThanOrEqual(80)
       expect(new Date(body.dispatches[0].created_at).toString()).not.toBe('Invalid Date')
     } finally {

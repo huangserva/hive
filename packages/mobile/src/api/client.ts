@@ -158,6 +158,7 @@ export interface MobileWorkspaceTask {
   id: string
   status: 'pending' | 'done' | 'cancelled'
   task_summary: string
+  worker_id?: string
   worker_name: string
 }
 

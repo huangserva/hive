@@ -190,6 +190,7 @@ export const buildMobileWorkspaceTasks = (
     id: dispatch.id,
     status: mobileDispatchStatus(dispatch.status),
     task_summary: compactTaskSummary(dispatch.text),
+    worker_id: dispatch.toAgentId,
     worker_name: store.getWorker(workspaceId, dispatch.toAgentId).name,
   })),
   workspace_id: workspaceId,
