@@ -31,7 +31,7 @@ import {
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
-import { useT } from '../../src/i18n'
+import { type TFunction, useT } from '../../src/i18n'
 import {
   buildChatMediaEnvelopeJson,
   type ChatMediaItem,
@@ -862,7 +862,7 @@ const compactSummary = (value: string | null | undefined, maxLength = 96) => {
   return firstLine.length > maxLength ? `${firstLine.slice(0, maxLength - 1)}…` : firstLine
 }
 
-const parseSystemEventPayload = (json: string) => {
+const parseSystemEventPayload = (json: string, t: TFunction) => {
   const parsed = parseContentObject(json)
   const event = firstString(parsed.event, parsed.type) ?? 'system'
   const worker = firstString(parsed.worker, parsed.worker_name)
@@ -874,19 +874,20 @@ const parseSystemEventPayload = (json: string) => {
   if (event === 'dispatch') {
     return {
       icon: 'paper-plane-outline' as const,
-      summary: taskSummary ?? description ?? 'A task was sent to a worker.',
-      title: worker ? `Dispatched → ${worker}` : 'Dispatched',
+      summary: taskSummary ?? description ?? t('chat.system.dispatchFallback'),
+      title: worker ? t('chat.system.dispatchedTo', { worker }) : t('chat.system.dispatched'),
     }
   }
 
   if (event === 'report' || event === 'done') {
     return {
       icon: 'checkmark-circle-outline' as const,
-      summary: description ?? taskSummary ?? 'A worker report was recorded.',
-      title: worker ? `Report from ${worker}` : 'Worker Report',
+      summary: description ?? taskSummary ?? t('chat.system.reportFallback'),
+      title: worker ? t('chat.system.reportFrom', { worker }) : t('chat.system.workerReport'),
     }
   }
 
+  // 未知事件：回显事件名本身（数据驱动，非固定英文 UI 文案）。
   return {
     icon: 'information-circle-outline' as const,
     summary: description ?? taskSummary ?? titleCase(event),
@@ -1007,7 +1008,7 @@ const MessageCard = ({
   }
 
   if (message.message_type === 'system_event') {
-    const event = parseSystemEventPayload(message.content_json)
+    const event = parseSystemEventPayload(message.content_json, t)
     return (
       <View style={styles.systemBubble}>
         <View style={styles.systemIcon}>
@@ -1030,7 +1031,13 @@ const MessageCard = ({
   if (message.message_type === 'approval_request') {
     const approvalId = parseApprovalId(message.content_json)
     const approval = parseApprovalPayload(message.content_json)
-    const riskLabel = approval.risk ? `${titleCase(approval.risk)} Risk` : null
+    const riskLabel = !approval.risk
+      ? null
+      : approval.risk === 'high'
+        ? t('chat.approval.riskHigh')
+        : approval.risk === 'medium'
+          ? t('chat.approval.riskMedium')
+          : t('chat.approval.riskOther', { level: titleCase(approval.risk) })
     return (
       <Pressable
         accessibilityRole="button"
@@ -1056,7 +1063,7 @@ const MessageCard = ({
           </View>
           <View style={styles.approvalCopy}>
             <Text selectable style={styles.approvalSubject}>
-              {approval.action ?? 'Approval request'}
+              {approval.action ?? t('chat.approval.fallbackSubject')}
             </Text>
             {approval.description ? (
               <Text selectable style={styles.approvalDescription}>
@@ -1144,7 +1151,7 @@ const MessageCard = ({
         ]}
       >
         <Text selectable style={styles.senderLabel}>
-          Orchestrator
+          {t('chat.message.orchestratorLabel')}
         </Text>
         {hasMedia ? (
           <View style={styles.mediaGrid}>
@@ -1196,6 +1203,7 @@ const MediaContent = ({
   runtimeHost: string
   tint: 'outbound' | 'inbound'
 }) => {
+  const t = useT()
   const [imageFailed, setImageFailed] = useState(false)
   const isImage = media.mime_type.startsWith('image/')
   const isVideo = media.mime_type.startsWith('video/')
@@ -1236,7 +1244,7 @@ const MediaContent = ({
             {media.filename}
           </Text>
           <Text selectable style={mediaStyles.fileSize}>
-            {meta ? `${meta} video` : 'Video'}
+            {meta ? t('chat.media.videoWithSize', { size: meta }) : t('chat.media.video')}
           </Text>
         </View>
       </View>
@@ -1258,7 +1266,11 @@ const MediaContent = ({
           {media.filename}
         </Text>
         <Text selectable style={mediaStyles.fileSize}>
-          {isImage ? `Image${meta ? ` · ${meta}` : ''}` : (meta ?? 'File')}
+          {isImage
+            ? meta
+              ? t('chat.media.imageWithSize', { size: meta })
+              : t('chat.media.image')
+            : (meta ?? t('chat.media.file'))}
         </Text>
       </View>
     </View>
