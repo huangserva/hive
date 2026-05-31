@@ -22,6 +22,7 @@ import {
 } from '../../src/cockpit/status-overview'
 import { useRefreshableData } from '../../src/cockpit/useRefreshableCockpit'
 import { AddWorkerModal } from '../../src/components/AddWorkerModal'
+import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { type AppLanguage, useLanguage, useT } from '../../src/i18n'
@@ -298,7 +299,7 @@ export default function StatusTab() {
 
   if (!dashboard) {
     return (
-      <Screen>
+      <Screen showConnectionModeBanner={false}>
         <ScrollView
           contentContainerStyle={styles.scroll}
           refreshControl={
@@ -312,9 +313,12 @@ export default function StatusTab() {
         >
           <View style={styles.offlineCard}>
             <View style={styles.offlineHeader}>
-              <View style={styles.offlinePill}>
-                <View style={styles.offlineDot} />
-                <Text style={styles.offlinePillText}>{t('offline.disconnected')}</Text>
+              <View style={styles.offlineHeaderRow}>
+                <ConnectionModeBadge />
+                <View style={styles.offlinePill}>
+                  <View style={styles.offlineDot} />
+                  <Text style={styles.offlinePillText}>{t('offline.disconnected')}</Text>
+                </View>
               </View>
               <Text style={styles.offlineTitle}>{t('offline.subtitle')}</Text>
             </View>
@@ -342,7 +346,7 @@ export default function StatusTab() {
   }
 
   return (
-    <Screen>
+    <Screen showConnectionModeBanner={false}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
@@ -351,10 +355,15 @@ export default function StatusTab() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>{t('status.title')}</Text>
-          <View style={styles.onlinePill}>
-            <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>{t('status.orchestratorOnline')}</Text>
+          <Text numberOfLines={1} style={styles.title}>
+            {t('status.title')}
+          </Text>
+          <View style={styles.headerStatus}>
+            <ConnectionModeBadge />
+            <View style={styles.onlinePill}>
+              <View style={styles.onlineDot} />
+              <Text style={styles.onlineText}>{t('status.orchestratorOnline')}</Text>
+            </View>
           </View>
         </View>
         <Text style={styles.pullHint}>{t('status.pullRefresh')}</Text>
@@ -1078,6 +1087,12 @@ const styles = StyleSheet.create({
   offlineHeader: {
     gap: 10,
   },
+  offlineHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 6,
+  },
   offlinePill: {
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -1202,6 +1217,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  headerStatus: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'nowrap',
+    minWidth: 0,
   },
   onlineDot: {
     backgroundColor: colors.success,
@@ -1467,6 +1489,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
+    flexShrink: 1,
   },
   twoCol: {
     flexDirection: 'row',

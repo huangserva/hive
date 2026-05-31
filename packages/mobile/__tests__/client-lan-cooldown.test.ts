@@ -127,4 +127,24 @@ describe('LAN 可达性冷却（跳过 LAN 空试）', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(client.connectionMode()).toBe('lan')
   })
+
+  test('preferRelayUntilReset() 让下一次请求优先走 relay，直到手动重置', async () => {
+    const { calls, transport } = makeRelay()
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ ok: true, via: 'lan' })
+    ) as unknown as typeof fetch
+    const client = createRuntimeClient({
+      fetchImpl,
+      relayTransport: transport,
+      token: 'tok',
+    })
+
+    client.preferRelayUntilReset()
+    const result = await client.getMobileRuntimeStatus()
+
+    expect(result).toEqual({ ok: true, via: 'relay' })
+    expect(fetchImpl).toHaveBeenCalledTimes(0)
+    expect(calls).toEqual(['runtime.status'])
+    expect(client.connectionMode()).toBe('relay')
+  })
 })

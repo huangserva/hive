@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker'
 import type { ComponentProps } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -18,6 +19,7 @@ import {
 } from 'react-native'
 import type { MobileConnectionDiagnostics } from '../../src/api/mobile-diagnostics'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
+import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { type TFunction, useLanguage, useT } from '../../src/i18n'
 import {
@@ -70,6 +72,9 @@ export default function SettingsTab() {
   const [relayAuthToken, setRelayAuthToken] = useState('')
   const [relayDaemonKey, setRelayDaemonKey] = useState('')
   const [relayDeviceId, setRelayDeviceId] = useState('')
+  const [switchingConnectionTarget, setSwitchingConnectionTarget] = useState<
+    'lan' | 'relay' | null
+  >(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
 
   useEffect(() => {
@@ -240,6 +245,22 @@ export default function SettingsTab() {
     Alert.alert(t('settings.diagnosticsCopiedTitle'), t('settings.diagnosticsCopiedBody'))
   }
 
+  const switchConnectionDetail = useCallback(
+    async (target: 'lan' | 'relay') => {
+      if (switchingConnectionTarget || !token.trim()) return
+      if (target === 'relay' && !relayConfig) return
+      setSwitchingConnectionTarget(target)
+      try {
+        await connect(host, token, relayConfig, {
+          preferredConnectionMode: target,
+        })
+      } finally {
+        setSwitchingConnectionTarget(null)
+      }
+    },
+    [connect, host, relayConfig, switchingConnectionTarget, token]
+  )
+
   const isConnected = state === 'connected'
   const lanAvailable = connectionMode === 'lan' || isConnected
   const deviceMeta = [
@@ -267,11 +288,16 @@ export default function SettingsTab() {
   const appBuildLabel = getAppBuildLabel(t)
 
   return (
-    <Screen>
+    <Screen showConnectionModeBanner={false}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Text style={styles.title}>{t('settings.title')}</Text>
-          <ConnectionBadge state={state} />
+          <Text numberOfLines={1} style={styles.title}>
+            {t('settings.title')}
+          </Text>
+          <View style={styles.headerStatus}>
+            <ConnectionModeBadge />
+            <ConnectionBadge state={state} />
+          </View>
         </View>
 
         <SectionLabel>{t('settings.appLanguageTitle')}</SectionLabel>
@@ -454,16 +480,34 @@ export default function SettingsTab() {
         <View style={styles.connectionCard}>
           <ConnectionDetailRow
             icon="wifi-outline"
+            disabled={!token.trim() || !relayConfig || switchingConnectionTarget !== null}
             meta={relayMeta}
-            status={connectionMode === 'relay' ? t('common.connected') : t('common.disconnected')}
+            loading={switchingConnectionTarget === 'relay'}
+            onPress={() => void switchConnectionDetail('relay')}
+            status={
+              switchingConnectionTarget === 'relay'
+                ? t('chat.status.connecting')
+                : connectionMode === 'relay'
+                  ? t('common.connected')
+                  : t('common.disconnected')
+            }
             title={t('settings.relay')}
             tone={connectionMode === 'relay' ? 'success' : 'muted'}
           />
           <View style={styles.divider} />
           <ConnectionDetailRow
             icon="git-network-outline"
+            disabled={!token.trim() || switchingConnectionTarget !== null}
             meta={lanMeta || null}
-            status={lanAvailable ? t('common.available') : t('common.unavailable')}
+            loading={switchingConnectionTarget === 'lan'}
+            onPress={() => void switchConnectionDetail('lan')}
+            status={
+              switchingConnectionTarget === 'lan'
+                ? t('chat.status.connecting')
+                : lanAvailable
+                  ? t('common.available')
+                  : t('common.unavailable')
+            }
             title={t('settings.lan')}
             tone={lanAvailable ? 'accent' : 'muted'}
           />
@@ -740,21 +784,28 @@ const Capability = ({ icon, label }: { icon?: IconName; label: string }) => (
 
 const ConnectionDetailRow = ({
   icon,
+  loading = false,
   meta,
+  onPress,
+  disabled = false,
   status,
   title,
   tone,
 }: {
   icon: IconName
+  disabled?: boolean
+  loading?: boolean
   meta: string | null
+  onPress?: () => void
   status: string
   title: string
   tone: 'accent' | 'muted' | 'success'
 }) => {
+  const t = useT()
   const toneColor =
     tone === 'success' ? colors.success : tone === 'accent' ? colors.accent : colors.muted
-  return (
-    <View style={styles.connectionDetailRow}>
+  const content = (
+    <>
       <View style={[styles.connectionIcon, { backgroundColor: `${toneColor}18` }]}>
         <Ionicons color={toneColor} name={icon} size={23} />
       </View>
@@ -762,14 +813,40 @@ const ConnectionDetailRow = ({
         <View style={styles.connectionTitleRow}>
           <Text style={styles.connectionDetailTitle}>{title}</Text>
           <View style={[styles.statusPill, { backgroundColor: `${toneColor}18` }]}>
-            <Text style={[styles.statusPillText, { color: toneColor }]}>{status}</Text>
+            <Text style={[styles.statusPillText, { color: toneColor }]}>
+              {loading ? t('chat.status.connecting') : status}
+            </Text>
           </View>
         </View>
         {meta ? <Text style={styles.connectionMeta}>{meta}</Text> : null}
       </View>
-      <Ionicons color={colors.muted} name="chevron-forward" size={22} />
-    </View>
+      {loading ? (
+        <ActivityIndicator color={toneColor} size="small" />
+      ) : (
+        <Ionicons color={colors.muted} name="chevron-forward" size={22} />
+      )}
+    </>
   )
+
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled, busy: loading }}
+        disabled={disabled || loading}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.connectionDetailRow,
+          pressed ? styles.connectionDetailRowPressed : null,
+          disabled ? styles.connectionDetailRowDisabled : null,
+        ]}
+      >
+        {content}
+      </Pressable>
+    )
+  }
+
+  return <View style={styles.connectionDetailRow}>{content}</View>
 }
 
 const DiagnosticRow = ({
@@ -941,6 +1018,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 7,
   },
+  connectionDetailRowDisabled: { opacity: 0.45 },
+  connectionDetailRowPressed: { backgroundColor: colors.cardElevated },
   connectionDetailTitle: { color: colors.text, fontSize: 15, fontWeight: '800' },
   connectionIcon: {
     alignItems: 'center',
@@ -1107,6 +1186,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
+  },
+  headerStatus: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'nowrap',
+    minWidth: 0,
   },
   input: {
     color: colors.text,
@@ -1289,6 +1375,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 30,
     fontWeight: '900',
+    flexShrink: 1,
   },
   workspaceCard: {
     backgroundColor: colors.card,

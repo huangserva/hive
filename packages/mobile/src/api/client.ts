@@ -630,6 +630,10 @@ export const createRuntimeClient = ({
     resetLanCooldown() {
       lanCooldownUntil = 0
     },
+    // 手动偏向 relay，直到用户再次点 LAN 重置；这样切回中继不会过一会儿自己弹回 LAN。
+    preferRelayUntilReset() {
+      lanCooldownUntil = Number.POSITIVE_INFINITY
+    },
     onConnectionModeChange(cb: (mode: string) => void) {
       modeListeners.add(cb)
       return () => modeListeners.delete(cb)

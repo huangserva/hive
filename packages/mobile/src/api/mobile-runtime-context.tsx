@@ -59,10 +59,12 @@ import {
   serializeOutboxState,
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
+import type { ConnectionPreference } from './mobile-runtime-context-logic'
 import {
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetLanCooldownBeforeForegroundProbe,
 } from './mobile-runtime-context-logic'
 import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
@@ -84,7 +86,12 @@ interface MobileRuntimeContextValue {
   answerQuestion: (questionId: string, answer: string) => Promise<boolean>
   approveRequest: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   chatMessages: ChatMessage[]
-  connect: (nextHost: string, nextToken: string) => Promise<RuntimeStatus | null>
+  connect: (
+    nextHost: string,
+    nextToken: string,
+    nextRelayConfig?: StoredRelayConfig | null,
+    options?: { preserveUiState?: boolean; preferredConnectionMode?: ConnectionPreference }
+  ) => Promise<RuntimeStatus | null>
   configureRelay: (input: RelayPairingInput) => Promise<void>
   connectionMode: MobileConnectionMode
   connectionDiagnostics: MobileConnectionDiagnostics
@@ -173,6 +180,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [pairedDevice, setPairedDevice] = useState<MobileDeviceSummary | null>(null)
   const [relayConfig, setRelayConfig] = useState<StoredRelayConfig | null>(null)
   const [connectionMode, setConnectionMode] = useState<MobileConnectionMode>('disconnected')
+  const [preferredConnectionMode, setPreferredConnectionMode] =
+    useState<ConnectionPreference>('auto')
   const [connectionDiagnostics, setConnectionDiagnostics] = useState<MobileConnectionDiagnostics>(
     () => createInitialConnectionDiagnostics()
   )
@@ -203,6 +212,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const tokenRef = useRef(token)
   const relayConfigRef = useRef(relayConfig)
   const selectedWorkspaceIdRef = useRef(selectedWorkspaceId)
+  const connectionModeRef = useRef(connectionMode)
+  const preferredConnectionModeRef = useRef(preferredConnectionMode)
   const stateRef = useRef(state)
   const outboxRef = useRef(outbox)
   const reconnectingRef = useRef(reconnecting)
@@ -212,6 +223,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   tokenRef.current = token
   relayConfigRef.current = relayConfig
   selectedWorkspaceIdRef.current = selectedWorkspaceId
+  connectionModeRef.current = connectionMode
+  preferredConnectionModeRef.current = preferredConnectionMode
   stateRef.current = state
   outboxRef.current = outbox
   reconnectingRef.current = reconnecting
@@ -295,16 +308,35 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [appendDiagnosticEvent]
   )
 
-  const client = useMemo(
-    () =>
-      createRuntimeClient({
-        host,
-        onDiagnosticsEvent: recordClientDiagnosticEvent,
-        relayTransport: getRelayTransport(token, relayConfig),
-        token: token.trim() || null,
-      }),
-    [getRelayTransport, host, recordClientDiagnosticEvent, relayConfig, token]
+  const applyConnectionPreference = useCallback(
+    (nextClient: RuntimeClient, preference: ConnectionPreference) => {
+      if (preference === 'lan') {
+        nextClient.resetLanCooldown()
+      } else if (preference === 'relay') {
+        nextClient.preferRelayUntilReset()
+      }
+    },
+    []
   )
+
+  const client = useMemo(() => {
+    const nextClient = createRuntimeClient({
+      host,
+      onDiagnosticsEvent: recordClientDiagnosticEvent,
+      relayTransport: getRelayTransport(token, relayConfig),
+      token: token.trim() || null,
+    })
+    applyConnectionPreference(nextClient, preferredConnectionMode)
+    return nextClient
+  }, [
+    applyConnectionPreference,
+    getRelayTransport,
+    host,
+    preferredConnectionMode,
+    recordClientDiagnosticEvent,
+    relayConfig,
+    token,
+  ])
 
   const registerPushToken = useCallback(
     async (nextClient = client) => {
@@ -461,9 +493,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       nextHost: string,
       nextToken: string,
       nextRelayConfig = relayConfig,
-      options: { preserveUiState?: boolean } = {}
+      options: { preserveUiState?: boolean; preferredConnectionMode?: ConnectionPreference } = {}
     ) => {
       const trimmedToken = nextToken.trim()
+      const nextPreference = options.preferredConnectionMode ?? preferredConnectionModeRef.current
       if (!options.preserveUiState) {
         setState('checking')
         setError(null)
@@ -475,6 +508,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           relayTransport: getRelayTransport(trimmedToken, nextRelayConfig),
           token: trimmedToken,
         })
+        applyConnectionPreference(nextClient, nextPreference)
         const [nextStatus, nextWorkspaces] = await Promise.all([
           nextClient.getMobileRuntimeStatus(),
           nextClient.listMobileWorkspaces(),
@@ -492,6 +526,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setSelectedWorkspaceId(nextWorkspaceId)
         setDashboard(nextDashboard)
         setConnectionMode(nextClient.connectionMode())
+        setPreferredConnectionMode(nextPreference)
         setState('connected')
         reconnectAttemptRef.current = 0
         chatFetchFailureCountRef.current = 0
@@ -526,6 +561,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       }
     },
     [
+      applyConnectionPreference,
       bumpSyncRevision,
       flushOutbox,
       getRelayTransport,
@@ -1077,12 +1113,26 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (nextState !== 'active' || !wasBackgrounded || !tokenRef.current.trim()) return
       const shouldProbe = shouldProbeForegroundReconnect({
         hasToken: Boolean(tokenRef.current.trim()),
+        connectionMode: connectionModeRef.current,
+        preferredConnectionMode: preferredConnectionModeRef.current,
         isBackgrounded: wasBackgrounded,
         isReconnecting: Boolean(reconnectInFlightRef.current || reconnectTimerRef.current),
         state: stateRef.current,
       })
       if (!shouldProbe) return
       setReconnecting(true)
+      if (
+        shouldResetLanCooldownBeforeForegroundProbe({
+          hasToken: Boolean(tokenRef.current.trim()),
+          connectionMode: connectionModeRef.current,
+          preferredConnectionMode: preferredConnectionModeRef.current,
+          isBackgrounded: wasBackgrounded,
+          isReconnecting: Boolean(reconnectInFlightRef.current || reconnectTimerRef.current),
+          state: stateRef.current,
+        })
+      ) {
+        client.resetLanCooldown()
+      }
       void client
         .getMobileRuntimeStatus()
         .then(() => {

@@ -32,6 +32,11 @@ import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
+import {
+  buildChatMediaEnvelopeJson,
+  type ChatMediaItem,
+  extractChatMediaItems,
+} from '../../src/lib/chat-media'
 import { filterPendingOptimisticMessages } from '../../src/lib/chat-message-dedupe'
 import { resolveChatSendOutcome } from '../../src/lib/chat-send-status'
 import {
@@ -380,24 +385,25 @@ export default function ChatTab() {
     if (sending) return
     const clientNonce = createClientNonce()
     const msgId = `opt-${clientNonce}`
-    const firstAttachment = attachments[0]
-    const optimisticContent = firstAttachment
-      ? {
-          media: {
-            file_id: `local-${msgId}`,
-            filename: firstAttachment.filename,
-            mime_type: firstAttachment.mimeType,
-            url: firstAttachment.uri,
-          },
-          text: body || `[${firstAttachment.filename}]`,
-        }
-      : { text: body }
+    // 把全部 N 张附件都写进 optimistic content（attachments 数组），气泡才能渲染 N 个真实缩略图，
+    // 而不是只显示第一张或一片空绿框。本地 asset uri 直接当 url，发送中即可预览。
+    const optimisticContentJson =
+      attachments.length > 0
+        ? buildChatMediaEnvelopeJson({
+            attachments: attachments.map((attachment) => ({
+              filename: attachment.filename,
+              mimeType: attachment.mimeType,
+              uri: attachment.uri,
+            })),
+            text: body,
+          })
+        : JSON.stringify({ text: body })
     const msg: OptimisticMessage = {
       clientNonce,
       id: msgId,
       direction: 'inbound',
       message_type: 'user_text',
-      content_json: JSON.stringify(optimisticContent),
+      content_json: optimisticContentJson,
       created_at: Date.now(),
       pending: true,
     }
@@ -567,9 +573,14 @@ export default function ChatTab() {
             onPress={() => setHeaderExpanded((v) => !v)}
             style={styles.headerRow}
           >
-            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.title}>
-              Orchestrator
-            </Text>
+            <View style={styles.titleColumn}>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.title}>
+                {workspaceStats.name}
+              </Text>
+              <Text ellipsizeMode="tail" numberOfLines={1} style={styles.subtitle}>
+                {t('chat.header.subtitle')}
+              </Text>
+            </View>
             <ConnectionModeBadge />
             <View style={styles.onlineBadge}>
               <View style={styles.onlineDot} />
@@ -823,24 +834,6 @@ const parseContent = (json: string): string => {
   )
 }
 
-interface MediaInfo {
-  file_id: string
-  filename: string
-  mime_type: string
-  size?: number
-  url: string
-}
-
-const parseMedia = (json: string): MediaInfo | null => {
-  try {
-    const parsed = JSON.parse(json) as { media?: MediaInfo }
-    if (parsed.media?.url) return parsed.media
-    return null
-  } catch {
-    return null
-  }
-}
-
 const parseWorkerName = (json: string): string | null => {
   const parsed = parseContentObject(json)
   return firstString(parsed.worker_name, parsed.worker, parsed.name) ?? null
@@ -971,19 +964,27 @@ const MessageCard = ({
     syncSucceeded: !isError && !isPending,
   })
   const time = formatMessageTime(message.created_at)
-  const media = parseMedia(message.content_json)
+  const mediaItems = extractChatMediaItems(message.content_json)
+  const hasMedia = mediaItems.length > 0
+  const isMultiMedia = mediaItems.length > 1
 
   if (message.message_type === 'user_text') {
     return (
-      <View style={[styles.userBubble, media ? styles.userMediaBubble : null]}>
-        {media ? (
-          <MediaContent
-            authToken={token}
-            media={media}
-            onPreviewImage={onPreviewImage}
-            runtimeHost={runtimeHost}
-            tint="outbound"
-          />
+      <View style={[styles.userBubble, hasMedia ? styles.userMediaBubble : null]}>
+        {hasMedia ? (
+          <View style={styles.mediaGrid}>
+            {mediaItems.map((item) => (
+              <MediaContent
+                authToken={token}
+                compact={isMultiMedia}
+                key={`${item.url}:${item.filename}`}
+                media={item}
+                onPreviewImage={onPreviewImage}
+                runtimeHost={runtimeHost}
+                tint="outbound"
+              />
+            ))}
+          </View>
         ) : (
           <Text selectable style={styles.userBubbleText}>
             {content}
@@ -1145,14 +1146,20 @@ const MessageCard = ({
         <Text selectable style={styles.senderLabel}>
           Orchestrator
         </Text>
-        {media ? (
-          <MediaContent
-            authToken={token}
-            media={media}
-            onPreviewImage={onPreviewImage}
-            runtimeHost={runtimeHost}
-            tint="inbound"
-          />
+        {hasMedia ? (
+          <View style={styles.mediaGrid}>
+            {mediaItems.map((item) => (
+              <MediaContent
+                authToken={token}
+                compact={isMultiMedia}
+                key={`${item.url}:${item.filename}`}
+                media={item}
+                onPreviewImage={onPreviewImage}
+                runtimeHost={runtimeHost}
+                tint="inbound"
+              />
+            ))}
+          </View>
         ) : (
           <MarkdownText text={content} />
         )}
@@ -1176,13 +1183,15 @@ const mediaSizeLabel = (size?: number) => {
 
 const MediaContent = ({
   authToken,
+  compact = false,
   media,
   onPreviewImage,
   runtimeHost,
   tint,
 }: {
   authToken: string
-  media: MediaInfo
+  compact?: boolean
+  media: ChatMediaItem
   onPreviewImage: (source: PreviewImageSource, label: string) => void
   runtimeHost: string
   tint: 'outbound' | 'inbound'
@@ -1198,7 +1207,7 @@ const MediaContent = ({
 
   if (isImage && !imageFailed) {
     return (
-      <View style={mediaStyles.imageContainer}>
+      <View style={compact ? mediaStyles.imageContainerCompact : mediaStyles.imageContainer}>
         <Pressable
           accessibilityRole="button"
           onPress={() => onPreviewImage(imageSource, media.filename)}
@@ -1207,7 +1216,7 @@ const MediaContent = ({
             accessibilityLabel={media.filename}
             onError={() => setImageFailed(true)}
             source={imageSource}
-            style={mediaStyles.image}
+            style={compact ? mediaStyles.imageCompact : mediaStyles.image}
             resizeMode="cover"
           />
         </Pressable>
@@ -1343,6 +1352,8 @@ const mediaStyles = StyleSheet.create({
   fileSize: { color: colors.textSoft, fontSize: 12 },
   image: { borderRadius: radius.sm, height: 170, width: 230 },
   imageContainer: { maxWidth: 230 },
+  imageCompact: { borderRadius: radius.sm, height: 104, width: 104 },
+  imageContainerCompact: { maxWidth: 104 },
 })
 
 const mdStyles = StyleSheet.create({
@@ -1524,13 +1535,15 @@ const styles = StyleSheet.create({
   input: {
     color: colors.text,
     flex: 1,
-    fontSize: 15,
+    // 调小一档（15→14）：placeholder「给 orchestrator 发消息…」不再挤成两行。
+    fontSize: 14,
     minHeight: COMPOSER_INPUT_MIN_HEIGHT,
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
     textAlignVertical: 'top',
   },
   keyboard: { flex: 1, gap: spacing.md },
+  mediaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   keyboardLiftSpacer: { flexShrink: 0 },
   messageList: { flex: 1, minHeight: 0 },
   messages: { gap: spacing.md, paddingBottom: spacing.md },
@@ -1641,12 +1654,17 @@ const styles = StyleSheet.create({
   systemText: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
   systemTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
+  titleColumn: { flex: 1, flexShrink: 1, minWidth: 0 },
   title: {
     color: colors.text,
-    flex: 1,
-    flexShrink: 1,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '900',
+  },
+  subtitle: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 1,
   },
   titleOnlineDot: {
     backgroundColor: colors.success,

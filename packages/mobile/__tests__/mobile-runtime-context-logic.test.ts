@@ -4,12 +4,15 @@ import {
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetLanCooldownBeforeForegroundProbe,
 } from '../src/api/mobile-runtime-context-logic.js'
 
 describe('mobile runtime context reconnect and outbox decisions', () => {
   test('probes foreground connectivity only when the app was backgrounded and a token exists', () => {
     expect(
       shouldProbeForegroundReconnect({
+        connectionMode: 'lan',
+        preferredConnectionMode: 'auto',
         hasToken: true,
         isBackgrounded: true,
         isReconnecting: false,
@@ -18,6 +21,8 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
     ).toBe(true)
     expect(
       shouldProbeForegroundReconnect({
+        connectionMode: 'lan',
+        preferredConnectionMode: 'auto',
         hasToken: true,
         isBackgrounded: false,
         isReconnecting: false,
@@ -26,6 +31,8 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
     ).toBe(false)
     expect(
       shouldProbeForegroundReconnect({
+        connectionMode: 'lan',
+        preferredConnectionMode: 'auto',
         hasToken: false,
         isBackgrounded: true,
         isReconnecting: false,
@@ -34,10 +41,45 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
     ).toBe(false)
     expect(
       shouldProbeForegroundReconnect({
+        connectionMode: 'lan',
+        preferredConnectionMode: 'auto',
         hasToken: true,
         isBackgrounded: true,
         isReconnecting: false,
         state: 'error',
+      })
+    ).toBe(false)
+  })
+
+  test('foreground reconnect should clear LAN cooldown only when relay is currently preferred', () => {
+    expect(
+      shouldResetLanCooldownBeforeForegroundProbe({
+        connectionMode: 'relay',
+        preferredConnectionMode: 'auto',
+        hasToken: true,
+        isBackgrounded: true,
+        isReconnecting: false,
+        state: 'connected',
+      })
+    ).toBe(true)
+    expect(
+      shouldResetLanCooldownBeforeForegroundProbe({
+        connectionMode: 'lan',
+        preferredConnectionMode: 'auto',
+        hasToken: true,
+        isBackgrounded: true,
+        isReconnecting: false,
+        state: 'connected',
+      })
+    ).toBe(false)
+    expect(
+      shouldResetLanCooldownBeforeForegroundProbe({
+        connectionMode: 'relay',
+        preferredConnectionMode: 'relay',
+        hasToken: true,
+        isBackgrounded: true,
+        isReconnecting: false,
+        state: 'connected',
       })
     ).toBe(false)
   })

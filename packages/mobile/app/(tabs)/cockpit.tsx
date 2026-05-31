@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
+import { useLocalSearchParams } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import { useLocalSearchParams } from 'expo-router'
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ActionsView } from '../../src/cockpit/ActionsView'
@@ -9,6 +9,7 @@ import { IdeasView } from '../../src/cockpit/IdeasView'
 import { PlanView } from '../../src/cockpit/PlanView'
 import { QuestionsView } from '../../src/cockpit/QuestionsView'
 import { TasksView } from '../../src/cockpit/TasksView'
+import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
 import { colors, spacing } from '../../src/theme'
@@ -41,21 +42,35 @@ export default function CockpitTab() {
 
   if (!dashboard) {
     return (
-      <Screen>
-        <Text style={styles.title}>{t('tabs.cockpit')}</Text>
+      <Screen showConnectionModeBanner={false}>
+        <View style={styles.header}>
+          <View style={styles.headerCenter}>
+            <View style={styles.titleRow}>
+              <Text numberOfLines={1} style={styles.title}>
+                {t('tabs.cockpit')}
+              </Text>
+              <ConnectionModeBadge />
+            </View>
+          </View>
+        </View>
         <Text style={styles.hint}>{t('cockpit.connectFirst', { state })}</Text>
       </Screen>
     )
   }
 
   return (
-    <Screen>
+    <Screen showConnectionModeBanner={false}>
       <View style={styles.header}>
         <View style={styles.headerCenter}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>{t('tabs.cockpit')}</Text>
+            <Text numberOfLines={1} style={styles.title}>
+              {t('tabs.cockpit')}
+            </Text>
             <Text style={styles.titleDivider}>/</Text>
-            <Text style={styles.titleActive}>{activeLabel}</Text>
+            <Text numberOfLines={1} style={styles.titleActive}>
+              {activeLabel}
+            </Text>
+            <ConnectionModeBadge />
             <Ionicons color={colors.accent} name="chevron-down" size={19} />
           </View>
           <View style={styles.subtitleRow}>
@@ -157,11 +172,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 18,
     fontWeight: '700',
+    flexShrink: 1,
   },
   titleActive: {
     color: colors.accent,
     fontSize: 18,
     fontWeight: '700',
+    flexShrink: 1,
   },
   titleDivider: {
     color: colors.muted,
@@ -172,5 +189,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
+    flexWrap: 'nowrap',
   },
 })
