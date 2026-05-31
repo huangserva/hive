@@ -260,6 +260,15 @@ last_review: 2026-05-25
 - [ ] **L2 提示词**：WORKER_RULES + REMINDER_TAIL 加硬话——文字总结≠汇报，必须运行 team report CLI，turn 结束自检
 - 触发：本 session 马超 M25 干完用文字 recap 收尾、没真跑 team report → dispatch 卡 submitted 看着像卡死；agent 状态 `pendingTaskCount>0?working:idle` 是假信号
 - 强 TDD（§13 禁 mock PTY）；文件边界避开 M25 未提交改动；PM 待落 ADR
+- [x] **加固（马超 2026-05-31，代码完成待 review/commit）：从"只 nudge LLM"升级为"系统直接 surface 给 user，绝不静默"。** 触发：赵云干完 6 项 UX 不跑 team report，是 user 先发现的、不是系统兜住的，user 要彻底解决。
+  - 关键澄清：dispatch ledger 状态只有 `queued/submitted/reported/cancelled`，**无 in_progress**——`submitted` 就是"已注入 worker、未 report"的窗口（= "干完没报"场景），现有检测已覆盖；不新增 schema 态（避免迁移风险）。
+  - 新增纯函数 `stale-dispatch-status.ts`（`summarizeStaleDispatches`，dashboard 与 nudge 共用单一判定，按 submittedAt 时长出 stale/escalated 两档）。
+  - **user 可见看板信号（最关键、立即生效）**：`buildMobileDashboard` 的 cockpit 块新增 `stale_dispatches` / `escalated_dispatches` 计数，user 在手机看板直接看见"N 个派单超时未汇报"，走现有 dashboard 拉取/relay，不靠 LLM nudge。
+  - **user 可见推送**：`stalled-dispatch-nudge` 加 `notifyUserOfStaleDispatch` 回调（always-on pass，不 gate worker idle/在线——哪怕 worker 卡死从不回提示符或所有 LLM nudge 被忽略都按时长兜底）；`mobile-push` 加 `notifyStaleDispatch`（stale + escalated 两档各推一次，去重）。⚠️ push 投递半边受 M29 制约（华为机无 GMS，exp.host→FCM 收不到）；**看板计数是当前可靠的 user 可见兜底**，push 待 M29 打通通道后生效。
+  - escalation：超 escalated 阈值（默认 8min，约 2 次 worker nudge + orchestrator 兜底应已发生）→ 第二档 user 推送 + 看板 escalated 计数；orchestrator 侧仍是原 fallback nudge。
+  - 未破坏 Fix A/B：原 idle 自愈 nudge（submitted + 回 idle 提示符 → nudge worker 最多 K 次 → 回退 orchestrator）原样保留，新机制是其上的 user-surface 层。
+  - 改动文件：`stale-dispatch-status.ts`(新)、`mobile-push.ts`、`stalled-dispatch-nudge.ts`、`runtime-store-helpers.ts`、`routes-mobile.ts`；测试 `stale-dispatch-status.test.ts`(新,6)+`stalled-dispatch-user-surface.test.ts`(新,5,真 ledger 无 mock PTY)+`mobile-routes.test.ts`(+1)。
+  - 剩余：#4「真在干 vs 干完没报」per-dispatch idle 布尔未单列进 dashboard（需 per-request PTY snapshot，留 Phase2）；现用 stale/escalated 时长分档 + idle-gated nudge 近似区分。
 
 ### M27 · Relay 远程体验优化（跳过 LAN 空试 + 实时推送） · in progress · 代码全 commit `ba631cf`，build #19 含全部，待 user 装+4010 重启验证 (派马超 `8cb009de` 2026-05-30)
 - 触发：4G relay 连接修好稳定后 user 反馈 ①慢 ②"经常连接像重连"。诊断：app 每请求先试 LAN(client.ts readMobileJson, 4s AbortController)再 fallback relay，4G 下每请求挂 4s + UI 闪连接中；新消息走 5s 轮询有延迟。
@@ -286,10 +295,30 @@ last_review: 2026-05-25
     - [x] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
     - [x] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
 - [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
+  - [x] Chat 图片消息已压缩为单图卡片，发送态区分 `sent` / `queued` / `error`，避免成功后仍显示红叉
 - [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
 - [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
 - 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
 - [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（`05fb52d`）
+
+### M29 · 推送通知打通（后台也能收提醒） · in_progress (user 拍板 2026-05-31)
+> 触发：user 问"app 切后台后谁收消息、微信怎么做到的"。讲清=微信靠**系统推送服务**(APNs/FCM/厂商推送)非"后台常连"；user 拍板立此 milestone。目标：app 不在前台也能收到 worker 完成 / 审批请求 / orch 回复的系统推送，点通知进对应页（微信式体验）。
+> 现状：M24 Phase7 做了一半（Expo push 注册真 token + 通知点击 deep-link 路由 approval/worker_done/high_ai_action），**缺实际投递通道**。难点：自建本地构建（已弃 EAS）后推送配置要手动接；国内安卓 FCM 常被墙→可能需厂商推送。
+- [x] **Phase 1 = 调研 spike（马超 2026-05-31，代码未改、纯调研）**：产出 `.hive/reports/2026-05-31-push-notification-spike.html` + `.hive/research/2026-05-31-push-notification-spike.md` + ADR draft `draft-2026-05-31-push-channel.md`。**核心结论**：user 华为折叠屏无 GMS → FCM（含现有 exp.host→FCM 链）从根上投递不了，不是缺凭据是选错通道；华为机后台推送唯一可靠系统通道 = HMS Push Kit。三档方案 A 前台服务保活 relay WS（最小、复用 M28、需电池白名单非 100%）→ B HMS Push（华为本命、被杀也唤醒、需华为实名账号+AGC+Expo HMS 坑）→ C 极光/个推聚合（最广最贵）。推荐 A→B 渐进。待 user 拍：①A→B 还是直接 B ②是否注册华为开发者账号（实名，HMS 硬前置）③是否上 C 兼容非华为。
+- [ ] **Phase 2 = 最小可用推送**：按 spike 方案接通至少一条通道；server 在 worker_done/approval_request/orch_reply 发推送；本地构建包含推送配置；真机验锁屏收到 + 点击跳转。
+- [ ] **Phase 3 = 国内厂商推送可靠性**（如 spike 判定 FCM 不够稳）：对接华为/小米等厂商推送 + 保活策略。
+- 关联：[[reference_local_build_apk_delivery]]（推送配置要进本地构建）；Q14（手机审批通道）与本 milestone 协同——审批请求推送是高价值场景。
+
+### M30 · Worker 汇报可靠性加固（干完没报必须系统兜住） · shipped 2026-05-31 (`0ec6c41`，需 4010 重启激活)
+> 触发：user 强烈不满——赵云（codex）干完 6 项 UX 却不跑 team report，**是 user 先发现的、不是系统兜住的**。user："你自己接管不是彻底解决"。
+> 架构铁律（核查确认）：L2 提示词其实已很全（worker 启动提示 + 每轮 REMINDER_TAIL 都注入"必须 team report，文字总结不算，每轮自检"），但 **L2 能被 LLM 绕过**（codex/gpt-5-mini 较弱，读到仍可能不执行；claude 很少犯）；**L1 无法强制 LLM 跑命令**。故解法不是"逼它报"，而是"它不报也绝不静默、user 一定看得见"。
+> 澄清（马超核查）：dispatch ledger 状态只有 queued/submitted/reported/cancelled，**无 in_progress**；"领了活干完不报"整个就是 `submitted` 窗口，现有检测本就覆盖（未加 schema 态，避免迁移风险）。
+> 否决"自动收尾兜底"：拿 PTY 最近输出伪造一份 report = 垃圾（同 orch_reply 抓终端乱码坑）+ 可能误判仍在干活的 worker→错误收尾。**伪造汇报比不汇报更糟**，改走"可靠 surface + 继续 nudge + PM 验证收尾"。
+- [x] 检测覆盖"干完没报"：submitted 即"在办未报"窗口，复用 M26 idle 自愈 nudge worker；新 `stale-dispatch-status.ts` 纯函数 summarizeStaleDispatches 单一事实源
+- [x] **直接 surface 给 user（核心兜底）**：`buildMobileDashboard` cockpit 暴露 `stale_dispatches`/`escalated_dispatches` 计数（4min/8min 两档）→ **user 拉看板必见"N 个派单超时未汇报"，不靠 push/LLM/worker 在线**，到点就亮，硬兜底
+- [x] 连续超时→escalated 第二档 + 继续 nudge worker/orchestrator；`stalled-dispatch-nudge` 加 always-on surface pass（不 gate idle，worker 卡死也兜）
+- [~] 修"working 假信号"：用 stale/escalated 时长分档近似；per-dispatch idle 布尔需 per-request PTY snapshot（性能成本）留 Phase2
+- 强 TDD 禁 mock PTY：stale-status 6 + user-surface 5（真 ledger+可控时钟）+ mobile-routes +1，全绿。⚠️ push 投递半边受 M29 制约（华为无 GMS）→ **可靠 user 可见兜底落在看板计数**，push 待 M29 接通 HMS。关联 [[feedback_worker_reliability_systemic]] [[feedback_verify_dispatch_started_after_restart]]。
 
 ## Scope
 
