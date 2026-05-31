@@ -15,16 +15,16 @@ import {
 
 import type { MobileDashboardWorker } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
-import { AddWorkerModal } from '../../src/components/AddWorkerModal'
-import { Screen } from '../../src/components/Screen'
-import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
-import { useT } from '../../src/i18n'
 import {
   countActiveDispatches,
   formatActiveMilestoneLabel,
   selectLatestActiveMilestone,
 } from '../../src/cockpit/status-overview'
 import { useRefreshableData } from '../../src/cockpit/useRefreshableCockpit'
+import { AddWorkerModal } from '../../src/components/AddWorkerModal'
+import { Screen } from '../../src/components/Screen'
+import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
+import { useT } from '../../src/i18n'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -159,8 +159,9 @@ export default function StatusTab() {
     () =>
       activeMilestone
         ? formatActiveMilestoneLabel(activeMilestone)
-        : stripInlineMarkdown(dashboard?.plan.active_milestone ?? null) || 'No active milestone',
-    [activeMilestone, dashboard?.plan.active_milestone]
+        : stripInlineMarkdown(dashboard?.plan.active_milestone ?? null) ||
+          t('status.noActiveMilestone'),
+    [activeMilestone, dashboard?.plan.active_milestone, t]
   )
   const inProgressDispatchCount = useMemo(
     () => countActiveDispatches(workspaceTasks?.dispatches ?? []),
@@ -363,7 +364,9 @@ export default function StatusTab() {
                   icon="help-circle-outline"
                   label={t('cockpit.answer.title')}
                   value={dashboard.cockpit.open_questions}
-                  onPress={() => router.push({ pathname: '/cockpit', params: { tab: 'questions' } })}
+                  onPress={() =>
+                    router.push({ pathname: '/cockpit', params: { tab: 'questions' } })
+                  }
                 />
                 <StatItem
                   icon="flash-outline"
@@ -377,7 +380,7 @@ export default function StatusTab() {
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.overviewSummary}>
               {stripInlineMarkdown(dashboard.plan.active_milestone) ||
                 stripInlineMarkdown(dashboard.plan.current_phase) ||
-                'No active milestone'}
+                t('status.noActiveMilestone')}
             </Text>
           )}
         </View>
@@ -604,6 +607,7 @@ const SentinelCard = ({
   onToggle: () => void
   worker: MobileDashboardWorker
 }) => {
+  const t = useT()
   const accent = statusColor(worker.status)
   return (
     <Pressable
@@ -639,9 +643,7 @@ const SentinelCard = ({
       {expanded ? (
         <View style={styles.expanded}>
           <CapabilityChips capabilities={worker.capabilities} />
-          <Text style={styles.sentinelNote}>
-            Observes only. Sentinel workers do not accept dispatches.
-          </Text>
+          <Text style={styles.sentinelNote}>{t('status.sentinelObservesOnly')}</Text>
           <Pressable
             accessibilityRole="button"
             onPress={(event) => {

@@ -32,6 +32,7 @@ import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
+import { filterPendingOptimisticMessages } from '../../src/lib/chat-message-dedupe'
 import { resolveChatSendOutcome } from '../../src/lib/chat-send-status'
 import {
   COMPOSER_INPUT_MIN_HEIGHT,
@@ -153,17 +154,10 @@ export default function ChatTab() {
   )
 
   const allMessages = useMemo<DisplayMessage[]>(() => {
-    const serverIds = new Set(chatMessages.map((m) => m.id))
-    const persistedUserText = chatMessages.filter((message) => message.message_type === 'user_text')
-    const pending = optimistic.filter(
-      (message) =>
-        !serverIds.has(message.id) &&
-        !persistedUserText.some(
-          (serverMessage) =>
-            messageContentKey(serverMessage) === messageContentKey(message) &&
-            Math.abs(serverMessage.created_at - message.created_at) < 10_000
-        )
-    )
+    const pending = filterPendingOptimisticMessages({
+      chatMessages,
+      optimisticMessages: optimistic,
+    })
     return dedupeAdjacentMessages(
       [...chatMessages, ...pending].sort((a, b) => a.created_at - b.created_at)
     )
@@ -568,7 +562,9 @@ export default function ChatTab() {
             onPress={() => setHeaderExpanded((v) => !v)}
             style={styles.headerRow}
           >
-            <Text style={styles.title}>Orchestrator</Text>
+            <Text ellipsizeMode="tail" numberOfLines={1} style={styles.title}>
+              Orchestrator
+            </Text>
             <ConnectionModeBadge />
             <View style={styles.onlineBadge}>
               <View style={styles.onlineDot} />
@@ -964,7 +960,8 @@ const MessageCard = ({
   const isQueued = 'queued' in message && Boolean(message.queued)
   const deliveryOutcome = resolveChatSendOutcome({
     queued: isQueued,
-    sent: !isPending && !isError && !isQueued,
+    sendSucceeded: !isPending && !isError && !isQueued,
+    syncSucceeded: !isError && !isPending,
   })
   const time = formatMessageTime(message.created_at)
   const media = parseMedia(message.content_json)
@@ -1555,13 +1552,20 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 6,
+    gap: 4,
+    height: 24,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
-  onlineDot: { backgroundColor: colors.success, borderRadius: 4, height: 8, width: 8 },
-  onlineLabel: { color: colors.success, fontSize: 13, fontWeight: '600' },
-  onlineText: { color: colors.success, fontSize: 13, fontWeight: '600' },
+  onlineDot: { backgroundColor: colors.success, borderRadius: 3, height: 6, width: 6 },
+  onlineLabel: {
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 12,
+    textTransform: 'uppercase',
+  },
+  onlineText: { color: colors.success, fontSize: 10, fontWeight: '800', lineHeight: 12 },
   statsRow: { flexDirection: 'row', gap: 8 },
   statChip: {
     backgroundColor: colors.card,
@@ -1630,7 +1634,13 @@ const styles = StyleSheet.create({
   systemText: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
   systemTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.md },
-  title: { color: colors.text, flex: 1, fontSize: 20, fontWeight: '900' },
+  title: {
+    color: colors.text,
+    flex: 1,
+    flexShrink: 1,
+    fontSize: 20,
+    fontWeight: '900',
+  },
   titleOnlineDot: {
     backgroundColor: colors.success,
     borderRadius: 999,

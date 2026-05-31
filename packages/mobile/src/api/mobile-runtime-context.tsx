@@ -349,7 +349,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [])
 
   const refreshDashboard = useCallback(
-    async (workspaceId = selectedWorkspaceId) => {
+    async (workspaceId = selectedWorkspaceId, options: { suppressError?: boolean } = {}) => {
       if (!workspaceId) {
         setDashboard(null)
         return null
@@ -359,9 +359,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setDashboard(nextDashboard)
         return nextDashboard
       } catch (dashboardError) {
-        const message =
-          dashboardError instanceof Error ? dashboardError.message : String(dashboardError)
-        setError(message)
+        if (!options.suppressError) {
+          const message =
+            dashboardError instanceof Error ? dashboardError.message : String(dashboardError)
+          setError(message)
+        }
         return null
       }
     },
@@ -384,7 +386,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const syncWorkspaceData = useCallback(
     async (workspaceId: string, options: { bumpRevision?: boolean; resetChat?: boolean } = {}) => {
       if (selectedWorkspaceIdRef.current !== workspaceId) return
-      await refreshDashboard(workspaceId)
+      await refreshDashboard(workspaceId, { suppressError: true })
       try {
         await syncChatMessages(client, workspaceId, {
           resetSince: options.resetChat ?? false,
@@ -835,7 +837,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       try {
         await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
         chatFetchFailureCountRef.current = 0
-        await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
+        void syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return 'sent'
       } catch (promptError) {
         const message = promptError instanceof Error ? promptError.message : String(promptError)

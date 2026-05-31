@@ -14,11 +14,7 @@ const MODE_ICON: Record<'disconnected' | 'lan' | 'relay', keyof typeof Ionicons.
 
 export const ConnectionModeBadge = () => {
   const t = useT()
-  const {
-    connectionMode,
-    reconnecting,
-    state,
-  } = useMobileRuntime()
+  const { connectionMode, reconnecting, state } = useMobileRuntime()
 
   const { displayMode, showConnecting } = getConnectionModeBannerSnapshot({
     connectionMode,
@@ -113,11 +109,10 @@ const s = StyleSheet.create({
   },
   badge: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
     borderRadius: 999,
     flexDirection: 'row',
-    gap: 6,
-    minHeight: 24,
+    gap: 4,
+    height: 24,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -132,6 +127,7 @@ const s = StyleSheet.create({
     color: colors.text,
     fontSize: 10,
     fontWeight: '800',
+    lineHeight: 12,
     textTransform: 'uppercase',
   },
   offlineBadge: {
@@ -158,6 +154,7 @@ const s = StyleSheet.create({
     borderRadius: 999,
     flexDirection: 'row',
     gap: 4,
+    height: 24,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -165,6 +162,7 @@ const s = StyleSheet.create({
     color: colors.warning,
     fontSize: 10,
     fontWeight: '800',
+    lineHeight: 12,
   },
   retryAction: {
     color: colors.error,
@@ -178,6 +176,7 @@ const s = StyleSheet.create({
     borderRadius: 999,
     flexDirection: 'row',
     gap: 4,
+    height: 24,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -185,6 +184,7 @@ const s = StyleSheet.create({
     color: colors.error,
     fontSize: 10,
     fontWeight: '800',
+    lineHeight: 12,
   },
   sendingPill: {
     alignItems: 'center',
@@ -192,6 +192,7 @@ const s = StyleSheet.create({
     borderRadius: 999,
     flexDirection: 'row',
     gap: 4,
+    height: 24,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
@@ -199,5 +200,6 @@ const s = StyleSheet.create({
     color: colors.accent,
     fontSize: 10,
     fontWeight: '800',
+    lineHeight: 12,
   },
 })

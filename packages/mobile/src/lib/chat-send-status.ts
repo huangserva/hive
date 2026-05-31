@@ -2,11 +2,15 @@ export type ChatSendOutcome = 'error' | 'queued' | 'sent'
 
 export interface ChatSendOutcomeInput {
   queued: boolean
-  sent: boolean
+  sendSucceeded: boolean
+  syncSucceeded: boolean
 }
 
-export const resolveChatSendOutcome = ({ queued, sent }: ChatSendOutcomeInput): ChatSendOutcome => {
-  if (sent) return 'sent'
+export const resolveChatSendOutcome = ({
+  queued,
+  sendSucceeded,
+}: ChatSendOutcomeInput): ChatSendOutcome => {
+  if (sendSucceeded) return 'sent'
   if (queued) return 'queued'
   return 'error'
 }

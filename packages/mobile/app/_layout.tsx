@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications'
 import { Stack, useRouter } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { useCallback, useEffect } from 'react'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 
 import { MobileRuntimeProvider, useMobileRuntime } from '../src/api/mobile-runtime-context'
@@ -61,17 +62,19 @@ function NotificationBridge() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <LanguageProvider>
-        <ErrorBoundary>
-          <MobileRuntimeProvider>
-            <NotificationBridge />
-            <OfflineBanner />
-            <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false }} />
-          </MobileRuntimeProvider>
-        </ErrorBoundary>
-      </LanguageProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <LanguageProvider>
+          <ErrorBoundary>
+            <MobileRuntimeProvider>
+              <NotificationBridge />
+              <OfflineBanner />
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false }} />
+            </MobileRuntimeProvider>
+          </ErrorBoundary>
+        </LanguageProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   )
 }

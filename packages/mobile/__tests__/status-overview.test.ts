@@ -39,6 +39,16 @@ describe('selectLatestActiveMilestone', () => {
     expect(selected?.id).toBe('M28')
   })
 
+  test('prefers the newest active milestone even when it is open and a older in-progress milestone exists', () => {
+    const selected = selectLatestActiveMilestone([
+      milestone({ date: '2026-05-20', id: 'M24', status: 'in_progress', title: 'Old active' }),
+      milestone({ date: '2026-05-31', id: 'M29', status: 'open', title: 'Newer open' }),
+      milestone({ date: '2026-05-25', id: 'M27', status: 'proposed', title: 'Ignore' }),
+    ])
+
+    expect(selected?.id).toBe('M29')
+  })
+
   test('falls back to the newest open milestone when no in-progress milestone exists', () => {
     const selected = selectLatestActiveMilestone([
       milestone({ date: '2026-05-20', id: 'M24', status: 'open', title: 'Old open' }),

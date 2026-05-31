@@ -1,5 +1,10 @@
 import { Ionicons } from '@expo/vector-icons'
-import { type BarcodeScanningResult, CameraView, scanFromURLAsync, useCameraPermissions } from 'expo-camera'
+import {
+  type BarcodeScanningResult,
+  CameraView,
+  scanFromURLAsync,
+  useCameraPermissions,
+} from 'expo-camera'
 import * as Clipboard from 'expo-clipboard'
 import Constants from 'expo-constants'
 import * as ImagePicker from 'expo-image-picker'
@@ -154,7 +159,7 @@ export default function SettingsTab() {
         mediaTypes: ['images'],
         quality: 1,
       })
-      const asset = result.canceled ? null : result.assets?.[0] ?? null
+      const asset = result.canceled ? null : (result.assets?.[0] ?? null)
       if (!asset?.uri) return
       const scanResults = await scanFromURLAsync(asset.uri, ['qr'])
       const payload = resolveConnectionQrFromScanResults(scanResults)
@@ -216,18 +221,24 @@ export default function SettingsTab() {
   const lanAvailable = connectionMode === 'lan' || isConnected
   const deviceMeta = [
     pairedDevice?.device_type,
-    formatDateLabel('Created', pairedDevice?.created_at),
-    formatDateLabel('Last seen', pairedDevice?.last_seen_at),
+    formatDateLabel(t('settings.created'), pairedDevice?.created_at, language),
+    formatDateLabel(t('settings.lastSeen'), pairedDevice?.last_seen_at, language),
   ]
     .filter(Boolean)
     .join(' • ')
   const deviceCapabilities = pairedDevice?.capabilities ?? []
   const relayMeta = relayConfig
-    ? [relayConfig.relay_url, relayConfig.room_id ? `Room ${relayConfig.room_id}` : null]
+    ? [
+        relayConfig.relay_url,
+        relayConfig.room_id ? t('settings.relayRoomValue', { room: relayConfig.room_id }) : null,
+      ]
         .filter(Boolean)
         .join(' • ')
     : null
-  const lanMeta = [host || null, runtimeStatus?.port ? `Port ${runtimeStatus.port}` : null]
+  const lanMeta = [
+    host || null,
+    runtimeStatus?.port ? t('settings.lanPortValue', { port: runtimeStatus.port }) : null,
+  ]
     .filter(Boolean)
     .join(' • ')
   const appBuildLabel = getAppBuildLabel(t)
@@ -256,7 +267,9 @@ export default function SettingsTab() {
                   <Text
                     style={[styles.languageOptionText, active && styles.languageOptionTextActive]}
                   >
-                    {option === 'en' ? 'English' : '中文'}
+                    {option === 'en'
+                      ? t('settings.languageEnglish')
+                      : t('settings.languageChinese')}
                   </Text>
                 </Pressable>
               )
@@ -651,11 +664,11 @@ const FieldHeader = ({ subtitle, title }: { subtitle: string; title: string }) =
   </View>
 )
 
-const formatDateLabel = (label: string, value?: string | null) => {
+const formatDateLabel = (label: string, value?: string | null, language = 'en') => {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return `${label} ${new Intl.DateTimeFormat('en-US', {
+  return `${label} ${new Intl.DateTimeFormat(language.startsWith('zh') ? 'zh-CN' : 'en-US', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
