@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
 } from '../src/api/mobile-runtime-context-logic.js'
@@ -70,5 +71,10 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
         relayTransportReady: false,
       })
     ).toBe(true)
+  })
+
+  test('keeps the last loaded dashboard on reconnect failures once it exists', () => {
+    expect(shouldClearLoadedStateOnConnectFailure(false)).toBe(true)
+    expect(shouldClearLoadedStateOnConnectFailure(true)).toBe(false)
   })
 })

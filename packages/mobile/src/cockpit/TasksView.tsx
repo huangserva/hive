@@ -58,10 +58,6 @@ export function TasksView({ dashboard }: { dashboard: MobileDashboard }) {
 
       <View style={s.timelineHeader}>
         <Text style={s.timelineTitle}>{t('cockpit.tasks.dispatchTimeline')}</Text>
-        <View style={s.filterBtn}>
-          <Ionicons color={colors.muted} name="filter-outline" size={14} />
-          <Text style={s.filterText}>{t('cockpit.tasks.filter')}</Text>
-        </View>
       </View>
 
       {inProgress.length > 0 && (
@@ -159,18 +155,6 @@ const s = StyleSheet.create({
     padding: spacing.md,
   },
   emptyOpenText: { color: colors.muted, fontSize: 13 },
-  filterBtn: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: colors.borderMuted,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  filterText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   groupLabel: { color: colors.accent, fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
   groupLabelMuted: {
     color: colors.muted,

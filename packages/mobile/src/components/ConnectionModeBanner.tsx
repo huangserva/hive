@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { useT } from '../i18n'
 import { colors, radius, spacing } from '../theme'
+import { getConnectionModeBannerSnapshot } from './connection-mode-banner-state'
 
 const MODE_ICON: Record<'disconnected' | 'lan' | 'relay', keyof typeof Ionicons.glyphMap> = {
   disconnected: 'cloud-offline-outline',
@@ -23,8 +24,11 @@ export const ConnectionModeBanner = () => {
     state,
   } = useMobileRuntime()
 
-  const displayMode: 'disconnected' | 'lan' | 'relay' =
-    state === 'connected' || reconnecting ? connectionMode : 'disconnected'
+  const { displayMode, showConnecting } = getConnectionModeBannerSnapshot({
+    connectionMode,
+    reconnecting,
+    state,
+  })
   const modeKey =
     displayMode === 'lan'
       ? 'runtime.connectionMode.lan'
@@ -53,7 +57,7 @@ export const ConnectionModeBanner = () => {
           />
         </View>
         <Text style={s.modeText}>{modeLabel}</Text>
-        {state === 'checking' || reconnecting ? (
+        {showConnecting ? (
           <View style={s.loadingRow}>
             <ActivityIndicator color={colors.muted} size="small" />
             <Text style={s.loadingText}>{t('chat.status.connecting')}</Text>

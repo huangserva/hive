@@ -40,9 +40,6 @@ export default function CockpitTab() {
   return (
     <Screen>
       <View style={styles.header}>
-        <Pressable accessibilityRole="button" style={styles.headerIconButton}>
-          <Ionicons color={colors.text} name="menu-outline" size={27} />
-        </Pressable>
         <View style={styles.headerCenter}>
           <View style={styles.titleRow}>
             <Text style={styles.title}>{t('tabs.cockpit')}</Text>
@@ -56,14 +53,6 @@ export default function CockpitTab() {
             </Text>
             <Ionicons color={colors.muted} name="open-outline" size={15} />
           </View>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" style={styles.headerIconButton}>
-            <Ionicons color={colors.text} name="filter-outline" size={23} />
-          </Pressable>
-          <Pressable accessibilityRole="button" style={styles.headerIconButton}>
-            <Ionicons color={colors.text} name="ellipsis-horizontal" size={24} />
-          </Pressable>
         </View>
       </View>
 
@@ -103,24 +92,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     paddingTop: 2,
   },
-  headerActions: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
   headerCenter: {
     alignItems: 'center',
     flex: 1,
     minWidth: 0,
-  },
-  headerIconButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: 'rgba(139, 148, 158, 0.2)',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: 'center',
-    width: 44,
   },
   hint: {
     color: colors.muted,

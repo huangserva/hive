@@ -27,3 +27,6 @@ export const shouldQueuePromptBeforeSend = ({
   relayTransportReady,
 }: PromptSendDecisionInput) =>
   connectionState !== 'connected' || reconnecting || !relayTransportReady
+
+export const shouldClearLoadedStateOnConnectFailure = (hasLoadedDashboard: boolean) =>
+  !hasLoadedDashboard

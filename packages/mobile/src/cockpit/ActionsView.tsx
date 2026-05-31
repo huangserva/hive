@@ -104,10 +104,6 @@ export function ActionsView({ dashboard: _dashboard }: { dashboard: MobileDashbo
     >
       <View style={s.headerRow}>
         <Text style={s.sectionTitle}>{t('cockpit.actions.title')}</Text>
-        <View style={s.filterBtn}>
-          <Ionicons color={colors.muted} name="filter-outline" size={14} />
-          <Text style={s.filterText}>{t('common.filter')}</Text>
-        </View>
       </View>
       <Text style={s.subtitle}>{t('cockpit.actions.count', { count: actionCount })}</Text>
 
@@ -228,18 +224,6 @@ const s = StyleSheet.create({
     padding: spacing.md,
   },
   emptyText: { color: colors.muted, fontSize: 13 },
-  filterBtn: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderColor: colors.borderMuted,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  filterText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   feedbackBanner: {
     alignItems: 'center',
     borderRadius: radius.sm,

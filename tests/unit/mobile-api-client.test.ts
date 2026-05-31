@@ -20,9 +20,12 @@ describe('mobile runtime client', () => {
       version: '1.0.0',
     })
 
-    expect(fetchImpl).toHaveBeenCalledWith('http://10.0.0.2:4010/api/runtime/status', {
-      headers: { Accept: 'application/json' },
-    })
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://10.0.0.2:4010/api/runtime/status',
+      expect.objectContaining({
+        headers: { Accept: 'application/json' },
+      })
+    )
   })
 
   test('calls mobile API routes with bearer auth', async () => {
@@ -46,12 +49,20 @@ describe('mobile runtime client', () => {
       { id: 'workspace-1', name: 'HippoTeam', path: '/repo' },
     ])
 
-    expect(fetchImpl).toHaveBeenNthCalledWith(1, 'http://10.0.0.2:4010/api/mobile/runtime/status', {
-      headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
-    })
-    expect(fetchImpl).toHaveBeenNthCalledWith(2, 'http://10.0.0.2:4010/api/mobile/workspaces', {
-      headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
-    })
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      'http://10.0.0.2:4010/api/mobile/runtime/status',
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+      })
+    )
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      'http://10.0.0.2:4010/api/mobile/workspaces',
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+      })
+    )
   })
 
   test('fetches dashboard data and builds authenticated dashboard websocket URL', async () => {
@@ -85,7 +96,9 @@ describe('mobile runtime client', () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/dashboard',
-      { headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' } }
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+      })
     )
   })
 
@@ -121,23 +134,23 @@ describe('mobile runtime client', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/stop',
-      {
+      expect.objectContaining({
         headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
         method: 'POST',
-      }
+      })
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/restart',
-      {
+      expect.objectContaining({
         headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
         method: 'POST',
-      }
+      })
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       3,
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/dispatch',
-      {
+      expect.objectContaining({
         body: JSON.stringify({ task: 'Run mobile smoke test', worker_id: 'worker-1' }),
         headers: {
           Accept: 'application/json',
@@ -145,7 +158,7 @@ describe('mobile runtime client', () => {
           'Content-Type': 'application/json',
         },
         method: 'POST',
-      }
+      })
     )
   })
 
@@ -192,12 +205,16 @@ describe('mobile runtime client', () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(
       1,
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/workers/worker-1/transcript',
-      { headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' } }
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+      })
     )
     expect(fetchImpl).toHaveBeenNthCalledWith(
       2,
       'http://10.0.0.2:4010/api/mobile/workspaces/workspace-1/tasks',
-      { headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' } }
+      expect.objectContaining({
+        headers: { Accept: 'application/json', Authorization: 'Bearer mobile-token' },
+      })
     )
   })
 

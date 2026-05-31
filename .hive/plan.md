@@ -176,7 +176,7 @@ last_review: 2026-05-25
 - 触发：idea-3 promote，user Q8 答"同意"（5/25）。来源 multica/paseo provider catalog
 - 注意：别滑成 multica 式重平台；HippoTeam 保持轻量，manifest 只服务"派单更精准"
 
-### M19 · HippoTeam native app / dashboard · confirmed (user 飞书 5/25)
+### M19 · HippoTeam native app / dashboard · shipped 2026-05-27（原生 app + dashboard 已上线在用；细分 M19a-h 全 shipped；productization 接 M24。状态从 confirmed 更正——避免被 active-milestone 误选为"当前"）
 - [x] 初版路线调研：拆解 paseo app 端 + 对比 PWA / desktop shell / native mobile（`2fa6425`，结论已被 user 覆写为原生-first）
 - [x] **路线拍板**：user 明确要原生 APP / 最佳体验，不因实现难或与飞书重叠降级；ADR 已采纳 `.hive/decisions/2026-05-25-hippoteam-frontend-app.md`
 - [x] Epic 架构设计：client/daemon 升级 + Expo/RN app + host token auth + direct LAN + encrypted relay + M14 voice convergence（commit e895380）
@@ -216,6 +216,28 @@ last_review: 2026-05-25
 - [x] backend 支持编辑 worker description / preset / thinking_level / sentinel heartbeat interval
 - [x] tests: heartbeat 注入、创建唯一性、authz 拒绝 send、UI 独立区域
 
+### M28 · 手机端追平 Web（mobile-vs-web UI 一致性） · in_progress (审查 2026-05-31，63 条确认)
+> 依据：workflow 全量审查 `.hive/reports/2026-05-31-mobile-vs-web-ui-audit.html` + `.hive/research/2026-05-31-mobile-vs-web-ui-audit.md`（82 agent / 2.5M tok，0 critical / 10 high / 28 medium / 25 low）。
+> 根因不在 UI：**服务端 `routes-mobile.ts` 的 mobile API 只暴露 5 字段**（plan/tasks/questions/ideas/actions），baseline/decisions/research/reports/timeline 源头没输出；且错误处理「清空」而非「降级」。**修服务端一处、多页受益。**
+> ⚠️ drift：M24 Phase 5「orch_reply 自动回灌」、Phase 7「审批推送通道」标 done 实则坏了（见 Phase 1 P0/P1）。
+
+- [ ] **Phase 1 = P0/P1（阻塞 PM 核心闭环，进下个 build）** — 派单 2026-05-31
+  - **Track A 服务端（派马超）**：`routes-mobile.ts` mobile cockpit/chat API 扩字段 + 修后端根因
+    - [ ] `orch_reply` 正常对话回复也写 `mobile_chat_messages`（现仅 `team mobile-reply` 写 → 手机看不到普通回复，对话闭环断）
+    - [ ] `approval_request` 真正持久化到 chat DB（现服务端从不写、UI 是死码 → `team approve` 安全门在手机端失效）
+    - [ ] run `started_at` 不再硬编码 null（Worker 详情 Uptime 永远 `--`）
+    - [ ] mobile cockpit API 暴露 decisions/baseline（+ reports/research/timeline/archive 索引），供前端补 tab
+  - **Track B 前端独立 P0（派赵云，不依赖 Track A，文件不冲突）**：`packages/mobile/src/*`
+    - [ ] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
+    - [ ] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
+    - [ ] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
+    - [ ] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
+- [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
+- [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
+- [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
+- 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
+- [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（commit hash 待回填）
+
 ### M24 · Mobile App 产品化实现 · in_progress
 - [x] **Phase 1**：Chat 双向消息后端（mobile_chat_messages 表 + mobile prompt / orch_reply 捕获 / dispatch / worker report 写表 + WS push + REST history endpoint）— 2026-05-27
 - [x] **Phase 2**：12 页面 UI 实现（Chat/Status/Settings/Worker Detail/Cockpit 5 tabs/Approval/Offline 全部按设计稿实现）— 2026-05-27
@@ -223,8 +245,8 @@ last_review: 2026-05-25
 - [x] **Phase 4**：Demo Mode（假数据预览全部页面，无需 LAN 连接）— 2026-05-27
 - [x] **Phase 5**：Orchestrator reply 自动回灌（PTY 输出捕获 → mobile_chat_messages orch_reply）— 2026-05-27
 - [x] **Phase 6**：UI 设计对齐 + 实时终端同步（严格对齐 12 张 mockup + Worker/Orch 终端实时轮询 + Cockpit 子页面接真实 API）— 马超完成 2026-05-28
-- [ ] **Phase 7**：Push Notification + Approval deep link（Expo push 触发 + approval card lifecycle）
-- [ ] **Phase 8**：Error resilience + 离线缓存（LAN/relay fallback UI + offline outbox + 增量同步）
+- [x] **Phase 7**：Push Notification + Approval deep link（真实 Expo push 注册 + 通知 deep-link 路由 approval/worker_done/high_ai_action + notifyApprovalRequested 审批推送=手机审批通道 + 冷启动处理）— 关羽 2026-05-30 `18f68f3`。⚠️ Android 真实投递需配 FCM/EAS push credentials（运维）
+- [x] **Phase 8**：Error resilience + 离线缓存（连接模式横幅 LAN/relay/离线 + mobile-outbox 持久化队列 prompt/dispatch/approval 入队-flush-去重 + 重连/回前台 syncRevision 增量追平 dashboard/tasks/cockpit/chat）— 关羽 2026-05-30 `fb5999c`。真断网/重连端到端待真机验
 - [x] **新增 Worker（手机端）**：Status 页「+」入口 + AddWorkerModal 最简安全版（只用已有 preset、拒 sentinel、不收 startup_command），后端 mobile create-worker + command-presets 端点（admin_runtime，LAN + relay 双通道），6 后端测试 — 马超 2026-05-30（待 commit hash；spike `.hive/reports/2026-05-30-mobile-add-worker-spike.html`，安全边界 ADR `draft-2026-05-30-mobile-add-worker-safety.md`）
 - [x] **L1 机制**：设计 milestone shipped → 自动检测缺实施 milestone
 - 设计文档：`.hive/reports/mobile-app-design-v2-2026-05-27.html`
@@ -242,6 +264,32 @@ last_review: 2026-05-25
 - 来源：idea-4 promote（user 拍板 2026-05-27），paseo seq/epoch/gap 模型借鉴
 - Phase 1 后端基础：schema/store/API 已完成（2026-05-29，待 commit hash 回填）
 - 前置：不依赖其他 milestone，可独立开工
+
+### M25 · Provider session isolation（借鉴 CCB，补 agent runtime 底层差距） · in progress (user 拍板 2026-05-30；Phase 1 派马超 2026-05-30)
+- [ ] 为每个 provider 定义显式 session isolation contract：managed home（独立 config/auth/memory 根）+ session root + binding/完成事件 + diagnostics 边界
+- [ ] **先做 Codex + Claude**（本仓最常用、坑最多），再 Gemini/OpenCode
+  - [x] **Phase 1 = Codex**（马超 `8e9c1a48`，代码完成待 review/commit）：新增 `provider-runtime-profile.ts`（per-agent managed `CODEX_HOME`=`<dataDir>/agents/<seg>/provider/codex/home` + 派生 `sessions/` 根 + config/auth 投影）；`buildAgentRunBootstrap` 在 fresh+resume 都钉死 managed CODEX_HOME/SESSION_ROOT；`session-capture` snapshot/capture 改读 managed 根（消除多 codex worker 串线根源）；dataDir 经 createAgentRuntime→starter 下穿，无 dataDir 退回全局（向后兼容）。强 TDD：`tests/server/codex-provider-isolation.test.ts` 9 条（禁 mock PTY），server tsc 0 错。产出 `research/2026-05-30-codex-session-isolation-contract.md`。**留后续**：legacy 全局 session 迁移、authority fingerprint 持久化、memory/plugins/skills 投影、Claude/Gemini/OpenCode（Phase 2/3）
+- [ ] 与已有 session capture / Layer A resume / Layer B fallback 对齐，消除 session 串线 / resume 错绑 / provider 状态污染
+- [ ] （配套，可单列 M25b）hive doctor / support bundle：一键导出 runtime.sqlite schema/version + agent runs + dispatch ledger + last PTY lines + logs + PM docs orphan 检查
+- 来源：钟馗 CCB vs HippoTeam 对比调研（`.hive/reports/2026-05-30-ccb-vs-hippoteam-comparison.html`）排第一的差距；ADR `.hive/decisions/2026-05-30-provider-session-isolation.md`
+- 定位：补 agent runtime 底层（CCB 最强、hive 最薄的一维）；接今天修的 worker 卡死/session 判别符（`04024dd`/`6a3b9b5`/`385c0ae0`）往下做厚
+- 代价：动 runtime + 测试，改动大风险高，必须分阶段 + 强 TDD（§13 集成测试禁 mock PTY）；不破坏 PM 治理/远控等 hive 差异化优势
+
+### M26 · Worker 汇报可靠性（idle 自愈 + Fix B 误报根治） · shipped 2026-05-30 (`80cfd91`，4010 重启已生效)
+- [ ] **L1 机制**：把卡死检测从「时间驱动(4min) nudge orchestrator」升级为「worker PTY 回到 idle 提示符 + 有 submitted 未 report dispatch → 直接 nudge worker stdin 自补 report」，最多 2 次再回退 orchestrator nudge
+- [ ] 复用 `hasInteractivePromptReady`（post-start-input-writer）+ Fix A「只看新输出」防旧提示符误触发；idle 检测留 nudge/sentinel 层，不侵入 agent 运行热路径
+- [ ] **顺手根治 Fix B 误报**：真 idle 才触发→正在干活的 worker 永不被打扰（本 session 多次误伤赵云/关羽/马超）
+- [ ] **L2 提示词**：WORKER_RULES + REMINDER_TAIL 加硬话——文字总结≠汇报，必须运行 team report CLI，turn 结束自检
+- 触发：本 session 马超 M25 干完用文字 recap 收尾、没真跑 team report → dispatch 卡 submitted 看着像卡死；agent 状态 `pendingTaskCount>0?working:idle` 是假信号
+- 强 TDD（§13 禁 mock PTY）；文件边界避开 M25 未提交改动；PM 待落 ADR
+
+### M27 · Relay 远程体验优化（跳过 LAN 空试 + 实时推送） · in progress · 代码全 commit `ba631cf`，build #19 含全部，待 user 装+4010 重启验证 (派马超 `8cb009de` 2026-05-30)
+- 触发：4G relay 连接修好稳定后 user 反馈 ①慢 ②"经常连接像重连"。诊断：app 每请求先试 LAN(client.ts readMobileJson, 4s AbortController)再 fallback relay，4G 下每请求挂 4s + UI 闪连接中；新消息走 5s 轮询有延迟。
+- [x] **Part A 跳过 LAN 空试**（马超 `8cb009de`，代码完成待 review/build）：`client.ts` 加 `lanCooldownMs`(默认30s) + `lanCooldownUntil`——LAN 请求失败即开 cooldown 窗口，窗口内 `readMobileJson` 直接走 relay 跳过 ~4s LAN 空试；LAN 成功即解除（回 WiFi 优先直连）；暴露 `resetLanCooldown()` 供网络变化强制重探。TDD 4 条。
+- [x] **Part B relay 实时推送**（马超 `8cb009de`，代码完成待 review/build）：daemon `relay-connector` 加 `pushEvent(kind,payload)`（复用 channel.encrypt 推 `{type:'event'}` 无 id 帧给活跃 session）；`app.ts` 在**已有** registerCockpitListener/registerMobileChatListener 通知点同步推 `dashboard_update`/`chat_message`（不另造通知源）；`relay-transport.handleEncryptedPayload` 加 `onEvent` 路由（无 id 的 event 帧不当 RPC 回应）；context 订阅 onEvent→即时 merge chat / 刷 dashboard；chat 轮询 5s→20s 降频兜底。TDD：transport 路由 2 条 + daemon pushEvent 2 条。
+- 强 TDD（§13 禁 mock PTY）；不破坏握手/RPC方法/churn修复/evict-old；测试全绿（mobile 40 + server relay 20）；server+mobile tsc 0 错、biome 干净。**B 动 daemon，需 4010 重启生效**。
+- **build #19 含全部**：M27 Part A/B + cockpit 一致性批次（milestone 编号 `e4f8106`、Ideas 编号 `b2f4dea`、Tasks 内容对齐 web `8aecdb8`、cockpit 标签页实时 `2956b14`）。Part A/编号/Tasks 装上即生效；Part B 推送 + cockpit 实时需 4010 重启。Action 文案 i18n（后端发 key）单列待 user 拍。
+- 关联：本次 4G relay 连接攻坚（5+1 层 bug 全修，commit `9289919`→`dbbb640`，全过程记于 tasks.md 📡🔥 narrative + `.hive/research/2026-05-30-relay-deployment-kit.md`；polished HTML 报告吕布写时 opencode context 超限止损未成，可后续重派）；cockpit 一致性审计 `.hive/reports/2026-05-30-mobile-cockpit-consistency-audit.html`
 
 ## Scope
 

@@ -75,7 +75,12 @@ export interface MobileCommandPreset {
   display_name: string
   id: string
   is_builtin?: boolean
-  thinking_levels?: string[]
+  thinking_levels?: MobileCommandPresetThinkingLevel[]
+}
+
+export interface MobileCommandPresetThinkingLevel {
+  label: string
+  value: string
 }
 
 export interface MobileCreateWorkerInput {

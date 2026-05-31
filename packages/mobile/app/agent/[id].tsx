@@ -505,9 +505,6 @@ export default function AgentDetailScreen() {
             <Ionicons color={colors.accent} name="arrow-back" size={22} />
           </Pressable>
           <Text style={styles.navTitle}>{t('agent.detail.title')}</Text>
-          <Pressable accessibilityRole="button" hitSlop={12}>
-            <Ionicons color={colors.muted} name="ellipsis-horizontal" size={22} />
-          </Pressable>
         </View>
         <Text style={styles.pullHint}>{t('status.pullRefresh')}</Text>
 

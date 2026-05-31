@@ -59,6 +59,7 @@ import {
 } from './mobile-outbox'
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import {
+  shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
 } from './mobile-runtime-context-logic'
@@ -203,6 +204,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const stateRef = useRef(state)
   const outboxRef = useRef(outbox)
   const reconnectingRef = useRef(reconnecting)
+  const dashboardRef = useRef(dashboard)
 
   hostRef.current = host
   tokenRef.current = token
@@ -211,6 +213,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   stateRef.current = state
   outboxRef.current = outbox
   reconnectingRef.current = reconnecting
+  dashboardRef.current = dashboard
 
   const syncReconnectingState = useCallback(() => {
     setReconnecting(Boolean(reconnectInFlightRef.current || reconnectTimerRef.current))
@@ -509,8 +512,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           const message =
             connectError instanceof Error ? connectError.message : String(connectError)
           setError(message)
-          setDashboard(null)
-          setRuntimeStatus(null)
+          if (shouldClearLoadedStateOnConnectFailure(Boolean(dashboardRef.current))) {
+            setDashboard(null)
+            setRuntimeStatus(null)
+          }
           setState('error')
         }
         return null

@@ -18,6 +18,7 @@ import type {
   MobileCreateWorkerResponse,
 } from '../api/client'
 import { useT } from '../i18n'
+import { toThinkingLevelOptions } from '../lib/thinking-levels'
 import { colors, radius, spacing } from '../theme'
 
 // 移动端可创建的角色（不含 sentinel：哨兵唯一且 PC 专属）。
@@ -74,7 +75,7 @@ export const AddWorkerModal = ({
   }, [visible, listCommandPresets])
 
   const selectedPreset = presets.find((preset) => preset.id === presetId)
-  const thinkingLevels = selectedPreset?.thinking_levels ?? []
+  const thinkingLevels = toThinkingLevelOptions(selectedPreset?.thinking_levels)
 
   const handleClose = () => {
     if (creating) return
@@ -181,10 +182,10 @@ export const AddWorkerModal = ({
                   />
                   {thinkingLevels.map((level) => (
                     <SelectChip
-                      key={level}
-                      label={level}
-                      onPress={() => setThinkingLevel(level)}
-                      selected={thinkingLevel === level}
+                      key={level.value}
+                      label={level.label}
+                      onPress={() => setThinkingLevel(level.value)}
+                      selected={thinkingLevel === level.value}
                     />
                   ))}
                 </View>
