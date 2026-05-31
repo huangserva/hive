@@ -5,10 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { colors, spacing } from '../theme'
 import { ConnectionModeBanner } from './ConnectionModeBanner'
 
-export const Screen = ({ children }: PropsWithChildren) => (
+export const Screen = ({
+  children,
+  showConnectionModeBanner = true,
+}: PropsWithChildren<{ showConnectionModeBanner?: boolean }>) => (
   <SafeAreaView style={styles.safeArea}>
     <View style={styles.content}>
-      <ConnectionModeBanner />
+      {showConnectionModeBanner ? <ConnectionModeBanner /> : null}
       <View style={styles.body}>{children}</View>
     </View>
   </SafeAreaView>

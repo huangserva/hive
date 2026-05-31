@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   type KeyboardEvent,
   type LayoutChangeEvent,
+  Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -28,8 +29,14 @@ import {
   normalizeRuntimeHost,
 } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
+import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
+import { resolveChatSendOutcome } from '../../src/lib/chat-send-status'
+import {
+  COMPOSER_INPUT_MIN_HEIGHT,
+  resolveComposerInputHeight,
+} from '../../src/lib/composer-height'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -51,6 +58,11 @@ interface StagedAttachment {
   base64: string
   filename: string
   mimeType: string
+}
+
+type PreviewImageSource = {
+  headers?: Record<string, string>
+  uri: string
 }
 
 const AUTO_SCROLL_THRESHOLD_PX = 80
@@ -87,7 +99,7 @@ export default function ChatTab() {
     dashboard,
     fetchChatMessages,
     host,
-    sendPromptToOrchestrator,
+    sendPromptToOrchestratorWithOutcome,
     state,
     token,
     uploadMedia,
@@ -95,9 +107,14 @@ export default function ChatTab() {
   const t = useT()
   const router = useRouter()
   const [draft, setDraft] = useState('')
+  const [composerHeight, setComposerHeight] = useState(COMPOSER_INPUT_MIN_HEIGHT)
   const [optimistic, setOptimistic] = useState<OptimisticMessage[]>([])
   const [sending, setSending] = useState(false)
   const [attachments, setAttachments] = useState<StagedAttachment[]>([])
+  const [previewImage, setPreviewImage] = useState<{
+    label: string
+    source: PreviewImageSource
+  } | null>(null)
   const [headerExpanded, setHeaderExpanded] = useState(false)
   const [keyboardInset, setKeyboardInset] = useState(0)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -342,6 +359,14 @@ export default function ChatTab() {
     }
   }, [maybeAutoScrollToEnd])
 
+  const openImagePreview = useCallback((source: PreviewImageSource, label: string) => {
+    setPreviewImage({ label, source })
+  }, [])
+
+  const closeImagePreview = useCallback(() => {
+    setPreviewImage(null)
+  }, [])
+
   const scrollToLatestMessage = useCallback(
     (animated: boolean) => {
       forceScrollToEndRef.current = true
@@ -384,6 +409,7 @@ export default function ChatTab() {
     setDraft('')
     const stagedFiles = [...attachments]
     setAttachments([])
+    setComposerHeight(COMPOSER_INPUT_MIN_HEIGHT)
     setSending(true)
     try {
       const uploadedFiles: string[] = []
@@ -398,23 +424,20 @@ export default function ChatTab() {
       if (body) {
         parts.push(body)
       }
-      let sent = true
-      if (parts.length > 0) {
-        sent = await sendPromptToOrchestrator(parts.join('\n'))
-      }
-      const queued = !sent && state !== 'connected'
+      const sendOutcome =
+        parts.length > 0 ? await sendPromptToOrchestratorWithOutcome(parts.join('\n')) : 'sent'
       setOptimistic((prev) =>
         prev.map((m) =>
           m.id === msgId
-            ? queued
+            ? sendOutcome === 'queued'
               ? { ...m, pending: false, queued: true }
-              : sent
+              : sendOutcome === 'sent'
                 ? { ...m, pending: false }
                 : { ...m, error: true, pending: false }
             : m
         )
       )
-      if (sent) {
+      if (sendOutcome === 'sent') {
         void fetchChatMessages()
         scrollToLatestMessage(true)
       }
@@ -429,9 +452,8 @@ export default function ChatTab() {
     draft,
     fetchChatMessages,
     scrollToLatestMessage,
-    sendPromptToOrchestrator,
+    sendPromptToOrchestratorWithOutcome,
     sending,
-    state,
     uploadMedia,
   ])
 
@@ -532,7 +554,7 @@ export default function ChatTab() {
   }, [scrollToEnd])
 
   return (
-    <Screen>
+    <Screen showConnectionModeBanner={false}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -547,6 +569,7 @@ export default function ChatTab() {
             style={styles.headerRow}
           >
             <Text style={styles.title}>Orchestrator</Text>
+            <ConnectionModeBadge />
             <View style={styles.onlineBadge}>
               <View style={styles.onlineDot} />
               <Text style={styles.onlineLabel}>{connectionLabel}</Text>
@@ -619,6 +642,7 @@ export default function ChatTab() {
                 router.push({ pathname: '/approval', params: { approvalId } })
               }
               onApprove={approveRequest}
+              onPreviewImage={openImagePreview}
               runtimeHost={host}
               token={token}
               workers={dashboard?.workers ?? []}
@@ -645,7 +669,16 @@ export default function ChatTab() {
           <View style={styles.attachmentPreview}>
             {attachments.map((att, i) => (
               <View key={att.uri} style={styles.thumbWrap}>
-                <Image source={{ uri: att.uri }} style={styles.thumb} />
+                {att.mimeType.startsWith('image/') ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => openImagePreview({ uri: att.uri }, att.filename)}
+                  >
+                    <Image source={{ uri: att.uri }} style={styles.thumb} />
+                  </Pressable>
+                ) : (
+                  <Image source={{ uri: att.uri }} style={styles.thumb} />
+                )}
                 <Pressable style={styles.thumbRemove} onPress={() => removeAttachment(i)}>
                   <Ionicons color="#fff" name="close" size={12} />
                 </Pressable>
@@ -664,10 +697,13 @@ export default function ChatTab() {
           <TextInput
             multiline
             onChangeText={setDraft}
+            onContentSizeChange={(event) => {
+              setComposerHeight(resolveComposerInputHeight(event.nativeEvent.contentSize.height))
+            }}
             placeholder={t('chat.input.placeholder')}
             placeholderTextColor={colors.muted2}
             scrollEnabled
-            style={styles.input}
+            style={[styles.input, { height: composerHeight }]}
             value={draft}
           />
           {sending ? (
@@ -695,6 +731,36 @@ export default function ChatTab() {
             style={[styles.keyboardLiftSpacer, { height: keyboardInset }]}
           />
         ) : null}
+
+        <Modal
+          animationType="fade"
+          transparent
+          visible={previewImage !== null}
+          onRequestClose={closeImagePreview}
+        >
+          <Pressable style={styles.previewBackdrop} onPress={closeImagePreview}>
+            <Pressable
+              accessibilityLabel={t('common.close')}
+              accessibilityRole="button"
+              onPress={closeImagePreview}
+              style={styles.previewClose}
+            >
+              <Ionicons color={colors.text} name="close" size={22} />
+            </Pressable>
+            {previewImage ? (
+              <View style={styles.previewFrame}>
+                <Image
+                  resizeMode="contain"
+                  source={previewImage.source}
+                  style={styles.previewImage}
+                />
+                <Text numberOfLines={2} style={styles.previewCaption}>
+                  {previewImage.label}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+        </Modal>
       </KeyboardAvoidingView>
     </Screen>
   )
@@ -876,6 +942,7 @@ type MessageCardProps = {
   message: DisplayMessage
   onApprove: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   onOpenApproval: (approvalId: string) => void
+  onPreviewImage: (source: PreviewImageSource, label: string) => void
   runtimeHost: string
   token: string
   workers: MobileDashboardWorker[]
@@ -885,15 +952,20 @@ const MessageCard = ({
   message,
   onApprove,
   onOpenApproval,
+  onPreviewImage,
   runtimeHost,
   token,
   workers,
 }: MessageCardProps) => {
   const t = useT()
   const content = parseContent(message.content_json)
-  const isPending = 'pending' in message && message.pending
-  const isError = 'error' in message && message.error
-  const isQueued = 'queued' in message && message.queued
+  const isPending = 'pending' in message && Boolean(message.pending)
+  const isError = 'error' in message && Boolean(message.error)
+  const isQueued = 'queued' in message && Boolean(message.queued)
+  const deliveryOutcome = resolveChatSendOutcome({
+    queued: isQueued,
+    sent: !isPending && !isError && !isQueued,
+  })
   const time = formatMessageTime(message.created_at)
   const media = parseMedia(message.content_json)
 
@@ -901,7 +973,13 @@ const MessageCard = ({
     return (
       <View style={[styles.userBubble, media ? styles.userMediaBubble : null]}>
         {media ? (
-          <MediaContent authToken={token} media={media} runtimeHost={runtimeHost} tint="outbound" />
+          <MediaContent
+            authToken={token}
+            media={media}
+            onPreviewImage={onPreviewImage}
+            runtimeHost={runtimeHost}
+            tint="outbound"
+          />
         ) : (
           <Text selectable style={styles.userBubbleText}>
             {content}
@@ -911,12 +989,12 @@ const MessageCard = ({
           <Text style={styles.userTime}>{time}</Text>
           {isPending ? (
             <ActivityIndicator color="rgba(13, 17, 23, 0.5)" size={10} />
-          ) : isError ? (
+          ) : deliveryOutcome === 'error' ? (
             <Ionicons color={colors.error} name="alert-circle" size={12} />
-          ) : isQueued ? (
+          ) : deliveryOutcome === 'queued' ? (
             <Ionicons color={colors.warning} name="time-outline" size={12} />
           ) : (
-            <Ionicons color="rgba(13, 17, 23, 0.5)" name="checkmark-done" size={12} />
+            <Ionicons color={colors.success} name="checkmark-done" size={12} />
           )}
         </View>
       </View>
@@ -1064,7 +1142,13 @@ const MessageCard = ({
           Orchestrator
         </Text>
         {media ? (
-          <MediaContent authToken={token} media={media} runtimeHost={runtimeHost} tint="inbound" />
+          <MediaContent
+            authToken={token}
+            media={media}
+            onPreviewImage={onPreviewImage}
+            runtimeHost={runtimeHost}
+            tint="inbound"
+          />
         ) : (
           <MarkdownText text={content} />
         )}
@@ -1089,11 +1173,13 @@ const mediaSizeLabel = (size?: number) => {
 const MediaContent = ({
   authToken,
   media,
+  onPreviewImage,
   runtimeHost,
   tint,
 }: {
   authToken: string
   media: MediaInfo
+  onPreviewImage: (source: PreviewImageSource, label: string) => void
   runtimeHost: string
   tint: 'outbound' | 'inbound'
 }) => {
@@ -1109,18 +1195,18 @@ const MediaContent = ({
   if (isImage && !imageFailed) {
     return (
       <View style={mediaStyles.imageContainer}>
-        <Image
-          onError={() => setImageFailed(true)}
-          source={imageSource}
-          style={mediaStyles.image}
-          resizeMode="cover"
-        />
-        <Text
-          selectable
-          style={tint === 'outbound' ? mediaStyles.captionOut : mediaStyles.captionIn}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onPreviewImage(imageSource, media.filename)}
         >
-          {meta ? `${media.filename} · ${meta}` : media.filename}
-        </Text>
+          <Image
+            accessibilityLabel={media.filename}
+            onError={() => setImageFailed(true)}
+            source={imageSource}
+            style={mediaStyles.image}
+            resizeMode="cover"
+          />
+        </Pressable>
       </View>
     )
   }
@@ -1234,8 +1320,6 @@ const renderInline = (text: string): string => {
 }
 
 const mediaStyles = StyleSheet.create({
-  captionIn: { color: colors.textSoft, fontSize: 12, marginTop: 4 },
-  captionOut: { color: colors.textSoft, fontSize: 12, marginTop: 4 },
   fileCard: {
     alignItems: 'center',
     backgroundColor: 'rgba(13, 17, 23, 0.36)',
@@ -1254,7 +1338,7 @@ const mediaStyles = StyleSheet.create({
   fileNameOut: { color: colors.text, fontSize: 14, fontWeight: '500' },
   fileSize: { color: colors.textSoft, fontSize: 12 },
   image: { borderRadius: radius.sm, height: 170, width: 230 },
-  imageContainer: { gap: 4, maxWidth: 230 },
+  imageContainer: { maxWidth: 230 },
 })
 
 const mdStyles = StyleSheet.create({
@@ -1437,7 +1521,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     flex: 1,
     fontSize: 15,
-    height: 42,
+    minHeight: COMPOSER_INPUT_MIN_HEIGHT,
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
     textAlignVertical: 'top',
@@ -1555,6 +1639,68 @@ const styles = StyleSheet.create({
     width: 10,
   },
   titleRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
+  previewBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.94)',
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  previewCaption: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  previewClose: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 999,
+    height: 40,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: spacing.lg,
+    top: Platform.OS === 'ios' ? 72 : 44,
+    width: 40,
+    zIndex: 2,
+  },
+  previewFrame: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    maxHeight: '88%',
+    maxWidth: '100%',
+    width: '100%',
+  },
+  previewImage: {
+    flex: 1,
+    minHeight: 220,
+    minWidth: '100%',
+    width: '100%',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  scanPhotoButton: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.md,
+  },
+  scanPhotoButtonText: {
+    color: colors.background,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  scannerActions: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+  },
   userBubble: {
     alignSelf: 'flex-end',
     backgroundColor: colors.success,

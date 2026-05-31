@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { useLocalSearchParams } from 'expo-router'
 
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ActionsView } from '../../src/cockpit/ActionsView'
@@ -22,11 +23,21 @@ const TABS: { key: CockpitTab; labelKey: Parameters<ReturnType<typeof useT>>[0] 
   { key: 'actions', labelKey: 'cockpit.tab.actions' },
 ]
 
+const parseCockpitTab = (value?: string | string[]) => {
+  const candidate = Array.isArray(value) ? value[0] : value
+  return TABS.some((tab) => tab.key === candidate) ? (candidate as CockpitTab) : 'plan'
+}
+
 export default function CockpitTab() {
   const { dashboard, state } = useMobileRuntime()
   const t = useT()
-  const [activeTab, setActiveTab] = useState<CockpitTab>('plan')
+  const params = useLocalSearchParams<{ tab?: string | string[] }>()
+  const [activeTab, setActiveTab] = useState<CockpitTab>(() => parseCockpitTab(params.tab))
   const activeLabel = t(TABS.find((tab) => tab.key === activeTab)?.labelKey ?? 'cockpit.tab.plan')
+
+  useEffect(() => {
+    setActiveTab(parseCockpitTab(params.tab))
+  }, [params.tab])
 
   if (!dashboard) {
     return (

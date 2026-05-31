@@ -12,15 +12,11 @@ const MODE_ICON: Record<'disconnected' | 'lan' | 'relay', keyof typeof Ionicons.
   relay: 'swap-horizontal-outline',
 }
 
-export const ConnectionModeBanner = () => {
+export const ConnectionModeBadge = () => {
   const t = useT()
   const {
     connectionMode,
-    outboxFailedCount,
-    outboxPendingCount,
-    outboxSendingCount,
     reconnecting,
-    retryOutbox,
     state,
   } = useMobileRuntime()
 
@@ -36,34 +32,39 @@ export const ConnectionModeBanner = () => {
         ? 'runtime.connectionMode.relay'
         : 'runtime.connectionMode.offline'
   const modeLabel = t(modeKey)
-  const showRetry = outboxFailedCount > 0
 
   return (
     <View
       accessibilityLabel={modeLabel}
-      style={[s.banner, displayMode === 'disconnected' ? s.offlineBanner : s.onlineBanner]}
+      style={[s.badge, displayMode === 'disconnected' ? s.offlineBadge : s.onlineBadge]}
     >
-      <View style={s.modeRow}>
-        <View
-          style={[
-            s.modeIconWrap,
-            displayMode === 'disconnected' ? s.offlineIconWrap : s.onlineIconWrap,
-          ]}
-        >
-          <Ionicons
-            color={displayMode === 'disconnected' ? colors.error : colors.accent}
-            name={MODE_ICON[displayMode]}
-            size={15}
-          />
-        </View>
-        <Text style={s.modeText}>{modeLabel}</Text>
-        {showConnecting ? (
-          <View style={s.loadingRow}>
-            <ActivityIndicator color={colors.muted} size="small" />
-            <Text style={s.loadingText}>{t('chat.status.connecting')}</Text>
-          </View>
-        ) : null}
+      <View
+        style={[
+          s.badgeIconWrap,
+          displayMode === 'disconnected' ? s.offlineIconWrap : s.onlineIconWrap,
+        ]}
+      >
+        <Ionicons
+          color={displayMode === 'disconnected' ? colors.error : colors.accent}
+          name={MODE_ICON[displayMode]}
+          size={12}
+        />
       </View>
+      <Text style={s.badgeText}>{modeLabel}</Text>
+      {showConnecting ? <ActivityIndicator color={colors.muted} size="small" /> : null}
+    </View>
+  )
+}
+
+export const ConnectionModeBanner = () => {
+  const t = useT()
+  const { outboxFailedCount, outboxPendingCount, outboxSendingCount, retryOutbox } =
+    useMobileRuntime()
+  const showRetry = outboxFailedCount > 0
+
+  return (
+    <View style={s.banner}>
+      <ConnectionModeBadge />
 
       <View style={s.outboxRow}>
         {outboxPendingCount > 0 ? (
@@ -96,57 +97,51 @@ export const ConnectionModeBanner = () => {
 
 const s = StyleSheet.create({
   banner: {
-    alignItems: 'center',
+    backgroundColor: colors.card,
     borderColor: colors.borderMuted,
     borderRadius: radius.md,
     borderWidth: 1,
+    alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.xs,
     justifyContent: 'space-between',
     marginBottom: spacing.xs,
-    minHeight: 34,
+    minHeight: 30,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
-  loadingRow: {
+  badge: {
     alignItems: 'center',
+    alignSelf: 'flex-start',
+    borderRadius: 999,
     flexDirection: 'row',
     gap: 6,
+    minHeight: 24,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  loadingText: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  modeIconWrap: {
+  badgeIconWrap: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 22,
+    height: 18,
     justifyContent: 'center',
-    width: 22,
+    width: 18,
   },
-  modeRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 1,
-    gap: 8,
-  },
-  modeText: {
+  badgeText: {
     color: colors.text,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.2,
     textTransform: 'uppercase',
   },
-  offlineBanner: {
-    backgroundColor: 'rgba(248, 81, 73, 0.08)',
+  offlineBadge: {
+    backgroundColor: 'rgba(248, 81, 73, 0.12)',
   },
   offlineIconWrap: {
     backgroundColor: 'rgba(248, 81, 73, 0.12)',
   },
-  onlineBanner: {
-    backgroundColor: 'rgba(88, 166, 255, 0.08)',
+  onlineBadge: {
+    backgroundColor: 'rgba(88, 166, 255, 0.12)',
   },
   onlineIconWrap: {
     backgroundColor: 'rgba(88, 166, 255, 0.12)',

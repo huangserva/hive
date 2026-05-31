@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 import { DEMO_CHAT_MESSAGES, DEMO_DASHBOARD } from '../demo-data'
+import type { ChatSendOutcome } from '../lib/chat-send-status'
 import type { RelayPairingInput } from '../lib/connection-qr'
 import {
   buildStoredRelayConfig,
@@ -114,6 +115,7 @@ interface MobileRuntimeContextValue {
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
   sendPromptToOrchestrator: (text: string) => Promise<boolean>
+  sendPromptToOrchestratorWithOutcome: (text: string) => Promise<ChatSendOutcome>
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
@@ -799,13 +801,24 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client]
   )
 
-  const sendPromptToOrchestrator = useCallback(
-    async (text: string) => {
+  const sendPromptToOrchestratorWithOutcome = useCallback(
+    async (text: string): Promise<ChatSendOutcome> => {
       if (!selectedWorkspaceId) {
         setError('Select a workspace before sending prompts')
-        return false
+        return 'error'
       }
       setError(null)
+      const queuePrompt = (status: 'queued' | 'failed') => {
+        setOutbox((current) =>
+          enqueueOutboxItem(
+            current,
+            createPromptOutboxItem(
+              { text, workspaceId: selectedWorkspaceId },
+              status === 'failed' ? { status: 'failed' } : undefined
+            )
+          )
+        )
+      }
       const relayTransportReady = observedRelayTransportRef.current
         ? observedRelayTransportRef.current.status() === 'ready'
         : true
@@ -816,22 +829,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           relayTransportReady,
         })
       ) {
-        setOutbox((current) =>
-          enqueueOutboxItem(
-            current,
-            createPromptOutboxItem({
-              text,
-              workspaceId: selectedWorkspaceId,
-            })
-          )
-        )
-        return false
+        queuePrompt('queued')
+        return 'queued'
       }
       try {
         await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
         chatFetchFailureCountRef.current = 0
         await syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
-        return true
+        return 'sent'
       } catch (promptError) {
         const message = promptError instanceof Error ? promptError.message : String(promptError)
         const transportReady = observedRelayTransportRef.current
@@ -844,34 +849,23 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
             relayTransportReady: transportReady,
           })
         ) {
-          setOutbox((current) =>
-            enqueueOutboxItem(
-              current,
-              createPromptOutboxItem({
-                text,
-                workspaceId: selectedWorkspaceId,
-              })
-            )
-          )
-          return false
+          queuePrompt('queued')
+          return 'queued'
         }
-        setOutbox((current) =>
-          enqueueOutboxItem(
-            current,
-            createPromptOutboxItem(
-              {
-                text,
-                workspaceId: selectedWorkspaceId,
-              },
-              { status: 'failed' }
-            )
-          )
-        )
+        queuePrompt('failed')
         setError(message)
-        return false
+        return 'error'
       }
     },
     [client, selectedWorkspaceId, syncWorkspaceData]
+  )
+
+  const sendPromptToOrchestrator = useCallback(
+    async (text: string) => {
+      const outcome = await sendPromptToOrchestratorWithOutcome(text)
+      return outcome === 'sent'
+    },
+    [sendPromptToOrchestratorWithOutcome]
   )
 
   const uploadMedia = useCallback(
@@ -1249,6 +1243,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       selectWorkspace,
       selectedWorkspaceId,
       sendPromptToOrchestrator,
+      sendPromptToOrchestratorWithOutcome,
       setHost,
       setToken,
       state: demoMode ? 'connected' : state,
@@ -1291,6 +1286,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       selectWorkspace,
       selectedWorkspaceId,
       sendPromptToOrchestrator,
+      sendPromptToOrchestratorWithOutcome,
       state,
       syncRevision,
       stopWorker,

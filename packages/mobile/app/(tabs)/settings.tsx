@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons'
-import { type BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera'
+import { type BarcodeScanningResult, CameraView, scanFromURLAsync, useCameraPermissions } from 'expo-camera'
 import * as Clipboard from 'expo-clipboard'
 import Constants from 'expo-constants'
+import * as ImagePicker from 'expo-image-picker'
 import type { ComponentProps } from 'react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Alert,
   Modal,
@@ -23,6 +24,7 @@ import {
   parseConnectionQr,
   type RelayPairingInput,
 } from '../../src/lib/connection-qr'
+import { resolveConnectionQrFromScanResults } from '../../src/lib/connection-qr-scan'
 import { colors, radius, spacing } from '../../src/theme'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -57,6 +59,7 @@ export default function SettingsTab() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions()
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scanLocked, setScanLocked] = useState(false)
+  const [photoScanBusy, setPhotoScanBusy] = useState(false)
   const [relayFormOpen, setRelayFormOpen] = useState(false)
   const [relayUrl, setRelayUrl] = useState('')
   const [relayRoom, setRelayRoom] = useState('')
@@ -99,27 +102,73 @@ export default function SettingsTab() {
     setScannerOpen(true)
   }
 
+  const closeScanner = useCallback(() => {
+    setScannerOpen(false)
+    setScanLocked(false)
+    setPhotoScanBusy(false)
+  }, [])
+
+  const applyScannedConnectionQr = useCallback(
+    async (payload: { host: string; relay?: RelayPairingInput; token: string }) => {
+      setScannerOpen(false)
+      setScanLocked(false)
+      setDraftHost(payload.host)
+      setDraftToken(payload.token)
+      setHost(payload.host)
+      setToken(payload.token)
+      // QR 若带 relay 段，先落 relay 配置（含本机生成的 device keypair），LAN 失败时才能回落 relay。
+      if (payload.relay) await configureRelay(payload.relay)
+      const connected = await connect(payload.host, payload.token)
+      if (connected) {
+        Alert.alert(t('common.connected'), t('settings.connectedFromQr'))
+      }
+    },
+    [connect, configureRelay, setHost, setToken, t]
+  )
+
   const onBarcodeScanned = async (result: BarcodeScanningResult) => {
     if (scanLocked) return
     setScanLocked(true)
     const payload = parseConnectionQr(result.data)
     if (!payload) {
       setScannerOpen(false)
+      setScanLocked(false)
       Alert.alert(t('settings.invalidQrTitle'), t('settings.invalidQrBody'))
       return
     }
-    setScannerOpen(false)
-    setDraftHost(payload.host)
-    setDraftToken(payload.token)
-    setHost(payload.host)
-    setToken(payload.token)
-    // QR 若带 relay 段，先落 relay 配置（含本机生成的 device keypair），LAN 失败时才能回落 relay。
-    if (payload.relay) await configureRelay(payload.relay)
-    const connected = await connect(payload.host, payload.token)
-    if (connected) {
-      Alert.alert(t('common.connected'), t('settings.connectedFromQr'))
-    }
+    await applyScannedConnectionQr(payload)
   }
+
+  const onPickQrFromPhoto = useCallback(async () => {
+    if (photoScanBusy || scanLocked) return
+    setPhotoScanBusy(true)
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert(t('settings.photoPermissionTitle'), t('settings.photoPermissionBody'))
+        return
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: false,
+        base64: false,
+        mediaTypes: ['images'],
+        quality: 1,
+      })
+      const asset = result.canceled ? null : result.assets?.[0] ?? null
+      if (!asset?.uri) return
+      const scanResults = await scanFromURLAsync(asset.uri, ['qr'])
+      const payload = resolveConnectionQrFromScanResults(scanResults)
+      if (!payload) {
+        Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
+        return
+      }
+      await applyScannedConnectionQr(payload)
+    } catch {
+      Alert.alert(t('settings.photoQrNotFoundTitle'), t('settings.photoQrNotFoundBody'))
+    } finally {
+      setPhotoScanBusy(false)
+    }
+  }, [applyScannedConnectionQr, photoScanBusy, scanLocked, t])
 
   const onSaveManualRelay = async () => {
     const input: RelayPairingInput = {
@@ -549,11 +598,7 @@ export default function SettingsTab() {
         )}
       </ScrollView>
 
-      <Modal
-        animationType="slide"
-        visible={scannerOpen}
-        onRequestClose={() => setScannerOpen(false)}
-      >
+      <Modal animationType="slide" visible={scannerOpen} onRequestClose={closeScanner}>
         <View style={styles.scannerScreen}>
           <View style={styles.scannerHeader}>
             <View>
@@ -563,7 +608,7 @@ export default function SettingsTab() {
             <Pressable
               accessibilityLabel={t('settings.closeScanner')}
               accessibilityRole="button"
-              onPress={() => setScannerOpen(false)}
+              onPress={closeScanner}
               style={styles.scannerClose}
             >
               <Ionicons color={colors.text} name="close" size={24} />
@@ -576,6 +621,19 @@ export default function SettingsTab() {
           >
             <View style={styles.scanFrame} />
           </CameraView>
+          <View style={styles.scannerActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={photoScanBusy}
+              onPress={() => void onPickQrFromPhoto()}
+              style={[styles.scanPhotoButton, photoScanBusy && styles.buttonDisabled]}
+            >
+              <Ionicons color={colors.background} name="images-outline" size={18} />
+              <Text style={styles.scanPhotoButtonText}>
+                {photoScanBusy ? t('settings.scanningPhoto') : t('settings.scanFromPhotos')}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
     </Screen>
@@ -1064,6 +1122,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
   camera: {
     flex: 1,
   },
@@ -1090,6 +1151,22 @@ const styles = StyleSheet.create({
   scanButtonText: {
     color: colors.accent,
     fontSize: 15,
+    fontWeight: '900',
+  },
+  scanPhotoButton: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: colors.accent,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+  },
+  scanPhotoButtonText: {
+    color: colors.background,
+    fontSize: 14,
     fontWeight: '900',
   },
   scanFrame: {
@@ -1124,6 +1201,10 @@ const styles = StyleSheet.create({
   scannerScreen: {
     backgroundColor: colors.background,
     flex: 1,
+  },
+  scannerActions: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
   },
   scannerSubtitle: {
     color: colors.muted,

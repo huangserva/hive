@@ -19,6 +19,12 @@ import { AddWorkerModal } from '../../src/components/AddWorkerModal'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { useT } from '../../src/i18n'
+import {
+  countActiveDispatches,
+  formatActiveMilestoneLabel,
+  selectLatestActiveMilestone,
+} from '../../src/cockpit/status-overview'
+import { useRefreshableData } from '../../src/cockpit/useRefreshableCockpit'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -96,6 +102,8 @@ export default function StatusTab() {
     dispatchTask,
     error,
     host,
+    getCockpit,
+    getWorkspaceTasks,
     listCommandPresets,
     refreshDashboard,
     restartWorker,
@@ -114,6 +122,9 @@ export default function StatusTab() {
   const [dispatchText, setDispatchText] = useState('')
   const [dispatching, setDispatching] = useState(false)
   const [expandedWorkerId, setExpandedWorkerId] = useState<string | null>(null)
+  const { data: cockpit, onRefresh: refreshCockpit } = useRefreshableData(getCockpit)
+  const { data: workspaceTasks, onRefresh: refreshWorkspaceTasks } =
+    useRefreshableData(getWorkspaceTasks)
   const activeWorkers = useMemo(
     () => dashboard?.workers.filter((w) => w.status !== 'stopped').length ?? 0,
     [dashboard]
@@ -140,12 +151,27 @@ export default function StatusTab() {
       totalTasks > 0 ? Math.round(((dashboard?.tasks.total_done ?? 0) / totalTasks) * 100) : 0,
     [dashboard, totalTasks]
   )
+  const activeMilestone = useMemo(
+    () => selectLatestActiveMilestone(cockpit?.plan.milestones ?? []),
+    [cockpit]
+  )
+  const activeMilestoneLabel = useMemo(
+    () =>
+      activeMilestone
+        ? formatActiveMilestoneLabel(activeMilestone)
+        : stripInlineMarkdown(dashboard?.plan.active_milestone ?? null) || 'No active milestone',
+    [activeMilestone, dashboard?.plan.active_milestone]
+  )
+  const inProgressDispatchCount = useMemo(
+    () => countActiveDispatches(workspaceTasks?.dispatches ?? []),
+    [workspaceTasks]
+  )
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await refreshDashboard()
+    await Promise.all([refreshDashboard(), refreshCockpit(), refreshWorkspaceTasks()])
     setRefreshing(false)
-  }, [refreshDashboard])
+  }, [refreshCockpit, refreshDashboard, refreshWorkspaceTasks])
 
   const confirmStop = (worker: MobileDashboardWorker) => {
     Alert.alert(t('status.stopWorker'), t('status.stopWorkerBody', { name: worker.name }), [
@@ -305,7 +331,7 @@ export default function StatusTab() {
                 <View style={styles.colItem}>
                   <Text style={styles.colLabel}>{t('status.activeMilestone')}</Text>
                   <Text ellipsizeMode="tail" numberOfLines={2} style={styles.colValue}>
-                    {stripInlineMarkdown(dashboard.plan.active_milestone) || 'No active milestone'}
+                    {activeMilestoneLabel}
                   </Text>
                 </View>
               </View>
@@ -331,16 +357,19 @@ export default function StatusTab() {
                   icon="people-outline"
                   label={t('status.activeWorkers')}
                   value={activeWorkers}
+                  onPress={() => router.push('/workers')}
                 />
                 <StatItem
                   icon="help-circle-outline"
                   label={t('cockpit.answer.title')}
                   value={dashboard.cockpit.open_questions}
+                  onPress={() => router.push({ pathname: '/cockpit', params: { tab: 'questions' } })}
                 />
                 <StatItem
                   icon="flash-outline"
                   label={t('status.tasksInProgress')}
-                  value={dashboard.tasks.total_open}
+                  value={inProgressDispatchCount}
+                  onPress={() => router.push({ pathname: '/cockpit', params: { tab: 'tasks' } })}
                 />
               </View>
             </>
@@ -456,18 +485,27 @@ export default function StatusTab() {
 const StatItem = ({
   icon,
   label,
+  onPress,
   value,
 }: {
   icon: keyof typeof Ionicons.glyphMap
   label: string
+  onPress?: () => void
   value: number
-}) => (
-  <View style={styles.statItem}>
-    <Ionicons color={colors.accent} name={icon} size={16} />
-    <Text style={styles.statValue}>{value}</Text>
-    <Text style={styles.statLabel}>{label}</Text>
-  </View>
-)
+}) =>
+  onPress ? (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.statItem}>
+      <Ionicons color={colors.accent} name={icon} size={16} />
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </Pressable>
+  ) : (
+    <View style={styles.statItem}>
+      <Ionicons color={colors.accent} name={icon} size={16} />
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  )
 
 const WorkerCard = ({
   expanded,
