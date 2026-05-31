@@ -19,10 +19,10 @@ import { useRefreshableData } from './useRefreshableCockpit'
 type IconName = ComponentProps<typeof Ionicons>['name']
 type MilestoneStatus = MobileCockpitMilestone['status']
 
-const TIMELINE_RAIL_WIDTH = 48
-const STATUS_CIRCLE_SIZE = 36
-const STATUS_ICON_SIZE = 18
-const STATUS_DOT_SIZE = 11
+const TIMELINE_RAIL_WIDTH = 38
+const STATUS_CIRCLE_SIZE = 26
+const STATUS_ICON_SIZE = 14
+const STATUS_DOT_SIZE = 8
 
 const STATUS_CONFIG: Record<
   MilestoneStatus,
