@@ -24,7 +24,7 @@ import { useRefreshableData } from '../../src/cockpit/useRefreshableCockpit'
 import { AddWorkerModal } from '../../src/components/AddWorkerModal'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
-import { useT } from '../../src/i18n'
+import { type AppLanguage, useLanguage, useT } from '../../src/i18n'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -36,25 +36,89 @@ const avatarColor = (name: string) => {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length] ?? AVATAR_COLORS[0]
 }
 
-const CLI_LABELS: Record<string, string> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-  gemini: 'Gemini',
-  opencode: 'OpenCode',
+const WORKER_LABELS: Record<
+  AppLanguage,
+  {
+    cliPrefix: string
+    cli: Record<string, string>
+    features: Record<string, string>
+    mode: Record<string, string>
+    roles: Record<string, string>
+    risk: Record<string, string>
+    unattended: Record<'false' | 'true', string>
+  }
+> = {
+  en: {
+    cliPrefix: 'CLI:',
+    cli: {
+      claude: 'Claude Code',
+      codex: 'Codex',
+      gemini: 'Gemini',
+      opencode: 'OpenCode',
+    },
+    features: {
+      browser_e2e: 'Browser E2E',
+      mcp: 'MCP',
+      session_capture: 'Capture',
+      session_resume: 'Resume',
+      terminal_input_profile: 'Terminal',
+      thinking_levels: 'Thinking',
+    },
+    mode: {
+      cli_agent: 'CLI Agent',
+    },
+    roles: {
+      coder: 'Software Engineer',
+      designer: 'UI Designer',
+      reviewer: 'Code Reviewer',
+      sentinel: 'Sentinel Watcher',
+      tester: 'QA Engineer',
+    },
+    risk: {
+      high: 'High risk',
+      moderate: 'Moderate risk',
+    },
+    unattended: {
+      false: 'Supervised',
+      true: 'Unattended',
+    },
+  },
+  zh: {
+    cliPrefix: 'CLI：',
+    cli: {
+      claude: 'Claude Code',
+      codex: 'Codex',
+      gemini: 'Gemini',
+      opencode: 'OpenCode',
+    },
+    features: {
+      browser_e2e: '浏览器 E2E',
+      mcp: 'MCP',
+      session_capture: '录制',
+      session_resume: '恢复',
+      terminal_input_profile: '终端',
+      thinking_levels: '思考',
+    },
+    mode: {
+      cli_agent: 'CLI 代理',
+    },
+    roles: {
+      coder: '软件工程师',
+      designer: 'UI 设计师',
+      reviewer: '代码审查员',
+      sentinel: '哨兵巡检员',
+      tester: '测试工程师',
+    },
+    risk: {
+      high: '高风险',
+      moderate: '中风险',
+    },
+    unattended: {
+      false: '人工监管',
+      true: '无人值守',
+    },
+  },
 }
-
-const cliLabel = (preset: string | null) => (preset ? (CLI_LABELS[preset] ?? preset) : '—')
-
-const FEATURE_LABELS: Record<string, string> = {
-  browser_e2e: 'Browser E2E',
-  mcp: 'MCP',
-  session_capture: 'Capture',
-  session_resume: 'Resume',
-  terminal_input_profile: 'Terminal',
-  thinking_levels: 'Thinking',
-}
-
-const featureLabel = (feature: string) => FEATURE_LABELS[feature] ?? feature.replace(/_/g, ' ')
 
 const riskColor = (risk: string) => {
   if (risk === 'high') return colors.error
@@ -62,27 +126,33 @@ const riskColor = (risk: string) => {
   return colors.muted
 }
 
+const cliLabel = (language: AppLanguage, preset: string | null) =>
+  preset ? (WORKER_LABELS[language].cli[preset] ?? preset) : '—'
+
+const featureLabel = (language: AppLanguage, feature: string) =>
+  WORKER_LABELS[language].features[feature] ?? feature.replace(/_/g, ' ')
+
+const modeLabel = (language: AppLanguage, mode: string) =>
+  WORKER_LABELS[language].mode[mode] ?? mode.replace(/_/g, ' ')
+
+const riskLabel = (language: AppLanguage, risk: string) =>
+  WORKER_LABELS[language].risk[risk] ?? risk
+
 const unattendedLabel = (
+  language: AppLanguage,
   value: MobileDashboardWorker['capabilities'] extends infer C
     ? C extends { unattended?: infer U }
       ? U
       : never
     : never
 ) => {
-  if (value === true) return 'Unattended'
-  if (value === false) return 'Supervised'
+  if (value === true) return WORKER_LABELS[language].unattended.true
+  if (value === false) return WORKER_LABELS[language].unattended.false
   return null
 }
 
-const WORKER_ROLES: Record<string, string> = {
-  coder: 'Software Engineer',
-  designer: 'UI Designer',
-  reviewer: 'Code Reviewer',
-  sentinel: 'Sentinel Watcher',
-  tester: 'QA Engineer',
-}
-
-const roleLabel = (role: string) => WORKER_ROLES[role] ?? role
+const roleLabel = (language: AppLanguage, role: string) =>
+  WORKER_LABELS[language].roles[role] ?? role
 
 // Worker 列表按状态排序：working 最上 → idle → stopped 最下，跟 PC/web 端一致。
 // 同状态内保持原始顺序（Array.prototype.sort 在 Hermes/V8 上稳定，相等项不重排）。
@@ -112,6 +182,7 @@ export default function StatusTab() {
     stopWorker,
     token,
   } = useMobileRuntime()
+  const { language } = useLanguage()
   const t = useT()
   const router = useRouter()
   const [addWorkerVisible, setAddWorkerVisible] = useState(false)
@@ -315,7 +386,7 @@ export default function StatusTab() {
                     numberOfLines={phaseExpanded ? undefined : 2}
                     style={styles.colValue}
                   >
-                    {stripInlineMarkdown(dashboard.plan.current_phase) || 'Unknown'}
+                    {stripInlineMarkdown(dashboard.plan.current_phase) || t('common.unknown')}
                   </Text>
                   <Pressable
                     accessibilityRole="button"
@@ -444,6 +515,7 @@ export default function StatusTab() {
                 onToggle={() =>
                   setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
                 }
+                language={language}
                 worker={worker}
               />
             ))}
@@ -461,6 +533,7 @@ export default function StatusTab() {
             onToggle={() =>
               setExpandedWorkerId((current) => (current === worker.id ? null : worker.id))
             }
+            language={language}
             worker={worker}
           />
         ))}
@@ -517,6 +590,7 @@ const WorkerCard = ({
   onRestart,
   onStop,
   onToggle,
+  language,
   worker,
 }: {
   expanded: boolean
@@ -525,6 +599,7 @@ const WorkerCard = ({
   onRestart: () => void
   onStop: () => void
   onToggle: () => void
+  language: AppLanguage
   worker: MobileDashboardWorker
 }) => {
   const t = useT()
@@ -549,7 +624,8 @@ const WorkerCard = ({
               {worker.name}
             </Text>
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
-              {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
+              {roleLabel(language, worker.role)} · {WORKER_LABELS[language].cliPrefix}{' '}
+              {cliLabel(language, worker.preset)}
             </Text>
           </View>
         </View>
@@ -566,10 +642,10 @@ const WorkerCard = ({
       {expanded ? (
         <View style={styles.expanded}>
           <View style={styles.workerMetaGrid}>
-            <MetaChip label={t('common.role')} value={worker.role} />
+            <MetaChip label={t('common.role')} value={roleLabel(language, worker.role)} />
             <MetaChip label={t('common.status')} value={statusTextFor(worker, t)} />
           </View>
-          <CapabilityChips capabilities={worker.capabilities} />
+          <CapabilityChips capabilities={worker.capabilities} language={language} />
           <WorkerActions
             onDispatch={onDispatch}
             onRestart={onRestart}
@@ -600,11 +676,13 @@ const SentinelCard = ({
   expanded,
   onOpenDetail,
   onToggle,
+  language,
   worker,
 }: {
   expanded: boolean
   onOpenDetail: () => void
   onToggle: () => void
+  language: AppLanguage
   worker: MobileDashboardWorker
 }) => {
   const t = useT()
@@ -627,7 +705,8 @@ const SentinelCard = ({
               {worker.name}
             </Text>
             <Text ellipsizeMode="tail" numberOfLines={1} style={styles.workerTask}>
-              {roleLabel(worker.role)} · CLI: {cliLabel(worker.preset)}
+              {roleLabel(language, worker.role)} · {WORKER_LABELS[language].cliPrefix}{' '}
+              {cliLabel(language, worker.preset)}
             </Text>
           </View>
         </View>
@@ -642,7 +721,7 @@ const SentinelCard = ({
       </View>
       {expanded ? (
         <View style={styles.expanded}>
-          <CapabilityChips capabilities={worker.capabilities} />
+          <CapabilityChips capabilities={worker.capabilities} language={language} />
           <Text style={styles.sentinelNote}>{t('status.sentinelObservesOnly')}</Text>
           <Pressable
             accessibilityRole="button"
@@ -673,13 +752,15 @@ const MetaChip = ({ label, value }: { label: string; value: string }) => (
 
 const CapabilityChips = ({
   capabilities,
+  language,
 }: {
   capabilities?: MobileDashboardWorker['capabilities']
+  language: AppLanguage
 }) => {
   if (!capabilities) return null
   const features = capabilities.features.slice(0, 4)
   const hiddenCount = capabilities.features.length - features.length
-  const unattended = unattendedLabel(capabilities.unattended)
+  const unattended = unattendedLabel(language, capabilities.unattended)
   const showMode = capabilities.mode && capabilities.mode !== 'unknown'
   const showRisk = capabilities.risk_tier && capabilities.risk_tier !== 'unknown'
 
@@ -687,16 +768,16 @@ const CapabilityChips = ({
 
   return (
     <View style={styles.capabilityRow}>
-      {showMode ? <CapabilityChip label={capabilities.mode.replace(/_/g, ' ')} /> : null}
+      {showMode ? <CapabilityChip label={modeLabel(language, capabilities.mode)} /> : null}
       {showRisk ? (
         <CapabilityChip
           color={riskColor(capabilities.risk_tier)}
-          label={`${capabilities.risk_tier} risk`}
+          label={riskLabel(language, capabilities.risk_tier)}
         />
       ) : null}
       {unattended ? <CapabilityChip color={colors.accent} label={unattended} /> : null}
       {features.map((feature) => (
-        <CapabilityChip key={feature} label={featureLabel(feature)} />
+        <CapabilityChip key={feature} label={featureLabel(language, feature)} />
       ))}
       {hiddenCount > 0 ? <CapabilityChip label={`+${hiddenCount}`} /> : null}
     </View>
@@ -808,7 +889,7 @@ const DispatchModal = ({
       <View style={styles.modalBackdrop}>
         <View style={styles.dispatchModal}>
           <Text style={styles.modalTitle}>
-            {t('agent.dispatch.title', { name: worker?.name ?? 'worker' })}
+            {t('agent.dispatch.title', { name: worker?.name ?? t('common.worker') })}
           </Text>
           <Text style={styles.modalHint}>{t('agent.dispatch.hint')}</Text>
           <TextInput
@@ -848,7 +929,7 @@ const statusTextFor = (worker: MobileDashboardWorker, t: ReturnType<typeof useT>
   if (worker.status === 'working') return t('status.workerState.working')
   if (worker.status === 'idle') return t('status.workerState.idle')
   if (worker.status === 'stopped') return t('status.workerState.stopped')
-  return worker.status
+  return t('common.unknown')
 }
 
 const styles = StyleSheet.create({
