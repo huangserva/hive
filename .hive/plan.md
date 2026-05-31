@@ -292,11 +292,28 @@ last_review: 2026-05-25
   - **Track B 前端独立 P0（派赵云，不依赖 Track A，文件不冲突）**：`packages/mobile/src/*`
     - [x] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
     - [x] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
-    - [x] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
-    - [x] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
+  - [x] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
+  - [x] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
+  - [x] 最新 active milestone 选择、chat 发送态判定和新英文硬编码已收口（M28 #22）
+  - [x] Settings「连接详情」中继/LAN 行改为可点击切换；LAN 可用时前台恢复会先重探 LAN，避免 relay 冷却黏住
 - [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
   - [x] Chat 图片消息已压缩为单图卡片，发送态区分 `sent` / `queued` / `error`，避免成功后仍显示红叉
+  - [x] Chat optimistic 去重改为按 server echo 一对一消费，真实重复发送同文案/同图片不再被误删（**#23 钟馗复审抓到此处仍误删的 HIGH 回归：之前只按文本扫全历史、忽略时间→历史已有同文案就把新连发提前吃掉；马超 2026-05-31 改为「server echo 只能消费在它之前创建的 optimistic」一对一，补反例测试，第三次根治**）
+  - [x] Settings 连接徽章状态文案接回 i18n，connected/idle/checking/error 不再直接吐英文 state
+  - [x] Workers 卡片状态文案接回 i18n，Working/Idle/Stopped 不再硬编码
+  - [x] **#24（赵云 codex 卡死转马超 claude，2026-05-31）多图显示 + composer/标题**：① 发 N 张图原本显示成 N 个空绿框→整合赵云的 `chat-media.ts`（`extractChatMediaItems`/`buildChatMediaEnvelopeJson`），optimistic content 写全部 N 张附件、气泡 `mediaGrid` 渲染 N 个真实缩略图（多图用 104² compact 缩略图）；移除只读单 `media` 的旧 `parseMedia`；#23 去重未丢 uri（content_json 携带 attachments）。② composer 字体 15→14 保 placeholder 单行；③ 左上角标题 `Orchestrator` 硬编码→主标题=当前 workspace 名（取数据）+ 副标题「项目主管·PM」(i18n `chat.header.subtitle`)，保留中继 badge+在线药丸。强 TDD：`__tests__/chat-media.test.ts` 6 测（N 图 round-trip/caption/单图/纯文本无 media/legacy media/丢弃残缺项）。mobile tsc+biome+104 测全绿。待钟馗审 + 真机验。
+  - [x] Workers 角色 / 能力 / CLI / 风险 / Unattended 标签全量收口，中文界面不再漏英文
+  - [x] **#25 index.tsx i18n 彻底收口（马超 2026-05-31，最后一轮）**：通读全文件，把所有 user 可见硬编码英文接 t()——系统事件标题/摘要（Dispatched / Dispatched→worker / Worker Report / Report from worker + 两条 fallback 摘要，`parseSystemEventPayload` 加 `t` 参数，**复用早已存在但从没接的 `chat.system.*` key** + 新增 reportFallback）、审批兜底主语 `Approval request`、风险标签 `High/Medium Risk`、orch 气泡 senderLabel `Orchestrator`、媒体标签 `Image/Image·size/File/Video/{size} video`（MediaContent 加 useT）。新增 11 个 key（EN+ZH 各）。残留扫描仅剩 `Bearer` auth header（非可见，保留）。mobile tsc+biome+104 测全绿。待钟馗确认 i18n 干净。
+  - [x] 状态 / 驾驶舱 / 设置三页的 ConnectionModeBadge 收进标题行，移除独占整行 banner
+  - [x] **#26（马超 2026-05-31，钟馗 #24 复审发现的 3 个 regression）**：① 发 1 张图出现 2 个图气泡（真图 + 空绿框）—— 根因：服务端把 1 张图+caption 拆成 2 条 chat 消息（upload echo 带 `media:{}` + prompt echo 文字 `[附件:...]`），客户端 optimistic（attachments[]+caption）与服务端 media echo 文字不一致、按文字 key 去重消不掉 → 重复。修：`chat-message-dedupe.ts` 的 key 改为**带附件按媒体文件名集合**（纯文字仍按文字），同一图的 optimistic 被服务端 media echo 按文件名一对一消掉（沿用 #23 时间门控），剩 1 个图气泡 + 1 个文字气泡。② 文字气泡 ✓：user_text footer 本就无条件渲染发送状态（server 消息 sendSucceeded→sent→✓），#1 去重后最终态=图气泡✓ + 文字气泡✓，清爽；已加 send-status/footer 保证测试。③ placeholder 缩短：`chat.input.placeholder` EN `Message orchestrator...`→`Message...`、ZH `给 orchestrator 发消息...`→`发消息...`，保证单行。强 TDD：dedup +4 测（media echo 消图 / 文字 echo 不误消 / 双 echo 仅 media 消 / 旧图 echo 不消新发）。mobile tsc（我的文件）+biome+113 测全绿。**注**：多图（N>1）服务端拆成 N 条 media echo，optimistic 单条 grid 与之非 1:1，仍可能并存——本派单聚焦 1 图，多图留观察。待钟馗审。
+  - [x] Cockpit Plan 里程碑展开详情基础 markdown 渲染（bold/code/quote/list/wiki-link 去壳）已收口
+  - [x] **终端（实时）视图渲染改进（马超 2026-05-31，独立 build；`app/agent/[id].tsx`）**：user 截图 orch 终端文字错乱吞字（"secuses/s1rvices"）。根因三层——①`termLine` 用 `'Courier'`，安卓无此族→回退无衬线→不等宽错位；②服务端 headless-xterm 序列化快照只 strip 了 CSI，残留 OSC/字符集/控制字符；③快照 80 列，窄屏 wrap reflow 糊成团。修：① 等宽字体 `Platform.select({ios:'Menlo',default:'monospace'})`；② 新增纯函数 `src/lib/terminal-text.ts`（`sanitizeTerminalLine`/`cleanTerminalLines`：去 OSC/CSI/短转义/孤立 ESC/控制字符 + 解 \r 覆盖 + 去尾随空白），渲染前清洗；③ 终端行包进**横向 ScrollView + 每行 numberOfLines=1**（不再 wrap reflow，长行横向滚动），inline+全屏两处都改。强 TDD：terminal-text 11 测（CSI/OSC/字符集/控制字符/\r 覆盖/CJK 不损/maxLines）。mobile tsc（我的文件）+biome+125 测全绿。**做到 1+2+3 全部**。剩余：深度终端模拟（光标定位/SGR 配色还原）未做，非本轮目标；待钟馗审 + user 真机验。
 - [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
+- [ ] **视觉重设计（设计先行，user 嫌"丑死了"）**：先出高保真 mockup 再照做。
+  - [x] 新增 Worker 表单重设计 mockup（马超 2026-05-31）：`.hive/reports/2026-05-31-mobile-add-worker-redesign.html`（2 方向 A 精炼/B 活力，深色高保真，全字段保留）+ 可复用设计 token + 落地映射；索引 `.hive/research/2026-05-31-mobile-design-tokens.md`。**待 user 拍方向（A/B/混搭）** → 排实现（关羽，含抽 theme token + Pill/Field/Input/Button/Sheet 复用组件）→ 钟馗审 → 张飞真机验。
+  - [ ] 设计 token 落 `theme.ts` 后，其余手机页（Dashboard/Tasks/Workers/Settings/Chat）按同一 token 统一刷新（根治"东一个西一个的丑"）。
+- [x] **QR 读相册修复（马超 2026-05-31，代码完成待钟馗复核+真机验）**：纠偏——根因**不是**"华为无 GMS"（相机实时扫能用已证明解码引擎不靠 GMS），而是 expo-camera 的 `scanFromURLAsync` 接口在安卓本身不靠谱。改法：`settings.tsx` 相册路径绕开 scanFromURLAsync，改纯 JS 链路——`expo-image-manipulator` 归一成 PNG base64 → `upng-js` 解 RGBA → `jsQR` 解码 → 复用 `parseConnectionQr` 录入；相机实时扫不动。抽纯函数 `src/lib/qr-image-decode.ts` + 强 TDD（qrcode 真生成 QR PNG→解出预期，6 测）。**新增原生模块 expo-image-manipulator → 必须重出 build（prebuild 重链），不能热更**。
+  - [x] #23 钟馗复审跟进（马超 2026-05-31）：QR 失败态拆三类提示（图里没码 / 有码但非连接配置 / 图片解码失败，不再一律"未找到二维码"）+ i18n 残留补全（host placeholder、Workspace 默认名接 t()）。mobile tsc/biome/96 测全绿。待钟馗三审。
 - [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
 - 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
 - [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（`05fb52d`）
@@ -319,6 +336,15 @@ last_review: 2026-05-25
 - [x] 连续超时→escalated 第二档 + 继续 nudge worker/orchestrator；`stalled-dispatch-nudge` 加 always-on surface pass（不 gate idle，worker 卡死也兜）
 - [~] 修"working 假信号"：用 stale/escalated 时长分档近似；per-dispatch idle 布尔需 per-request PTY snapshot（性能成本）留 Phase2
 - 强 TDD 禁 mock PTY：stale-status 6 + user-surface 5（真 ledger+可控时钟）+ mobile-routes +1，全绿。⚠️ push 投递半边受 M29 制约（华为无 GMS）→ **可靠 user 可见兜底落在看板计数**，push 待 M29 接通 HMS。关联 [[feedback_worker_reliability_systemic]] [[feedback_verify_dispatch_started_after_restart]]。
+
+### M31 · Worker 模型可见 + 可配置（治本 worker 可靠性） · in_progress (user 拍板 2026-05-31)
+> 触发：**user 洞察一针见血**——赵云反复不守规则/不 report/dedup 修 3 次没对的根因是**模型**（codex preset 跑 gpt-5.4-mini，弱，工具纪律差）；马超=claude 可靠。这正是本轮我一直把硬活从赵云转马超的隐性规律，user 把它点破。
+> 现状：worker 数据有 preset/provider_family/thinking_level，但**没有具体模型结构字段**；真实模型（gpt-5.4-mini 等）只在 CLI 状态栏 last_pty 看得到。
+> 核心：把"哪个 worker 靠谱"从隐藏变成 **user 能看见 + 能调**。
+- [x] **Phase 1 调研 spike（马超 2026-05-31，纯调研未改码）**：产出 `.hive/reports/2026-05-31-worker-model-visibility.html` + `.hive/research/2026-05-31-worker-model-visibility.md` + ADR draft `draft-2026-05-31-worker-model-control.md`。**核心结论**：hive 现在根本不控制也不知道 worker 模型——内置 preset 不带模型参数，模型=各 CLI 自身默认（codex 默认就是 gpt-5.4-mini）；真实模型只在 CLI 自绘 PTY 状态栏、无结构字段。要"可见且正确"唯一可靠路径=hive 显式 set `--model`（可见性是可配置性的副产物）。4 CLI 全支持 `--model`（claude/codex/gemini 直接 id，opencode 要 provider/model），完美套用现成 thinking-level 注入器（加 `getModelArgs`）。**捷径**：把 codex 内置 preset 默认模型钉强档即可治本大半，未必需要 per-worker UI。待 user 拍 5 点（默认策略/模型清单/粒度/默认显示/成本）见 ADR。
+- [ ] **Phase 2 显示**：worker status 暴露真实模型（结构字段）→ mobile + web worker 卡片显示「跑什么模型」。
+- [ ] **Phase 3 可配置**：Add Worker / Worker 设置 里 per-worker 选模型（下穿 launch config → CLI 调用），user 可把关键 worker 升到强模型。
+- 关联 [[feedback_worker_reliability_systemic]]（worker 不可靠要治本）；与 M30（看板兜底）互补：M30 兜"不报"，M31 治"为何不报=模型弱"。
 
 ## Scope
 
