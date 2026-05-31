@@ -210,15 +210,16 @@ export const createMobileOrchestratorReplyCapture = ({
       clearTimer(pending)
       pendingByWorkspace.delete(workspaceId)
     },
-    startPendingReply(workspaceId: string) {
-      // A mobile user message just arrived. Commit any prior pending reply, then
-      // open a fresh capture window so the orchestrator's natural-language reply
-      // to THIS message is persisted to mobile chat (closes the conversation loop
-      // when the orchestrator answers in chat without calling `team mobile-reply`).
-      // Capture is gated on a mobile turn — output from web-driven turns, which
-      // never call this, is ignored by handleOutput (no pending buffer exists).
-      flushPending(workspaceId)
-      pendingByWorkspace.set(workspaceId, { buffer: '', flushTimer: null })
+    startPendingReply(_workspaceId: string) {
+      // Disabled (reverted 2026-05-31): auto-capturing the orchestrator's raw PTY
+      // output as a chat reply dumps garbage into mobile chat — system reminders,
+      // thinking indicators, paste markers (`[Pasted text #N]`), echoed input,
+      // ANSI/TUI noise. M28 Track A briefly re-enabled this with normalizeReplyText
+      // filtering, but the filter cannot reliably strip the live TUI stream, so raw
+      // terminal dumps reached the user. Orchestrator replies now reach mobile chat
+      // ONLY via the explicit `team mobile-reply` command. We intentionally do NOT
+      // open a capture window here; with no pending buffer, handleOutput ignores all
+      // PTY output.
     },
   }
 }

@@ -53,20 +53,18 @@ describe('mobile orchestrator reply capture', () => {
     vi.useRealTimers()
   })
 
-  test('captures the orchestrator natural-language reply after a mobile turn opens a window', () => {
+  test('does NOT auto-capture orchestrator PTY output — auto-reply-capture is disabled', () => {
     const { capture, captured, outputBus } = setup()
 
+    // startPendingReply is a no-op (reverted): raw PTY output is garbage (system
+    // reminders, thinking, paste markers) and must never be posted as a reply.
     capture.startPendingReply(WS)
     outputBus.publish(RUN, '⏺ 好的，我已经把任务派给关羽了。\n')
     vi.advanceTimersByTime(FLUSH_MS + 1)
 
-    expect(captured).toHaveLength(1)
-    expect(captured[0]).toMatchObject({
-      direction: 'outbound',
-      messageType: 'orch_reply',
-      workspaceId: WS,
-    })
-    expect(captured[0]?.text).toContain('我已经把任务派给关羽了')
+    // Nothing captured: orchestrator replies reach mobile chat only via the
+    // explicit `team mobile-reply` command.
+    expect(captured).toHaveLength(0)
   })
 
   test('ignores orchestrator output when no mobile turn opened a capture window', () => {
@@ -112,15 +110,15 @@ describe('mobile orchestrator reply capture', () => {
     expect(captured).toHaveLength(0)
   })
 
-  test('a new mobile turn flushes the previous pending reply before opening the next window', () => {
+  test('repeated startPendingReply calls never capture output (no-op)', () => {
     const { capture, captured, outputBus } = setup()
 
     capture.startPendingReply(WS)
     outputBus.publish(RUN, '⏺ 第一条回复。\n')
-    // Next mobile message arrives before the flush timer fired.
     capture.startPendingReply(WS)
+    vi.advanceTimersByTime(FLUSH_MS + 1)
 
-    expect(captured).toHaveLength(1)
-    expect(captured[0]?.text).toContain('第一条回复')
+    // No capture windows open → no garbage reply, regardless of repeated turns.
+    expect(captured).toHaveLength(0)
   })
 })
