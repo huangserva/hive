@@ -274,17 +274,17 @@ last_review: 2026-05-25
 > 根因不在 UI：**服务端 `routes-mobile.ts` 的 mobile API 只暴露 5 字段**（plan/tasks/questions/ideas/actions），baseline/decisions/research/reports/timeline 源头没输出；且错误处理「清空」而非「降级」。**修服务端一处、多页受益。**
 > ⚠️ drift：M24 Phase 5「orch_reply 自动回灌」、Phase 7「审批推送通道」标 done 实则坏了（见 Phase 1 P0/P1）。
 
-- [ ] **Phase 1 = P0/P1（阻塞 PM 核心闭环，进下个 build）** — 派单 2026-05-31
+- [x] **Phase 1 = P0/P1（阻塞 PM 核心闭环）** — done 2026-05-31（Track A `5a07730` / Track B `05fb52d` + 里程碑排序 `48e3225`；**Track A 需 4010 重启激活，Track B/排序需 #20 装机激活**）
   - **Track A 服务端（派马超）**：`routes-mobile.ts` mobile cockpit/chat API 扩字段 + 修后端根因
-    - [x] `orch_reply` 正常对话回复也写 `mobile_chat_messages`（马超：重启用现有 PTY 捕获管道——`startPendingReply` 不再 no-op；mobile 输入开捕获窗，10s 静默 flush，过滤系统消息/派单注入/工具/思考行；`team mobile-reply` 走公共 insert→`noteExplicitReply` 丢弃同轮缓冲防重复）（代码完成待 review/commit）
-    - [x] `approval_request` 真正持久化到 chat DB（马超：`team approve` 路由 `approvalLedger.create` 后写一行 outbound approval_request 到 mobile_chat_messages，手机端渲染审批卡；mobile resolve 路径本就不依赖 feishu）（代码完成待 review/commit）⚠️ 见 open-questions：当前仍受 feishu 路由门控，纯 mobile-origin 无 feishu chat 场景待 PM 拍是否解耦
-    - [x] run `started_at` 不再硬编码 null（马超：`TerminalRunSummary` 加 `started_at`，agent + shell 两处 listTerminalRuns 回填 `run.startedAt`，`buildMobileDashboard` 输出真实 ISO 时间戳）（代码完成待 review/commit）
-    - [x] mobile cockpit API 暴露 decisions/baseline（马超：`/cockpit` 端点复用同一 `parseCockpit` 结果，新增 baseline/decisions/reports/research/archive 字段；timeline 源不在 parseCockpit，留 Phase 3）（代码完成待 review/commit）
+    - [x] `orch_reply` 正常对话回复也写 `mobile_chat_messages`（马超：重启用现有 PTY 捕获管道——`startPendingReply` 不再 no-op；mobile 输入开捕获窗，10s 静默 flush，过滤系统消息/派单注入/工具/思考行；`team mobile-reply` 走公共 insert→`noteExplicitReply` 丢弃同轮缓冲防重复）
+    - [x] `approval_request` 真正持久化到 chat DB（马超：`team approve` 路由 `approvalLedger.create` 后写一行 outbound approval_request 到 mobile_chat_messages，手机端渲染审批卡；mobile resolve 路径本就不依赖 feishu）⚠️ 见 open-questions：当前仍受 feishu 路由门控，纯 mobile-origin 无 feishu chat 场景待 PM 拍是否解耦
+    - [x] run `started_at` 不再硬编码 null（马超：`TerminalRunSummary` 加 `started_at`，agent + shell 两处 listTerminalRuns 回填 `run.startedAt`，`buildMobileDashboard` 输出真实 ISO 时间戳）
+    - [x] mobile cockpit API 暴露 decisions/baseline（马超：`/cockpit` 端点复用同一 `parseCockpit` 结果，新增 baseline/decisions/reports/research/archive 字段；timeline 源不在 parseCockpit，留 Phase 3）
   - **Track B 前端独立 P0（派赵云，不依赖 Track A，文件不冲突）**：`packages/mobile/src/*`
-    - [ ] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
-    - [ ] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
-    - [ ] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
-    - [ ] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
+    - [x] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
+    - [x] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
+    - [x] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
+    - [x] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
 - [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
 - [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
 - [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
