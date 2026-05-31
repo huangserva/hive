@@ -8,6 +8,7 @@ import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { type TFunction, useT } from '../i18n'
 import { colors, spacing } from '../theme'
 import { CockpitScroll } from './CockpitScroll'
+import { sortPlanMilestonesForDisplay } from './plan-milestone-sort'
 import { useRefreshableData } from './useRefreshableCockpit'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
@@ -67,7 +68,7 @@ export function PlanView({ dashboard: _dashboard }: { dashboard: MobileDashboard
   const [expandedId, setExpandedId] = useState('')
 
   const milestones = cockpit?.plan.milestones ?? []
-  const displayMilestones = [...milestones].reverse()
+  const displayMilestones = sortPlanMilestonesForDisplay(milestones)
   const doneCount = milestones.reduce((t, m) => t + m.doneCount, 0)
   const totalCount = milestones.reduce((t, m) => t + m.totalCount, 0)
   const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0
