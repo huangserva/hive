@@ -430,6 +430,7 @@ export const createRuntimeStoreLifecycle = ({
             agent_id: agent.id,
             agent_name: agent.name,
             run_id: run.runId,
+            started_at: run.startedAt,
             status: run.status,
             terminal_input_profile: resolveTerminalInputProfile(launchConfig),
           },

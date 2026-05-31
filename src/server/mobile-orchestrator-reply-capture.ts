@@ -7,7 +7,11 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 
 const MOBILE_APP_INPUT_RE = /^\[来自手机 Mobile App\]/u
-const DEFAULT_FLUSH_DELAY_MS = 120000
+// Flush the captured reply after this much PTY silence — long enough that a
+// single orchestrator turn (which streams output in bursts) is not split into
+// fragments, short enough that the phone sees the reply promptly. Mid-turn tool
+// output is filtered to empty so a premature flush during tool use emits nothing.
+const DEFAULT_FLUSH_DELAY_MS = 10000
 const ESC = String.fromCharCode(0x1b)
 const BEL = String.fromCharCode(0x07)
 const OSC_PATTERN = new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, 'gu')
@@ -28,6 +32,7 @@ export interface MobileOrchestratorReplyCapture {
   attach: (workspaceId: string, agentId: string, runId: string) => void
   closeAll: () => void
   detach: (workspaceId: string, agentId: string) => void
+  noteExplicitReply: (workspaceId: string) => void
   startPendingReply: (workspaceId: string) => void
 }
 
@@ -196,9 +201,24 @@ export const createMobileOrchestratorReplyCapture = ({
       if (agentId !== orchestratorIdForWorkspace(workspaceId)) return
       detachWorkspace(workspaceId)
     },
-    startPendingReply(_workspaceId: string) {
-      // Disabled: capturing raw terminal output produces garbage in mobile chat.
-      // Orchestrator replies should use explicit chat message API instead.
+    noteExplicitReply(workspaceId: string) {
+      // The orchestrator used `team mobile-reply` for this turn. That explicit
+      // reply is the canonical message, so drop any in-flight conversational
+      // capture for this workspace to avoid posting a near-duplicate bubble.
+      const pending = pendingByWorkspace.get(workspaceId)
+      if (!pending) return
+      clearTimer(pending)
+      pendingByWorkspace.delete(workspaceId)
+    },
+    startPendingReply(workspaceId: string) {
+      // A mobile user message just arrived. Commit any prior pending reply, then
+      // open a fresh capture window so the orchestrator's natural-language reply
+      // to THIS message is persisted to mobile chat (closes the conversation loop
+      // when the orchestrator answers in chat without calling `team mobile-reply`).
+      // Capture is gated on a mobile turn — output from web-driven turns, which
+      // never call this, is ignored by handleOutput (no pending buffer exists).
+      flushPending(workspaceId)
+      pendingByWorkspace.set(workspaceId, { buffer: '', flushTimer: null })
     },
   }
 }

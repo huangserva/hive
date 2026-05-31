@@ -8,6 +8,7 @@ export interface TerminalRunSummary {
   agent_id: string
   agent_name: string
   run_id: string
+  started_at: number
   status: string
   terminal_input_profile: TerminalInputProfile
 }

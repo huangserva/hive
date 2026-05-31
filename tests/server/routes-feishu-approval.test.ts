@@ -274,6 +274,33 @@ describe('POST /internal/feishu/approval-request', () => {
     }
   })
 
+  test('persists an approval_request to the mobile chat thread (phone approval gate)', async () => {
+    const { agentId, baseUrl, store, token, workspace } = await setupApprovalTest()
+    const { status, body } = await postApproval(
+      baseUrl,
+      {
+        action: 'rm -rf build',
+        chatId: 'oc_target',
+        risk: 'high',
+        target: '关羽',
+        workspaceId: workspace.id,
+      },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(200)
+
+    const messages = store.listMobileChatMessages(workspace.id)
+    const approvalRow = messages.find((message) => message.message_type === 'approval_request')
+    expect(approvalRow).toBeDefined()
+    expect(approvalRow?.direction).toBe('outbound')
+    expect(JSON.parse(approvalRow?.content_json ?? '{}')).toEqual({
+      action: 'rm -rf build',
+      approval_id: body.approval_id,
+      risk: 'high',
+      target: '关羽',
+    })
+  })
+
   test('200 uses last chat when chatId is omitted', async () => {
     const getLastChatForAgent = vi.fn().mockReturnValue('oc_last_chat')
     const { agentId, baseUrl, sendApprovalCard, token, workspace } = await setupApprovalTest({

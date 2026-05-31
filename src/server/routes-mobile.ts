@@ -111,7 +111,7 @@ export const buildMobileDashboard = (
   const runs = store.listTerminalRuns(workspaceId).map((run) => ({
     agent_name: run.agent_name,
     id: run.run_id,
-    started_at: null,
+    started_at: new Date(run.started_at).toISOString(),
     status: run.status,
   }))
 
@@ -555,9 +555,14 @@ export const mobileRoutes: RouteDefinition[] = [
       const cockpit = parseCockpit(workspace.summary.path)
       sendJson(response, 200, {
         aiActions: cockpit.aiActions,
+        archive: cockpit.archive,
+        baseline: cockpit.baseline,
+        decisions: cockpit.decisions,
         ideas: cockpit.ideas,
         plan: cockpit.plan,
         questions: cockpit.questions,
+        reports: cockpit.reports,
+        research: cockpit.research,
         tasks: cockpit.tasks,
       })
     }

@@ -216,28 +216,6 @@ last_review: 2026-05-25
 - [x] backend 支持编辑 worker description / preset / thinking_level / sentinel heartbeat interval
 - [x] tests: heartbeat 注入、创建唯一性、authz 拒绝 send、UI 独立区域
 
-### M28 · 手机端追平 Web（mobile-vs-web UI 一致性） · in_progress (审查 2026-05-31，63 条确认)
-> 依据：workflow 全量审查 `.hive/reports/2026-05-31-mobile-vs-web-ui-audit.html` + `.hive/research/2026-05-31-mobile-vs-web-ui-audit.md`（82 agent / 2.5M tok，0 critical / 10 high / 28 medium / 25 low）。
-> 根因不在 UI：**服务端 `routes-mobile.ts` 的 mobile API 只暴露 5 字段**（plan/tasks/questions/ideas/actions），baseline/decisions/research/reports/timeline 源头没输出；且错误处理「清空」而非「降级」。**修服务端一处、多页受益。**
-> ⚠️ drift：M24 Phase 5「orch_reply 自动回灌」、Phase 7「审批推送通道」标 done 实则坏了（见 Phase 1 P0/P1）。
-
-- [ ] **Phase 1 = P0/P1（阻塞 PM 核心闭环，进下个 build）** — 派单 2026-05-31
-  - **Track A 服务端（派马超）**：`routes-mobile.ts` mobile cockpit/chat API 扩字段 + 修后端根因
-    - [ ] `orch_reply` 正常对话回复也写 `mobile_chat_messages`（现仅 `team mobile-reply` 写 → 手机看不到普通回复，对话闭环断）
-    - [ ] `approval_request` 真正持久化到 chat DB（现服务端从不写、UI 是死码 → `team approve` 安全门在手机端失效）
-    - [ ] run `started_at` 不再硬编码 null（Worker 详情 Uptime 永远 `--`）
-    - [ ] mobile cockpit API 暴露 decisions/baseline（+ reports/research/timeline/archive 索引），供前端补 tab
-  - **Track B 前端独立 P0（派赵云，不依赖 Track A，文件不冲突）**：`packages/mobile/src/*`
-    - [ ] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
-    - [ ] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
-    - [ ] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
-    - [ ] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
-- [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
-- [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
-- [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
-- 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
-- [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（commit hash 待回填）
-
 ### M24 · Mobile App 产品化实现 · in_progress
 - [x] **Phase 1**：Chat 双向消息后端（mobile_chat_messages 表 + mobile prompt / orch_reply 捕获 / dispatch / worker report 写表 + WS push + REST history endpoint）— 2026-05-27
 - [x] **Phase 2**：12 页面 UI 实现（Chat/Status/Settings/Worker Detail/Cockpit 5 tabs/Approval/Offline 全部按设计稿实现）— 2026-05-27
@@ -290,6 +268,28 @@ last_review: 2026-05-25
 - 强 TDD（§13 禁 mock PTY）；不破坏握手/RPC方法/churn修复/evict-old；测试全绿（mobile 40 + server relay 20）；server+mobile tsc 0 错、biome 干净。**B 动 daemon，需 4010 重启生效**。
 - **build #19 含全部**：M27 Part A/B + cockpit 一致性批次（milestone 编号 `e4f8106`、Ideas 编号 `b2f4dea`、Tasks 内容对齐 web `8aecdb8`、cockpit 标签页实时 `2956b14`）。Part A/编号/Tasks 装上即生效；Part B 推送 + cockpit 实时需 4010 重启。Action 文案 i18n（后端发 key）单列待 user 拍。
 - 关联：本次 4G relay 连接攻坚（5+1 层 bug 全修，commit `9289919`→`dbbb640`，全过程记于 tasks.md 📡🔥 narrative + `.hive/research/2026-05-30-relay-deployment-kit.md`；polished HTML 报告吕布写时 opencode context 超限止损未成，可后续重派）；cockpit 一致性审计 `.hive/reports/2026-05-30-mobile-cockpit-consistency-audit.html`
+
+### M28 · 手机端追平 Web（mobile-vs-web UI 一致性） · in_progress (审查 2026-05-31，63 条确认)
+> 依据：workflow 全量审查 `.hive/reports/2026-05-31-mobile-vs-web-ui-audit.html` + `.hive/research/2026-05-31-mobile-vs-web-ui-audit.md`（82 agent / 2.5M tok，0 critical / 10 high / 28 medium / 25 low）。
+> 根因不在 UI：**服务端 `routes-mobile.ts` 的 mobile API 只暴露 5 字段**（plan/tasks/questions/ideas/actions），baseline/decisions/research/reports/timeline 源头没输出；且错误处理「清空」而非「降级」。**修服务端一处、多页受益。**
+> ⚠️ drift：M24 Phase 5「orch_reply 自动回灌」、Phase 7「审批推送通道」标 done 实则坏了（见 Phase 1 P0/P1）。
+
+- [ ] **Phase 1 = P0/P1（阻塞 PM 核心闭环，进下个 build）** — 派单 2026-05-31
+  - **Track A 服务端（派马超）**：`routes-mobile.ts` mobile cockpit/chat API 扩字段 + 修后端根因
+    - [x] `orch_reply` 正常对话回复也写 `mobile_chat_messages`（马超：重启用现有 PTY 捕获管道——`startPendingReply` 不再 no-op；mobile 输入开捕获窗，10s 静默 flush，过滤系统消息/派单注入/工具/思考行；`team mobile-reply` 走公共 insert→`noteExplicitReply` 丢弃同轮缓冲防重复）（代码完成待 review/commit）
+    - [x] `approval_request` 真正持久化到 chat DB（马超：`team approve` 路由 `approvalLedger.create` 后写一行 outbound approval_request 到 mobile_chat_messages，手机端渲染审批卡；mobile resolve 路径本就不依赖 feishu）（代码完成待 review/commit）⚠️ 见 open-questions：当前仍受 feishu 路由门控，纯 mobile-origin 无 feishu chat 场景待 PM 拍是否解耦
+    - [x] run `started_at` 不再硬编码 null（马超：`TerminalRunSummary` 加 `started_at`，agent + shell 两处 listTerminalRuns 回填 `run.startedAt`，`buildMobileDashboard` 输出真实 ISO 时间戳）（代码完成待 review/commit）
+    - [x] mobile cockpit API 暴露 decisions/baseline（马超：`/cockpit` 端点复用同一 `parseCockpit` 结果，新增 baseline/decisions/reports/research/archive 字段；timeline 源不在 parseCockpit，留 Phase 3）（代码完成待 review/commit）
+  - **Track B 前端独立 P0（派赵云，不依赖 Track A，文件不冲突）**：`packages/mobile/src/*`
+    - [ ] `thinking_levels` 类型修正（对象数组非 `string[]`）→ 新增 worker 选 thinkingLevel 不再显示原始 value
+    - [ ] 重连失败 `setDashboard(null)` → 改为保留上次数据降级（命中 user 最怕「出门查一眼全没了」；4G 必现）
+    - [ ] `ConnectionModeBanner` reconnecting 时显示 disconnected 态而非误显 wifi/relay 图标
+    - [ ] Dead Button 统一处理（Filter/Menu/「...」点击无响应 → 接功能或隐藏）
+- [ ] **Phase 2 = P2（近两 build）**：Sprint Narrative 文字、Cockpit `dashboard==null` 保留旧数据、发文字+附件双消息 bug、Plan 补 Goal/Scope/Risks/currentPhase、补 Baseline/Decisions tab、删除/编辑 Worker、Actions `targetTab` 跳转
+- [ ] **Phase 3 = 低优 + 覆盖缺口专项**：Reports/Research/Archive/Timeline tab、派单状态语义统一、各类样式/截断/key 修复
+- [ ] **遗漏待补审查**：Workspace 切换、Settings/语言、Feishu 绑定+推送深链、relay token 存储安全、长列表性能、横屏适配
+- 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
+- [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（`05fb52d`）
 
 ## Scope
 

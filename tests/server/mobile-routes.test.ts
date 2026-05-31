@@ -416,6 +416,86 @@ describe('mobile API', () => {
     }
   })
 
+  test('cockpit exposes baseline and decisions for mobile (parity with web)', async () => {
+    const workspacePath = createWorkspaceFixture()
+    mkdirSync(join(workspacePath, '.hive', 'baseline'), { recursive: true })
+    writeFileSync(
+      join(workspacePath, '.hive', 'baseline', 'README.md'),
+      '# Baseline 索引\n\n稳定上下文。\n',
+      'utf8'
+    )
+    mkdirSync(join(workspacePath, '.hive', 'decisions'), { recursive: true })
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', 'draft-2026-05-31-mobile-parity.md'),
+      '# 手机端追平 Web\n\n**状态**: 提案中\n\n决策草稿正文。\n',
+      'utf8'
+    )
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Parity')
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/cockpit`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        archive: unknown
+        baseline: { readme: { title: string } | null }
+        decisions: { drafts: Array<{ slug: string; status: string; title: string }> }
+        reports: unknown
+        research: unknown
+      }
+
+      expect(response.status).toBe(200)
+      expect(body.baseline.readme?.title).toBe('Baseline 索引')
+      expect(body.decisions.drafts).toContainEqual(
+        expect.objectContaining({ slug: 'mobile-parity', status: 'draft', title: '手机端追平 Web' })
+      )
+      // Index docs are exposed too so the phone can build the remaining tabs.
+      expect(body.reports).toEqual(expect.any(Object))
+      expect(body.research).toEqual(expect.any(Object))
+      expect(body.archive).toEqual(expect.any(Object))
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('dashboard runs carry a real started_at timestamp (not hardcoded null)', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Uptime')
+      const orchestratorId = `${workspace.id}:orchestrator`
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-c', 'exec cat'],
+        command: '/bin/bash',
+      })
+      const before = Date.now()
+      await server.store.startAgent(workspace.id, orchestratorId, { hivePort: '4010' })
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dashboard`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        runs: Array<{ agent_name: string; id: string; started_at: string | null; status: string }>
+      }
+
+      expect(response.status).toBe(200)
+      expect(body.runs.length).toBeGreaterThanOrEqual(1)
+      const startedAt = body.runs[0]?.started_at
+      expect(startedAt).not.toBeNull()
+      const parsed = new Date(startedAt as string).getTime()
+      expect(Number.isNaN(parsed)).toBe(false)
+      // Real launch time, not 0/epoch — would fail if started_at were faked.
+      expect(parsed).toBeGreaterThanOrEqual(before - 1000)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('answers cockpit questions with send_prompt mobile capability', async () => {
     const workspacePath = createWorkspaceFixture({ withQuestion: true })
     const server = await startTestServer()

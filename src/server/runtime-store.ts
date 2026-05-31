@@ -302,6 +302,12 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
         contentJson
       )
       for (const callback of services.mobileChatWatchCallbacks) callback(workspaceId, message)
+      // An explicit `team mobile-reply` write supersedes the PTY capture for this
+      // turn (this public path is NOT used by the capture's own flush, so there is
+      // no self-trigger): drop the in-flight conversational buffer to avoid a dup.
+      if (messageType === 'orch_reply') {
+        services.mobileOrchestratorReplyCapture?.noteExplicitReply(workspaceId)
+      }
       return message
     },
     listMobileChatMessages: (workspaceId, since, limit) =>

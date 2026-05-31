@@ -182,6 +182,16 @@ export const feishuRoutes: RouteDefinition[] = [
         target,
         workspaceId,
       })
+      // Persist the request to the mobile chat thread so the phone renders an
+      // inline approve/deny card (the high-risk approval gate on the phone). The
+      // mobile resolve path (/api/mobile/.../approve/:approvalId) needs no Feishu,
+      // so once this row exists the gate works from the phone.
+      store.insertMobileChatMessage(
+        workspaceId,
+        'outbound',
+        'approval_request',
+        JSON.stringify({ action, approval_id: approval.approvalId, risk, target })
+      )
       logger?.info(
         `feishu approval created approval_id=${approval.approvalId} risk=${risk} action=${JSON.stringify(action)}`
       )
