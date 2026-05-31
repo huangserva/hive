@@ -8,11 +8,21 @@ import { useMobileRuntime } from '../api/mobile-runtime-context'
 import { type TFunction, useT } from '../i18n'
 import { colors, spacing } from '../theme'
 import { CockpitScroll } from './CockpitScroll'
+import {
+  extractPlanMilestoneDetails,
+  type PlanMarkdownSegment,
+  parsePlanMarkdownBlocks,
+} from './plan-markdown'
 import { sortPlanMilestonesForDisplay } from './plan-milestone-sort'
 import { useRefreshableData } from './useRefreshableCockpit'
 
 type IconName = ComponentProps<typeof Ionicons>['name']
 type MilestoneStatus = MobileCockpitMilestone['status']
+
+const TIMELINE_RAIL_WIDTH = 48
+const STATUS_CIRCLE_SIZE = 36
+const STATUS_ICON_SIZE = 18
+const STATUS_DOT_SIZE = 11
 
 const STATUS_CONFIG: Record<
   MilestoneStatus,
@@ -140,7 +150,7 @@ const MilestoneCard = ({
   const status = STATUS_CONFIG[milestone.status] ?? STATUS_CONFIG.open
   const pct =
     milestone.totalCount > 0 ? Math.round((milestone.doneCount / milestone.totalCount) * 100) : 0
-  const details = extractMilestoneDetails(milestone.body)
+  const details = extractPlanMilestoneDetails(milestone.body)
 
   return (
     <View style={styles.timelineRow}>
@@ -152,7 +162,7 @@ const MilestoneCard = ({
           ]}
         >
           {milestone.status === 'shipped' ? (
-            <Ionicons color={status.color} name={status.icon} size={22} />
+            <Ionicons color={status.color} name={status.icon} size={STATUS_ICON_SIZE} />
           ) : (
             <View style={[styles.statusDot, { backgroundColor: status.color }]} />
           )}
@@ -170,9 +180,9 @@ const MilestoneCard = ({
               <Text numberOfLines={1} style={styles.milestoneSubtitle}>
                 {milestone.date}
               </Text>
-            ) : details ? (
+            ) : details.subtitle ? (
               <Text numberOfLines={1} style={styles.milestoneSubtitle}>
-                {details}
+                {details.subtitle}
               </Text>
             ) : null}
           </View>
@@ -211,12 +221,10 @@ const MilestoneCard = ({
                 <Text style={styles.taskTitle}>{item.text}</Text>
               </View>
             ))}
-            {details ? (
+            {details.markdown ? (
               <View style={styles.detailsBlock}>
                 <Text style={styles.detailsTitle}>{t('cockpit.plan.details')}</Text>
-                <Text numberOfLines={3} style={styles.detailsBody}>
-                  {details}
-                </Text>
+                <PlanMarkdownText text={details.markdown} />
               </View>
             ) : null}
             {milestone.date ? (
@@ -238,27 +246,56 @@ const ProgressBar = ({ progress }: { progress: number }) => (
   </View>
 )
 
-const extractMilestoneDetails = (body: string): string => {
-  const lines = body
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => {
-      if (!line) return false
-      if (/^- \[[ xX]\]/u.test(line)) return false
-      if (/^#{1,6}\s+/u.test(line)) return false
-      if (/^[-*]\s+/u.test(line)) return false
-      if (/^```/u.test(line)) return false
-      return true
-    })
-    .map((line) =>
-      line
-        .replace(/\*\*(.+?)\*\*/gu, '$1')
-        .replace(/`(.+?)`/gu, '$1')
-        .replace(/\[(.+?)\]\(.+?\)/gu, '$1')
-    )
-
-  return lines.slice(0, 2).join(' ')
+const PlanMarkdownText = ({ text }: { text: string }) => {
+  const blocks = parsePlanMarkdownBlocks(text)
+  return (
+    <View style={styles.markdownBlocks}>
+      {blocks.map((block, index) => {
+        const key = `${block.kind}-${index}`
+        if (block.kind === 'quote') {
+          return (
+            <View key={key} style={styles.markdownQuote}>
+              <Text style={styles.detailsBody}>{renderMarkdownSegments(block.segments)}</Text>
+            </View>
+          )
+        }
+        if (block.kind === 'listItem') {
+          return (
+            <View key={key} style={styles.markdownListItem}>
+              <Text style={styles.markdownBullet}>{'\u2022'}</Text>
+              <Text style={styles.detailsBody}>{renderMarkdownSegments(block.segments)}</Text>
+            </View>
+          )
+        }
+        return (
+          <Text key={key} style={styles.detailsBody}>
+            {renderMarkdownSegments(block.segments)}
+          </Text>
+        )
+      })}
+    </View>
+  )
 }
+
+const renderMarkdownSegments = (segments: PlanMarkdownSegment[]) =>
+  segments.map((segment, index) => {
+    const key = `${segment.kind}-${index}-${segment.text}`
+    if (segment.kind === 'bold') {
+      return (
+        <Text key={key} style={styles.markdownBold}>
+          {segment.text}
+        </Text>
+      )
+    }
+    if (segment.kind === 'code') {
+      return (
+        <Text key={key} style={styles.markdownCode}>
+          {segment.text}
+        </Text>
+      )
+    }
+    return segment.text
+  })
 
 const styles = StyleSheet.create({
   cardTitle: { color: '#E6EDF3', fontSize: 15, fontWeight: '700' },
@@ -277,6 +314,24 @@ const styles = StyleSheet.create({
   detailsBody: { color: colors.textSoft, fontSize: 13, lineHeight: 18 },
   detailsTitle: { color: '#E6EDF3', fontSize: 13, fontWeight: '700' },
   expanded: { gap: spacing.sm, paddingTop: spacing.lg },
+  markdownBlocks: { gap: 6 },
+  markdownBold: { color: colors.text, fontWeight: '800' },
+  markdownBullet: { color: colors.accent, fontSize: 13, lineHeight: 18 },
+  markdownCode: {
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: 5,
+    borderWidth: 1,
+    color: colors.text,
+    fontFamily: 'Courier',
+    fontSize: 12,
+  },
+  markdownListItem: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
+  markdownQuote: {
+    borderLeftColor: colors.accent,
+    borderLeftWidth: 3,
+    paddingLeft: spacing.sm,
+  },
   milestoneDateRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -326,7 +381,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     overflow: 'hidden',
   },
-  railLine: { backgroundColor: 'rgba(139, 148, 158, 0.22)', flex: 1, marginTop: 6, width: 3 },
+  railLine: { backgroundColor: 'rgba(139, 148, 158, 0.22)', flex: 1, marginTop: 5, width: 2 },
   statusBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -336,12 +391,12 @@ const styles = StyleSheet.create({
   statusCircle: {
     alignItems: 'center',
     borderRadius: 999,
-    borderWidth: 3,
-    height: 40,
+    borderWidth: 2,
+    height: STATUS_CIRCLE_SIZE,
     justifyContent: 'center',
-    width: 40,
+    width: STATUS_CIRCLE_SIZE,
   },
-  statusDot: { borderRadius: 999, height: 14, width: 14 },
+  statusDot: { borderRadius: 999, height: STATUS_DOT_SIZE, width: STATUS_DOT_SIZE },
   statusSide: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 8 },
   taskProgressPercent: { color: colors.textSoft, fontSize: 13, fontWeight: '700' },
   taskProgressRow: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
@@ -357,6 +412,6 @@ const styles = StyleSheet.create({
   },
   taskTitle: { color: colors.textSoft, flex: 1, fontSize: 14, lineHeight: 20 },
   timeline: { gap: spacing.sm },
-  timelineRail: { alignItems: 'center', width: 66 },
+  timelineRail: { alignItems: 'center', width: TIMELINE_RAIL_WIDTH },
   timelineRow: { alignItems: 'stretch', flexDirection: 'row' },
 })

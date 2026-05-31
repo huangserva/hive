@@ -6,6 +6,7 @@ import {
   Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -26,7 +27,11 @@ import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { useT } from '../../src/i18n'
+import { cleanTerminalLines } from '../../src/lib/terminal-text'
 import { colors, radius, spacing } from '../../src/theme'
+
+// 终端等宽字体：'Courier' 在安卓不存在会回退成无衬线（错位），'monospace' 才是安卓的等宽逻辑族。
+const TERMINAL_FONT = Platform.select({ ios: 'Menlo', default: 'monospace' })
 
 const WORKER_ROLES: Record<string, string> = {
   coder: 'Software Engineer',
@@ -485,7 +490,8 @@ export default function AgentDetailScreen() {
   const terminalLines = transcript?.lines ?? []
   const terminalLineItems = useMemo(() => {
     const seen = new Map<string, number>()
-    return terminalLines.map((line) => {
+    // 渲染前先清掉残留 ANSI/控制序列、解 \r 覆盖（防御性，服务端只 strip 了 CSI）。
+    return cleanTerminalLines(terminalLines).map((line) => {
       const count = seen.get(line) ?? 0
       seen.set(line, count + 1)
       return { key: `${line || 'blank'}-${count}`, line }
@@ -637,15 +643,25 @@ export default function AgentDetailScreen() {
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
                 >
-                  {terminalLineItems.length ? (
-                    terminalLineItems.map(({ key, line }) => (
-                      <Text key={key} style={[styles.termLine, termLineColor(line)]}>
-                        {line}
-                      </Text>
-                    ))
-                  ) : (
-                    <Text style={styles.termLine}>{t('agent.detail.noTerminal')}</Text>
-                  )}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator
+                    contentContainerStyle={styles.termLines}
+                  >
+                    {terminalLineItems.length ? (
+                      terminalLineItems.map(({ key, line }) => (
+                        <Text
+                          key={key}
+                          numberOfLines={1}
+                          style={[styles.termLine, termLineColor(line)]}
+                        >
+                          {line || ' '}
+                        </Text>
+                      ))
+                    ) : (
+                      <Text style={styles.termLine}>{t('agent.detail.noTerminal')}</Text>
+                    )}
+                  </ScrollView>
                 </ScrollView>
               </View>
             </View>
@@ -740,15 +756,25 @@ export default function AgentDetailScreen() {
             scrollEventThrottle={16}
             style={styles.fullscreenTerminal}
           >
-            {terminalLineItems.length ? (
-              terminalLineItems.map(({ key, line }) => (
-                <Text key={key} style={[styles.fullscreenTermLine, termLineColor(line)]}>
-                  {line}
-                </Text>
-              ))
-            ) : (
-              <Text style={styles.fullscreenTermLine}>{t('agent.detail.noTerminal')}</Text>
-            )}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator
+              contentContainerStyle={styles.termLines}
+            >
+              {terminalLineItems.length ? (
+                terminalLineItems.map(({ key, line }) => (
+                  <Text
+                    key={key}
+                    numberOfLines={1}
+                    style={[styles.fullscreenTermLine, termLineColor(line)]}
+                  >
+                    {line || ' '}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.fullscreenTermLine}>{t('agent.detail.noTerminal')}</Text>
+              )}
+            </ScrollView>
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1041,7 +1067,7 @@ const styles = StyleSheet.create({
   },
   fullscreenTermLine: {
     color: colors.textSoft,
-    fontFamily: 'Courier',
+    fontFamily: TERMINAL_FONT,
     fontSize: 14,
     lineHeight: 21,
   },
@@ -1247,9 +1273,13 @@ const styles = StyleSheet.create({
   },
   termLine: {
     color: colors.textSoft,
-    fontFamily: 'Courier',
+    fontFamily: TERMINAL_FONT,
     fontSize: 12,
     lineHeight: 18,
+  },
+  termLines: {
+    flexDirection: 'column',
+    minWidth: '100%',
   },
   workerName: {
     color: colors.text,

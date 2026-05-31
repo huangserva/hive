@@ -173,3 +173,120 @@ describe('filterPendingOptimisticMessages', () => {
     ).toEqual([])
   })
 })
+
+// #26：带附件的消息，optimistic（attachments[] + caption）必须被服务端 media echo
+// （media:{filename} + text="[filename]"）按文件名消掉——否则 1 张图出现 2 个图气泡（真图+空框）。
+const imageOptimisticJson = (filename: string, caption: string) =>
+  JSON.stringify({
+    attachments: [{ filename, mime_type: 'image/jpeg', url: `file:///${filename}` }],
+    media: { filename, mime_type: 'image/jpeg', url: `file:///${filename}` },
+    text: caption,
+  })
+
+const serverMediaEchoJson = (filename: string) =>
+  JSON.stringify({
+    media: {
+      file_id: 'f1',
+      filename,
+      mime_type: 'image/jpeg',
+      size: 1,
+      url: `/api/mobile/uploads/${filename}`,
+    },
+    text: `[${filename}]`,
+  })
+
+describe('filterPendingOptimisticMessages — attachments (#26)', () => {
+  test('a server media echo consumes the optimistic image even though their text differs', () => {
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json: serverMediaEchoJson('photo.jpg'),
+          created_at: Date.parse('2026-05-31T10:00:05Z'),
+          id: 'srv-media',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'n',
+          content_json: imageOptimisticJson('photo.jpg', '看这个'),
+          created_at: Date.parse('2026-05-31T10:00:00Z'),
+          id: 'opt-img',
+        }),
+      ],
+    })
+    // optimistic 被消掉 → 不再出现重复的图气泡（剩服务端那条）。
+    expect(pending).toEqual([])
+  })
+
+  test('the "[附件:...]" text echo does NOT consume the optimistic image (it stays its own bubble)', () => {
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json: JSON.stringify({ text: '[附件: photo.jpg]\n看这个' }),
+          created_at: Date.parse('2026-05-31T10:00:05Z'),
+          id: 'srv-text',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'n',
+          content_json: imageOptimisticJson('photo.jpg', '看这个'),
+          created_at: Date.parse('2026-05-31T10:00:00Z'),
+          id: 'opt-img',
+        }),
+      ],
+    })
+    // 文字 echo 按文字 key、optimistic 按 media key，互不消费 → optimistic 仍在（等它的 media echo）。
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.id).toBe('opt-img')
+  })
+
+  test('with both server echoes present, only the media echo consumes the optimistic image', () => {
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json: serverMediaEchoJson('photo.jpg'),
+          created_at: Date.parse('2026-05-31T10:00:05Z'),
+          id: 'srv-media',
+        }),
+        chatMessage({
+          content_json: JSON.stringify({ text: '[附件: photo.jpg]\n看这个' }),
+          created_at: Date.parse('2026-05-31T10:00:06Z'),
+          id: 'srv-text',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'n',
+          content_json: imageOptimisticJson('photo.jpg', '看这个'),
+          created_at: Date.parse('2026-05-31T10:00:00Z'),
+          id: 'opt-img',
+        }),
+      ],
+    })
+    expect(pending).toEqual([])
+  })
+
+  test('a pre-existing media echo (older than the new send) does NOT consume the new optimistic image', () => {
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json: serverMediaEchoJson('photo.jpg'),
+          created_at: Date.parse('2026-05-31T09:00:00Z'),
+          id: 'srv-old',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'n',
+          content_json: imageOptimisticJson('photo.jpg', '再发一次'),
+          created_at: Date.parse('2026-05-31T10:00:00Z'),
+          id: 'opt-new',
+        }),
+      ],
+    })
+    // 沿用 #23 时间门控：早于本次发送的历史图 echo 不能消费新发的图。
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.id).toBe('opt-new')
+  })
+})

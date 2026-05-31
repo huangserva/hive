@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../api/client'
+import { extractChatMediaItems } from './chat-media'
 
 export interface OptimisticChatMessage {
   clientNonce: string
@@ -18,9 +19,23 @@ const parseMessageContent = (json: string) => {
   }
 }
 
+// 带附件的消息按「媒体文件名集合」做 key，不按文字——因为同一张图的 optimistic（content 写
+// attachments[] + caption）和服务端 echo（content 写 media:{...} + text="[filename]"）文字不一致，
+// 只有按文件名才能对上、消掉重复图气泡（#26：发 1 张图出现真图 + 空框两个气泡）。
+// 纯文字消息仍按归一化文字 key（不受影响，文字 echo 照常保留并显示发送状态）。
 const stableMessageKey = (
   message: Pick<ChatMessage | OptimisticChatMessage, 'content_json' | 'message_type'>
-) => `${message.message_type}:${parseMessageContent(message.content_json)}`
+) => {
+  const mediaItems = extractChatMediaItems(message.content_json)
+  if (mediaItems.length > 0) {
+    const names = mediaItems
+      .map((item) => item.filename)
+      .sort()
+      .join('|')
+    return `${message.message_type}:media:${names}`
+  }
+  return `${message.message_type}:text:${parseMessageContent(message.content_json)}`
+}
 
 const compareMessageOrder = (
   left: Pick<ChatMessage, 'created_at' | 'id'>,
