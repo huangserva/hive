@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
 
+import { buildMobileWorkerTranscript } from '../../src/server/routes-mobile.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -1240,6 +1241,61 @@ describe('mobile API', () => {
       await server.close()
     }
   }, 15000)
+
+  test('transcript preserves leading indentation through the real worker PTY (trimEnd, not trim)', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Indent Transcript')
+      const worker = server.store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+      server.store.configureAgentLaunch(workspace.id, worker.id, {
+        command: process.execPath,
+        args: ['-e', 'process.stdin.resume(); setInterval(() => {}, 1000)'],
+      })
+      const run = await server.store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+      server.store.getPtyOutputBus().publish(run.runId, '    indented child node   \r\n')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/transcript`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as { lines: string[] }
+      expect(response.status).toBe(200)
+      const indented = body.lines.find((line) => line.includes('indented child node'))
+      // 前导缩进保留（不再被 .trim() 删掉），行尾空格裁掉。
+      expect(indented).toBe('    indented child node')
+    } finally {
+      await server.close()
+    }
+  }, 15000)
+
+  test('transcript layer resolves CR overwrite + keeps indent (crafted snapshot)', async () => {
+    // 直接喂含字面 \r 覆盖 + 前导 Tab + \r\n 行尾 + ANSI 的快照（真实 PTY 经 headless xterm 会
+    // 提前解掉覆盖，这里绕开以直接验服务端 transcript 变换）。非 mock node-pty，只 stub 快照源。
+    const esc = String.fromCharCode(0x1b)
+    const snapshot = `${esc}[32m\tdeploy step${esc}[0m\r\nprogress 1%\rprogress 2%\rprogress 100%\r\n   kept   \r\n`
+    const fakeStore = {
+      getAgent: () => ({
+        description: '',
+        id: 'w1',
+        name: 'Alice',
+        pendingTaskCount: 0,
+        role: 'coder' as const,
+        status: 'idle' as const,
+        workspaceId: 'ws1',
+      }),
+      getPtySnapshotForAgent: async () => snapshot,
+    } as unknown as Parameters<typeof buildMobileWorkerTranscript>[0]
+
+    const result = await buildMobileWorkerTranscript(fakeStore, 'ws1', 'w1')
+    expect(result.lines[0]).toBe('\tdeploy step') // 前导 Tab 保留、ANSI 已 strip
+    expect(result.lines[1]).toBe('progress 100%') // \r 覆盖只留最后一次写入
+    expect(result.lines.some((line) => line.includes('progress 1%'))).toBe(false)
+    expect(result.lines[2]).toBe('   kept') // 前导空格保留、行尾裁掉
+    expect(result.lines.join('\n')).not.toContain(`${esc}[`)
+  })
 
   test('returns orchestrator transcript for a paired mobile client', async () => {
     const workspacePath = createWorkspaceFixture()

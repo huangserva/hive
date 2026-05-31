@@ -152,13 +152,24 @@ export const buildMobileDashboard = (
 const MAX_TRANSCRIPT_LINES = 100
 const MAX_TASK_SUMMARY_LENGTH = 80
 
+// 解一行内的 \r 覆盖：终端原地重绘只显示最后一次 \r 之后的内容（如 progress1%\rprogress2%
+// → progress2%）。先剥掉行尾的 \r（\r\n 行结束符的残留），再按 \r 取最后一段。
+const resolveLineCarriageReturns = (line: string): string => {
+  const withoutTrailingCr = line.replace(/\r+$/u, '')
+  if (!withoutTrailingCr.includes('\r')) return withoutTrailingCr
+  const segments = withoutTrailingCr.split('\r')
+  return segments[segments.length - 1] ?? withoutTrailingCr
+}
+
 const transcriptLinesFromSnapshot = (snapshot: string | null) => {
   if (!snapshot) return { lines: [] as string[], truncated: false }
+  // 只按真正的换行 \n 切行（不再把 \r 全量替成 \n——那样会把"原地重绘"拆成多行残影、
+  // 还顺手 trim 掉前导缩进）。每行内的 \r 覆盖在此解析；只 trimEnd 保前导缩进/Tab；
+  // 空行判断用 trim 后长度，不真删被保留行的缩进。客户端 terminal-text 对此幂等。
   const lines = stripTerminalAnsi(snapshot)
-    .replace(/\r/g, '\n')
     .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
+    .map((line) => resolveLineCarriageReturns(line).trimEnd())
+    .filter((line) => line.trim().length > 0)
   return {
     lines: lines.slice(-MAX_TRANSCRIPT_LINES),
     truncated: lines.length > MAX_TRANSCRIPT_LINES,
