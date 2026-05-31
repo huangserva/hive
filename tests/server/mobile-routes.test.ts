@@ -416,6 +416,29 @@ describe('mobile API', () => {
     }
   })
 
+  test('dashboard exposes stale/escalated dispatch counts (worker done-but-not-reported surface)', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Stale')
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+      const response = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/dashboard`,
+        { headers: mobileHeaders(token, '192.168.1.44:4010') }
+      )
+      const body = (await response.json()) as {
+        cockpit: { escalated_dispatches: number; stale_dispatches: number }
+      }
+
+      expect(response.status).toBe(200)
+      // Fields are wired and numeric (no stale dispatches in a fresh workspace).
+      expect(body.cockpit.stale_dispatches).toBe(0)
+      expect(body.cockpit.escalated_dispatches).toBe(0)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('cockpit exposes baseline and decisions for mobile (parity with web)', async () => {
     const workspacePath = createWorkspaceFixture()
     mkdirSync(join(workspacePath, '.hive', 'baseline'), { recursive: true })

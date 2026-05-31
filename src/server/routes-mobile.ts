@@ -29,6 +29,7 @@ import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers
 import type { RouteDefinition } from './route-types.js'
 import { serializeCommandPreset } from './routes-settings.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
@@ -115,15 +116,23 @@ export const buildMobileDashboard = (
     status: run.status,
   }))
 
+  // 「派单超时未汇报」醒目计数：worker 干完不报 / 卡住时，user 在看板直接看见，不靠 LLM nudge。
+  const staleDispatches = summarizeStaleDispatches(
+    store.listDispatches(workspaceId, { status: 'submitted' }),
+    Date.now()
+  )
+
   return {
     cockpit: {
       ai_actions_count: cockpit.aiActions.length,
       baseline_stale: cockpit.baseline.staleHint !== null,
+      escalated_dispatches: staleDispatches.escalatedCount,
       high_ai_actions: cockpit.aiActions.filter((action) => action.priority === 'high').length,
       open_questions:
         cockpit.questions.high.length +
         cockpit.questions.medium.length +
         cockpit.questions.low.length,
+      stale_dispatches: staleDispatches.staleCount,
     },
     generated_at: new Date().toISOString(),
     plan: {

@@ -35,6 +35,16 @@ export interface MobilePushService {
     }
   ): Promise<void>
   notifyHighAiAction(workspaceId: string, actionTitle: string): Promise<void>
+  notifyStaleDispatch(
+    workspaceId: string,
+    info: {
+      dispatchId: string
+      escalated: boolean
+      minutesAgo: number
+      taskSummary: string
+      workerName: string
+    }
+  ): Promise<void>
 }
 
 export const createMobilePushService = (deps: {
@@ -44,6 +54,7 @@ export const createMobilePushService = (deps: {
   const fetchImpl = deps.fetchImpl ?? fetch
   const sentDispatchIds = new Set<string>()
   const sentApprovalIds = new Set<string>()
+  const sentStaleKeys = new Set<string>()
 
   const recipients = () =>
     deps.store
@@ -114,6 +125,28 @@ export const createMobilePushService = (deps: {
           body: actionTitle,
           data: { type: 'high_ai_action', workspaceId },
           title: 'HippoTeam needs attention',
+          to: token,
+        }))
+      )
+    },
+    async notifyStaleDispatch(workspaceId, info) {
+      // Dedupe per dispatch per tier so a stale dispatch pushes at most once when it
+      // crosses stale, and once more if it escalates.
+      const key = `${info.dispatchId}:${info.escalated ? 'escalated' : 'stale'}`
+      if (sentStaleKeys.has(key)) return
+      sentStaleKeys.add(key)
+      const title = info.escalated ? 'Dispatch still unreported' : 'Worker may be stuck — no report'
+      const prefix = info.escalated ? 'Ignored reminders: ' : 'No report yet: '
+      await send(
+        recipients().map((token) => ({
+          body: `${prefix}${info.workerName} · "${info.taskSummary}" (~${info.minutesAgo}m)`,
+          data: {
+            dispatchId: info.dispatchId,
+            escalated: String(info.escalated),
+            type: 'stale_dispatch',
+            workspaceId,
+          },
+          title,
           to: token,
         }))
       )

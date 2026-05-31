@@ -256,6 +256,29 @@ export const createRuntimeStoreServices = (
     listOpenDispatchesForWorkspace: (workspaceId) =>
       dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
     listWorkspaces: () => workspaceStore.listWorkspaces(),
+    // 派单超时未汇报 → 直接 surface 给 user（除 LLM nudge 外的硬兜底，绝不静默）。
+    notifyUserOfStaleDispatch: (workspaceId, dispatch, notice) => {
+      let workerName = dispatch.toAgentId
+      try {
+        workerName = workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name
+      } catch {
+        // worker 可能已被删；用 agentId 兜底，仍要通知 user。
+      }
+      void mobilePushService
+        .notifyStaleDispatch(workspaceId, {
+          dispatchId: dispatch.id,
+          escalated: notice.escalated,
+          minutesAgo: notice.minutesAgo,
+          taskSummary: dispatch.text.slice(0, 80),
+          workerName,
+        })
+        .catch((error) => {
+          options.logger?.warn(
+            `stale dispatch user notify failed workspace_id=${workspaceId} dispatch_id=${dispatch.id}`,
+            error
+          )
+        })
+    },
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.agentManager ? { writeRunInput: writeAgentRunInput } : {}),
   })

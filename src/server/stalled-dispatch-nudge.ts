@@ -2,6 +2,7 @@ import type { WorkspaceSummary } from '../shared/types.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { HiveLogger } from './logger.js'
 import { hasInteractivePromptReady } from './post-start-input-writer.js'
+import { DEFAULT_ESCALATED_DISPATCH_MS } from './stale-dispatch-status.js'
 
 // 周期巡检 tick 间隔（与 sentinel-heartbeat 同节奏，每分钟扫一次）。
 const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
@@ -11,9 +12,17 @@ const DEFAULT_STALLED_SUBMITTED_MS = 4 * 60 * 1000
 const DEFAULT_IDLE_GRACE_MS = 20 * 1000
 const DEFAULT_MAX_WORKER_NUDGES = 2
 
+// 通知 user「派单超时未汇报」的回调。与 LLM nudge 并行、独立：哪怕 worker/orchestrator
+// 的 nudge 全被忽略或从未触发（worker 没回 idle 提示符），这条按时长兜底，绝不静默。
+export interface StaleDispatchUserNotice {
+  escalated: boolean
+  minutesAgo: number
+}
+
 type ActiveRunRef = { output?: string; runId: string } | undefined
 
 export interface StalledDispatchNudgeOptions {
+  escalatedMs?: number
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => ActiveRunRef
   getWorkerOutputSinceActivity?: (workspaceId: string, agentId: string) => string
   injectNudge: (workspaceId: string, message: string) => void
@@ -24,6 +33,11 @@ export interface StalledDispatchNudgeOptions {
   listWorkspaces: () => WorkspaceSummary[]
   logger?: HiveLogger
   maxWorkerNudgesPerDispatch?: number
+  notifyUserOfStaleDispatch?: (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    notice: StaleDispatchUserNotice
+  ) => void
   now?: () => number
   staleMs?: number
   writeRunInput?: (runId: string, input: string) => void
@@ -60,6 +74,7 @@ export const buildIdleWorkerReportReminderMessage = (dispatch: DispatchRecord) =
 // worker 已 stopped（无 active run）的孤儿不在本机制处理 —— 交 reconcileOrphanedDispatches。
 // 防重复：同一 dispatch 最多直提醒 maxWorkerNudgesPerDispatch 次，再回退 orchestrator nudge 一次。
 export const createStalledDispatchNudge = ({
+  escalatedMs = DEFAULT_ESCALATED_DISPATCH_MS,
   getActiveRunByAgentId,
   getWorkerOutputSinceActivity,
   injectNudge,
@@ -70,6 +85,7 @@ export const createStalledDispatchNudge = ({
   listWorkspaces,
   logger,
   maxWorkerNudgesPerDispatch = DEFAULT_MAX_WORKER_NUDGES,
+  notifyUserOfStaleDispatch,
   now = Date.now,
   staleMs = DEFAULT_STALLED_SUBMITTED_MS,
   writeRunInput,
@@ -79,6 +95,8 @@ export const createStalledDispatchNudge = ({
   const idleReadySinceByDispatchId = new Map<string, number>()
   const outputBaselineByDispatchId = new Map<string, number>()
   const workerNudgeCountsByDispatchId = new Map<string, number>()
+  const userNotifiedStaleIds = new Set<string>()
+  const userNotifiedEscalatedIds = new Set<string>()
 
   const hasIdleSelfHeal = Boolean(injectWorkerNudge || writeRunInput)
 
@@ -92,6 +110,35 @@ export const createStalledDispatchNudge = ({
     }
     for (const dispatchId of workerNudgeCountsByDispatchId.keys()) {
       if (!openIds.has(dispatchId)) workerNudgeCountsByDispatchId.delete(dispatchId)
+    }
+    for (const dispatchId of userNotifiedStaleIds) {
+      if (!openIds.has(dispatchId)) userNotifiedStaleIds.delete(dispatchId)
+    }
+    for (const dispatchId of userNotifiedEscalatedIds) {
+      if (!openIds.has(dispatchId)) userNotifiedEscalatedIds.delete(dispatchId)
+    }
+  }
+
+  // 永远跑、独立于 idle 自愈：按时长把「submitted 超时未汇报」surface 给 user（push）。
+  // 不 gate worker 是否在线/idle —— 哪怕 worker 卡死从不回提示符、或所有 LLM nudge 被忽略，
+  // 这条都按 stale/escalated 两档兜底通知 user，每档每 dispatch 只发一次。绝不静默。
+  const surfaceStaleDispatchesToUser = (workspaceId: string, tickedAt: number) => {
+    if (!notifyUserOfStaleDispatch) return
+    const openDispatches = listOpenDispatchesForWorkspace(workspaceId)
+    cleanupClosedDispatchState(openDispatches)
+    for (const dispatch of openDispatches) {
+      if (dispatch.status !== 'submitted' || dispatch.submittedAt === null) continue
+      const age = tickedAt - dispatch.submittedAt
+      if (age < staleMs) continue
+      const minutesAgo = Math.floor(age / 60_000)
+      if (!userNotifiedStaleIds.has(dispatch.id)) {
+        userNotifiedStaleIds.add(dispatch.id)
+        notifyUserOfStaleDispatch(workspaceId, dispatch, { escalated: false, minutesAgo })
+      }
+      if (age >= escalatedMs && !userNotifiedEscalatedIds.has(dispatch.id)) {
+        userNotifiedEscalatedIds.add(dispatch.id)
+        notifyUserOfStaleDispatch(workspaceId, dispatch, { escalated: true, minutesAgo })
+      }
     }
   }
 
@@ -201,6 +248,8 @@ export const createStalledDispatchNudge = ({
     const tickedAt = now()
     for (const workspace of listWorkspaces()) {
       try {
+        // 先 surface 给 user（never silent），再做 LLM 层 nudge（best-effort）。
+        surfaceStaleDispatchesToUser(workspace.id, tickedAt)
         if (hasIdleSelfHeal) {
           handleIdleSelfHeal(workspace.id, tickedAt)
           continue
