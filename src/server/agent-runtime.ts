@@ -1,5 +1,8 @@
-import type { AgentSummary } from '../shared/types.js'
+import { join } from 'node:path'
+
+import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
 import { createAgentLaunchCache } from './agent-launch-cache.js'
+import { resolveAgentLaunchRoots } from './agent-launch-roots.js'
 import type { AgentManager } from './agent-manager.js'
 import { createAgentRunStarter } from './agent-run-starter.js'
 import { syncPersistedRun } from './agent-run-sync.js'
@@ -21,6 +24,7 @@ import type { CommandPresetRecord } from './command-preset-store.js'
 import { createLiveRunRegistry } from './live-run-registry.js'
 import type { HiveLogger } from './logger.js'
 import { createNoopRestartPolicy, type RestartPolicy } from './restart-policy.js'
+import { createWorktreeManager } from './worktree-manager.js'
 
 export const createAgentRuntime = (
   agentManager: AgentManager | undefined,
@@ -45,6 +49,19 @@ export const createAgentRuntime = (
   }
   const flowAdapter = createAgentRuntimeFlowAdapter(requireManager)
 
+  // M32 Phase 1：worker CODE worktree 分层，默认关闭（HIVE_WORKER_WORKTREES=1 显式开启）。
+  // 关闭时 resolveLaunchRoots 三根全退回 workspace.path —— 与现有 PTY cwd 行为完全一致（向后兼容）。
+  const workerWorktreesEnabled = process.env.HIVE_WORKER_WORKTREES === '1' && Boolean(dataDir)
+  const worktreeManager = workerWorktreesEnabled ? createWorktreeManager() : undefined
+  const resolveLaunchRoots =
+    worktreeManager && dataDir
+      ? (workspace: WorkspaceSummary, agentId: string) =>
+          resolveAgentLaunchRoots(workspace, agentId, {
+            ensureWorkerWorktree: worktreeManager.ensureWorkerWorktree,
+            worktreesRoot: join(dataDir, 'worktrees'),
+          })
+      : undefined
+
   const syncRun = (run: LiveAgentRun) =>
     agentManager ? syncPersistedRun(run, agentManager.getRun(run.runId), agentRunStore) : run
   const stdinDispatcher = createAgentStdinDispatcher({
@@ -66,6 +83,7 @@ export const createAgentRuntime = (
     logger,
     restartPolicy,
     dataDir,
+    resolveLaunchRoots,
   })
 
   return {

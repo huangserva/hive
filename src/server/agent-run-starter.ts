@@ -1,4 +1,6 @@
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
+import type { AgentLaunchRoots } from './agent-launch-roots.js'
+import { resolveAgentLaunchRoots } from './agent-launch-roots.js'
 import type { AgentManager } from './agent-manager.js'
 import { buildAgentRunBootstrap, startAgentRunCapture } from './agent-run-bootstrap.js'
 import { handleAgentRunExit } from './agent-run-exit-handler.js'
@@ -31,6 +33,12 @@ interface AgentRunStarterInput {
   restartPolicy: RestartPolicy
   // M25 Phase 1：runtime state 目录，用于解析 codex per-agent managed CODEX_HOME。
   dataDir?: string | undefined
+  // M32 Phase 1：把 workspace.path 分层成 orchestrator 主树 / worker 独立 CODE worktree。
+  // 缺省（未开启分层）→ 三根全退回 workspace.path，cwd 即旧行为。与 M25 env 注入解耦：
+  // 本维只决定 cwd + HIVE_*_ROOT，不碰 bootstrap 的 provider env。
+  resolveLaunchRoots?:
+    | ((workspace: WorkspaceSummary, agentId: string) => AgentLaunchRoots)
+    | undefined
 }
 
 export const createAgentRunStarter = ({
@@ -45,6 +53,7 @@ export const createAgentRunStarter = ({
   logger,
   restartPolicy,
   dataDir,
+  resolveLaunchRoots = (workspace, agentId) => resolveAgentLaunchRoots(workspace, agentId),
 }: AgentRunStarterInput) => {
   const agentsWithSessionStartReview = new Set<string>()
   const takeSessionStartReviewMessage = (agentId: string) => {
@@ -88,10 +97,12 @@ export const createAgentRunStarter = ({
       tokenRegistry,
       workspace,
     }
+    // M32 Phase 1：orchestrator cwd=主树；worker cwd=各自 CODE worktree（未开启分层时全退回主树）。
+    const launchRoots = resolveLaunchRoots(workspace, agentId)
     const startInput = {
       agentId,
       command: startConfig.command,
-      cwd: workspace.path,
+      cwd: launchRoots.cwd,
       env: {
         ...startEnv,
         COLORTERM: 'truecolor',
@@ -101,6 +112,9 @@ export const createAgentRunStarter = ({
         TERM_PROGRAM: 'hive',
         HIVE_PORT: hivePort,
         HIVE_AGENT_TOKEN: token,
+        HIVE_WORKSPACE_ROOT: launchRoots.workspaceRoot,
+        HIVE_CODE_ROOT: launchRoots.codeRoot,
+        HIVE_GOVERNANCE_ROOT: launchRoots.governanceRoot,
       },
       onExit: ({
         runId,
