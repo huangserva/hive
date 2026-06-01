@@ -65,22 +65,34 @@ const sessionFileContainsAny = (
   }
 }
 
-export const getClaudeSessionFilePath = (cwd: string, sessionId: string, pattern?: string) =>
-  join(getClaudeProjectsRoot(pattern), encodeClaudeProjectPath(cwd), `${sessionId}.jsonl`)
+export const getClaudeSessionFilePath = (
+  cwd: string,
+  sessionId: string,
+  pattern?: string,
+  // M25 Phase 2：managed Claude home 时显式钉死 managed projects 根（`<HOME>/.claude/projects`），
+  // 不回落全局 `~/.claude/projects`——resume 校验必须扫 managed 根才能找到 per-agent 隔离的会话。
+  projectsRootOverride?: string
+) =>
+  join(
+    projectsRootOverride ?? getClaudeProjectsRoot(pattern),
+    encodeClaudeProjectPath(cwd),
+    `${sessionId}.jsonl`
+  )
 
 export const hasClaudeSessionFile = (
   cwd: string,
   sessionId: string,
   pattern?: string,
-  discriminator: ClaudeSessionCaptureDiscriminator = {}
+  discriminator: ClaudeSessionCaptureDiscriminator = {},
+  projectsRootOverride?: string
 ) => {
   if (
     !SESSION_FILE.test(`${sessionId}.jsonl`) ||
-    !existsSync(getClaudeSessionFilePath(cwd, sessionId, pattern))
+    !existsSync(getClaudeSessionFilePath(cwd, sessionId, pattern, projectsRootOverride))
   ) {
     return false
   }
-  const projectsRoot = getClaudeProjectsRoot(pattern)
+  const projectsRoot = projectsRootOverride ?? getClaudeProjectsRoot(pattern)
   return discriminator.contentIncludes
     ? sessionFileContainsAny(cwd, projectsRoot, sessionId, discriminator.contentIncludes)
     : true

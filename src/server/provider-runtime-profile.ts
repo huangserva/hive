@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -93,5 +93,128 @@ export const materializeCodexManagedProfile = (
 ): CodexManagedProfile =>
   materializeCodexManagedHome({
     managedHome: resolveCodexManagedHome(dataDir, agentId),
+    ...(sourceHome ? { sourceHome } : {}),
+  })
+
+// ============================================================================
+// M25 Phase 2：Claude provider managed home + session 隔离。
+//
+// 沿用 Codex Phase 1 的形态（per-agent 物理隔离 home + 投影 auth/config + 钉死 session 根），
+// 但 Claude 的隔离边界与 Codex 不同（经 CCB `docs/claude-session-isolation-contract.md` 契约确认）：
+// - Claude Code **没有** 稳定的 `CLAUDE_HOME` flag → 隔离**必须**靠重定位私有 `HOME`；
+// - **只设 `CLAUDE_PROJECTS_ROOT` 不足以**隔离，因为 Claude 还读 HOME 下的其它状态（凭据/账户元数据）；
+// - 有效 projects 根恒为 `<HOME>/.claude/projects`，session-env 根恒为 `<HOME>/.claude/session-env`
+//   （是 HOME 派生态，不是独立 authority）。
+// - macOS 上官方登录密钥在 Keychain（非 source-home 文件）→ 重定位 HOME 后需把 Keychain 兼容态
+//   投影/链接进 managed home，否则 claude 起不来。这条让"重定位 HOME"在 darwin 上鉴权风险偏高，
+//   因此本 Phase 默认关闭（HIVE_CLAUDE_MANAGED_HOME=1 显式开启），待真机验证后再默认开。
+//
+// 与 M32 worker CODE worktree（cwd 维）解耦：本维只决定 HOME + CLAUDE_PROJECTS_ROOT，不碰 cwd；
+// 两者各自用传入的 cwd/agentId，可叠加。本 Phase 取"够用"子集（projects/session-env 根 + settings/
+// credentials/.claude.json 投影 + macOS Keychain 兼容），memory/skills/commands/fingerprint 留后续。
+
+const CLAUDE_CAPTURE_SOURCE = 'claude_project_jsonl_dir'
+
+export const isClaudeCaptureSource = (source: string | undefined): boolean =>
+  source === CLAUDE_CAPTURE_SOURCE
+
+// 门控：Claude managed home 默认关闭。重定位 HOME 在 macOS 触及 Keychain 鉴权，需真机验证后才默认开。
+export const isClaudeManagedHomeEnabled = (): boolean =>
+  process.env.HIVE_CLAUDE_MANAGED_HOME === '1'
+
+// managed Claude home 布局：`<dataDir>/agents/<agentSeg>/provider/claude/home`（与 codex 平行）。
+export const resolveClaudeManagedHome = (dataDir: string, agentId: string): string =>
+  join(dataDir, 'agents', managedAgentSegment(agentId), 'provider', 'claude', 'home')
+
+// 契约硬约束：CLAUDE_PROJECTS_ROOT 恒为 `<home>/.claude/projects`，不可另立。
+export const resolveClaudeProjectsRoot = (managedHome: string): string =>
+  join(managedHome, '.claude', 'projects')
+
+// session-env 根恒为 `<home>/.claude/session-env`（HOME 派生态）。
+export const resolveClaudeSessionEnvRoot = (managedHome: string): string =>
+  join(managedHome, '.claude', 'session-env')
+
+// 投影来源：user 真实 HOME（凭据 / 账户元数据 / settings 的权威源）。注意 `.claude.json` 在 HOME 根，
+// settings.json / .credentials.json 在 `<HOME>/.claude/`。Node `os.homedir()` 在 POSIX 上取 $HOME，
+// 测试可通过设 process.env.HOME 控制 source（不污染真实用户目录）。
+export const defaultClaudeSourceHome = (): string => homedir()
+
+export interface ClaudeManagedProfile {
+  // 注入给 claude 进程的 env：HOME 是隔离边界，CLAUDE_PROJECTS_ROOT 显式钉死派生根。
+  env: { CLAUDE_PROJECTS_ROOT: string; HOME: string }
+  home: string
+  projectsRoot: string
+  sessionEnvRoot: string
+}
+
+// 把"够用"的 managed Claude home 物化出来：
+// 1. 建 home + `.claude/projects/` + `.claude/session-env/`（启动前必须存在）。
+// 2. 投影 settings.json / .credentials.json（`<src>/.claude/` 下）+ .claude.json（`<src>` 根下）：
+//    凭据/账户元数据是 secret，只在私有 managed home 内投影，**绝不可被 diagnostics 导出**。
+// 3. macOS Keychain 兼容（重定位 HOME 后官方登录密钥仍可达）：有 com.apple.security.plist 就拷；
+//    否则 symlink managed `Library/Keychains` → 用户 `~/Library/Keychains`（best-effort，失败不致命）。
+// 每次启动刷新投影（幂等），让 source 改 key / 重登后重启可见。
+export const materializeClaudeManagedHome = (options: {
+  managedHome: string
+  sourceHome?: string
+}): ClaudeManagedProfile => {
+  const { managedHome } = options
+  const sourceHome = options.sourceHome ?? defaultClaudeSourceHome()
+  const projectsRoot = resolveClaudeProjectsRoot(managedHome)
+  const sessionEnvRoot = resolveClaudeSessionEnvRoot(managedHome)
+  mkdirSync(projectsRoot, { recursive: true })
+  mkdirSync(sessionEnvRoot, { recursive: true })
+
+  // settings.json / .credentials.json：source 在 `<HOME>/.claude/` 下。
+  const projectClaudeFile = (name: string) => {
+    const src = join(sourceHome, '.claude', name)
+    if (existsSync(src)) copyFileSync(src, join(managedHome, '.claude', name))
+  }
+  projectClaudeFile('settings.json')
+  projectClaudeFile('.credentials.json')
+
+  // .claude.json（账户元数据 / 工作区信任）在 HOME 根。
+  const sourceClaudeJson = join(sourceHome, '.claude.json')
+  if (existsSync(sourceClaudeJson))
+    copyFileSync(sourceClaudeJson, join(managedHome, '.claude.json'))
+
+  // macOS Keychain 兼容态（仅 darwin，best-effort，不让平台差异打断启动）。
+  if (process.platform === 'darwin') {
+    try {
+      const sourcePlist = join(sourceHome, 'Library', 'Preferences', 'com.apple.security.plist')
+      if (existsSync(sourcePlist)) {
+        const targetPrefs = join(managedHome, 'Library', 'Preferences')
+        mkdirSync(targetPrefs, { recursive: true })
+        copyFileSync(sourcePlist, join(targetPrefs, 'com.apple.security.plist'))
+      } else {
+        const sourceKeychains = join(sourceHome, 'Library', 'Keychains')
+        const targetLibrary = join(managedHome, 'Library')
+        const targetKeychains = join(targetLibrary, 'Keychains')
+        if (existsSync(sourceKeychains) && !existsSync(targetKeychains)) {
+          mkdirSync(targetLibrary, { recursive: true })
+          symlinkSync(sourceKeychains, targetKeychains)
+        }
+      }
+    } catch {
+      // best-effort：Keychain 兼容失败不阻断启动（真机验证阶段再补强）。
+    }
+  }
+
+  return {
+    env: { CLAUDE_PROJECTS_ROOT: projectsRoot, HOME: managedHome },
+    home: managedHome,
+    projectsRoot,
+    sessionEnvRoot,
+  }
+}
+
+// 便捷封装：从 dataDir + agentId 解析 managed Claude home 并物化，返回可直接注入的 profile。
+export const materializeClaudeManagedProfile = (
+  dataDir: string,
+  agentId: string,
+  sourceHome?: string
+): ClaudeManagedProfile =>
+  materializeClaudeManagedHome({
+    managedHome: resolveClaudeManagedHome(dataDir, agentId),
     ...(sourceHome ? { sourceHome } : {}),
   })

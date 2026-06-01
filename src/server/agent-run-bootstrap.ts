@@ -10,7 +10,13 @@ import {
 } from './agent-startup-instructions.js'
 import type { CommandPresetRecord } from './command-preset-store.js'
 import { withPresetResumeArgs } from './preset-launch-support.js'
-import { isCodexCaptureSource, materializeCodexManagedProfile } from './provider-runtime-profile.js'
+import {
+  isClaudeCaptureSource,
+  isClaudeManagedHomeEnabled,
+  isCodexCaptureSource,
+  materializeClaudeManagedProfile,
+  materializeCodexManagedProfile,
+} from './provider-runtime-profile.js'
 import {
   captureSessionIdForCapture,
   getSessionCaptureEnvironment,
@@ -101,13 +107,26 @@ export const buildAgentRunBootstrap = (
 ) => {
   const preset = resolveLaunchPreset(config, getCommandPreset)
   const discriminator = createSessionCaptureDiscriminator(workspace, agent)
+
+  // M25 Phase 2：claude 且有 dataDir 且显式开启门控 → 物化 per-agent managed HOME（私有 ~/.claude）。
+  // 默认关闭（HIVE_CLAUDE_MANAGED_HOME=1）：claude 登录态在 macOS 走 Keychain，重定位 HOME 有鉴权风险，
+  // 需真机验证后再默认开。必须在 withPresetResumeArgs **之前**物化：claude 的 resume 会校验会话文件存在，
+  // 该校验必须扫 managed projects 根（`<HOME>/.claude/projects`）而非全局 ~/.claude/projects，否则
+  // per-agent 隔离的会话找不到、resume 被错误丢弃。与 M32 cwd 维解耦：本维只设 HOME / CLAUDE_PROJECTS_ROOT。
+  const effectiveCaptureSource = (config.sessionIdCapture ?? preset?.sessionIdCapture)?.source
+  const claudeManaged =
+    dataDir && isClaudeManagedHomeEnabled() && isClaudeCaptureSource(effectiveCaptureSource)
+      ? materializeClaudeManagedProfile(dataDir, agentId)
+      : undefined
+
   const startConfig = withPresetResumeArgs(
     config,
     preset,
     sessionStore.getLastSessionId(workspace.id, agentId),
     workspace.path,
     discriminator,
-    () => sessionStore.clearLastSessionId(workspace.id, agentId)
+    () => sessionStore.clearLastSessionId(workspace.id, agentId),
+    claudeManaged?.projectsRoot
   )
   const startConfigWithThinking = withThinkingLevelArgs(startConfig)
 
@@ -125,7 +144,8 @@ export const buildAgentRunBootstrap = (
         workspace.path,
         startConfigWithThinking.sessionIdCapture,
         discriminator,
-        codexManaged?.home
+        codexManaged?.home,
+        claudeManaged?.projectsRoot
       )
   return {
     sessionCaptureSnapshot,
@@ -134,6 +154,8 @@ export const buildAgentRunBootstrap = (
       ...getSessionCaptureEnvironment(sessionCaptureSnapshot),
       // managed CODEX_HOME / CODEX_SESSION_ROOT 必须压过 snapshot env，且 resume 路径也要带。
       ...(codexManaged ? codexManaged.env : {}),
+      // managed Claude HOME / CLAUDE_PROJECTS_ROOT 同理压过 snapshot env，fresh + resume 都带。
+      ...(claudeManaged ? claudeManaged.env : {}),
       HIVE_PORT: '',
       HIVE_PROJECT_ID: workspace.id,
       HIVE_AGENT_ID: agentId,

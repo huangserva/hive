@@ -69,7 +69,9 @@ export const withPresetResumeArgs = (
   lastSessionId: string | undefined,
   cwd?: string,
   discriminator?: SessionCaptureSnapshot['discriminator'],
-  onInvalidSessionId?: (sessionId: string) => void
+  onInvalidSessionId?: (sessionId: string) => void,
+  // M25 Phase 2：claude managed home 时 resume 存在性校验改扫 managed projects 根。仅 claude 生效。
+  claudeProjectsRootOverride?: string
 ) => {
   let nextConfig = withPresetYoloArgs(config, preset)
   const sessionIdCapture = getEffectiveCapture(nextConfig, preset)
@@ -84,7 +86,13 @@ export const withPresetResumeArgs = (
     cwd &&
     sessionIdCapture &&
     shouldVerifySessionBeforeResume(sessionIdCapture) &&
-    !doesCapturedSessionExist(cwd, sessionIdCapture, lastSessionId, discriminator)
+    !doesCapturedSessionExist(
+      cwd,
+      sessionIdCapture,
+      lastSessionId,
+      discriminator,
+      claudeProjectsRootOverride
+    )
   ) {
     onInvalidSessionId?.(lastSessionId)
     return nextConfig

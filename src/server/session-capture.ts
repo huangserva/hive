@@ -68,11 +68,14 @@ export const snapshotSessionIdsForCapture = (
   discriminator?: SessionCaptureSnapshot['discriminator'],
   // M25 Phase 1：codex 有 managed CODEX_HOME 时，snapshot/capture 必须读 managed sessions 根，
   // 不再扫全局 `~/.codex`——这是消除多 codex worker session 串线的关键。仅对 codex 生效。
-  codexHomeOverride?: string
+  codexHomeOverride?: string,
+  // M25 Phase 2：claude 有 managed HOME 时，snapshot/capture 必须读 managed projects 根
+  // （`<HOME>/.claude/projects`），不再扫全局 `~/.claude/projects`。仅对 claude 生效。
+  claudeProjectsRootOverride?: string
 ) => {
   if (!capture) return undefined
   if (capture.source === 'claude_project_jsonl_dir') {
-    const projectsRoot = getClaudeProjectsRoot(capture.pattern)
+    const projectsRoot = claudeProjectsRootOverride ?? getClaudeProjectsRoot(capture.pattern)
     return {
       env: { HIVE_CLAUDE_PROJECTS_DIR: projectsRoot },
       knownSessionIds: snapshotClaudeSessionIds(cwd, projectsRoot),
@@ -172,10 +175,18 @@ export const doesCapturedSessionExist = (
   cwd: string,
   capture: SessionIdCaptureConfig,
   sessionId: string,
-  discriminator?: SessionCaptureSnapshot['discriminator']
+  discriminator?: SessionCaptureSnapshot['discriminator'],
+  // M25 Phase 2：claude managed home 时把 resume 校验钉到 managed projects 根，不扫全局。仅 claude 生效。
+  claudeProjectsRootOverride?: string
 ) => {
   if (capture.source === 'claude_project_jsonl_dir') {
-    return hasClaudeSessionFile(cwd, sessionId, capture.pattern, discriminator)
+    return hasClaudeSessionFile(
+      cwd,
+      sessionId,
+      capture.pattern,
+      discriminator,
+      claudeProjectsRootOverride
+    )
   }
   if (capture.source === 'codex_session_jsonl_dir') {
     return hasCodexSession(cwd, sessionId, capture.pattern, discriminator)
