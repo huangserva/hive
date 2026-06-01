@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetChatForWorkspaceSwitch,
   shouldResetLanCooldownBeforeForegroundProbe,
 } from '../src/api/mobile-runtime-context-logic.js'
 
@@ -118,5 +120,35 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
   test('keeps the last loaded dashboard on reconnect failures once it exists', () => {
     expect(shouldClearLoadedStateOnConnectFailure(false)).toBe(true)
     expect(shouldClearLoadedStateOnConnectFailure(true)).toBe(false)
+  })
+
+  test('resets chat immediately when switching to a different workspace', () => {
+    expect(
+      shouldResetChatForWorkspaceSwitch({
+        currentWorkspaceId: 'workspace-old',
+        nextWorkspaceId: 'workspace-new',
+      })
+    ).toBe(true)
+    expect(
+      shouldResetChatForWorkspaceSwitch({
+        currentWorkspaceId: 'workspace-new',
+        nextWorkspaceId: 'workspace-new',
+      })
+    ).toBe(false)
+  })
+
+  test('drops chat fetch results that return after the user switched workspaces', () => {
+    expect(
+      shouldApplyChatMessagesForWorkspace({
+        currentWorkspaceId: 'workspace-new',
+        requestedWorkspaceId: 'workspace-old',
+      })
+    ).toBe(false)
+    expect(
+      shouldApplyChatMessagesForWorkspace({
+        currentWorkspaceId: 'workspace-new',
+        requestedWorkspaceId: 'workspace-new',
+      })
+    ).toBe(true)
   })
 })

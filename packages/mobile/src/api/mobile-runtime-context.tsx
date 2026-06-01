@@ -61,9 +61,11 @@ import {
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import type { ConnectionPreference } from './mobile-runtime-context-logic'
 import {
+  shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetChatForWorkspaceSwitch,
   shouldResetLanCooldownBeforeForegroundProbe,
 } from './mobile-runtime-context-logic'
 import { generateDeviceKeypair } from './relay-device-keys'
@@ -362,6 +364,20 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     if (latest) chatSinceRef.current = latest.created_at
   }, [])
 
+  const resetChatForWorkspace = useCallback((workspaceId: string | null) => {
+    if (
+      !shouldResetChatForWorkspaceSwitch({
+        currentWorkspaceId: selectedWorkspaceIdRef.current,
+        nextWorkspaceId: workspaceId,
+      })
+    ) {
+      return
+    }
+    chatSinceRef.current = undefined
+    chatFetchFailureCountRef.current = 0
+    setChatMessages([])
+  }, [])
+
   const syncChatMessages = useCallback(
     async (
       nextClient: RuntimeClient,
@@ -370,6 +386,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     ) => {
       if (options.resetSince) chatSinceRef.current = undefined
       const res = await nextClient.getChatMessages(workspaceId, chatSinceRef.current)
+      if (
+        !shouldApplyChatMessagesForWorkspace({
+          currentWorkspaceId: selectedWorkspaceIdRef.current,
+          requestedWorkspaceId: workspaceId,
+        })
+      ) {
+        return
+      }
       mergeChatMessages(res.messages)
       chatFetchFailureCountRef.current = 0
     },
@@ -523,6 +547,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         setToken(trimmedToken)
         setRuntimeStatus(nextStatus)
         setWorkspaces(nextWorkspaces)
+        resetChatForWorkspace(nextWorkspaceId)
+        selectedWorkspaceIdRef.current = nextWorkspaceId
         setSelectedWorkspaceId(nextWorkspaceId)
         setDashboard(nextDashboard)
         setConnectionMode(nextClient.connectionMode())
@@ -568,6 +594,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       registerPushToken,
       recordClientDiagnosticEvent,
       relayConfig,
+      resetChatForWorkspace,
       selectedWorkspaceId,
       syncChatMessages,
     ]
@@ -577,12 +604,19 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
 
   const selectWorkspace = useCallback(
     async (workspaceId: string) => {
+      resetChatForWorkspace(workspaceId)
+      selectedWorkspaceIdRef.current = workspaceId
       setSelectedWorkspaceId(workspaceId)
       await secureSet(WORKSPACE_ID_KEY, workspaceId)
       await refreshDashboard(workspaceId)
+      try {
+        await syncChatMessages(client, workspaceId, { resetSince: true })
+      } catch {
+        // Chat catch-up is retried by the poller/reconnect loop.
+      }
       bumpSyncRevision()
     },
-    [bumpSyncRevision, refreshDashboard]
+    [bumpSyncRevision, client, refreshDashboard, resetChatForWorkspace, syncChatMessages]
   )
 
   const disconnect = useCallback(async () => {
@@ -597,6 +631,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setDashboard(null)
     setWorkspaces([])
     setSelectedWorkspaceId(null)
+    chatSinceRef.current = undefined
+    setChatMessages([])
     setPairedDevice(null)
     setRelayConfig(null)
     relayDiagnosticsUnsubscribeRef.current?.()

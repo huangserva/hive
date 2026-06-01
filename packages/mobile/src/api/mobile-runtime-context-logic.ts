@@ -54,3 +54,23 @@ export const shouldQueuePromptBeforeSend = ({
 
 export const shouldClearLoadedStateOnConnectFailure = (hasLoadedDashboard: boolean) =>
   !hasLoadedDashboard
+
+export interface ChatWorkspaceSwitchInput {
+  currentWorkspaceId: string | null
+  nextWorkspaceId: string | null
+}
+
+export const shouldResetChatForWorkspaceSwitch = ({
+  currentWorkspaceId,
+  nextWorkspaceId,
+}: ChatWorkspaceSwitchInput) => currentWorkspaceId !== nextWorkspaceId
+
+export interface ChatWorkspaceApplyInput {
+  currentWorkspaceId: string | null
+  requestedWorkspaceId: string
+}
+
+export const shouldApplyChatMessagesForWorkspace = ({
+  currentWorkspaceId,
+  requestedWorkspaceId,
+}: ChatWorkspaceApplyInput) => currentWorkspaceId === requestedWorkspaceId
