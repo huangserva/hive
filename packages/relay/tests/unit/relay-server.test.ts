@@ -11,6 +11,7 @@ const startRelay = async (
     heartbeatIntervalMs?: number
     roomIdleTimeoutMs?: number
     cleanupIntervalMs?: number
+    peerIdleTimeoutMs?: number
   } = {}
 ) => {
   const server = createRelayServer({
@@ -20,6 +21,9 @@ const startRelay = async (
     heartbeatIntervalMs: options.heartbeatIntervalMs ?? 30_000,
     roomIdleTimeoutMs: options.roomIdleTimeoutMs ?? 5 * 60_000,
     cleanupIntervalMs: options.cleanupIntervalMs ?? 30_000,
+    ...(options.peerIdleTimeoutMs !== undefined
+      ? { peerIdleTimeoutMs: options.peerIdleTimeoutMs }
+      : {}),
   })
   servers.push(server)
   await server.ready
@@ -108,6 +112,46 @@ describe('relay server', () => {
       type: 'peer_disconnected',
       role: 'daemon',
     })
+  })
+
+  // P0+ 根因修复 ②：半开死 peer（app 层心跳/数据帧停了、socket 没正常 close）会永远占着 room 的
+  // daemon/device 槽 → 手机消息被转发给死连接静默丢弃、重登也救不回。per-peer 探活按"最近收帧时间"
+  // 驱逐静默 peer、释放槽，让对端重连能顶上。
+  it('evicts a silent peer past peerIdleTimeoutMs and frees its room slot (root-cause fix ②)', async () => {
+    const server = await startRelay({
+      peerIdleTimeoutMs: 150,
+      cleanupIntervalMs: 40,
+      heartbeatIntervalMs: 30_000,
+      roomIdleTimeoutMs: 30_000,
+    })
+    const daemon = await connect(server)
+    await joinRoom(daemon, 'room-evict', 'daemon')
+    expect(server.roomCount()).toBe(1)
+
+    // daemon 之后不发任何帧（模拟半开 socket）→ 在 peerIdleTimeoutMs 后被驱逐、socket 被 terminate。
+    await new Promise<void>((resolve) => daemon.once('close', () => resolve()))
+    expect(server.roomCount()).toBe(0) // 槽释放、room 清空
+  })
+
+  it('does NOT evict a peer that keeps sending frames within the window (root-cause fix ②)', async () => {
+    const server = await startRelay({
+      peerIdleTimeoutMs: 250,
+      cleanupIntervalMs: 50,
+      heartbeatIntervalMs: 30_000,
+      roomIdleTimeoutMs: 30_000,
+    })
+    const daemon = await connect(server)
+    await joinRoom(daemon, 'room-keep', 'daemon')
+
+    // 每 80ms 发一次心跳（< 250ms 阈值）→ lastSeenAt 持续刷新 → 不该被驱逐。
+    const beat = setInterval(() => {
+      if (daemon.readyState === WebSocket.OPEN) sendJson(daemon, { type: 'heartbeat' })
+    }, 80)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    clearInterval(beat)
+
+    expect(daemon.readyState).toBe(WebSocket.OPEN)
+    expect(server.roomCount()).toBe(1)
   })
 
   it('rejects clients with an invalid auth token', async () => {

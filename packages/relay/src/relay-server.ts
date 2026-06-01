@@ -10,6 +10,9 @@ export interface RelayServerOptions {
   heartbeatIntervalMs?: number
   roomIdleTimeoutMs?: number
   cleanupIntervalMs?: number
+  // 单 peer 探活超时：某 peer 在此时长内没发过任何帧（含 heartbeat）→ 视为死连接驱逐、释放它占的
+  // daemon/device 槽（根因修复 ②）。比 room 空闲(默认 5min)快，且只踢死 peer 不影响活 room。
+  peerIdleTimeoutMs?: number
 }
 
 export interface RelayServerHandle {
@@ -23,6 +26,7 @@ type JoinedPeer = {
   ws: WebSocket
   room: string
   role: RelayRole
+  lastSeenAt: number
 }
 
 type RelayRoom = {
@@ -40,6 +44,8 @@ type RelayFrame =
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000
 const DEFAULT_ROOM_IDLE_TIMEOUT_MS = 5 * 60_000
 const DEFAULT_CLEANUP_INTERVAL_MS = 30_000
+// 默认 60s：daemon/device 都每 ~20s 发一次心跳，60s 容忍丢 2 拍 + 余量；死 peer 60s 内被驱逐。
+const DEFAULT_PEER_IDLE_TIMEOUT_MS = 60_000
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -87,6 +93,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
   const roomIdleTimeoutMs = options.roomIdleTimeoutMs ?? DEFAULT_ROOM_IDLE_TIMEOUT_MS
   const cleanupIntervalMs = options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS
+  const peerIdleTimeoutMs = options.peerIdleTimeoutMs ?? DEFAULT_PEER_IDLE_TIMEOUT_MS
 
   const touchRoom = (room: RelayRoom) => {
     room.lastActivityAt = Date.now()
@@ -168,7 +175,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       existing.ws.close(1008, 'replaced')
     }
 
-    const peer: JoinedPeer = { ws, room: frame.room, role: frame.role }
+    const peer: JoinedPeer = { ws, room: frame.room, role: frame.role, lastSeenAt: Date.now() }
     setPeerSlot(room, frame.role, peer)
     peers.set(ws, peer)
     touchRoom(room)
@@ -182,6 +189,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       return
     }
     touchRoom(room)
+    peer.lastSeenAt = Date.now() // 任意帧刷新 peer 探活基准（②）
 
     if (frame.type === 'data') {
       if (typeof frame.payload !== 'string') {
@@ -244,6 +252,29 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
   const cleanupTimer = setInterval(() => {
     const now = Date.now()
     for (const [roomName, room] of rooms.entries()) {
+      // ② 先驱逐"静默死 peer"（半开 socket）：释放它占的 daemon/device 槽，让对端重连能顶上。
+      // 删 peers + 清槽 + 通知对端 + terminate；先 peers.delete 再 terminate，使 close 处理器的 removePeer
+      // 成 no-op、不重复通知（沿用 newest-wins evict 的顺序约定）。
+      for (const peer of [room.daemon, room.device]) {
+        if (peer && now - peer.lastSeenAt > peerIdleTimeoutMs) {
+          const otherPeer = getOtherPeer(room, peer.role)
+          if (otherPeer) {
+            sendJson(otherPeer.ws, { type: 'peer_disconnected', role: peer.role })
+          }
+          peers.delete(peer.ws)
+          setPeerSlot(room, peer.role, undefined)
+          try {
+            peer.ws.terminate()
+          } catch {
+            peer.ws.close(1000, 'peer_idle_timeout')
+          }
+        }
+      }
+      if (!room.daemon && !room.device) {
+        rooms.delete(roomName)
+        continue
+      }
+      // room 空闲清理（保留原 5min 逻辑）。
       if (now - room.lastActivityAt < roomIdleTimeoutMs) {
         continue
       }

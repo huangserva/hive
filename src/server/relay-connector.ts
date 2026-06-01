@@ -47,8 +47,15 @@ export type RpcHandler = (
 interface RelayConnectorOptions {
   authenticateDevice?: (token: string) => { capabilities: string[]; id: string }
   heartbeatIntervalMs?: number
+  // 探活超时：在此时长内未从对端收到**任何**帧（含 heartbeat_ack）→ 判连接死（半开 socket）→
+  // terminate 触发重连。默认 = 2×心跳间隔 + 5s 余量（容忍正常网络抖动的丢 1~2 拍），可注入用于测试。
+  livenessTimeoutMs?: number
   reconnectBaseDelayMs?: number
   reconnectMaxDelayMs?: number
+  // 测试注入用的 WebSocket 构造器（默认 ws 的 WebSocket）。
+  WebSocketCtor?: new (
+    url: string
+  ) => WebSocket
 }
 
 type RelayDataFrame = { payload: string; type: 'data' }
@@ -132,9 +139,13 @@ export const createRelayConnector = (
   let reconnectTimer: NodeJS.Timeout | null = null
   let reconnectDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS
   let closed = false
+  // 最近一次从对端收到任意帧的时刻。探活基准：心跳 tick 时若 now-lastInboundAt 超阈值即判死。
+  let lastInboundAt = Date.now()
   const sessions = new Map<string, RelayDeviceSession>()
 
+  const WebSocketCtor = options.WebSocketCtor ?? WebSocket
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+  const livenessTimeoutMs = options.livenessTimeoutMs ?? heartbeatIntervalMs * 2 + 5_000
   const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS
   const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS
 
@@ -154,9 +165,30 @@ export const createRelayConnector = (
   const startHeartbeat = () => {
     stopHeartbeat()
     heartbeatTimer = setInterval(() => {
+      // 探活（根因修复 ①）：半开 socket 下对端不再回任何帧（heartbeat_ack/data），readyState 仍 OPEN、
+      // 旧实现永远当自己活着 → 成 relay room 里的僵尸。这里若超 livenessTimeoutMs 没收到任何入站帧，
+      // 判连接死 → terminate（→ onclose → sessions.clear + scheduleReconnect → 重 join，relay newest-wins
+      // 顶掉僵尸槽，daemon 侧自愈，不必重启 4010）。
+      if (Date.now() - lastInboundAt > livenessTimeoutMs) {
+        status = {
+          ...status,
+          last_error: 'Relay liveness timeout: no frames from peer',
+          mode: 'error',
+        }
+        const dead = socket
+        socket = null
+        if (dead) {
+          try {
+            dead.terminate()
+          } catch {
+            dead.close()
+          }
+        }
+        return
+      }
       sendRelayFrame({ type: 'heartbeat' })
     }, heartbeatIntervalMs)
-    heartbeatTimer.unref()
+    heartbeatTimer.unref?.()
   }
 
   const scheduleReconnect = (error: unknown) => {
@@ -174,7 +206,7 @@ export const createRelayConnector = (
       reconnectTimer = null
       connect()
     }, delay)
-    reconnectTimer.unref()
+    reconnectTimer.unref?.()
   }
 
   const handleHandshake = (frame: ClearHandshakeFrame) => {
@@ -313,7 +345,9 @@ export const createRelayConnector = (
       last_error: null,
       mode: 'connecting',
     }
-    socket = new WebSocket(config.relay_url)
+    // 新连接：探活基准重置为现在，避免握手期就被判死。
+    lastInboundAt = Date.now()
+    socket = new WebSocketCtor(config.relay_url)
     socket.on('open', () => {
       sendRelayFrame({
         auth_token: config.relay_auth_token,
@@ -323,6 +357,8 @@ export const createRelayConnector = (
       })
     })
     socket.on('message', (data) => {
+      // 收到任意帧即证明连接还活着，刷新探活基准（①）。
+      lastInboundAt = Date.now()
       const frame = parseRelayFrame(data)
       if (!frame) return
       if (frame.type === 'joined') {
