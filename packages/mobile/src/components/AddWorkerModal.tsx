@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Ionicons } from '@expo/vector-icons'
+import { type ComponentProps, useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -151,9 +152,9 @@ export const AddWorkerModal = ({
                   <Text style={styles.loadingText}>{t('addWorker.presetLoading')}</Text>
                 </View>
               ) : (
-                <View style={styles.chipRow}>
+                <View style={styles.presetGrid}>
                   {presets.map((preset) => (
-                    <SelectChip
+                    <PresetCard
                       key={preset.id}
                       disabled={preset.available === false}
                       label={
@@ -165,6 +166,7 @@ export const AddWorkerModal = ({
                         setPresetId(preset.id)
                         setThinkingLevel(null)
                       }}
+                      presetId={preset.id}
                       selected={presetId === preset.id}
                     />
                   ))}
@@ -266,6 +268,58 @@ const SelectChip = ({
     <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
   </Pressable>
 )
+
+type IoniconName = ComponentProps<typeof Ionicons>['name']
+
+// AGENT CLI 视觉身份：每个内置 preset 一个可辨识图标 + 品牌色点缀（语义：
+// Claude=星芒 spark / Codex=终端 terminal / OpenCode=代码括号 </> / Gemini=闪钻 diamond）。
+// 图标来自 @expo/vector-icons 的 Ionicons（随包内置，离线可用，无网络/CDN）。
+const PRESET_VISUALS: Record<string, { color: string; icon: IoniconName }> = {
+  claude: { color: '#d97706', icon: 'sparkles' },
+  codex: { color: '#10a37f', icon: 'terminal' },
+  gemini: { color: '#8b7cf6', icon: 'diamond' },
+  opencode: { color: '#f78166', icon: 'code-slash' },
+}
+const FALLBACK_VISUAL: { color: string; icon: IoniconName } = {
+  color: colors.muted,
+  icon: 'hardware-chip-outline',
+}
+
+const PresetCard = ({
+  disabled = false,
+  label,
+  onPress,
+  presetId,
+  selected,
+}: {
+  disabled?: boolean
+  label: string
+  onPress: () => void
+  presetId: string
+  selected: boolean
+}) => {
+  const visual = PRESET_VISUALS[presetId] ?? FALLBACK_VISUAL
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled, selected }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        styles.presetCard,
+        selected && styles.presetCardSelected,
+        disabled && styles.presetCardDisabled,
+      ]}
+    >
+      <View style={[styles.presetIconWrap, { backgroundColor: `${visual.color}22` }]}>
+        <Ionicons color={visual.color} name={visual.icon} size={20} />
+      </View>
+      <Text numberOfLines={2} style={[styles.presetLabel, selected && styles.presetLabelSelected]}>
+        {label}
+      </Text>
+    </Pressable>
+  )
+}
 
 const styles = StyleSheet.create({
   actions: {
@@ -369,6 +423,48 @@ const styles = StyleSheet.create({
     maxHeight: '86%',
     padding: spacing.md,
     width: '100%',
+  },
+  presetCard: {
+    alignItems: 'center',
+    backgroundColor: colors.cardElevated,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexBasis: '47%',
+    flexDirection: 'row',
+    flexGrow: 1,
+    gap: 10,
+    minHeight: 56,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  presetCardDisabled: {
+    opacity: 0.4,
+  },
+  presetCardSelected: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+  },
+  presetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  presetIconWrap: {
+    alignItems: 'center',
+    borderRadius: radius.sm,
+    height: 38,
+    justifyContent: 'center',
+    width: 38,
+  },
+  presetLabel: {
+    color: colors.textSoft,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  presetLabelSelected: {
+    color: colors.accent,
   },
   submitBtn: {
     alignItems: 'center',
