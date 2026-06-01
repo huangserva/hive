@@ -59,6 +59,30 @@ export const shouldQueuePromptBeforeSend = ({
   reconnecting ||
   (connectionMode === 'relay' && !relayTransportReady)
 
+export interface OutboxFlushDecisionInput {
+  connectionMode: MobileConnectionMode
+  connectionState: MobileRuntimeState
+  reconnecting: boolean
+  queuedCount: number
+  relayTransportReady: boolean
+}
+
+// dispatch 8855a45c 修复3：flush 队列前的门槛。relay 模式下若 relay transport 还没 ready（churn/重连
+// 中途），**不要 flush**——否则 flush 的 RPC 会撞超时、再喂 churn，且白白把消息标 failed。relay 转 ready
+// 后此判定翻 true，effect 重跑即补发卡住的队列（连带修 #4）。门槛与 shouldQueuePromptBeforeSend 对齐：
+// relay-readiness 只对 relay 模式生效，lan/直连不受影响。
+export const shouldFlushQueuedOutbox = ({
+  connectionMode,
+  connectionState,
+  reconnecting,
+  queuedCount,
+  relayTransportReady,
+}: OutboxFlushDecisionInput) =>
+  connectionState === 'connected' &&
+  !reconnecting &&
+  queuedCount > 0 &&
+  !(connectionMode === 'relay' && !relayTransportReady)
+
 export const shouldClearLoadedStateOnConnectFailure = (hasLoadedDashboard: boolean) =>
   !hasLoadedDashboard
 

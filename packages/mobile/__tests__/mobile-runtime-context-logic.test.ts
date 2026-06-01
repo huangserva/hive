@@ -4,6 +4,7 @@ import {
   resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
+  shouldFlushQueuedOutbox,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
   shouldResetChatForConnectionSwitch,
@@ -180,6 +181,72 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
         connectionMode: 'relay',
         connectionState: 'connected',
         reconnecting: false,
+        relayTransportReady: true,
+      })
+    ).toBe(false)
+  })
+
+  // dispatch 8855a45c 修复3：flush 队列门槛。基线（lan/relay-ready）正常 flush。
+  test('flushes queued outbox when connected, not reconnecting, and relay (if used) is ready', () => {
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'relay',
+        connectionState: 'connected',
+        reconnecting: false,
+        queuedCount: 2,
+        relayTransportReady: true,
+      })
+    ).toBe(true)
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'lan',
+        connectionState: 'connected',
+        reconnecting: false,
+        queuedCount: 1,
+        relayTransportReady: false, // lan 不用 relay，门槛不卡
+      })
+    ).toBe(true)
+  })
+
+  // 核心：relay 模式 + relay transport 未 ready（churn/重连中途）→ 绝不 flush（否则 flush RPC 撞超时、
+  // 再喂 churn）。退回"无 relay-ready 门槛"必红。
+  test('does NOT flush in relay mode while the relay transport is not ready (Fix3)', () => {
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'relay',
+        connectionState: 'connected',
+        reconnecting: false,
+        queuedCount: 3,
+        relayTransportReady: false,
+      })
+    ).toBe(false)
+  })
+
+  test('does NOT flush when disconnected, reconnecting, or the queue is empty', () => {
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'relay',
+        connectionState: 'error',
+        reconnecting: false,
+        queuedCount: 2,
+        relayTransportReady: true,
+      })
+    ).toBe(false)
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'lan',
+        connectionState: 'connected',
+        reconnecting: true,
+        queuedCount: 2,
+        relayTransportReady: true,
+      })
+    ).toBe(false)
+    expect(
+      shouldFlushQueuedOutbox({
+        connectionMode: 'relay',
+        connectionState: 'connected',
+        reconnecting: false,
+        queuedCount: 0,
         relayTransportReady: true,
       })
     ).toBe(false)

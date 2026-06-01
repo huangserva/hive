@@ -64,6 +64,7 @@ import {
   resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
+  shouldFlushQueuedOutbox,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
   shouldResetChatForConnectionSwitch,
@@ -192,6 +193,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [state, setState] = useState<MobileRuntimeState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(false)
+  // dispatch 8855a45c 修复3：relay transport 是否 ready 的响应式信号，用于 flush 门槛 + relay 转 ready
+  // 重新触发 flush。由 getRelayTransport 订阅 transport 状态变更更新；disconnect / 无 relay 时置 false。
+  const [relayTransportReady, setRelayTransportReady] = useState(false)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [outbox, setOutbox] = useState<MobileOutboxState>(createMobileOutboxState())
   const [syncRevision, setSyncRevision] = useState(0)
@@ -270,6 +274,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       relayEventUnsubscribeRef.current?.()
       relayEventUnsubscribeRef.current = null
       observedRelayTransportRef.current = transport
+      // 切换 transport（含切到 null）时，relay-ready 信号按当前实际状态重置（修复3）。
+      setRelayTransportReady(transport ? transport.status() === 'ready' : false)
       // M27 Part B：订阅服务器推送事件（chat/dashboard），通过 ref 转发到最新处理器闭包，
       // 不把 mergeChatMessages/refreshDashboard 拉进 getRelayTransport 依赖（否则 client useMemo 连锁重建）。
       if (transport) {
@@ -291,6 +297,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
             type: `relay_${event.type}`,
           })
           if (event.type === 'status' && event.status) {
+            setRelayTransportReady(event.status === 'ready')
             setConnectionDiagnostics((current) => ({
               ...current,
               lastRelayResult: {
@@ -303,9 +310,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           }
         })
       } else if (transport) {
-        relayDiagnosticsUnsubscribeRef.current = transport.onStatusChange((status) =>
+        relayDiagnosticsUnsubscribeRef.current = transport.onStatusChange((status) => {
+          setRelayTransportReady(status === 'ready')
           appendDiagnosticEvent({ detail: status, type: 'relay_status' })
-        )
+        })
       }
       return transport
     },
@@ -652,6 +660,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     relayEventUnsubscribeRef.current = null
     observedRelayTransportRef.current = null
     relayTransportRegistryRef.current.close()
+    setRelayTransportReady(false)
     setConnectionMode('disconnected')
     setState('idle')
     setError(null)
@@ -1145,10 +1154,28 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [outbox])
 
   useEffect(() => {
-    if (state !== 'connected' || outboxCounts.queuedCount === 0) return
-    if (reconnecting) return
+    // 修复3：relay 模式下 relay transport 未 ready（churn/重连中途）不 flush，避免 flush RPC 撞超时再喂
+    // churn；relayTransportReady 翻 true 时此 effect 重跑 → 自动补发卡住的队列（连带修 #4）。
+    if (
+      !shouldFlushQueuedOutbox({
+        connectionMode,
+        connectionState: state,
+        reconnecting,
+        queuedCount: outboxCounts.queuedCount,
+        relayTransportReady,
+      })
+    ) {
+      return
+    }
     void flushOutbox()
-  }, [flushOutbox, outboxCounts.queuedCount, reconnecting, state])
+  }, [
+    connectionMode,
+    flushOutbox,
+    outboxCounts.queuedCount,
+    reconnecting,
+    relayTransportReady,
+    state,
+  ])
 
   const retryOutbox = useCallback(async () => {
     setOutbox((current) => retryFailedOutboxItems(current))

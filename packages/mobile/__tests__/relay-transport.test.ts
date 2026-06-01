@@ -177,26 +177,28 @@ describe('relay transport', () => {
     await expect(callPromise).rejects.toThrow('denied')
   })
 
-  // P0 复现：4G/后台切换后 relay socket 半死（readyState 仍=1、对端没了、不再回 RPC、也不 onclose）。
-  // 旧实现 call() 的 promise 永远 pending → sendPromptToOrchestrator/getMobileRuntimeStatus 永久挂起
-  // → 消息发不出去、reconnecting 卡死。修复后超时即 reject 并关掉死 socket 触发重连。
-  test('times out an RPC that never gets a response on a half-open socket (P0: no infinite hang)', async () => {
+  // P0 复现 + dispatch 8855a45c 修复2a：4G 下单条 RPC 可能超时（对端慢/半死），call() 必须超时 reject
+  // 防永久挂起；但**只 reject，绝不关 socket**——旧实现一超时就 close(4000) 在 4G 高频超时下会触发
+  // churn 环（见 connectInternal）。socket 是否真死改由心跳探活裁决（见下方 liveness 测试）。
+  // 退回"超时即关 socket"必红（status 会变 disconnected / socket 会关）。
+  test('times out an RPC but does NOT close the socket (Fix2a: reject-only, no churn)', async () => {
     const { socket, transport } = await setupReadyRelay()
     expect(transport.status()).toBe('ready')
-    expect(socket.readyState).toBe(1) // socket 看起来还"开着"，但对端已死，永不回应
+    expect(socket.readyState).toBe(1)
 
     const callPromise = transport.call('runtime.status')
     callPromise.catch(() => {}) // 防 unhandled rejection（断言前）
 
-    // 不发任何响应，推进超过 RPC 超时窗口。
-    await vi.advanceTimersByTimeAsync(16_000)
+    // 不发任何响应，推进超过 RPC 超时窗口（默认 22s）。
+    await vi.advanceTimersByTimeAsync(23_000)
 
     await expect(callPromise).rejects.toThrow(/timed out/i)
-    // 死 socket 被主动关闭 → 上层据此重连（transport 自身被动停在 disconnected）。
-    expect(transport.status()).toBe('disconnected')
+    // 关键：超时只 reject，socket 不被关、连接保持 ready（不再自残触发 churn）。
+    expect(transport.status()).toBe('ready')
+    expect(socket.readyState).toBe(1)
   })
 
-  test('a resolved RPC clears its timeout (no spurious late rejection)', async () => {
+  test('a resolved RPC clears its timeout and the socket is never closed by a late timer', async () => {
     const { channel, socket, transport } = await setupReadyRelay()
     const callPromise = transport.call<{ version: string }>('runtime.status')
     const encryptedRequest = socket.sent.at(-1) as { payload: string }
@@ -209,9 +211,10 @@ describe('relay transport', () => {
     })
     await expect(callPromise).resolves.toEqual({ version: '2.0.0' })
 
-    // resolve 后远超超时窗口推进：timer 已清，socket 不应被误关。
-    await vi.advanceTimersByTimeAsync(16_000)
+    // resolve 后远超超时窗口推进：timer 已清，socket 不应被误关、连接仍 ready。
+    await vi.advanceTimersByTimeAsync(23_000)
     expect(transport.status()).toBe('ready')
+    expect(socket.readyState).toBe(1)
   })
 
   test('sends heartbeat frames every 20 seconds while ready', async () => {
@@ -375,6 +378,155 @@ describe('relay transport', () => {
     // 删掉 transport 自带重连后，无论收到多少 close 通知都不会自开 socket。
     expect(FakeRelaySocket.instances).toHaveLength(1)
     expect(transport.status()).toBe('disconnected')
+  })
+})
+
+// 「延迟 close」fake socket：close() 只把 socket 推进 CLOSING(2)、**不同步触发 onclose**（真实 RN
+// WebSocket 在 4G 上的行为——close 帧在途，onclose 之后才到）；onclose 由测试用 driveClose 显式驱动。
+class DeferredCloseRelaySocket {
+  static instances: DeferredCloseRelaySocket[] = []
+
+  onclose: ((event: unknown) => void) | null = null
+  onerror: ((event: unknown) => void) | null = null
+  onmessage: ((event: { data: string }) => void) | null = null
+  onopen: (() => void) | null = null
+  readyState = 0
+  sent: unknown[] = []
+  private pendingClose: { code: number; reason: string } | null = null
+
+  constructor(readonly url: string) {
+    DeferredCloseRelaySocket.instances.push(this)
+    setTimeout(() => {
+      this.readyState = 1
+      this.onopen?.()
+    }, 0)
+  }
+
+  send(data: string) {
+    this.sent.push(JSON.parse(data) as unknown)
+  }
+
+  close(code = 1000, reason = 'closed') {
+    if (this.readyState === 3) return
+    this.readyState = 2 // CLOSING：close 帧在途，onclose 尚未触发
+    this.pendingClose = { code, reason }
+  }
+
+  driveClose(code?: number, reason?: string) {
+    const detail = {
+      code: code ?? this.pendingClose?.code ?? 1000,
+      reason: reason ?? this.pendingClose?.reason ?? 'closed',
+    }
+    this.readyState = 3
+    this.onclose?.(detail)
+  }
+
+  receive(value: unknown) {
+    this.onmessage?.({ data: JSON.stringify(value) })
+  }
+}
+
+// 通用握手驱动：joined → e2ee_hello → e2ee_ready（同 daemon 的 base64(JSON) 约定）。FakeRelaySocket
+// 与 DeferredCloseRelaySocket 都有 .receive/.sent，可共用。
+const driveHandshakeToReady = (socket: { receive(v: unknown): void; sent: unknown[] }) => {
+  socket.receive({ type: 'joined' })
+  const helloFrame = socket.sent.at(-1) as { payload: string }
+  const hello = decodeJson(decodeBase64(helloFrame.payload)) as {
+    handshake: { ephemeral_public_key: string }
+  }
+  const responder = createHandshakeResponder(generateKeyPair())
+  responder.processInit(hello.handshake)
+  socket.receive({
+    payload: encodeBase64(encodeJson({ type: 'e2ee_ready', handshake: responder.getResponse() })),
+    type: 'data',
+  })
+  return responder.getChannel()
+}
+
+describe('relay transport device-side liveness + 4G churn (dispatch 8855a45c)', () => {
+  // Fix2a 探活：对端不再回任何帧（半开 socket）→ 心跳 tick 时「自上次入站」超阈值即判死、关连接。
+  // 这是替代「per-RPC 超时关 socket」的原则性判死信号（对称 daemon ①）。无探活则半开 socket 永久僵尸。
+  test('liveness: a half-open socket with no inbound frames is closed → disconnected (Fix2a)', async () => {
+    FakeRelaySocket.instances = []
+    const transport = createRelayTransport(buildConfig(), {
+      WebSocketCtor: FakeRelaySocket,
+      heartbeatIntervalMs: 1000,
+      livenessTimeoutMs: 2500,
+    })
+    const connectPromise = transport.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    driveHandshakeToReady(latestSocket())
+    await connectPromise
+    expect(transport.status()).toBe('ready')
+    expect(FakeRelaySocket.instances).toHaveLength(1)
+
+    // 对端此后不回任何帧 → 心跳 tick 在 1000/2000/3000；t=3000 时 3000>2500 判死关闭。
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(transport.status()).toBe('disconnected') // 被探活判死
+    expect(FakeRelaySocket.instances).toHaveLength(1) // transport 被动：自身不重连
+  })
+
+  // Fix2a 反面：只要持续收到入站帧（heartbeat_ack）就刷新 lastInboundAt → 慢但活的 4G 连接不被误杀。
+  test('liveness: keeps the socket alive while inbound heartbeat_ack frames keep arriving (Fix2a)', async () => {
+    FakeRelaySocket.instances = []
+    const transport = createRelayTransport(buildConfig(), {
+      WebSocketCtor: FakeRelaySocket,
+      heartbeatIntervalMs: 1000,
+      livenessTimeoutMs: 2500,
+    })
+    const connectPromise = transport.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socket = latestSocket()
+    driveHandshakeToReady(socket)
+    await connectPromise
+
+    // 每 1000ms 回一帧 heartbeat_ack（< 2500ms 阈值）→ lastInboundAt 持续刷新 → 不判死。
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(1000)
+      socket.receive({ type: 'heartbeat_ack' })
+    }
+    expect(transport.status()).toBe('ready')
+    expect(socket.readyState).toBe(1)
+  })
+
+  // Fix1（断 churn 环·核心）：被探活关闭的旧 socket 在 4G 上滞留 CLOSING（close 帧在途），重连开新
+  // socket B；中继 newest-wins 的延迟 1008 'replaced' 此时才到旧 socket。旧 socket 业务 handler 必须
+  // 已被无条件 detach（connectInternal 守卫覆盖 CLOSING(2)），否则其 onclose 会 setStatus('disconnected')
+  // + 清空 B 的 pending → 把活着的 B 打下线 → 自激 churn。退回旧守卫（只认 0/1）此测试必红。
+  test("Fix1: a dead CLOSING socket's delayed 1008 'replaced' must NOT knock the current ready socket offline", async () => {
+    DeferredCloseRelaySocket.instances = []
+    const transport = createRelayTransport(buildConfig(), {
+      WebSocketCtor: DeferredCloseRelaySocket as unknown as new (url: string) => never,
+      heartbeatIntervalMs: 1000,
+      livenessTimeoutMs: 2500,
+    })
+
+    // 1) socket A 建连到 ready。
+    const connectPromise = transport.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    const socketA = DeferredCloseRelaySocket.instances[0]
+    driveHandshakeToReady(socketA)
+    await connectPromise
+    expect(transport.status()).toBe('ready')
+
+    // 2) A 半死：对端不再回帧 → 探活判死 close(4001)；DeferredClose 的 close 只进 CLOSING、onclose 不触发。
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(socketA.readyState).toBe(2) // CLOSING：close 帧在 4G 在途
+    expect(transport.status()).toBe('ready') // onclose 没跑，status 仍 ready
+
+    // 3) 上层重连 connect()：守卫遇 CLOSING(2)，Fix1 无条件 detach A → 开 socket B。
+    void transport.connect()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(DeferredCloseRelaySocket.instances.length).toBe(2)
+    const socketB = DeferredCloseRelaySocket.instances[1]
+    driveHandshakeToReady(socketB)
+    expect(transport.status()).toBe('ready')
+
+    // 4) 中继 newest-wins 的延迟 1008 'replaced' 现在才到达已死的 A。
+    socketA.driveClose(1008, 'replaced')
+
+    // Fix1：A 已被 detach，延迟 close 不进活连接状态机 → B 仍 ready（churn 环已断）。
+    expect(transport.status()).toBe('ready')
   })
 })
 
