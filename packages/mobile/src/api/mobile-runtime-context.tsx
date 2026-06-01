@@ -909,6 +909,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         : true
       if (
         shouldQueuePromptBeforeSend({
+          connectionMode: connectionModeRef.current,
           connectionState: stateRef.current,
           reconnecting: reconnectingRef.current,
           relayTransportReady,
@@ -929,6 +930,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           : true
         if (
           shouldQueuePromptBeforeSend({
+            connectionMode: connectionModeRef.current,
             connectionState: stateRef.current,
             reconnecting: reconnectingRef.current,
             relayTransportReady: transportReady,

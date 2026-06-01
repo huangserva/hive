@@ -91,6 +91,7 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
   test('queues prompts instead of sending them while reconnecting or disconnected', () => {
     expect(
       shouldQueuePromptBeforeSend({
+        connectionMode: 'relay',
         connectionState: 'connected',
         reconnecting: false,
         relayTransportReady: true,
@@ -98,6 +99,7 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
     ).toBe(false)
     expect(
       shouldQueuePromptBeforeSend({
+        connectionMode: 'relay',
         connectionState: 'connected',
         reconnecting: true,
         relayTransportReady: true,
@@ -105,18 +107,82 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
     ).toBe(true)
     expect(
       shouldQueuePromptBeforeSend({
+        connectionMode: 'relay',
         connectionState: 'error',
         reconnecting: false,
         relayTransportReady: true,
       })
     ).toBe(true)
+    // relay 模式 + relay 未 ready → queue（等 relay ready）。
     expect(
       shouldQueuePromptBeforeSend({
+        connectionMode: 'relay',
         connectionState: 'connected',
         reconnecting: false,
         relayTransportReady: false,
       })
     ).toBe(true)
+  })
+
+  // P0 复现：LAN 模式 + relay 永远 not ready + connected + 不 reconnecting → **绝不能 queue**。
+  // 旧逻辑（无条件 !relayTransportReady）会返回 true → 每条 prompt 卡队列、永不发出（DB 零 inbound）。
+  // 这条退回旧逻辑必红。
+  test('does NOT queue in LAN mode even when relay transport is not ready (P0 regression)', () => {
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'lan',
+        connectionState: 'connected',
+        reconnecting: false,
+        relayTransportReady: false,
+      })
+    ).toBe(false)
+  })
+
+  test('relay-readiness gate only applies to relay mode (lan/disconnected ignore it)', () => {
+    // lan：relay 未 ready 照发。
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'lan',
+        connectionState: 'connected',
+        reconnecting: false,
+        relayTransportReady: false,
+      })
+    ).toBe(false)
+    // disconnected 连接模式（但 state=connected）：同样不被 relay 门槛卡。
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'disconnected',
+        connectionState: 'connected',
+        reconnecting: false,
+        relayTransportReady: false,
+      })
+    ).toBe(false)
+    // 但 lan 模式下仍尊重 state/reconnecting。
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'lan',
+        connectionState: 'connected',
+        reconnecting: true,
+        relayTransportReady: true,
+      })
+    ).toBe(true)
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'lan',
+        connectionState: 'error',
+        reconnecting: false,
+        relayTransportReady: true,
+      })
+    ).toBe(true)
+    // relay 模式 ready → 不 queue（确认 relay 正常路不受影响）。
+    expect(
+      shouldQueuePromptBeforeSend({
+        connectionMode: 'relay',
+        connectionState: 'connected',
+        reconnecting: false,
+        relayTransportReady: true,
+      })
+    ).toBe(false)
   })
 
   test('keeps the last loaded dashboard on reconnect failures once it exists', () => {

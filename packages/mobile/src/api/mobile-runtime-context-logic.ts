@@ -40,17 +40,24 @@ export const shouldResetLanCooldownBeforeForegroundProbe = ({
   connectionMode === 'relay'
 
 export interface PromptSendDecisionInput {
+  connectionMode: MobileConnectionMode
   connectionState: MobileRuntimeState
   reconnecting: boolean
   relayTransportReady: boolean
 }
 
+// P0 修复：relay-readiness 门槛**只在 relay 模式**才卡。LAN/直连模式下 relay transport 永远 not ready
+// （根本没用它），发送走 readMobileJson 的 LAN 路；旧逻辑无条件 `!relayTransportReady` 会把 LAN 下每条
+// prompt 误 queue 等一个永不 ready 的 relay → 永不发出（读走 LAN 通、发被拦，DB 零 inbound）。
 export const shouldQueuePromptBeforeSend = ({
+  connectionMode,
   connectionState,
   reconnecting,
   relayTransportReady,
 }: PromptSendDecisionInput) =>
-  connectionState !== 'connected' || reconnecting || !relayTransportReady
+  connectionState !== 'connected' ||
+  reconnecting ||
+  (connectionMode === 'relay' && !relayTransportReady)
 
 export const shouldClearLoadedStateOnConnectFailure = (hasLoadedDashboard: boolean) =>
   !hasLoadedDashboard
