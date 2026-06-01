@@ -90,6 +90,11 @@ export const createRelayTransport = (
   // 换 socket 时等旧 socket 真正 close 的兜底超时：4G 下旧 socket 的 close 帧可能在途，
   // 到点仍没等到 onclose 就放行新连，避免无限期阻塞（代价是换位最多慢 ~0.5s）。
   const CLOSE_GRACE_MS = 500
+  // 每条 RPC 的超时（P0 修复）：4G/后台切换后 relay socket 常半死（readyState 仍=1 但对端已没了），
+  // 没有此超时则 call() 的 promise 永远 pending → sendPromptToOrchestrator 永久挂起（消息发不出去、
+  // 不进 server）、foreground 探针的 getMobileRuntimeStatus 永久挂起（reconnecting 卡死 true → 所有
+  // 发送被 queue、outbox flush/轮询全停）。超时后 reject，让上层 catch 走重连/重投，绝不静默挂死。
+  const RPC_TIMEOUT_MS = 15_000
   const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
   const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
@@ -98,8 +103,16 @@ export const createRelayTransport = (
     {
       reject: (error: Error) => void
       resolve: (value: unknown) => void
+      timer: ReturnType<typeof setTimeout> | null
     }
   >()
+  const settlePending = (id: string) => {
+    const request = pending.get(id)
+    if (!request) return null
+    if (request.timer) clearTimeout(request.timer)
+    pending.delete(id)
+    return request
+  }
   let channel: EncryptedChannel | null = null
   // in-flight 守卫：connectInternal 入口置 true，到 ready 或任一失败路径清 false。
   // 覆盖 ready→evict→disconnected 之间 connectPromise 已被 finally 清空的窗口，
@@ -195,9 +208,8 @@ export const createRelayTransport = (
       return
     }
     if (!message.id) return
-    const request = pending.get(message.id)
+    const request = settlePending(message.id)
     if (!request) return
-    pending.delete(message.id)
     if (message.error) {
       request.reject(new Error(message.error.message ?? message.error.code ?? 'Relay RPC failed'))
       return
@@ -252,7 +264,10 @@ export const createRelayTransport = (
         }
 
         nextSocket.onclose = (event: unknown) => {
-          for (const request of pending.values()) request.reject(new Error('Relay socket closed'))
+          for (const request of pending.values()) {
+            if (request.timer) clearTimeout(request.timer)
+            request.reject(new Error('Relay socket closed'))
+          }
           pending.clear()
           if (socket === nextSocket) socket = null
           stopHeartbeat()
@@ -367,13 +382,25 @@ export const createRelayTransport = (
       if (!channel || state !== 'ready')
         return Promise.reject(new Error('Relay transport not ready'))
       const id = `rpc-${Date.now()}-${rpcCounter++}`
+      const callSocket = socket // 捕获本次 RPC 实际发出的 socket，超时只关它、且仅当它仍是当前 socket
       const payload = channel.encrypt(encodeJson({ id, jsonrpc: '2.0', method, params }))
       return new Promise<T>((resolve, reject) => {
-        pending.set(id, { reject, resolve: (value) => resolve(value as T) })
+        // 半死 socket 兜底：超时未收到响应即 reject + 清 pending，绝不无限挂起（见 RPC_TIMEOUT_MS）。
+        // 并主动关掉这条疑似已死的 socket：socket.onclose → setStatus('disconnected') → 上层 state
+        // effect 触发重连、重建新 socket，让 app 快速自愈（而非反复 15s 打同一条死连接）。
+        const timer = setTimeout(() => {
+          if (!pending.delete(id)) return
+          reject(new Error(`Relay RPC timed out: ${method}`))
+          // 只在 callSocket 仍是当前 socket 时关，避免误杀重连后的新连接。
+          if (callSocket && callSocket === socket && callSocket.readyState === 1) {
+            callSocket.close(4000, 'rpc-timeout')
+          }
+        }, RPC_TIMEOUT_MS)
+        pending.set(id, { reject, resolve: (value) => resolve(value as T), timer })
         try {
           sendFrame({ payload, room: config.room_id, type: 'data' })
         } catch (error) {
-          pending.delete(id)
+          if (pending.delete(id)) clearTimeout(timer)
           reject(error instanceof Error ? error : new Error(String(error)))
         }
       })

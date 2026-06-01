@@ -177,6 +177,43 @@ describe('relay transport', () => {
     await expect(callPromise).rejects.toThrow('denied')
   })
 
+  // P0 复现：4G/后台切换后 relay socket 半死（readyState 仍=1、对端没了、不再回 RPC、也不 onclose）。
+  // 旧实现 call() 的 promise 永远 pending → sendPromptToOrchestrator/getMobileRuntimeStatus 永久挂起
+  // → 消息发不出去、reconnecting 卡死。修复后超时即 reject 并关掉死 socket 触发重连。
+  test('times out an RPC that never gets a response on a half-open socket (P0: no infinite hang)', async () => {
+    const { socket, transport } = await setupReadyRelay()
+    expect(transport.status()).toBe('ready')
+    expect(socket.readyState).toBe(1) // socket 看起来还"开着"，但对端已死，永不回应
+
+    const callPromise = transport.call('runtime.status')
+    callPromise.catch(() => {}) // 防 unhandled rejection（断言前）
+
+    // 不发任何响应，推进超过 RPC 超时窗口。
+    await vi.advanceTimersByTimeAsync(16_000)
+
+    await expect(callPromise).rejects.toThrow(/timed out/i)
+    // 死 socket 被主动关闭 → 上层据此重连（transport 自身被动停在 disconnected）。
+    expect(transport.status()).toBe('disconnected')
+  })
+
+  test('a resolved RPC clears its timeout (no spurious late rejection)', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const callPromise = transport.call<{ version: string }>('runtime.status')
+    const encryptedRequest = socket.sent.at(-1) as { payload: string }
+    const request = decodeJson(channel.decrypt(encryptedRequest.payload) ?? new Uint8Array()) as {
+      id: string
+    }
+    socket.receive({
+      payload: channel.encrypt(encodeJson({ id: request.id, result: { version: '2.0.0' } })),
+      type: 'data',
+    })
+    await expect(callPromise).resolves.toEqual({ version: '2.0.0' })
+
+    // resolve 后远超超时窗口推进：timer 已清，socket 不应被误关。
+    await vi.advanceTimersByTimeAsync(16_000)
+    expect(transport.status()).toBe('ready')
+  })
+
   test('sends heartbeat frames every 20 seconds while ready', async () => {
     const { socket } = await setupReadyRelay()
 
