@@ -17,7 +17,11 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { shouldAcceptResponse } from '../../src/api/agent-poll-stale-guard'
+import {
+  shouldAcceptResponse,
+  shouldResetWorkerTranscript,
+  type WorkerTranscriptIdentity,
+} from '../../src/api/agent-poll-stale-guard'
 import type {
   MobileDashboardWorker,
   MobileWorkerTranscript,
@@ -28,6 +32,7 @@ import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { useT } from '../../src/i18n'
+import { resolveTerminalLineTone } from '../../src/lib/agent-terminal-display'
 import { cleanTerminalLines } from '../../src/lib/terminal-text'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -306,6 +311,7 @@ export default function AgentDetailScreen() {
   const fullscreenScrollFrameRef = useRef<number | null>(null)
   const fullscreenScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestSeqRef = useRef(0)
+  const transcriptIdentityRef = useRef<WorkerTranscriptIdentity | null>(null)
 
   const load = useCallback(
     async (capturedSeq = requestSeqRef.current) => {
@@ -334,8 +340,15 @@ export default function AgentDetailScreen() {
   useEffect(() => {
     void syncRevision
     requestSeqRef.current += 1
+    const nextIdentity = {
+      selectedWorkspaceId: selectedWorkspaceId ?? null,
+      workerId: workerId ?? null,
+    }
+    if (shouldResetWorkerTranscript(transcriptIdentityRef.current, nextIdentity)) {
+      setTranscript(null)
+    }
+    transcriptIdentityRef.current = nextIdentity
     setTasks(null)
-    setTranscript(null)
     if (!workerId || !selectedWorkspaceId) {
       setRefreshing(false)
       return
@@ -669,6 +682,7 @@ export default function AgentDetailScreen() {
               </View>
               <View style={styles.terminal}>
                 <ScrollView
+                  contentContainerStyle={styles.termLines}
                   onContentSizeChange={() => {
                     if (autoScroll && terminalNearBottomRef.current) scheduleTerminalScroll(false)
                   }}
@@ -677,25 +691,15 @@ export default function AgentDetailScreen() {
                   scrollEventThrottle={16}
                   showsVerticalScrollIndicator={false}
                 >
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator
-                    contentContainerStyle={styles.termLines}
-                  >
-                    {terminalLineItems.length ? (
-                      terminalLineItems.map(({ key, line }) => (
-                        <Text
-                          key={key}
-                          numberOfLines={1}
-                          style={[styles.termLine, termLineColor(line)]}
-                        >
-                          {line || ' '}
-                        </Text>
-                      ))
-                    ) : (
-                      <Text style={styles.termLine}>{t('agent.detail.noTerminal')}</Text>
-                    )}
-                  </ScrollView>
+                  {terminalLineItems.length ? (
+                    terminalLineItems.map(({ key, line }) => (
+                      <Text key={key} style={[styles.termLine, termLineColor(line)]}>
+                        {line || ' '}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={styles.termLine}>{t('agent.detail.noTerminal')}</Text>
+                  )}
                 </ScrollView>
               </View>
             </View>
@@ -779,7 +783,6 @@ export default function AgentDetailScreen() {
             />
           </View>
           <ScrollView
-            contentContainerStyle={styles.fullscreenTerminalContent}
             onContentSizeChange={() => {
               if (fullscreenAutoScroll && fullscreenNearBottomRef.current) {
                 scheduleFullscreenTerminalScroll(false)
@@ -788,27 +791,18 @@ export default function AgentDetailScreen() {
             onScroll={handleFullscreenTerminalScroll}
             ref={fullscreenTerminalScrollRef}
             scrollEventThrottle={16}
+            contentContainerStyle={styles.fullscreenTerminalContent}
             style={styles.fullscreenTerminal}
           >
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator
-              contentContainerStyle={styles.termLines}
-            >
-              {terminalLineItems.length ? (
-                terminalLineItems.map(({ key, line }) => (
-                  <Text
-                    key={key}
-                    numberOfLines={1}
-                    style={[styles.fullscreenTermLine, termLineColor(line)]}
-                  >
-                    {line || ' '}
-                  </Text>
-                ))
-              ) : (
-                <Text style={styles.fullscreenTermLine}>{t('agent.detail.noTerminal')}</Text>
-              )}
-            </ScrollView>
+            {terminalLineItems.length ? (
+              terminalLineItems.map(({ key, line }) => (
+                <Text key={key} style={[styles.fullscreenTermLine, termLineColor(line)]}>
+                  {line || ' '}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.fullscreenTermLine}>{t('agent.detail.noTerminal')}</Text>
+            )}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -817,8 +811,7 @@ export default function AgentDetailScreen() {
 }
 
 const termLineColor = (line: string) => {
-  if (line.startsWith('$') || line.startsWith('>')) return { color: colors.success }
-  if (/error|fail|ERR/i.test(line)) return { color: colors.error }
+  if (resolveTerminalLineTone(line) === 'prompt') return { color: colors.success }
   return {}
 }
 
@@ -1104,6 +1097,7 @@ const styles = StyleSheet.create({
     fontFamily: TERMINAL_FONT,
     fontSize: 14,
     lineHeight: 21,
+    width: '100%',
   },
   fullscreenTerminal: {
     backgroundColor: '#010409',
@@ -1310,6 +1304,7 @@ const styles = StyleSheet.create({
     fontFamily: TERMINAL_FONT,
     fontSize: 12,
     lineHeight: 18,
+    width: '100%',
   },
   termLines: {
     flexDirection: 'column',

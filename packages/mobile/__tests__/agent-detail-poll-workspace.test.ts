@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest'
-import { shouldAcceptResponse } from '../src/api/agent-poll-stale-guard.js'
+import {
+  shouldAcceptResponse,
+  shouldResetWorkerTranscript,
+} from '../src/api/agent-poll-stale-guard.js'
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void
@@ -162,5 +165,25 @@ describe('shouldAcceptResponse — request sequence token guard', () => {
 
     expect(state.transcript).toBeNull()
     expect(state.tasks).toBeNull()
+  })
+})
+
+describe('shouldResetWorkerTranscript', () => {
+  test('keeps the current transcript during same worker refreshes', () => {
+    const identity = { selectedWorkspaceId: 'ws-1', workerId: 'worker-1' }
+
+    expect(shouldResetWorkerTranscript(identity, identity)).toBe(false)
+  })
+
+  test('clears the transcript when workspace or worker identity changes', () => {
+    const identity = { selectedWorkspaceId: 'ws-1', workerId: 'worker-1' }
+
+    expect(
+      shouldResetWorkerTranscript(identity, { selectedWorkspaceId: 'ws-2', workerId: 'worker-1' })
+    ).toBe(true)
+    expect(
+      shouldResetWorkerTranscript(identity, { selectedWorkspaceId: 'ws-1', workerId: 'worker-2' })
+    ).toBe(true)
+    expect(shouldResetWorkerTranscript(null, identity)).toBe(true)
   })
 })
