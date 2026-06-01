@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process'
+import { statSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type { TeamListItem, WorkspaceSummary } from '../shared/types.js'
 import { type ArchiveAuditFinding, createArchiveAuditTrigger } from './archive-audit-trigger.js'
@@ -10,6 +12,7 @@ import {
 } from './cross-workspace-drift.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { HiveLogger } from './logger.js'
+import { parseDecisionsDoc } from './pm-decisions-doc.js'
 import { buildSentinelHeartbeatPayload } from './sentinel-guidance.js'
 import type { WorkerConfig } from './workspace-store.js'
 
@@ -17,8 +20,15 @@ const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
 const DEFAULT_SENTINEL_HEARTBEAT_INTERVAL_MS = 30 * 60 * 1000
 const STALE_SUBMITTED_DISPATCH_MS = 15 * 60 * 1000
 const STALE_WORKING_DISPATCH_MS = 30 * 60 * 1000
+export const STALE_DECISION_DRAFT_MS = 48 * 60 * 60 * 1000
 
 type ActiveRunRef = { runId: string } | undefined
+
+export interface StaleDecisionDraft {
+  daysAgo: number
+  filename: string
+  title: string
+}
 
 export interface SentinelHeartbeatOptions {
   buildCockpitSnapshot?: (workspacePath: string) => unknown
@@ -84,6 +94,36 @@ const defaultGetGitSummary = (workspacePath: string): string => {
   } catch (error) {
     return `git summary unavailable: ${error instanceof Error ? error.message : String(error)}`
   }
+}
+
+const dateFromDecisionDraft = (raw: string) => {
+  const match = /(?:\*\*日期\*\*|date)\s*[:：]\s*(\d{4}-\d{2}-\d{2})/iu.exec(raw)
+  if (!match?.[1]) return null
+  const timestamp = Date.parse(`${match[1]}T00:00:00Z`)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+export const listStaleDecisionDrafts = (
+  workspacePath: string,
+  tickedAt: number,
+  staleDraftMs = STALE_DECISION_DRAFT_MS
+): StaleDecisionDraft[] => {
+  const decisionsDir = join(workspacePath, '.hive', 'decisions')
+  return parseDecisionsDoc(decisionsDir)
+    .drafts.map((draft) => {
+      const datedAt =
+        dateFromDecisionDraft(draft.raw) ??
+        statSync(join(decisionsDir, draft.filename), { throwIfNoEntry: false })?.mtimeMs ??
+        tickedAt
+      return {
+        ageMs: tickedAt - datedAt,
+        daysAgo: Math.floor((tickedAt - datedAt) / (24 * 60 * 60 * 1000)),
+        filename: draft.filename,
+        title: draft.title,
+      }
+    })
+    .filter((draft) => draft.ageMs >= staleDraftMs)
+    .map(({ ageMs: _ageMs, ...draft }) => draft)
 }
 
 export const createSentinelHeartbeat = ({
@@ -172,6 +212,7 @@ export const createSentinelHeartbeat = ({
             crossWorkspaceDriftFindings,
             gitSummary: getGitSummary(workspace.path),
             orphanedDispatches: listOrphanedDispatches(workspace.id, workers, tickedAt),
+            staleDecisionDrafts: listStaleDecisionDrafts(workspace.path, tickedAt),
             workspace,
           })
           writeRunInput(run.runId, payload)

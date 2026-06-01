@@ -1,6 +1,26 @@
-import { describe, expect, test, vi } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { createSentinelHeartbeat } from '../../src/server/sentinel-heartbeat.js'
+import {
+  createSentinelHeartbeat,
+  listStaleDecisionDrafts,
+  STALE_DECISION_DRAFT_MS,
+} from '../../src/server/sentinel-heartbeat.js'
+
+const tempDirs: string[] = []
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
+})
+
+const setupWorkspace = () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'hive-sentinel-'))
+  tempDirs.push(workspace)
+  mkdirSync(join(workspace, '.hive', 'decisions'), { recursive: true })
+  return workspace
+}
 
 describe('sentinel heartbeat', () => {
   test('injects cockpit and git summaries only into active sentinel runs', async () => {
@@ -318,5 +338,115 @@ describe('sentinel heartbeat', () => {
     expect(payload).toContain(
       '- [decision_format_warning] 2026-05-26-ui-quality-standard.md 2026-05-26-ui-quality-standard.md uses YAML frontmatter'
     )
+  })
+
+  test('includes stale decision drafts in heartbeat payload', async () => {
+    const now = Date.parse('2026-06-01T12:00:00Z')
+    const workspacePath = setupWorkspace()
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', 'draft-2026-05-30-mobile-worker.md'),
+      '# 决策：手机新增 Worker\n\n**状态**: 草稿\n**日期**: 2026-05-30\n',
+      'utf8'
+    )
+    const writeRunInput = vi.fn()
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({}),
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+      ],
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: workspacePath }],
+      now: () => now,
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+
+    const payload = writeRunInput.mock.calls[0]?.[1] as string
+    expect(payload).toContain('陈旧决策草案：')
+    expect(payload).toContain('手机新增 Worker')
+    expect(payload).toContain('已挂 2 天')
+  })
+})
+
+describe('listStaleDecisionDrafts', () => {
+  test('returns drafts older than the threshold using the markdown date first', () => {
+    const now = Date.parse('2026-06-01T12:00:00Z')
+    const workspacePath = setupWorkspace()
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', 'draft-2026-05-30-mobile-worker.md'),
+      '# 决策：手机新增 Worker\n\n**状态**: 草稿\n**日期**: 2026-05-30\n',
+      'utf8'
+    )
+
+    const drafts = listStaleDecisionDrafts(workspacePath, now)
+
+    expect(drafts).toEqual([
+      {
+        daysAgo: 2,
+        filename: 'draft-2026-05-30-mobile-worker.md',
+        title: '决策：手机新增 Worker',
+      },
+    ])
+  })
+
+  test('does not return drafts younger than the threshold', () => {
+    const now = Date.parse('2026-06-01T12:00:00Z')
+    const workspacePath = setupWorkspace()
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', 'draft-2026-06-01-push.md'),
+      '# 决策：Push channel\n\n**状态**: 草稿\n**日期**: 2026-06-01\n',
+      'utf8'
+    )
+
+    expect(listStaleDecisionDrafts(workspacePath, now)).toEqual([])
+  })
+
+  test('ignores adopted and superseded decisions even when old', () => {
+    const now = Date.parse('2026-06-01T12:00:00Z')
+    const workspacePath = setupWorkspace()
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', 'draft-2026-05-20-adopted.md'),
+      '# 决策：Adopted\n\n**状态**: 已采纳\n**日期**: 2026-05-20\n',
+      'utf8'
+    )
+    writeFileSync(
+      join(workspacePath, '.hive', 'decisions', '2026-05-20-old.md'),
+      '# 决策：Old\n\n**状态**: 废弃\n**日期**: 2026-05-20\n',
+      'utf8'
+    )
+
+    expect(listStaleDecisionDrafts(workspacePath, now)).toEqual([])
+  })
+
+  test('returns an empty list when there are no drafts', () => {
+    const workspacePath = setupWorkspace()
+
+    expect(listStaleDecisionDrafts(workspacePath, Date.parse('2026-06-01T12:00:00Z'))).toEqual([])
+  })
+
+  test('falls back to file mtime when a draft has no markdown date', () => {
+    const now = Date.parse('2026-06-01T12:00:00Z')
+    const workspacePath = setupWorkspace()
+    const draftPath = join(workspacePath, '.hive', 'decisions', 'draft-2026-06-01-no-date.md')
+    writeFileSync(draftPath, '# 决策：No date\n\n**状态**: 草稿\n', 'utf8')
+    const mtime = new Date(now - STALE_DECISION_DRAFT_MS - 60_000)
+    utimesSync(draftPath, mtime, mtime)
+
+    const drafts = listStaleDecisionDrafts(workspacePath, now)
+
+    expect(drafts).toEqual([
+      {
+        daysAgo: 2,
+        filename: 'draft-2026-06-01-no-date.md',
+        title: '决策：No date',
+      },
+    ])
   })
 })

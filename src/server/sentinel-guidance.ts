@@ -7,6 +7,12 @@ export interface SentinelOrphanedDispatch {
   workerName: string
 }
 
+export interface SentinelStaleDecisionDraft {
+  daysAgo: number
+  filename: string
+  title: string
+}
+
 export const SENTINEL_RULES = [
   'Sentinel worker rules:',
   '- Observe only. Do not edit files, run destructive commands, dispatch work, or notify the user.',
@@ -40,6 +46,7 @@ export const buildSentinelHeartbeatPayload = ({
   crossWorkspaceDriftFindings = [],
   gitSummary,
   orphanedDispatches = [],
+  staleDecisionDrafts = [],
   workspace,
 }: {
   archiveAuditFindings?: string[]
@@ -48,6 +55,7 @@ export const buildSentinelHeartbeatPayload = ({
   crossWorkspaceDriftFindings?: string[]
   gitSummary: string
   orphanedDispatches?: SentinelOrphanedDispatch[]
+  staleDecisionDrafts?: SentinelStaleDecisionDraft[]
   workspace: WorkspaceSummary
 }) =>
   [
@@ -68,6 +76,15 @@ export const buildSentinelHeartbeatPayload = ({
           ...orphanedDispatches.map(
             (dispatch) =>
               `- ${dispatch.workerName}: dispatch ${dispatch.dispatchId}, submitted ${dispatch.minutesAgo} min ago`
+          ),
+          '',
+        ]
+      : []),
+    ...(staleDecisionDrafts.length > 0
+      ? [
+          '陈旧决策草案：',
+          ...staleDecisionDrafts.map(
+            (draft) => `- ${draft.title} (${draft.filename})，已挂 ${draft.daysAgo} 天`
           ),
           '',
         ]
