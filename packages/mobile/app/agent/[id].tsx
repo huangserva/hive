@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { shouldAcceptResponse } from '../../src/api/agent-poll-stale-guard'
 import type {
   MobileDashboardWorker,
   MobileWorkerTranscript,
@@ -304,32 +305,53 @@ export default function AgentDetailScreen() {
   const terminalScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fullscreenScrollFrameRef = useRef<number | null>(null)
   const fullscreenScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestSeqRef = useRef(0)
 
-  const load = useCallback(async () => {
-    void syncRevision
-    if (!workerId || !selectedWorkspaceId) return
-    setRefreshing(true)
-    try {
-      const tk = await getWorkspaceTasks()
-      setTasks(tk)
-      setTranscript(await getWorkerTranscript(workerId))
-    } finally {
-      setRefreshing(false)
-    }
-  }, [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, syncRevision, workerId])
+  const load = useCallback(
+    async (capturedSeq = requestSeqRef.current) => {
+      if (!workerId || !selectedWorkspaceId) return
+      setRefreshing(true)
+      try {
+        const tk = await getWorkspaceTasks()
+        if (!shouldAcceptResponse(requestSeqRef.current, capturedSeq)) return
+        setTasks(tk)
+        const nextTranscript = await getWorkerTranscript(workerId)
+        if (!shouldAcceptResponse(requestSeqRef.current, capturedSeq)) return
+        setTranscript(nextTranscript)
+      } finally {
+        if (shouldAcceptResponse(requestSeqRef.current, capturedSeq)) {
+          setRefreshing(false)
+        }
+      }
+    },
+    [getWorkerTranscript, getWorkspaceTasks, selectedWorkspaceId, workerId]
+  )
 
-  useEffect(() => {
-    void load()
+  const refreshForPull = useCallback(() => {
+    void load(requestSeqRef.current)
   }, [load])
 
-  // 每 3 秒轮询终端输出
+  useEffect(() => {
+    void syncRevision
+    requestSeqRef.current += 1
+    setTasks(null)
+    setTranscript(null)
+    if (!workerId || !selectedWorkspaceId) {
+      setRefreshing(false)
+      return
+    }
+    void load(requestSeqRef.current)
+  }, [load, selectedWorkspaceId, syncRevision, workerId])
+
+  // 每 3 秒轮询终端输出（requestSeqRef 守卫：切换 workspace/worker 后丢弃旧响应，避免串台）
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
     if (!workerId || !selectedWorkspaceId) return
     pollRef.current = setInterval(async () => {
+      const capturedSeq = requestSeqRef.current
       try {
         const t = await getWorkerTranscript(workerId)
-        if (t) setTranscript(t)
+        if (t && shouldAcceptResponse(requestSeqRef.current, capturedSeq)) setTranscript(t)
       } catch {}
     }, 3000)
     return () => {
@@ -511,7 +533,11 @@ export default function AgentDetailScreen() {
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
-          <RefreshControl onRefresh={load} refreshing={refreshing} tintColor={colors.accent} />
+          <RefreshControl
+            onRefresh={refreshForPull}
+            refreshing={refreshing}
+            tintColor={colors.accent}
+          />
         }
       >
         <View style={styles.navBar}>
