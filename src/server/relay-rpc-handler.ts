@@ -17,6 +17,7 @@ import {
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { augmentAiActionsWithUnreviewedCode } from './unreviewed-code-status.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 export type RelayRpcHandler = (
@@ -41,6 +42,7 @@ interface RelayRpcHandlerDeps {
     | 'getWorkspaceSnapshot'
     | 'getWorker'
     | 'listDispatches'
+    | 'listWorkers'
     | 'listWorkspaces'
     | 'listMobileChatMessages'
     | 'recordUserInput'
@@ -166,8 +168,14 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const workspaceId = readStringParam(params, 'workspace_id')
       const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
+      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only）。
+      const aiActions = augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
+        dispatches: deps.store.listDispatches(workspaceId),
+        now: Date.now(),
+        workers: deps.store.listWorkers(workspaceId),
+      })
       return {
-        aiActions: cockpit.aiActions,
+        aiActions,
         ideas: cockpit.ideas,
         plan: cockpit.plan,
         questions: cockpit.questions,

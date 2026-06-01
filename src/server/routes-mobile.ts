@@ -33,6 +33,11 @@ import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import {
+  augmentAiActionsWithUnreviewedCode,
+  buildUnreviewedCodeActions,
+  summarizeUnreviewedCodeDispatches,
+} from './unreviewed-code-status.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 const pendingUploadPaths = new Map<string, string[]>()
@@ -91,24 +96,23 @@ export const buildMobileDashboard = (
   const workspace = store.getWorkspaceSnapshot(workspaceId)
   const cockpit = parseCockpit(workspace.summary.path)
   const milestone = activeMilestone(cockpit)
-  const workers = enrichTeamList(workspaceId, store, store.listWorkers(workspaceId)).map(
-    (worker) => ({
-      capabilities: worker.capabilities
-        ? {
-            features: worker.capabilities.features,
-            mode: worker.capabilities.mode,
-            provider_family: worker.capabilities.providerFamily,
-            risk_tier: worker.capabilities.riskTier,
-            unattended: worker.capabilities.unattended,
-          }
-        : null,
-      id: worker.id,
-      name: worker.name,
-      preset: worker.commandPresetId ?? null,
-      role: worker.role,
-      status: worker.status,
-    })
-  )
+  const rawWorkers = store.listWorkers(workspaceId)
+  const workers = enrichTeamList(workspaceId, store, rawWorkers).map((worker) => ({
+    capabilities: worker.capabilities
+      ? {
+          features: worker.capabilities.features,
+          mode: worker.capabilities.mode,
+          provider_family: worker.capabilities.providerFamily,
+          risk_tier: worker.capabilities.riskTier,
+          unattended: worker.capabilities.unattended,
+        }
+      : null,
+    id: worker.id,
+    name: worker.name,
+    preset: worker.commandPresetId ?? null,
+    role: worker.role,
+    status: worker.status,
+  }))
   const runs = store.listTerminalRuns(workspaceId).map((run) => ({
     agent_name: run.agent_name,
     id: run.run_id,
@@ -122,17 +126,39 @@ export const buildMobileDashboard = (
     Date.now()
   )
 
+  // M34「未审代码改动」醒目计数 + 合并进 aiActions（DB 派生，在边界合并，不污染 parseCockpit）。
+  const unreviewedRoleByAgent = new Map(
+    rawWorkers.map((worker) => [
+      worker.id,
+      { commandPresetId: worker.commandPresetId, role: worker.role },
+    ])
+  )
+  const unreviewedNameByAgent = new Map(rawWorkers.map((worker) => [worker.id, worker.name]))
+  const unreviewedCode = summarizeUnreviewedCodeDispatches(
+    store.listDispatches(workspaceId),
+    (agentId) => unreviewedRoleByAgent.get(agentId),
+    Date.now()
+  )
+  const aiActions =
+    unreviewedCode.unreviewedCount > 0
+      ? [
+          ...cockpit.aiActions,
+          ...buildUnreviewedCodeActions(unreviewedCode, (id) => unreviewedNameByAgent.get(id)),
+        ]
+      : cockpit.aiActions
+
   return {
     cockpit: {
-      ai_actions_count: cockpit.aiActions.length,
+      ai_actions_count: aiActions.length,
       baseline_stale: cockpit.baseline.staleHint !== null,
       escalated_dispatches: staleDispatches.escalatedCount,
-      high_ai_actions: cockpit.aiActions.filter((action) => action.priority === 'high').length,
+      high_ai_actions: aiActions.filter((action) => action.priority === 'high').length,
       open_questions:
         cockpit.questions.high.length +
         cockpit.questions.medium.length +
         cockpit.questions.low.length,
       stale_dispatches: staleDispatches.staleCount,
+      unreviewed_code_dispatches: unreviewedCode.unreviewedCount,
     },
     generated_at: new Date().toISOString(),
     plan: {
@@ -573,8 +599,14 @@ export const mobileRoutes: RouteDefinition[] = [
       if (!workspaceId) return
       const workspace = store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
+      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only）。
+      const aiActions = augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
+        dispatches: store.listDispatches(workspaceId),
+        now: Date.now(),
+        workers: store.listWorkers(workspaceId),
+      })
       sendJson(response, 200, {
-        aiActions: cockpit.aiActions,
+        aiActions,
         archive: cockpit.archive,
         baseline: cockpit.baseline,
         decisions: cockpit.decisions,

@@ -8,6 +8,7 @@ import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { readCookie } from './ui-auth-helpers.js'
+import { augmentAiActionsWithUnreviewedCode } from './unreviewed-code-status.js'
 
 const matchCockpitPath = (pathname: string) => {
   const match = /^\/ws\/cockpit\/(?<workspaceId>[^/]+)$/.exec(pathname)
@@ -50,12 +51,32 @@ export const createCockpitWebSocketServer = (
     return store.validateUiToken(token)
   }
 
+  // M34：在 serve-cockpit 边界把 DB 派生的「未审代码改动」action 合并进 file-only 的 aiActions。
+  // parseCockpit 仍只读文件（契约不破）；合并是 best-effort，失败回落纯文件快照、绝不阻断同步。
+  const buildCockpitPayload = (workspaceId: string, workspacePath: string) => {
+    const cockpit = parseCockpit(workspacePath)
+    try {
+      return {
+        ...cockpit,
+        aiActions: augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
+          dispatches: store.listDispatches(workspaceId),
+          now: Date.now(),
+          workers: store.listWorkers(workspaceId),
+        }),
+      }
+    } catch (error) {
+      logger?.warn?.(`cockpit unreviewed-code augment failed workspace_id=${workspaceId}`, error)
+      return cockpit
+    }
+  }
+
   const sendSnapshot = (
     ws: WsSocket,
+    workspaceId: string,
     workspacePath: string,
     kind: 'cockpit-snapshot' | 'cockpit-update'
   ) => {
-    ws.send(JSON.stringify({ kind, payload: parseCockpit(workspacePath) }))
+    ws.send(JSON.stringify({ kind, payload: buildCockpitPayload(workspaceId, workspacePath) }))
   }
 
   server.on('upgrade', (request, socket, head) => {
@@ -88,7 +109,7 @@ export const createCockpitWebSocketServer = (
           if (ws.readyState !== ws.OPEN) return
           try {
             const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
-            sendSnapshot(ws, workspacePath, 'cockpit-snapshot')
+            sendSnapshot(ws, workspaceId, workspacePath, 'cockpit-snapshot')
           } catch (error) {
             logUpgradeError(logger, error)
           }
@@ -128,7 +149,7 @@ export const createCockpitWebSocketServer = (
       for (const socket of sockets) {
         if (socket.readyState === socket.OPEN) {
           try {
-            sendSnapshot(socket, workspacePath, 'cockpit-update')
+            sendSnapshot(socket, workspaceId, workspacePath, 'cockpit-update')
           } catch (error) {
             logger?.error('cockpit websocket publish failed', error)
           }

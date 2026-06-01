@@ -33,6 +33,7 @@ import { createTasksFileWatcher } from './tasks-file-watcher.js'
 import { createTeamOperations } from './team-operations.js'
 import { resolveTerminalInputProfile } from './terminal-input-profile.js'
 import { createUiAuth } from './ui-auth.js'
+import { summarizeUnreviewedCodeDispatches } from './unreviewed-code-status.js'
 import { createWorkerOutputTracker, type WorkerOutputTracker } from './worker-output-tracker.js'
 import { createWorkspaceShellRuntime } from './workspace-shell-runtime.js'
 import { createWorkspaceStore } from './workspace-store.js'
@@ -278,6 +279,43 @@ export const createRuntimeStoreServices = (
             error
           )
         })
+    },
+    // M34：未审代码改动 → push 兜底（never-silent）。复用 stalled-dispatch tick，best-effort。
+    surfaceUnreviewedCode: (workspaceId) => {
+      try {
+        const workers = workspaceStore.listWorkers(workspaceId)
+        const roleByAgent = new Map(
+          workers.map((worker) => [
+            worker.id,
+            { commandPresetId: worker.commandPresetId, role: worker.role },
+          ])
+        )
+        const nameByAgent = new Map(workers.map((worker) => [worker.id, worker.name]))
+        const dispatches = dispatchLedgerStore.listWorkspaceDispatches(workspaceId)
+        const textById = new Map(dispatches.map((dispatch) => [dispatch.id, dispatch.text]))
+        const summary = summarizeUnreviewedCodeDispatches(
+          dispatches,
+          (agentId) => roleByAgent.get(agentId),
+          Date.now()
+        )
+        for (const entry of summary.unreviewed) {
+          void mobilePushService
+            .notifyUnreviewedCode(workspaceId, {
+              dispatchId: entry.dispatchId,
+              minutesAgo: entry.minutesAgo,
+              taskSummary: (textById.get(entry.dispatchId) ?? '').slice(0, 80),
+              workerName: nameByAgent.get(entry.toAgentId) ?? entry.toAgentId,
+            })
+            .catch((error) => {
+              options.logger?.warn(
+                `unreviewed code push failed workspace_id=${workspaceId} dispatch_id=${entry.dispatchId}`,
+                error
+              )
+            })
+        }
+      } catch (error) {
+        options.logger?.warn(`unreviewed code surface failed workspace_id=${workspaceId}`, error)
+      }
     },
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.agentManager ? { writeRunInput: writeAgentRunInput } : {}),

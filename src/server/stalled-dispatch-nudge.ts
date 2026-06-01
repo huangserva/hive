@@ -40,6 +40,9 @@ export interface StalledDispatchNudgeOptions {
   ) => void
   now?: () => number
   staleMs?: number
+  // M34：复用本 tick（已每分钟巡检每 workspace）做「未审代码改动」的 never-silent push 兜底。
+  // 独立、best-effort：与 stale-dispatch 逻辑互不影响；不传则不做（M30 行为不变）。
+  surfaceUnreviewedCode?: (workspaceId: string) => void
   writeRunInput?: (runId: string, input: string) => void
 }
 
@@ -88,6 +91,7 @@ export const createStalledDispatchNudge = ({
   notifyUserOfStaleDispatch,
   now = Date.now,
   staleMs = DEFAULT_STALLED_SUBMITTED_MS,
+  surfaceUnreviewedCode,
   writeRunInput,
 }: StalledDispatchNudgeOptions) => {
   let timer: NodeJS.Timeout | null = null
@@ -250,6 +254,8 @@ export const createStalledDispatchNudge = ({
       try {
         // 先 surface 给 user（never silent），再做 LLM 层 nudge（best-effort）。
         surfaceStaleDispatchesToUser(workspace.id, tickedAt)
+        // M34：未审代码改动 push 兜底（独立、best-effort，不影响下面 stale/idle 逻辑）。
+        surfaceUnreviewedCode?.(workspace.id)
         if (hasIdleSelfHeal) {
           handleIdleSelfHeal(workspace.id, tickedAt)
           continue

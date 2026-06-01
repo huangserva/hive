@@ -45,6 +45,15 @@ export interface MobilePushService {
       workerName: string
     }
   ): Promise<void>
+  notifyUnreviewedCode(
+    workspaceId: string,
+    info: {
+      dispatchId: string
+      minutesAgo: number
+      taskSummary: string
+      workerName: string
+    }
+  ): Promise<void>
 }
 
 export const createMobilePushService = (deps: {
@@ -55,6 +64,7 @@ export const createMobilePushService = (deps: {
   const sentDispatchIds = new Set<string>()
   const sentApprovalIds = new Set<string>()
   const sentStaleKeys = new Set<string>()
+  const sentUnreviewedIds = new Set<string>()
 
   const recipients = () =>
     deps.store
@@ -147,6 +157,23 @@ export const createMobilePushService = (deps: {
             workspaceId,
           },
           title,
+          to: token,
+        }))
+      )
+    },
+    async notifyUnreviewedCode(workspaceId, info) {
+      // 每条 dispatch 只推一次：从"有代码改动未审"跨阈值时通知一次，never-silent 的硬兜底。
+      if (sentUnreviewedIds.has(info.dispatchId)) return
+      sentUnreviewedIds.add(info.dispatchId)
+      await send(
+        recipients().map((token) => ({
+          body: `Unreviewed code: ${info.workerName} · "${info.taskSummary}" (~${info.minutesAgo}m) — 派 reviewer 审`,
+          data: {
+            dispatchId: info.dispatchId,
+            type: 'unreviewed_code',
+            workspaceId,
+          },
+          title: 'Code change not reviewed',
           to: token,
         }))
       )

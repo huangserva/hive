@@ -25,6 +25,10 @@ export type AIActionType =
   | 'audit'
   | 'playbook'
   | 'missing_impl_milestone'
+  // M34：DB 派生（dispatch ledger）的「未审代码改动」兜底 action。注意：此类型**不由**
+  // buildAiActions/parseCockpit 产出（它们 file-only），而是在 serve-cockpit 边界经
+  // augmentAiActionsWithUnreviewedCode 合并进来。见 unreviewed-code-status.ts。
+  | 'unreviewed_code'
 export type CockpitTargetTab =
   | 'tasks'
   | 'questions'
