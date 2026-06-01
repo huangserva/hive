@@ -138,4 +138,41 @@ describe('ActionBar i18n', () => {
     expect(screen.queryByRole('button', { name: '补 note' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '开实施' })).not.toBeInTheDocument()
   })
+
+  // M34 风险2：新 unreviewed_code action 的"派 reviewer"动词必须本地化（避免英文 UI 显示中文）。
+  test('EN locale translates the M34 unreviewed_code action label (派 reviewer → Assign reviewer)', () => {
+    const actions = [
+      makeAction({
+        action: '派 reviewer',
+        id: 'unreviewed-code:abc',
+        text: '关羽 的代码改动尚未派 reviewer 审查',
+        type: 'unreviewed_code',
+      }),
+    ]
+    render(
+      <I18nProvider>
+        <ActionBar actions={actions} />
+      </I18nProvider>
+    )
+    expect(screen.getByRole('button', { name: 'Assign reviewer' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '派 reviewer' })).not.toBeInTheDocument()
+  })
+
+  test('ZH locale renders the M34 unreviewed_code action label as 派 reviewer', () => {
+    window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'zh')
+    const actions = [
+      makeAction({
+        action: '派 reviewer',
+        id: 'unreviewed-code:abc',
+        text: '关羽 的代码改动尚未派 reviewer 审查',
+        type: 'unreviewed_code',
+      }),
+    ]
+    render(
+      <I18nProvider>
+        <ActionBar actions={actions} />
+      </I18nProvider>
+    )
+    expect(screen.getByRole('button', { name: '派 reviewer' })).toBeInTheDocument()
+  })
 })

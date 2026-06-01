@@ -2,13 +2,12 @@ import type { IncomingMessage, Server } from 'node:http'
 
 import type { WebSocket as WsSocket } from 'ws'
 import { WebSocketServer } from 'ws'
-
 import { parseCockpit } from './cockpit-doc.js'
+import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { readCookie } from './ui-auth-helpers.js'
-import { augmentAiActionsWithUnreviewedCode } from './unreviewed-code-status.js'
 
 const matchCockpitPath = (pathname: string) => {
   const match = /^\/ws\/cockpit\/(?<workspaceId>[^/]+)$/.exec(pathname)
@@ -58,11 +57,7 @@ export const createCockpitWebSocketServer = (
     try {
       return {
         ...cockpit,
-        aiActions: augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
-          dispatches: store.listDispatches(workspaceId),
-          now: Date.now(),
-          workers: store.listWorkers(workspaceId),
-        }),
+        aiActions: resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions),
       }
     } catch (error) {
       logger?.warn?.(`cockpit unreviewed-code augment failed workspace_id=${workspaceId}`, error)

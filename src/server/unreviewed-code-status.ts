@@ -19,10 +19,13 @@ import type { DispatchRecord } from './dispatch-ledger-store.js'
 // reported 后给 PM 派 reviewer 的宽限：避免刚 report 就亮（PM 还没来得及派钟馗）。
 export const DEFAULT_UNREVIEWED_GRACE_MS = 2 * 60 * 1000
 
-// report-only / spike 信号：调研/spike dispatch 派给 coder 产报告但 0 行代码——头号假阳，
-// 必须排除（M34 spike 自己就是活例）。关键词命中即视为 report-only 倾向。
+// 正向「代码改动」信号：改动**动词**（不是单纯提到文件路径——调研报告也会引用 `src/x.ts:42`）。
+// 命中即视为真有代码改动，**绝不**当 report-only（钟馗 风险1：避免"调研后改了 src/foo.ts"被误排漏报）。
+const CODE_CHANGE_SIGNAL =
+  /改了|修改了|改动了|新增了?|删除了?|重构了?|实现了|修复了|修了|加了|提交了|打了补丁|\b(fixed|implemented|refactored|added|changed)\b/iu
+// 强 report-only 短语：不用裸 `调研|spike`（真改了码也可能提"调研后改了…"），要明确的"未产代码"措辞。
 const REPORT_ONLY_TEXT =
-  /调研|spike|不改产品代码|未改.*?(产品)?代码|纯设计|纯文档|report[-\s]?only|design\s+spike/iu
+  /不改产品代码|不改代码|没改[^\n。]{0,6}代码|未改[^\n。]{0,8}代码|纯(设计|文档|调研|方案)|只(出|产|做)[^\n。]{0,6}(设计|文档|报告|方案|spike)|report[-\s]?only|design\s+spike/iu
 // 文档型 artifact（报告 / 笔记），非代码。
 const DOC_ARTIFACT = /\.(html?|md|markdown)$/i
 
@@ -48,19 +51,20 @@ export interface UnreviewedCodeThresholds {
 }
 
 // report-only 反向排除器。压头号假阳（调研/spike dispatch 0 代码）。
-// 规则：
-//   - 若 artifacts 含**非文档**附件（如 `src/foo.ts`）→ 一定是代码改动，**绝不**排除（改动信号优先）。
-//   - 否则：reportText 命中 report-only 关键词，**或** artifacts 全是文档型 → 判 report-only。
-// 注意：真实 spike report 常**不带 artifacts**（如 M34 spike 用 `team report --stdin` 无 --artifact），
-// 故不能要求「artifacts 仅文档」做硬前置——靠 reportText 关键词兜住无附件的 spike（这是与 spike 文档
-// 字面"且"条件的有意偏离，目的正是让 M34 spike 自己被排除；详见 report，待钟馗审）。
+// 优先级（钟馗 风险1 返工——正向代码信号必须压过 report-only 措辞，否则"调研后改了 src/foo.ts"会被误排漏报）：
+//   1. artifacts 含**非文档**附件（如 `src/foo.ts`）→ 一定是代码改动，**绝不**排除。
+//   2. reportText 含**代码改动动词**（改了/新增/重构…）→ 真改了码，**绝不**排除（即便也提了 spike/调研）。
+//   3. 否则：reportText 命中**强** report-only 短语，**或** artifacts 全是文档型 → 判 report-only。
+// 注意：真实 spike report 常**不带 artifacts**（M34 spike 用 `team report --stdin` 无 --artifact），
+// 故靠强 report-only 短语（"不改产品代码/纯设计…"）兜住无附件的 spike，而非裸 `调研|spike`。
 export const isReportOnlyDispatch = (dispatch: DispatchRecord): boolean => {
   const artifacts = dispatch.artifacts
+  const text = dispatch.reportText ?? ''
   const hasCodeArtifact = artifacts.some((artifact) => !DOC_ARTIFACT.test(artifact))
   if (hasCodeArtifact) return false
+  if (CODE_CHANGE_SIGNAL.test(text)) return false
   const onlyDocArtifacts = artifacts.length > 0 && artifacts.every((a) => DOC_ARTIFACT.test(a))
-  const textSaysReportOnly = REPORT_ONLY_TEXT.test(dispatch.reportText ?? '')
-  return textSaysReportOnly || onlyDocArtifacts
+  return REPORT_ONLY_TEXT.test(text) || onlyDocArtifacts
 }
 
 const isClaudeCoder = (info: WorkerRoleInfo | undefined): boolean =>

@@ -4,6 +4,7 @@ import { createAgentRunTimelineStore } from './agent-run-timeline-store.js'
 import { createAgentRuntime } from './agent-runtime.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
+import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { createDispatchLedgerStore } from './dispatch-ledger-store.js'
 import { createApprovalLedger } from './feishu-approval-ledger.js'
 import { createFeishuBindingsStore } from './feishu-bindings-store.js'
@@ -33,7 +34,6 @@ import { createTasksFileWatcher } from './tasks-file-watcher.js'
 import { createTeamOperations } from './team-operations.js'
 import { resolveTerminalInputProfile } from './terminal-input-profile.js'
 import { createUiAuth } from './ui-auth.js'
-import { summarizeUnreviewedCodeDispatches } from './unreviewed-code-status.js'
 import { createWorkerOutputTracker, type WorkerOutputTracker } from './worker-output-tracker.js'
 import { createWorkspaceShellRuntime } from './workspace-shell-runtime.js'
 import { createWorkspaceStore } from './workspace-store.js'
@@ -283,20 +283,17 @@ export const createRuntimeStoreServices = (
     // M34：未审代码改动 → push 兜底（never-silent）。复用 stalled-dispatch tick，best-effort。
     surfaceUnreviewedCode: (workspaceId) => {
       try {
-        const workers = workspaceStore.listWorkers(workspaceId)
-        const roleByAgent = new Map(
-          workers.map((worker) => [
-            worker.id,
-            { commandPresetId: worker.commandPresetId, role: worker.role },
-          ])
-        )
-        const nameByAgent = new Map(workers.map((worker) => [worker.id, worker.name]))
-        const dispatches = dispatchLedgerStore.listWorkspaceDispatches(workspaceId)
-        const textById = new Map(dispatches.map((dispatch) => [dispatch.id, dispatch.text]))
-        const summary = summarizeUnreviewedCodeDispatches(
-          dispatches,
-          (agentId) => roleByAgent.get(agentId),
-          Date.now()
+        // BLOCKER 返工：经统一 resolver 解析 commandPresetId（workspaceStore.listWorkers 不含 preset，
+        // 真实 preset 来自 launch config / peekAgentLaunchConfig）。否则 push 兜底永不触发。
+        const unreviewedStore = {
+          listDispatches: dispatchLedgerStore.listWorkspaceDispatches,
+          listWorkers: workspaceStore.listWorkers,
+          peekAgentLaunchConfig: agentRuntime.peekAgentLaunchConfig,
+          settings,
+        }
+        const { summary, workerNameOf } = resolveCockpitUnreviewedCode(unreviewedStore, workspaceId)
+        const textById = new Map(
+          dispatchLedgerStore.listWorkspaceDispatches(workspaceId).map((d) => [d.id, d.text])
         )
         for (const entry of summary.unreviewed) {
           void mobilePushService
@@ -304,7 +301,7 @@ export const createRuntimeStoreServices = (
               dispatchId: entry.dispatchId,
               minutesAgo: entry.minutesAgo,
               taskSummary: (textById.get(entry.dispatchId) ?? '').slice(0, 80),
-              workerName: nameByAgent.get(entry.toAgentId) ?? entry.toAgentId,
+              workerName: workerNameOf(entry.toAgentId) ?? entry.toAgentId,
             })
             .catch((error) => {
               options.logger?.warn(

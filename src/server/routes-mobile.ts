@@ -14,6 +14,7 @@ import { join, resolve, sep } from 'node:path'
 import type { WorkerRole } from '../shared/types.js'
 import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
 import { parseCockpit } from './cockpit-doc.js'
+import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { ResolvedApproval } from './feishu-approval-ledger.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
@@ -33,11 +34,6 @@ import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
-import {
-  augmentAiActionsWithUnreviewedCode,
-  buildUnreviewedCodeActions,
-  summarizeUnreviewedCodeDispatches,
-} from './unreviewed-code-status.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 const pendingUploadPaths = new Map<string, string[]>()
@@ -91,7 +87,9 @@ const activeMilestoneLabel = (milestone: NonNullable<ReturnType<typeof activeMil
 
 export const buildMobileDashboard = (
   store: Parameters<RouteDefinition['handler']>[0]['store'],
-  workspaceId: string
+  workspaceId: string,
+  // M34：可注入 now（默认 Date.now()），供边界集成测试越过 reported 宽限期断言「未审」真出现。
+  now: number = Date.now()
 ) => {
   const workspace = store.getWorkspaceSnapshot(workspaceId)
   const cockpit = parseCockpit(workspace.summary.path)
@@ -127,25 +125,9 @@ export const buildMobileDashboard = (
   )
 
   // M34「未审代码改动」醒目计数 + 合并进 aiActions（DB 派生，在边界合并，不污染 parseCockpit）。
-  const unreviewedRoleByAgent = new Map(
-    rawWorkers.map((worker) => [
-      worker.id,
-      { commandPresetId: worker.commandPresetId, role: worker.role },
-    ])
-  )
-  const unreviewedNameByAgent = new Map(rawWorkers.map((worker) => [worker.id, worker.name]))
-  const unreviewedCode = summarizeUnreviewedCodeDispatches(
-    store.listDispatches(workspaceId),
-    (agentId) => unreviewedRoleByAgent.get(agentId),
-    Date.now()
-  )
-  const aiActions =
-    unreviewedCode.unreviewedCount > 0
-      ? [
-          ...cockpit.aiActions,
-          ...buildUnreviewedCodeActions(unreviewedCode, (id) => unreviewedNameByAgent.get(id)),
-        ]
-      : cockpit.aiActions
+  // 经 resolveCockpitUnreviewedCode 统一解析 commandPresetId（BLOCKER 返工：rawWorkers 不含 preset）。
+  const unreviewedCode = resolveCockpitUnreviewedCode(store, workspaceId, now)
+  const aiActions = unreviewedCode.apply(cockpit.aiActions)
 
   return {
     cockpit: {
@@ -158,7 +140,7 @@ export const buildMobileDashboard = (
         cockpit.questions.medium.length +
         cockpit.questions.low.length,
       stale_dispatches: staleDispatches.staleCount,
-      unreviewed_code_dispatches: unreviewedCode.unreviewedCount,
+      unreviewed_code_dispatches: unreviewedCode.count,
     },
     generated_at: new Date().toISOString(),
     plan: {
@@ -599,12 +581,8 @@ export const mobileRoutes: RouteDefinition[] = [
       if (!workspaceId) return
       const workspace = store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
-      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only）。
-      const aiActions = augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
-        dispatches: store.listDispatches(workspaceId),
-        now: Date.now(),
-        workers: store.listWorkers(workspaceId),
-      })
+      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
+      const aiActions = resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions)
       sendJson(response, 200, {
         aiActions,
         archive: cockpit.archive,

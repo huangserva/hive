@@ -16,6 +16,7 @@ const actionLabelKey = (action: AIAction['action']) => {
   if (action === '补 note') return 'cockpit.actionBar.action.addNote'
   if (action === '准备') return 'cockpit.actionBar.action.prepare'
   if (action === '开实施') return 'cockpit.actionBar.action.startImpl'
+  if (action === '派 reviewer') return 'cockpit.actionBar.action.assignReviewer'
   return null
 }
 

@@ -116,6 +116,28 @@ describe('summarizeUnreviewedCodeDispatches', () => {
     expect(summarizeUnreviewedCodeDispatches([mixed], getWorkerRole, NOW).unreviewedCount).toBe(1)
   })
 
+  // 钟馗 风险1：无 artifacts + reportText 同时含 spike/调研 和真实代码改动动词 → **必须标未审**
+  // （正向代码信号压过 report-only 措辞，避免"调研后改了 src/foo.ts"被静默漏报）。
+  test('no artifacts + reportText has BOTH spike/调研 AND a real code change → flagged (risk1)', () => {
+    const sneaky = makeDispatch({
+      artifacts: [],
+      reportText: '先做了调研，spike 了一下方案，然后改了 src/server/foo.ts 并加了测试',
+      reportedAt: TEN_MIN_AGO,
+    })
+    expect(isReportOnlyDispatch(sneaky)).toBe(false)
+    expect(summarizeUnreviewedCodeDispatches([sneaky], getWorkerRole, NOW).unreviewedCount).toBe(1)
+  })
+
+  test('bare 调研/spike mention without strong report-only phrase does NOT exclude (no裸关键词排除)', () => {
+    // 仅提一句"调研"但无"不改代码/纯设计"等强短语、也无代码动词 → 不当 report-only（宁可多亮）。
+    const bareMention = makeDispatch({
+      artifacts: [],
+      reportText: '关于这个 spike 的想法记录在这里',
+      reportedAt: TEN_MIN_AGO,
+    })
+    expect(isReportOnlyDispatch(bareMention)).toBe(false)
+  })
+
   // ④ 非 claude coder Phase 1 不标
   test('non-claude coder (codex) is NOT flagged in Phase 1', () => {
     const codexCoder = makeDispatch({
@@ -205,7 +227,10 @@ describe('augmentAiActionsWithUnreviewedCode (serve-cockpit boundary)', () => {
       },
     ]
     const merged = augmentAiActionsWithUnreviewedCode(base, {
-      dispatches: [makeDispatch({ reportText: 'spike 调研', reportedAt: TEN_MIN_AGO })], // report-only
+      // 强 report-only 短语（不改产品代码）→ 被排除 → 无未审 → base 原样返回。
+      dispatches: [
+        makeDispatch({ reportText: 'M34 设计 spike，不改产品代码', reportedAt: TEN_MIN_AGO }),
+      ],
       now: NOW,
       workers,
     })

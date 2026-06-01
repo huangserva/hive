@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
+import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { createLocalSttProvider } from './local-stt.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
 import { answerQuestionInFile } from './pm-questions-doc.js'
@@ -17,7 +18,6 @@ import {
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
-import { augmentAiActionsWithUnreviewedCode } from './unreviewed-code-status.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 export type RelayRpcHandler = (
@@ -45,6 +45,7 @@ interface RelayRpcHandlerDeps {
     | 'listWorkers'
     | 'listWorkspaces'
     | 'listMobileChatMessages'
+    | 'peekAgentLaunchConfig'
     | 'recordUserInput'
     | 'requireMobileCapability'
     | 'settings'
@@ -168,12 +169,10 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const workspaceId = readStringParam(params, 'workspace_id')
       const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
-      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only）。
-      const aiActions = augmentAiActionsWithUnreviewedCode(cockpit.aiActions, {
-        dispatches: deps.store.listDispatches(workspaceId),
-        now: Date.now(),
-        workers: deps.store.listWorkers(workspaceId),
-      })
+      // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
+      const aiActions = resolveCockpitUnreviewedCode(deps.store, workspaceId).apply(
+        cockpit.aiActions
+      )
       return {
         aiActions,
         ideas: cockpit.ideas,
