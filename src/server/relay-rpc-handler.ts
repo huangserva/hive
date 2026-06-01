@@ -268,7 +268,8 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       requireCapability(deps.store, deviceId, capabilities, 'admin_runtime')
       const workspaceId = readStringParam(params, 'workspace_id')
       const workerId = readStringParam(params, 'worker_id')
-      deps.store.getWorker(workspaceId, workerId)
+      // getAgent（非 getWorker）以同样支持 orchestrator（orch role 不是 worker，getWorker 会抛）。
+      deps.store.getAgent(workspaceId, workerId)
       const activeRun = deps.store.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) deps.store.stopAgentRun(activeRun.runId)
       return { ok: true, worker_id: workerId, workspace_id: workspaceId }
@@ -278,7 +279,8 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       requireCapability(deps.store, deviceId, capabilities, 'admin_runtime')
       const workspaceId = readStringParam(params, 'workspace_id')
       const workerId = readStringParam(params, 'worker_id')
-      deps.store.getWorker(workspaceId, workerId)
+      // getAgent（非 getWorker）以同样支持 orchestrator（orch role 不是 worker，getWorker 会抛）。
+      deps.store.getAgent(workspaceId, workerId)
       const activeRun = deps.store.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) deps.store.stopAgentRun(activeRun.runId)
       const run = await deps.store.startAgent(workspaceId, workerId, {

@@ -791,12 +791,13 @@ export const mobileRoutes: RouteDefinition[] = [
         'Workspace id and worker id are required'
       )
       if (!workspaceId || !workerId) return
-      store.getWorker(workspaceId, workerId)
+      // getAgent（非 getWorker）以同样支持 orchestrator（orch role 不是 worker，getWorker 会抛）。
+      store.getAgent(workspaceId, workerId)
       const activeRun = store.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) store.stopAgentRun(activeRun.runId)
       sendJson(response, 200, {
         ok: true,
-        status: store.getWorker(workspaceId, workerId).status,
+        status: store.getAgent(workspaceId, workerId).status,
         worker_id: workerId,
         workspace_id: workspaceId,
       })
@@ -820,7 +821,8 @@ export const mobileRoutes: RouteDefinition[] = [
         'Workspace id and worker id are required'
       )
       if (!workspaceId || !workerId) return
-      store.getWorker(workspaceId, workerId)
+      // getAgent（非 getWorker）以同样支持 orchestrator（orch role 不是 worker，getWorker 会抛）。
+      store.getAgent(workspaceId, workerId)
       const activeRun = store.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) store.stopAgentRun(activeRun.runId)
       const run = await store.startAgent(workspaceId, workerId, {
@@ -829,7 +831,7 @@ export const mobileRoutes: RouteDefinition[] = [
       sendJson(response, 200, {
         ok: true,
         run_id: run.runId,
-        status: store.getWorker(workspaceId, workerId).status,
+        status: store.getAgent(workspaceId, workerId).status,
         worker_id: workerId,
         workspace_id: workspaceId,
       })
