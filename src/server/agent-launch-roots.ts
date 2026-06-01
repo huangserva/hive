@@ -1,5 +1,9 @@
 import type { WorkspaceSummary } from '../shared/types.js'
-import type { EnsureWorkerWorktreeInput, WorkerWorktree } from './worktree-manager.js'
+import {
+  type EnsureWorkerWorktreeInput,
+  NotAGitWorkTreeError,
+  type WorkerWorktree,
+} from './worktree-manager.js'
 
 // M32 Phase 1：把 workspace 单一 path 在「启动时」分层成三个根，注入 PTY cwd + env。
 //   - workspaceRoot  = canonical 主树（= 现有 workspace.path）
@@ -55,8 +59,13 @@ export const resolveAgentLaunchRoots = (
       worktreesRoot: deps.worktreesRoot,
     })
     return { codeRoot, cwd: codeRoot, governanceRoot, workspaceRoot }
-  } catch {
-    // canonical 非 git repo / worktree 建失败 → 安全退回旧行为，绝不阻塞 worker 启动。
-    return fallback
+  } catch (error) {
+    // BLOCKER 3：只有「canonical 非 git workspace」才安全退回旧 cwd 行为——那本就没有隔离可言。
+    // 其它任何 ensure 失败（worktree add / sparse / read-tree / 权限 / 磁盘 / 残留修复）都必须
+    // **fail closed**：抛出阻止启动，而不是静默退回主树让 worker 以为隔离了、实则在主树裸跑污染。
+    if (error instanceof NotAGitWorkTreeError) {
+      return fallback
+    }
+    throw error
   }
 }

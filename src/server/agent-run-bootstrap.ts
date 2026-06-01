@@ -103,8 +103,15 @@ export const buildAgentRunBootstrap = (
   agent?: AgentSummary,
   // M25 Phase 1：runtime state 目录。提供时，codex agent 获得物理隔离的 managed CODEX_HOME；
   // 未提供（如内存 runtime / 老测试）时退回原全局 `~/.codex` 行为，保持向后兼容。
-  dataDir?: string
+  dataDir?: string,
+  // M32 BLOCKER 2：worker 真实进程 cwd = launchRoots.cwd（codeRoot，可能是独立 worktree），不是
+  // workspace.path。session capture / resume 必须按真实 cwd 解析 provider 会话目录（claude 的
+  // `<projects>/<encoded_cwd>/`、resume 存在性校验、首启捕获），否则按旧 canonical cwd 查会破坏
+  // per-worker resume 隔离。缺省（不传 / 老测试 / 未分层）退回 workspace.path。
+  // 仅决定会话目录；HIVE_PROJECT_ID 等仍按 workspace 标识。
+  launchCwd?: string
 ) => {
+  const sessionCwd = launchCwd ?? workspace.path
   const preset = resolveLaunchPreset(config, getCommandPreset)
   const discriminator = createSessionCaptureDiscriminator(workspace, agent)
 
@@ -123,7 +130,7 @@ export const buildAgentRunBootstrap = (
     config,
     preset,
     sessionStore.getLastSessionId(workspace.id, agentId),
-    workspace.path,
+    sessionCwd,
     discriminator,
     () => sessionStore.clearLastSessionId(workspace.id, agentId),
     claudeManaged?.projectsRoot
@@ -141,7 +148,7 @@ export const buildAgentRunBootstrap = (
   const sessionCaptureSnapshot = startConfig.resumedSessionId
     ? undefined
     : snapshotSessionIdsForCapture(
-        workspace.path,
+        sessionCwd,
         startConfigWithThinking.sessionIdCapture,
         discriminator,
         codexManaged?.home,
@@ -171,16 +178,20 @@ export const startAgentRunCapture = ({
   sessionStore,
   startConfig,
   workspace,
+  // M32 BLOCKER 2：捕获必须用 worker 真实进程 cwd（launchRoots.cwd / codeRoot），与 bootstrap 的
+  // snapshot cwd 一致；否则 snapshot 扫 worktree、capture 扫 canonical，两边对不上、首启捕获失败。
+  launchCwd,
 }: {
   agentId: string
   sessionCaptureSnapshot: SessionCaptureSnapshot | undefined
   sessionStore: AgentSessionStorePort
   startConfig: AgentLaunchConfigInput
   workspace: WorkspaceSummary
+  launchCwd?: string
 }) => {
   if (!sessionCaptureSnapshot || !startConfig.sessionIdCapture) return
   void captureSessionIdForCapture(
-    workspace.path,
+    launchCwd ?? workspace.path,
     startConfig.sessionIdCapture,
     sessionCaptureSnapshot,
     (sessionId) => {

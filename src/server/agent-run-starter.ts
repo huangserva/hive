@@ -72,6 +72,10 @@ export const createAgentRunStarter = ({
     if (!agentManager) throw new Error('Agent manager is required to start agents')
 
     const agent = getAgent?.(workspace.id, agentId)
+    // M32：先 resolve 分层根（orchestrator 主树 / worker 独立 CODE worktree）。必须在 bootstrap 之前，
+    // 因为 ① BLOCKER 2：session capture / resume 要用 worker 真实 cwd = launchRoots.cwd；② BLOCKER 3：
+    // ensure 失败时 resolveLaunchRoots fail-closed 抛错，应在创建 run / 发 token 等任何副作用前阻断启动。
+    const launchRoots = resolveLaunchRoots(workspace, agentId)
     const { sessionCaptureSnapshot, startConfig, startEnv } = buildAgentRunBootstrap(
       workspace,
       agentId,
@@ -79,7 +83,8 @@ export const createAgentRunStarter = ({
       sessionStore,
       getCommandPreset,
       agent,
-      dataDir
+      dataDir,
+      launchRoots.cwd
     )
     const handledRunExits = new Set<string>()
     const abortedRunIds = new Set<string>()
@@ -97,8 +102,6 @@ export const createAgentRunStarter = ({
       tokenRegistry,
       workspace,
     }
-    // M32 Phase 1：orchestrator cwd=主树；worker cwd=各自 CODE worktree（未开启分层时全退回主树）。
-    const launchRoots = resolveLaunchRoots(workspace, agentId)
     const startInput = {
       agentId,
       command: startConfig.command,
@@ -187,7 +190,14 @@ export const createAgentRunStarter = ({
       return liveRun
     }
 
-    startAgentRunCapture({ agentId, sessionCaptureSnapshot, sessionStore, startConfig, workspace })
+    startAgentRunCapture({
+      agentId,
+      sessionCaptureSnapshot,
+      sessionStore,
+      startConfig,
+      workspace,
+      launchCwd: launchRoots.cwd,
+    })
     const postStartWriter = createPostStartInputWriter(
       agentManager,
       startConfig.interactiveCommand ?? startConfig.command
