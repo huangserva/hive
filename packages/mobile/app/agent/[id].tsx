@@ -279,7 +279,9 @@ export default function AgentDetailScreen() {
         id: workerId,
         name: 'Orchestrator',
         roleLabel: 'Project Manager / Orchestrator',
-        status: run?.status === 'running' ? 'working' : (run?.status ?? 'working'),
+        // 真实状态以「是否有 alive run」为准：running → working；无 run / 已退出 → stopped。
+        // （旧逻辑 `run?.status ?? 'working'` 在 orch 停了、无 run 时错误默认 working —— user 报的 bug。）
+        status: run?.status === 'running' ? 'working' : 'stopped',
         type: 'orchestrator' as const,
       }
     }
@@ -365,12 +367,14 @@ export default function AgentDetailScreen() {
 
   const relevantDispatches = getRelevantDispatchHistory(tasks?.dispatches, worker, isOrchestrator)
 
+  // 控制目标：worker 或 orchestrator 都用 detailAgent（id+name）。orch 也是 agent，重启/停止走同一后端
+  // worker.restart/stop（后端已放宽为 getAgent 支持 orch —— 该后端改动需 4010 重启才生效，见 report）。
   const confirmStop = () => {
-    if (!worker) return
-    Alert.alert(t('status.stopWorker'), t('status.stopWorkerBody', { name: worker.name }), [
+    if (!detailAgent) return
+    Alert.alert(t('status.stopWorker'), t('status.stopWorkerBody', { name: detailAgent.name }), [
       { style: 'cancel', text: t('common.cancel') },
       {
-        onPress: () => void stopWorker(worker.id),
+        onPress: () => void stopWorker(detailAgent.id),
         style: 'destructive',
         text: t('agent.action.stop'),
       },
@@ -378,11 +382,15 @@ export default function AgentDetailScreen() {
   }
 
   const confirmRestart = () => {
-    if (!worker) return
-    Alert.alert(t('status.restartWorker'), t('status.restartWorkerBody', { name: worker.name }), [
-      { style: 'cancel', text: t('common.cancel') },
-      { onPress: () => void restartWorker(worker.id), text: t('agent.action.restart') },
-    ])
+    if (!detailAgent) return
+    Alert.alert(
+      t('status.restartWorker'),
+      t('status.restartWorkerBody', { name: detailAgent.name }),
+      [
+        { style: 'cancel', text: t('common.cancel') },
+        { onPress: () => void restartWorker(detailAgent.id), text: t('agent.action.restart') },
+      ]
+    )
   }
 
   const openDispatch = () => {
@@ -565,13 +573,13 @@ export default function AgentDetailScreen() {
                 <View style={styles.statusRow}>
                   <StatusBadge status={detailAgent.status} />
                 </View>
-                {worker ? (
+                {detailAgent ? (
                   <WorkerActions
-                    canDispatch={!isSentinel}
+                    canDispatch={!isSentinel && !isOrchestrator}
                     onDispatch={openDispatch}
                     onRestart={confirmRestart}
                     onStop={confirmStop}
-                    status={worker.status}
+                    status={detailAgent.status}
                   />
                 ) : null}
               </View>

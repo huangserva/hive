@@ -264,6 +264,58 @@ export default function StatusTab() {
     ])
   }
 
+  // 一键启停（客户端循环，复用现有 restartWorker/stopWorker，不加 bulk 端点 → 纯 APK）。
+  // 只作用于普通 worker（sentinel 排除）。restartWorker 对已停止 worker 即「启动」。
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const startableWorkers = useMemo(
+    () => sortedWorkers.filter((w) => w.status === 'stopped'),
+    [sortedWorkers]
+  )
+  const stoppableWorkers = useMemo(
+    () => sortedWorkers.filter((w) => w.status !== 'stopped'),
+    [sortedWorkers]
+  )
+  const runBulk = useCallback(
+    async (targets: MobileDashboardWorker[], action: 'start' | 'stop') => {
+      setBulkBusy(true)
+      // 逐个串行调用，避免一次性并发打爆 relay；失败的跳过不中断其余。
+      for (const w of targets) {
+        try {
+          await (action === 'start' ? restartWorker(w.id) : stopWorker(w.id))
+        } catch {}
+      }
+      await refreshDashboard()
+      setBulkBusy(false)
+    },
+    [refreshDashboard, restartWorker, stopWorker]
+  )
+  const confirmBulkStart = () => {
+    if (bulkBusy || startableWorkers.length === 0) return
+    Alert.alert(
+      t('status.bulkStartTitle'),
+      t('status.bulkStartBody', { count: startableWorkers.length }),
+      [
+        { style: 'cancel', text: t('common.cancel') },
+        { onPress: () => void runBulk(startableWorkers, 'start'), text: t('status.bulkStart') },
+      ]
+    )
+  }
+  const confirmBulkStop = () => {
+    if (bulkBusy || stoppableWorkers.length === 0) return
+    Alert.alert(
+      t('status.bulkStopTitle'),
+      t('status.bulkStopBody', { count: stoppableWorkers.length }),
+      [
+        { style: 'cancel', text: t('common.cancel') },
+        {
+          onPress: () => void runBulk(stoppableWorkers, 'stop'),
+          style: 'destructive',
+          text: t('status.bulkStop'),
+        },
+      ]
+    )
+  }
+
   const openDispatch = (worker: MobileDashboardWorker) => {
     setDispatchWorker(worker)
     setDispatchText('')
@@ -491,6 +543,44 @@ export default function StatusTab() {
             </Pressable>
           </View>
         </View>
+
+        {/* 一键启停全部 worker（客户端循环，纯 APK；sentinel 不参与） */}
+        {sortedWorkers.length > 0 ? (
+          <View style={styles.bulkBar}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={bulkBusy || startableWorkers.length === 0}
+              onPress={confirmBulkStart}
+              style={[
+                styles.bulkBtn,
+                { backgroundColor: colors.successSoft },
+                (bulkBusy || startableWorkers.length === 0) && styles.bulkBtnDisabled,
+              ]}
+            >
+              <Ionicons color={colors.success} name="play" size={14} />
+              <Text style={[styles.bulkBtnText, { color: colors.success }]}>
+                {t('status.bulkStart')}
+                {startableWorkers.length > 0 ? ` (${startableWorkers.length})` : ''}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={bulkBusy || stoppableWorkers.length === 0}
+              onPress={confirmBulkStop}
+              style={[
+                styles.bulkBtn,
+                { backgroundColor: colors.errorSoft },
+                (bulkBusy || stoppableWorkers.length === 0) && styles.bulkBtnDisabled,
+              ]}
+            >
+              <Ionicons color={colors.error} name="stop" size={14} />
+              <Text style={[styles.bulkBtnText, { color: colors.error }]}>
+                {t('status.bulkStop')}
+                {stoppableWorkers.length > 0 ? ` (${stoppableWorkers.length})` : ''}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         {/* Orchestrator 终端入口 */}
         {selectedWorkspaceId ? (
@@ -968,6 +1058,29 @@ const styles = StyleSheet.create({
   },
   btnDisabled: {
     opacity: 0.45,
+  },
+  bulkBar: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  bulkBtn: {
+    alignItems: 'center',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: spacing.sm,
+  },
+  bulkBtnDisabled: {
+    opacity: 0.4,
+  },
+  bulkBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
   },
   card: {
     backgroundColor: 'rgba(22, 27, 34, 0.9)',
