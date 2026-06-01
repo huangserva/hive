@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetChatForConnectionSwitch,
   shouldResetChatForWorkspaceSwitch,
   shouldResetLanCooldownBeforeForegroundProbe,
 } from '../src/api/mobile-runtime-context-logic.js'
@@ -150,5 +152,46 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
         requestedWorkspaceId: 'workspace-new',
       })
     ).toBe(true)
+  })
+
+  test('disconnect reset blocks late chat fetches from the old workspace', () => {
+    const disconnectReset = resetChatRuntimeForDisconnect()
+
+    expect(disconnectReset.selectedWorkspaceId).toBeNull()
+    expect(disconnectReset.chatSince).toBeUndefined()
+    expect(disconnectReset.shouldClearMessages).toBe(true)
+    expect(
+      shouldApplyChatMessagesForWorkspace({
+        currentWorkspaceId: disconnectReset.selectedWorkspaceId,
+        requestedWorkspaceId: 'workspace-old',
+      })
+    ).toBe(false)
+  })
+
+  test('resets chat when reconnecting to a different host or token', () => {
+    expect(
+      shouldResetChatForConnectionSwitch({
+        currentHost: 'http://192.168.1.2:4010',
+        currentToken: 'token-a',
+        nextHost: 'http://10.0.0.2:4010',
+        nextToken: 'token-a',
+      })
+    ).toBe(true)
+    expect(
+      shouldResetChatForConnectionSwitch({
+        currentHost: 'http://192.168.1.2:4010',
+        currentToken: 'token-a',
+        nextHost: 'http://192.168.1.2:4010',
+        nextToken: 'token-b',
+      })
+    ).toBe(true)
+    expect(
+      shouldResetChatForConnectionSwitch({
+        currentHost: 'http://192.168.1.2:4010',
+        currentToken: 'token-a',
+        nextHost: 'http://192.168.1.2:4010',
+        nextToken: 'token-a',
+      })
+    ).toBe(false)
   })
 })

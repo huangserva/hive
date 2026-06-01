@@ -61,10 +61,12 @@ import {
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import type { ConnectionPreference } from './mobile-runtime-context-logic'
 import {
+  resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
   shouldProbeForegroundReconnect,
   shouldQueuePromptBeforeSend,
+  shouldResetChatForConnectionSwitch,
   shouldResetChatForWorkspaceSwitch,
   shouldResetLanCooldownBeforeForegroundProbe,
 } from './mobile-runtime-context-logic'
@@ -364,8 +366,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     if (latest) chatSinceRef.current = latest.created_at
   }, [])
 
-  const resetChatForWorkspace = useCallback((workspaceId: string | null) => {
+  const resetChatForWorkspace = useCallback((workspaceId: string | null, force = false) => {
     if (
+      !force &&
       !shouldResetChatForWorkspaceSwitch({
         currentWorkspaceId: selectedWorkspaceIdRef.current,
         nextWorkspaceId: workspaceId,
@@ -542,12 +545,18 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           ? await nextClient.getMobileDashboard(nextWorkspaceId)
           : null
         await registerPushToken(nextClient)
+        const shouldResetForConnection = shouldResetChatForConnectionSwitch({
+          currentHost: hostRef.current,
+          currentToken: tokenRef.current.trim(),
+          nextHost,
+          nextToken: trimmedToken,
+        })
 
         setHost(nextHost)
         setToken(trimmedToken)
         setRuntimeStatus(nextStatus)
         setWorkspaces(nextWorkspaces)
-        resetChatForWorkspace(nextWorkspaceId)
+        resetChatForWorkspace(nextWorkspaceId, shouldResetForConnection)
         selectedWorkspaceIdRef.current = nextWorkspaceId
         setSelectedWorkspaceId(nextWorkspaceId)
         setDashboard(nextDashboard)
@@ -630,9 +639,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setRuntimeStatus(null)
     setDashboard(null)
     setWorkspaces([])
-    setSelectedWorkspaceId(null)
-    chatSinceRef.current = undefined
-    setChatMessages([])
+    const chatReset = resetChatRuntimeForDisconnect()
+    selectedWorkspaceIdRef.current = chatReset.selectedWorkspaceId
+    setSelectedWorkspaceId(chatReset.selectedWorkspaceId)
+    chatSinceRef.current = chatReset.chatSince
+    if (chatReset.shouldClearMessages) setChatMessages([])
     setPairedDevice(null)
     setRelayConfig(null)
     relayDiagnosticsUnsubscribeRef.current?.()

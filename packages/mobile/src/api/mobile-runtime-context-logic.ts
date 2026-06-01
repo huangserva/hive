@@ -65,6 +65,32 @@ export const shouldResetChatForWorkspaceSwitch = ({
   nextWorkspaceId,
 }: ChatWorkspaceSwitchInput) => currentWorkspaceId !== nextWorkspaceId
 
+export interface ChatConnectionSwitchInput {
+  currentHost: string
+  currentToken: string
+  nextHost: string
+  nextToken: string
+}
+
+export const shouldResetChatForConnectionSwitch = ({
+  currentHost,
+  currentToken,
+  nextHost,
+  nextToken,
+}: ChatConnectionSwitchInput) => currentHost !== nextHost || currentToken !== nextToken
+
+export interface ChatDisconnectReset {
+  chatSince: number | undefined
+  selectedWorkspaceId: string | null
+  shouldClearMessages: boolean
+}
+
+export const resetChatRuntimeForDisconnect = (): ChatDisconnectReset => ({
+  chatSince: undefined,
+  selectedWorkspaceId: null,
+  shouldClearMessages: true,
+})
+
 export interface ChatWorkspaceApplyInput {
   currentWorkspaceId: string | null
   requestedWorkspaceId: string
