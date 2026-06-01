@@ -357,13 +357,13 @@ last_review: 2026-05-25
 - [ ] **Phase 2**：PM review/commit 流程（主树查 N worktree diff → apply/cherry-pick → 主树验证 commit；worker worktree 绝不直接 commit）+ 冷重启/残留 ensure（参考 OpenTeams 建失败回滚）。
 - 关键约束：**与 M25 都动 launch 路径，必须串行实施避免冲突**（M32 改 cwd，M25 改 env/session）；保留 PM 主树唯一整合点，刻意不做对手的重合并门/per-worker PR。
 
-### M33 · 远程可诊断性 + provider 活动证据（候选 · 双竞品三角合成 idea-8） · proposed
+### M33 · 远程可诊断性 + provider 活动证据（双竞品三角合成 idea-8） · in progress (user 2026-06-01 经手机 Cockpit promote idea-8→milestone)
 > 触发：双竞品三角合成（[[idea-8]] in `.hive/ideas/inbox.md`）——OpenTeams（全 SQLite 事件流）+ CCB（doctor/support bundle/completion evidence）独立印证。HippoTeam 是三方唯一"远程优先"却最缺"user 手机看底层证据"。拆"假矛盾"：我们卡死**探测**强（M26/M30/哨兵 never-silent），但缺"活着的 agent 此刻在干嘛"的**可解释性证据**。探测≠可解释。
 > 现状基础：M25 line 251 已标"可单列 M25b：hive doctor/support bundle"；本 milestone = 因双竞品印证升格独立。
 - [ ] 只读 `hive doctor --json`（runtime/schema_version/agents status+pending/dispatches open/relay+mobile+feishu/PM docs orphan）
 - [ ] `hive doctor --bundle` 诊断包导出（排 secrets）
 - [ ] **provider activity evidence**（采 provider hook/session log 的 last 语义进展/last tool/last assistant chunk → 手机+Cockpit 显示"working, last progress 8m ago, evidence: tool_call"；**不改三态、不自动 kill，只触发 ActionBar 软提醒**）
-- 待 user 正式拍板 promote（现 proposed，由 idea-8 incubate）。
+- ✅ user 2026-06-01 经手机 promote idea-8→正式 milestone（idea-8 归 ideas promoted 段）。下一步：派设计 spike 摸 ①hive doctor --json/--bundle 字段+导出边界（排 secrets）②provider activity evidence 怎么采（hook/session log）+ 怎么 surface 到手机/Cockpit 不改三态。待 user 拍是否现在开 spike 还是只上 roadmap。
 
 ### M34 · 未审代码改动看板兜底（"claude 必审"从靠记性→系统拦） · in progress (user 拍板 2026-06-01 "立")
 > 触发：本 session **PM 自己演示了这个洞**——审查靠 PM 手动记得派钟馗，结果 PM 图省事自审了 9 行 i18n（`538d004`）漏派钟馗，被 user 当场戳穿"claude 审 claude 不靠谱"。靠人记性会漏，连 PM 自己都漏。

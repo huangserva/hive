@@ -4,7 +4,7 @@
 
 ## inbox（按加入时间倒序）
 
-### 2026-06-01 双竞品三角合成：远程可诊断性 + provider 证据（user 拍"立 milestone 候选"）
+### 2026-06-01 双竞品三角合成：远程可诊断性 + provider 证据 → ✅ **promoted M33**（user 2026-06-01 经手机 Cockpit 提升为正式 milestone）
 
 - **idea-8 远程可诊断性 = HippoTeam 远控产品的签名缺口**：拿两个哲学相反的竞品（OpenTeams 重控制云引擎 / CCB 单机深 runtime）三角定位 HippoTeam，**两家独立指向的同一批缺口 = 高置信度真缺口**。其中最该补的是「远程可诊断性」——我们是三方里唯一"远程优先"，却最缺"user 在手机上看底层证据"的能力。
   - 双重印证：OpenTeams=全 SQLite 事件流可回放可审计；CCB=`doctor`+`support bundle`+**completion evidence**（语义进展标记，不靠"pane 安静了"）。
