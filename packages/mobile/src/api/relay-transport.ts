@@ -125,12 +125,25 @@ export const createRelayTransport = (
     pending.delete(id)
     return request
   }
+  // 清空并 reject 所有未结算 RPC（HIGH 修复）：onclose / onerror 都必须调它——某些 RN/Hermes 下
+  // onerror 可能不再跟 onclose，若只在 onclose 清 pending，那些在途 RPC 会泄漏到各自 22s 超时才 reject。
+  const rejectAllPending = (reason: string) => {
+    for (const request of pending.values()) {
+      if (request.timer) clearTimeout(request.timer)
+      request.reject(new Error(reason))
+    }
+    pending.clear()
+  }
   let channel: EncryptedChannel | null = null
   // in-flight 守卫：connectInternal 入口置 true，到 ready 或任一失败路径清 false。
   // 覆盖 ready→evict→disconnected 之间 connectPromise 已被 finally 清空的窗口，
   // 防止 connect() 因 connectPromise===null 重进 connectInternal 叠开第二条 socket。
   let connecting = false
   let connectPromise: Promise<void> | null = null
+  // 取消在途 connectInternal 的句柄（HIGH ghost-socket 修复）：close() 调它，让换 socket 的
+  // closePreviousSocket().then(openNewSocket) grace 链在 resolve 后**不再新建 socket**，并 settle
+  // 在途 connect promise（否则 openNewSocket 被跳过会让 connectPromise 永久 pending、泄漏）。
+  let abortConnect: ((error: Error) => void) | null = null
   let heartbeat: ReturnType<typeof setInterval> | null = null
   // 探活用：最近一次收到任何入站帧的时间戳（heartbeat_ack / data / joined 都算）。
   let lastInboundAt = 0
@@ -252,6 +265,8 @@ export const createRelayTransport = (
     channel = null
     return new Promise<void>((resolve, reject) => {
       let settled = false
+      // 本次 connect 是否已被 close() 取消。grace 链 resolve 后据此跳过 openNewSocket，绝不建 ghost socket。
+      let aborted = false
       let handshake: ReturnType<typeof createHandshakeInitiator> | null = createHandshakeInitiator(
         decodeKeyPair(config.device_keypair)
       )
@@ -260,10 +275,19 @@ export const createRelayTransport = (
         if (settled) return
         settled = true
         connecting = false
+        abortConnect = null
         reject(error)
       }
 
+      // 暴露给 close() 的取消钩子：置 aborted + settle 在途 promise（防 grace 链跳过 openNewSocket 后挂死）。
+      abortConnect = (error: Error) => {
+        aborted = true
+        failConnect(error)
+      }
+
       const openNewSocket = () => {
+        // 被 close() 取消（典型：grace 等待期间 close()）→ 绝不新建 socket，避免 ghost 连接 + 重连风暴。
+        if (aborted) return
         const nextSocket = new WebSocketCtor(config.relay_url)
         socket = nextSocket
 
@@ -288,15 +312,13 @@ export const createRelayTransport = (
           for (const listener of diagnosticsListeners) {
             listener({ error, ts: Date.now(), type: 'socket_error' })
           }
+          // 立刻 reject 在途 RPC（HIGH 修复）：不等可能不来的 onclose，避免 in-flight RPC 泄漏到 22s 超时。
+          rejectAllPending('Relay socket error')
           failConnect(event instanceof Error ? event : new Error(error))
         }
 
         nextSocket.onclose = (event: unknown) => {
-          for (const request of pending.values()) {
-            if (request.timer) clearTimeout(request.timer)
-            request.reject(new Error('Relay socket closed'))
-          }
-          pending.clear()
+          rejectAllPending('Relay socket closed')
           if (socket === nextSocket) socket = null
           stopHeartbeat()
           setStatus('disconnected')
@@ -370,6 +392,7 @@ export const createRelayTransport = (
               setStatus('ready')
               startHeartbeat()
               settled = true
+              abortConnect = null
               resolve()
               return
             }
@@ -438,6 +461,9 @@ export const createRelayTransport = (
       })
     },
     close() {
+      // 先取消在途 connect：若正卡在换 socket 的 grace 等待，阻止它 resolve 后建 ghost socket，并 settle
+      // 其 promise（防 connectPromise 永久 pending）。abortConnect 为空（无在途 connect）则 no-op。
+      abortConnect?.(new Error('Relay transport closed'))
       stopHeartbeat()
       if (socket) {
         const currentSocket = socket

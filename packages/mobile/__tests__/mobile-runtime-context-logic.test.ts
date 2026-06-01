@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 
 import {
+  createDashboardSocketHandlers,
+  nextChatSince,
   resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
@@ -250,6 +252,77 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
         relayTransportReady: true,
       })
     ).toBe(false)
+  })
+
+  // M 修复：chatSince 单调推进，防 relay 乱序/更早推送让 since 倒退重复拉旧消息。
+  test('nextChatSince advances to the newest created_at and never regresses', () => {
+    // 从 undefined 起：取本批最大。
+    expect(
+      nextChatSince(undefined, [{ created_at: 10 }, { created_at: 30 }, { created_at: 20 }])
+    ).toBe(30)
+    // 更新的消息 → 前进。
+    expect(nextChatSince(30, [{ created_at: 45 }])).toBe(45)
+    // relay 推来比 since 更早的消息 → 绝不后退（保持 30）。
+    expect(nextChatSince(30, [{ created_at: 5 }, { created_at: 12 }])).toBe(30)
+    // 乱序批次里只要有更大的就推进到那个最大值。
+    expect(nextChatSince(30, [{ created_at: 5 }, { created_at: 99 }, { created_at: 7 }])).toBe(99)
+    // 空批 → 不动。
+    expect(nextChatSince(30, [])).toBe(30)
+    expect(nextChatSince(undefined, [])).toBeUndefined()
+  })
+
+  // BLOCKING 修复：dashboard WebSocket 的 message/error/close 都必须先过 workspace 到达时守卫。
+  // 切走后旧 socket 的事件不得 onDisconnected(setError/setState/scheduleReconnect) 或 onDashboard 污染当前。
+  describe('createDashboardSocketHandlers workspace guard', () => {
+    const build = (currentWorkspaceId: () => string | null, connected = true, closing = false) => {
+      const onDashboard = vi.fn()
+      const onParseError = vi.fn()
+      const onDisconnected = vi.fn()
+      const handlers = createDashboardSocketHandlers({
+        socketWorkspaceId: 'A',
+        currentWorkspaceId,
+        isClosing: () => closing,
+        isConnected: () => connected,
+        onDashboard,
+        onParseError,
+        onDisconnected,
+      })
+      return { handlers, onDashboard, onParseError, onDisconnected }
+    }
+
+    test('acts on events while the socket workspace is still current', () => {
+      const { handlers, onDashboard, onDisconnected } = build(() => 'A')
+      handlers.handleMessage(
+        JSON.stringify({ kind: 'mobile-dashboard-update', payload: { ok: true } })
+      )
+      expect(onDashboard).toHaveBeenCalledWith({ ok: true })
+      handlers.handleError()
+      handlers.handleClose()
+      expect(onDisconnected).toHaveBeenCalledTimes(2)
+    })
+
+    test('ignores message/error/close from a socket whose workspace is no longer current', () => {
+      // 切到 B：socketWorkspaceId='A' 已 stale。
+      const { handlers, onDashboard, onParseError, onDisconnected } = build(() => 'B')
+      handlers.handleMessage(
+        JSON.stringify({ kind: 'mobile-dashboard-update', payload: { ok: true } })
+      )
+      handlers.handleError()
+      handlers.handleClose()
+      expect(onDashboard).not.toHaveBeenCalled()
+      expect(onParseError).not.toHaveBeenCalled()
+      expect(onDisconnected).not.toHaveBeenCalled() // 不 setError/setState/scheduleReconnect
+    })
+
+    test('close does not fire onDisconnected when closing or not connected', () => {
+      expect(build(() => 'A', true, true).onDisconnected).toBeDefined()
+      const closingCase = build(() => 'A', true, true)
+      closingCase.handlers.handleClose()
+      expect(closingCase.onDisconnected).not.toHaveBeenCalled() // closing=true（effect cleanup 主动关）
+      const notConnected = build(() => 'A', false, false)
+      notConnected.handlers.handleClose()
+      expect(notConnected.onDisconnected).not.toHaveBeenCalled() // 非 connected 态不重连
+    })
   })
 
   test('keeps the last loaded dashboard on reconnect failures once it exists', () => {

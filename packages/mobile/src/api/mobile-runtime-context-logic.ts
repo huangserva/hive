@@ -83,6 +83,63 @@ export const shouldFlushQueuedOutbox = ({
   queuedCount > 0 &&
   !(connectionMode === 'relay' && !relayTransportReady)
 
+// chatSince 单调推进（M 修复）：relay 推送可能送来乱序/更早的消息，取本批最大 created_at，且**仅当
+// 更大才前进**——绝不让 since 倒退，否则下一轮轮询会以更早的 since 重复拉旧消息。空批不动。
+export const nextChatSince = (
+  current: number | undefined,
+  messages: { created_at: number }[]
+): number | undefined => {
+  if (messages.length === 0) return current
+  const maxCreatedAt = messages.reduce(
+    (max, message) => (message.created_at > max ? message.created_at : max),
+    current ?? 0
+  )
+  return current === undefined || maxCreatedAt > current ? maxCreatedAt : current
+}
+
+export interface DashboardSocketHandlerCallbacks {
+  socketWorkspaceId: string
+  currentWorkspaceId: () => string | null
+  isClosing: () => boolean
+  isConnected: () => boolean
+  onDashboard: (payload: unknown) => void
+  onParseError: (message: string) => void
+  onDisconnected: () => void
+}
+
+// dashboard WebSocket 三个 handler 的纯工厂（BLOCKING 修复 + 可测）：message/error/close **统一**先过
+// workspace 到达时守卫——本 socket 为 socketWorkspaceId 而开，用户切走后（ref 指向别的 workspace）其事件
+// 一律忽略，绝不 setDashboard / setError / setState(error) / scheduleReconnect 污染当前连接。effect cleanup
+// 关旧 socket 要等下一轮渲染，与 error/close 到达之间存在窗口——故守卫必须在 handler 内部，不能只靠 cleanup。
+export const createDashboardSocketHandlers = (cb: DashboardSocketHandlerCallbacks) => {
+  const isStale = () => cb.currentWorkspaceId() !== cb.socketWorkspaceId
+  return {
+    handleMessage: (raw: string) => {
+      if (isStale()) return
+      try {
+        const message = JSON.parse(raw) as { kind?: string; payload?: unknown }
+        if (
+          (message.kind === 'mobile-dashboard-snapshot' ||
+            message.kind === 'mobile-dashboard-update') &&
+          message.payload
+        ) {
+          cb.onDashboard(message.payload)
+        }
+      } catch (error) {
+        cb.onParseError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    handleError: () => {
+      if (isStale()) return
+      cb.onDisconnected()
+    },
+    handleClose: () => {
+      if (cb.isClosing() || isStale() || !cb.isConnected()) return
+      cb.onDisconnected()
+    },
+  }
+}
+
 export const shouldClearLoadedStateOnConnectFailure = (hasLoadedDashboard: boolean) =>
   !hasLoadedDashboard
 

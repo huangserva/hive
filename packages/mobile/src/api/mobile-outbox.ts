@@ -57,7 +57,24 @@ export interface MobileOutboxCounts {
 
 export const MOBILE_OUTBOX_STORAGE_KEY = 'hippoteam.mobileOutbox'
 
-const randomId = () => globalThis.crypto?.randomUUID?.() ?? `outbox-${Date.now()}`
+// 进程内单调递增计数，作为最终兜底——保证即使 crypto 完全不可用、同一毫秒连发，id 也绝不碰撞。
+let outboxIdCounter = 0
+// 必须产出**可靠唯一** id（BLOCKING 修复）：id 现在是 outbox 去重键（按 id 去重），id 不唯一会重新制造
+// 「同毫秒两条合法消息撞同 id 被静默误删」——正是去重要解的 bug。优先 crypto.randomUUID；RN 入口只
+// 保证 getRandomValues（不保证 randomUUID），故次选用 getRandomValues 拼 UUIDv4；再不行带单调 counter。
+const randomId = () => {
+  const cryptoObj = globalThis.crypto
+  const uuid = cryptoObj?.randomUUID?.()
+  if (uuid) return uuid
+  if (cryptoObj?.getRandomValues) {
+    const bytes = cryptoObj.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+  }
+  return `outbox-${Date.now()}-${outboxIdCounter++}`
+}
 
 const normalizeStatus = (status: unknown): MobileOutboxItemStatus => {
   if (status === 'queued' || status === 'sending' || status === 'failed') return status
@@ -71,14 +88,6 @@ const normalizeString = (value: unknown) => (typeof value === 'string' ? value :
 
 const normalizeObject = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' ? (value as Record<string, unknown>) : null
-
-const fingerprint = (item: MobileOutboxItem) => {
-  if (item.kind === 'prompt') return `${item.kind}:${item.workspaceId}:${item.payload.text}`
-  if (item.kind === 'dispatch') {
-    return `${item.kind}:${item.workspaceId}:${item.payload.workerId}:${item.payload.task}`
-  }
-  return `${item.kind}:${item.workspaceId}:${item.payload.approvalId}:${item.payload.decision}`
-}
 
 const normalizeItem = (input: unknown): MobileOutboxItem | null => {
   const value = normalizeObject(input)
@@ -215,9 +224,11 @@ export const getOutboxCounts = (state: MobileOutboxState): MobileOutboxCounts =>
 export const hasQueuedOutboxItems = (state: MobileOutboxState) =>
   state.items.some((item) => item.status === 'queued')
 
+// HIGH 修复：按**幂等标识 item.id** 去重，不再用文本 fingerprint(kind:ws:text)。文本去重会把用户
+// 连发的两条相同内容的合法消息（"好的"/"好的"）静默丢一条。每次入队 createXxxOutboxItem 生成唯一 id
+// （重发 replay 复用原 item、id 不变 → 仍幂等不重复入队）；clientNonce 落地后由 id 承载更强幂等键。
 export const enqueueOutboxItem = (state: MobileOutboxState, item: MobileOutboxItem) => {
-  const key = fingerprint(item)
-  if (state.items.some((existing) => fingerprint(existing) === key)) return state
+  if (state.items.some((existing) => existing.id === item.id)) return state
   return { items: [...state.items, item] }
 }
 
@@ -242,7 +253,7 @@ export const parseOutboxState = (serialized: string | null): MobileOutboxState =
         items.push({ ...item, status: 'queued' })
         continue
       }
-      if (items.some((existing) => fingerprint(existing) === fingerprint(item))) continue
+      if (items.some((existing) => existing.id === item.id)) continue
       items.push(item)
     }
     return { items }
@@ -282,29 +293,86 @@ export const removeOutboxItem = (state: MobileOutboxState, itemId: string): Mobi
   items: state.items.filter((item) => item.id !== itemId),
 })
 
+export interface OutboxFlushFailure {
+  error: string
+  id: string
+}
+
+export interface OutboxFlushOutcome {
+  // flush 期间确实发出去（应被移除）的 item id。
+  sentIds: string[]
+  // 本次 flush 中发送失败的 item（可多条——单条失败不再整队中止，HIGH 修复）。
+  failedItems: OutboxFlushFailure[]
+}
+
+// 把一次 flush 的结果**函数式合并**回当前 state：只移除确实发出去的 id、标记失败项（含 attempts+1），
+// **保留其余所有项**（关键：flush 期间用户并发入队的新 item 不会被覆盖丢失）。修复
+// mobile-runtime-context flushOutbox 的 value-set clobber 竞态（CRITICAL：并发消息静默丢失）。
+export const applyOutboxFlushResult = (
+  state: MobileOutboxState,
+  outcome: OutboxFlushOutcome
+): MobileOutboxState => {
+  const sent = new Set(outcome.sentIds)
+  const failedById = new Map(outcome.failedItems.map((failure) => [failure.id, failure.error]))
+  return {
+    items: state.items
+      .filter((item) => !sent.has(item.id))
+      .map((item) =>
+        failedById.has(item.id)
+          ? {
+              ...item,
+              attempts: item.attempts + 1,
+              lastError: failedById.get(item.id) ?? null,
+              status: 'failed' as const,
+            }
+          : item
+      ),
+  }
+}
+
 export const flushOutboxState = async (
   state: MobileOutboxState,
   sendItem: (item: MobileOutboxItem) => Promise<void>
-): Promise<{ sentCount: number; state: MobileOutboxState }> => {
+): Promise<{
+  failedItems: OutboxFlushFailure[]
+  sentCount: number
+  sentIds: string[]
+  state: MobileOutboxState
+}> => {
   let nextState = state
-  let sentCount = 0
+  const sentIds: string[] = []
+  const failedItems: OutboxFlushFailure[] = []
 
+  // 只挑 'queued' 项逐条发送。HIGH 修复：单条失败标记 failed 后**继续后续 queued 项**（不再整队 break）；
+  // 队头若是历史 'failed' 项也被跳过（不阻塞后面的 queued）。每条处理后状态都不再是 'queued'
+  // （成功→移除 / 失败→'failed'），故循环必然收敛、无死循环。
   while (true) {
-    const current = nextState.items.find((item) => item.status !== 'sending')
+    const current = nextState.items.find((item) => item.status === 'queued')
     if (!current) break
-    if (current.status === 'failed') break
 
     nextState = markOutboxItemSending(nextState, current.id)
     try {
       await sendItem(current)
       nextState = removeOutboxItem(nextState, current.id)
-      sentCount += 1
+      sentIds.push(current.id)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       nextState = markOutboxItemFailed(nextState, current.id, message)
-      break
+      failedItems.push({ error: message, id: current.id })
     }
   }
 
-  return { sentCount, state: nextState }
+  return { failedItems, sentCount: sentIds.length, sentIds, state: nextState }
+}
+
+// 并发安全的 flush 编排：对**快照**发送，但通过 `commit` 函数式回写（只删已发 id、标失败项、保留并发新增）。
+// context 的 flushOutbox 委托到此，确保「快照发送 + 函数式合并」这条命脉路径被测试覆盖（防 value-set clobber）。
+export const flushOutboxConcurrently = async (
+  snapshot: MobileOutboxState,
+  sendItem: (item: MobileOutboxItem) => Promise<void>,
+  commit: (updater: (current: MobileOutboxState) => MobileOutboxState) => void
+): Promise<{ sentCount: number }> => {
+  const { failedItems, sentCount, sentIds } = await flushOutboxState(snapshot, sendItem)
+  commit((current) => applyOutboxFlushResult(current, { failedItems, sentIds }))
+  return { sentCount }
 }

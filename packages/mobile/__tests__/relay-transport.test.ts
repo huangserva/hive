@@ -217,6 +217,20 @@ describe('relay transport', () => {
     expect(socket.readyState).toBe(1)
   })
 
+  // BugH1：onerror 路径必须立即 reject + 清空 pending。某些 RN/Hermes 下 onerror 不再跟 onclose，
+  // 若只在 onclose 清 pending，在途 RPC 会泄漏到各自 22s 超时才 reject。此处不推进任何定时器，断言
+  // onerror 后 RPC 立即 reject（退回「onerror 不清 pending」此处会一直 pending → 测试超时红）。
+  test('onerror immediately rejects in-flight RPCs without waiting for the 22s timeout (BugH1)', async () => {
+    const { socket, transport } = await setupReadyRelay()
+    const callPromise = transport.call('runtime.status')
+    callPromise.catch(() => {}) // 防 unhandled rejection（断言前）
+
+    // 模拟服务端拒连 / RST：触发 onerror，且**不**触发 onclose、**不**推进 RPC 超时定时器。
+    socket.onerror?.(new Error('connection reset'))
+
+    await expect(callPromise).rejects.toThrow(/socket error/i)
+  })
+
   test('sends heartbeat frames every 20 seconds while ready', async () => {
     const { socket } = await setupReadyRelay()
 
@@ -527,6 +541,48 @@ describe('relay transport device-side liveness + 4G churn (dispatch 8855a45c)', 
 
     // Fix1：A 已被 detach，延迟 close 不进活连接状态机 → B 仍 ready（churn 环已断）。
     expect(transport.status()).toBe('ready')
+  })
+
+  // BugB（HIGH ghost socket）：connectInternal 对 OPEN/CONNECTING 旧 socket 走
+  // closePreviousSocket(prev).then(openNewSocket)；grace 等待期间外部 close() 必须取消这条链，
+  // 否则 grace resolve 后照样新建 socket → 连上 relay → 双连接被 evict → 重连风暴 + ghost heartbeat 泄漏。
+  // 用「延迟 close」fake 让 grace 走真实 500ms 定时器窗口，期间 close()，断言之后不再新建 socket。
+  // 退回「无 aborted 守卫」此测试必红（grace 后冒出第 2 条 ghost socket）。
+  test('BugB: close() during the closePreviousSocket grace wait cancels the pending reconnect (no ghost socket)', async () => {
+    DeferredCloseRelaySocket.instances = []
+    const transport = createRelayTransport(buildConfig(), {
+      WebSocketCtor: DeferredCloseRelaySocket as unknown as new (url: string) => never,
+    })
+
+    // 1) 首连 → socket A（CONNECTING，readyState 0；onopen 定时器尚未推进）。
+    transport.connect().catch(() => {})
+    const socketA = DeferredCloseRelaySocket.instances[0]
+    expect(socketA.readyState).toBe(0)
+
+    // 2) A 出错 → failConnect → state 'error'，但 socket 仍指向 A（未置 null）。
+    socketA.onerror?.({})
+    // 冲刷 connect#1 的 .finally(connectPromise=null) 微任务，否则下面的 connect#2 会复用在途 promise 短路、
+    // 根本进不了换 socket 的 grace 路径（这条 flush 缺了，本测试就测不到 ghost-socket 真实路径）。
+    await vi.advanceTimersByTimeAsync(0)
+    expect(transport.status()).toBe('error')
+
+    // 3) 再次 connect → connectInternal 见 OPEN/CONNECTING 旧 socket A → 走 closePreviousSocket(A).then(openNewSocket)
+    //    grace 路径（A.close 进 CLOSING、onclose 延迟，靠 500ms grace 定时器放行 .then）。此刻还没开新 socket。
+    transport.connect().catch(() => {})
+    expect(DeferredCloseRelaySocket.instances.length).toBe(1)
+
+    // 4) grace 等待期间 close()：取消那条 .then(openNewSocket) 链 + settle 在途 connect。
+    transport.close()
+    expect(transport.status()).toBe('disconnected')
+
+    // 5) 推进过 grace 窗口（含 A 的 onopen 定时器 + 500ms grace）：openNewSocket 被取消跳过，绝不建 ghost socket。
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(DeferredCloseRelaySocket.instances.length).toBe(1) // 仍只有 A，无 ghost B
+    expect(transport.status()).toBe('disconnected')
+
+    // 6) 再推进：确认无 ghost heartbeat / 重连风暴（不会再冒出新 socket）。
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(DeferredCloseRelaySocket.instances.length).toBe(1)
   })
 })
 

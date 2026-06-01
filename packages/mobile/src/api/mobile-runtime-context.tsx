@@ -50,7 +50,7 @@ import {
   createMobileOutboxState,
   createPromptOutboxItem,
   enqueueOutboxItem,
-  flushOutboxState,
+  flushOutboxConcurrently,
   getOutboxCounts,
   hasQueuedOutboxItems,
   type MobileOutboxState,
@@ -61,6 +61,8 @@ import {
 import { nextReconnectDelayMs, shouldAttemptAutoReconnect } from './mobile-reconnect-policy'
 import type { ConnectionPreference } from './mobile-runtime-context-logic'
 import {
+  createDashboardSocketHandlers,
+  nextChatSince,
   resetChatRuntimeForDisconnect,
   shouldApplyChatMessagesForWorkspace,
   shouldClearLoadedStateOnConnectFailure,
@@ -349,6 +351,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     relayConfig,
     token,
   ])
+  // 始终指向最新 client（M 修复）：flushOutbox 等长任务在 await 期间若切了 token/host，闭包里的旧 client
+  // 会把请求发到旧连接；用 ref 取最新。
+  const clientRef = useRef(client)
+  clientRef.current = client
 
   const registerPushToken = useCallback(
     async (nextClient = client) => {
@@ -370,8 +376,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       for (const message of messages) byId.set(message.id, message)
       return [...byId.values()].sort((a, b) => a.created_at - b.created_at)
     })
-    const latest = messages.at(-1)
-    if (latest) chatSinceRef.current = latest.created_at
+    // chatSince 只前进不后退（M 修复）：relay 推送可能送来更早/乱序的消息，单调推进防 since 倒退重复拉。
+    chatSinceRef.current = nextChatSince(chatSinceRef.current, messages)
   }, [])
 
   const resetChatForWorkspace = useCallback((workspaceId: string | null, force = false) => {
@@ -423,9 +429,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       }
       try {
         const nextDashboard = await client.getMobileDashboard(workspaceId)
+        // 到达时守卫（M 修复）：请求在途时用户可能已切到别的 workspace（ref 已更新），此时丢弃过期响应，
+        // 否则把 A 的 dashboard 覆盖到 B 的 UI（跨 workspace 数据串写）。
+        if (selectedWorkspaceIdRef.current !== workspaceId) return null
         setDashboard(nextDashboard)
         return nextDashboard
       } catch (dashboardError) {
+        // 失败路径也加到达时守卫（non-blocking 修复）：切到别的 workspace 后，A 的失败不得 setError 污染当前。
+        if (selectedWorkspaceIdRef.current !== workspaceId) return null
         if (!options.suppressError) {
           const message =
             dashboardError instanceof Error ? dashboardError.message : String(dashboardError)
@@ -461,6 +472,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       } catch {
         // Chat catch-up is best-effort; the poller and reconnect loop keep retrying.
       }
+      // 二次 workspace 守卫（non-blocking 修复）：await 期间切走后不再为旧 workspace 多余 bump 触发 refetch。
+      if (selectedWorkspaceIdRef.current !== workspaceId) return
       if (options.bumpRevision ?? true) {
         bumpSyncRevision()
       }
@@ -475,11 +488,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     if (!hasQueuedOutboxItems(outboxRef.current)) return
     outboxFlushInFlightRef.current = true
     try {
-      const { sentCount, state: nextOutbox } = await flushOutboxState(
+      // CRITICAL 竞态修复：对快照 flush，但用**函数式 commit**(setOutbox(updater)) 只移除已发 id、
+      // 标失败项、保留 flush 期间并发入队的新消息——绝不用 setOutbox(衍生值) 整体覆盖（会静默丢失
+      // flush 期间用户发的消息）。编排+合并在 flushOutboxConcurrently 内，已被并发竞态测试覆盖。
+      const { sentCount } = await flushOutboxConcurrently(
         outboxRef.current,
         async (item) => {
+          // 用 clientRef.current（M 修复）：flush 在 await 期间若切了 token/host，旧闭包 client 会发到旧连接。
+          const activeClient = clientRef.current
           if (item.kind === 'prompt') {
-            await client.sendPromptToOrchestrator(item.workspaceId, item.payload.text)
+            await activeClient.sendPromptToOrchestrator(item.workspaceId, item.payload.text)
             await syncWorkspaceData(item.workspaceId, {
               bumpRevision: false,
               resetChat: true,
@@ -487,14 +505,18 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
             return
           }
           if (item.kind === 'dispatch') {
-            await client.dispatchTask(item.workspaceId, item.payload.workerId, item.payload.task)
+            await activeClient.dispatchTask(
+              item.workspaceId,
+              item.payload.workerId,
+              item.payload.task
+            )
             await syncWorkspaceData(item.workspaceId, {
               bumpRevision: false,
               resetChat: true,
             })
             return
           }
-          await client.approveRequest(
+          await activeClient.approveRequest(
             item.workspaceId,
             item.payload.approvalId,
             item.payload.decision
@@ -503,16 +525,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
             bumpRevision: false,
             resetChat: true,
           })
-        }
+        },
+        setOutbox
       )
-      setOutbox(nextOutbox)
       if (sentCount > 0) {
         bumpSyncRevision()
       }
     } finally {
       outboxFlushInFlightRef.current = false
     }
-  }, [bumpSyncRevision, client, syncWorkspaceData])
+  }, [bumpSyncRevision, syncWorkspaceData])
 
   useEffect(() => {
     const unsubscribe = client.onConnectionModeChange((mode) =>
@@ -548,7 +570,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           nextClient.getMobileRuntimeStatus(),
           nextClient.listMobileWorkspaces(),
         ])
-        const nextWorkspaceId = chooseWorkspace(nextWorkspaces, selectedWorkspaceId)
+        // 用 ref 最新值而非渲染闭包的 selectedWorkspaceId（M 修复）：启动时 setSelectedWorkspaceId 还没
+        // flush，闭包是 null → chooseWorkspace 误选 workspaces[0]、丢持久化偏好；重连时闭包可能是切换前旧值。
+        const nextWorkspaceId = chooseWorkspace(nextWorkspaces, selectedWorkspaceIdRef.current)
         const nextDashboard = nextWorkspaceId
           ? await nextClient.getMobileDashboard(nextWorkspaceId)
           : null
@@ -612,7 +636,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       recordClientDiagnosticEvent,
       relayConfig,
       resetChatForWorkspace,
-      selectedWorkspaceId,
       syncChatMessages,
     ]
   )
@@ -1213,6 +1236,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         .getMobileRuntimeStatus()
         .then(() => {
           setReconnecting(false)
+          // 探活成功也补一次同步（M 修复）：后台期间漏推的 dashboard/chat 在回前台时立即追平，
+          // 而不是干等下一轮 20s 轮询；syncWorkspaceData 内有 workspace 守卫 + best-effort。
+          const workspaceId = selectedWorkspaceIdRef.current
+          if (workspaceId) void syncWorkspaceData(workspaceId, { resetChat: true })
         })
         .catch(() => {
           void attemptReconnect({ forceFullSync: true, silent: true }).then((ok) => {
@@ -1224,7 +1251,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     return () => {
       subscription.remove()
     }
-  }, [attemptReconnect, client, scheduleReconnect])
+  }, [attemptReconnect, client, scheduleReconnect, syncWorkspaceData])
 
   useEffect(
     () => () => {
@@ -1264,39 +1291,27 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   useEffect(() => {
     if (connectionMode === 'relay') return
     if (state !== 'connected' || !selectedWorkspaceId || !token.trim()) return
-    const socket = new WebSocket(client.buildMobileDashboardWebSocketUrl(selectedWorkspaceId))
+    const socketWorkspaceId = selectedWorkspaceId
+    const socket = new WebSocket(client.buildMobileDashboardWebSocketUrl(socketWorkspaceId))
     let closing = false
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(String(event.data)) as {
-          kind?: string
-          payload?: MobileDashboard
-        }
-        if (
-          (message.kind === 'mobile-dashboard-snapshot' ||
-            message.kind === 'mobile-dashboard-update') &&
-          message.payload
-        ) {
-          setDashboard(message.payload)
-        }
-      } catch (socketError) {
-        const message = socketError instanceof Error ? socketError.message : String(socketError)
-        setError(message)
-      }
-    }
-    socket.onerror = () => {
-      setError('Mobile dashboard websocket disconnected')
-      setState('error')
-      scheduleReconnect()
-    }
-    socket.onclose = () => {
-      if (closing) return
-      if (stateRef.current === 'connected') {
+    // 三个 handler 统一走工厂里的 workspace 到达时守卫（BLOCKING 修复）：切走后旧 socket 的
+    // message/error/close 都不得污染当前 workspace 的 dashboard / 连接状态。
+    const handlers = createDashboardSocketHandlers({
+      socketWorkspaceId,
+      currentWorkspaceId: () => selectedWorkspaceIdRef.current,
+      isClosing: () => closing,
+      isConnected: () => stateRef.current === 'connected',
+      onDashboard: (payload) => setDashboard(payload as MobileDashboard),
+      onParseError: (message) => setError(message),
+      onDisconnected: () => {
         setError('Mobile dashboard websocket disconnected')
         setState('error')
         scheduleReconnect()
-      }
-    }
+      },
+    })
+    socket.onmessage = (event) => handlers.handleMessage(String(event.data))
+    socket.onerror = handlers.handleError
+    socket.onclose = handlers.handleClose
     return () => {
       closing = true
       socket.close()
