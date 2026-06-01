@@ -28,12 +28,52 @@ import {
   type RelayPairingInput,
 } from '../../src/lib/connection-qr'
 import { decodeConnectionQrOutcomeFromPngBase64 } from '../../src/lib/qr-image-decode'
+import type { StoredRelayConfig } from '../../src/lib/relay-config-store'
 import { colors, radius, spacing } from '../../src/theme'
 
 // 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
 const PHOTO_QR_MAX_EDGE = 1500
 
 type IconName = ComponentProps<typeof Ionicons>['name']
+
+export interface ApplyScannedConnectionQrInput {
+  configureRelay: (input: RelayPairingInput) => Promise<StoredRelayConfig>
+  connect: (host: string, token: string, relayConfig?: StoredRelayConfig | null) => Promise<unknown>
+  onConnected: () => void
+  onRelayConfigureFailed: (error: unknown) => void
+  relayConfig: StoredRelayConfig | null
+  setDraftHost: (host: string) => void
+  setDraftToken: (token: string) => void
+  setHost: (host: string) => void
+  setScanLocked: (locked: boolean) => void
+  setScannerOpen: (open: boolean) => void
+  setToken: (token: string) => void
+}
+
+export const applyScannedConnectionQrFlow = async (
+  payload: { host: string; relay?: RelayPairingInput; token: string },
+  input: ApplyScannedConnectionQrInput
+) => {
+  input.setScannerOpen(false)
+  input.setScanLocked(false)
+  input.setDraftHost(payload.host)
+  input.setDraftToken(payload.token)
+  input.setHost(payload.host)
+  input.setToken(payload.token)
+
+  let connectRelayConfig = input.relayConfig
+  if (payload.relay) {
+    try {
+      connectRelayConfig = await input.configureRelay(payload.relay)
+    } catch (error) {
+      input.onRelayConfigureFailed(error)
+      return
+    }
+  }
+
+  const connected = await input.connect(payload.host, payload.token, connectRelayConfig)
+  if (connected) input.onConnected()
+}
 
 export default function SettingsTab() {
   const { language, setLanguage } = useLanguage()
@@ -119,20 +159,27 @@ export default function SettingsTab() {
 
   const applyScannedConnectionQr = useCallback(
     async (payload: { host: string; relay?: RelayPairingInput; token: string }) => {
-      setScannerOpen(false)
-      setScanLocked(false)
-      setDraftHost(payload.host)
-      setDraftToken(payload.token)
-      setHost(payload.host)
-      setToken(payload.token)
-      // QR 若带 relay 段，先落 relay 配置（含本机生成的 device keypair），LAN 失败时才能回落 relay。
-      if (payload.relay) await configureRelay(payload.relay)
-      const connected = await connect(payload.host, payload.token)
-      if (connected) {
-        Alert.alert(t('common.connected'), t('settings.connectedFromQr'))
-      }
+      await applyScannedConnectionQrFlow(payload, {
+        configureRelay,
+        connect,
+        onConnected: () => Alert.alert(t('common.connected'), t('settings.connectedFromQr')),
+        onRelayConfigureFailed: () => {
+          setScanLocked(false)
+          Alert.alert(
+            t('settings.relayManualIncompleteTitle'),
+            t('settings.relayManualIncompleteBody')
+          )
+        },
+        relayConfig,
+        setDraftHost,
+        setDraftToken,
+        setHost,
+        setScanLocked,
+        setScannerOpen,
+        setToken,
+      })
     },
-    [connect, configureRelay, setHost, setToken, t]
+    [connect, configureRelay, relayConfig, setHost, setToken, t]
   )
 
   const onBarcodeScanned = async (result: BarcodeScanningResult) => {

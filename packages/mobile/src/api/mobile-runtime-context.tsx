@@ -99,7 +99,7 @@ interface MobileRuntimeContextValue {
     nextRelayConfig?: StoredRelayConfig | null,
     options?: { preserveUiState?: boolean; preferredConnectionMode?: ConnectionPreference }
   ) => Promise<RuntimeStatus | null>
-  configureRelay: (input: RelayPairingInput) => Promise<void>
+  configureRelay: (input: RelayPairingInput) => Promise<StoredRelayConfig>
   connectionMode: MobileConnectionMode
   connectionDiagnostics: MobileConnectionDiagnostics
   connectionDiagnosticsText: string
@@ -699,9 +699,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   // client，LAN 连不上时即可回落 relay。
   const configureRelay = useCallback(async (input: RelayPairingInput) => {
     const next = buildStoredRelayConfig(input, generateDeviceKeypair())
+    await secureSet(RELAY_CONFIG_KEY, JSON.stringify(next))
     relayConfigRef.current = next
     setRelayConfig(next)
-    await secureSet(RELAY_CONFIG_KEY, JSON.stringify(next))
+    return next
   }, [])
 
   const stopWorker = useCallback(

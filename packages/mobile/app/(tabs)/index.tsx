@@ -67,6 +67,19 @@ interface StagedAttachment {
   mimeType: string
 }
 
+interface UploadedMediaPromptItem {
+  file_id: string
+  filename: string
+  url: string
+}
+
+type MarkdownSegment =
+  | { level: 1 | 2 | 3; text: string; type: 'heading' }
+  | { text: string; type: 'code'; language?: string }
+  | { text: string; type: 'listItem' }
+  | { type: 'spacer' }
+  | { text: string; type: 'paragraph' }
+
 type PreviewImageSource = {
   headers?: Record<string, string>
   uri: string
@@ -79,6 +92,84 @@ const DEDUPE_MESSAGE_TYPES = new Set<DisplayMessage['message_type']>([
 ])
 
 const createClientNonce = () => globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}`
+
+export const normalizeUploadedMediaResult = (
+  file: Pick<StagedAttachment, 'filename'>,
+  result: { file_id: string; url: string } | null
+): UploadedMediaPromptItem => {
+  if (!result?.url) {
+    throw new Error(`Upload failed for ${file.filename}`)
+  }
+  return {
+    file_id: result.file_id,
+    filename: file.filename,
+    url: result.url,
+  }
+}
+
+export const buildUploadedMediaPrompt = (files: UploadedMediaPromptItem[], body: string) => {
+  const parts = files.map((file, index) =>
+    [`[附件 ${index + 1}: ${file.filename}]`, `URL: ${file.url}`, `file_id: ${file.file_id}`].join(
+      '\n'
+    )
+  )
+  if (body) parts.push(body)
+  return parts.join('\n\n')
+}
+
+export const buildMarkdownSegments = (text: string): MarkdownSegment[] => {
+  const segments: MarkdownSegment[] = []
+  const codeLines: string[] = []
+  let codeLanguage: string | undefined
+
+  const flushCodeBlock = () => {
+    segments.push({
+      language: codeLanguage,
+      text: codeLines.join('\n'),
+      type: 'code',
+    })
+    codeLines.length = 0
+    codeLanguage = undefined
+  }
+
+  for (const line of text.split('\n')) {
+    if (line.startsWith('```')) {
+      if (codeLanguage !== undefined) {
+        flushCodeBlock()
+      } else {
+        codeLanguage = line.slice(3).trim() || ''
+      }
+      continue
+    }
+    if (codeLanguage !== undefined) {
+      codeLines.push(line)
+      continue
+    }
+    if (line.startsWith('# ')) {
+      segments.push({ level: 1, text: line.slice(2), type: 'heading' })
+      continue
+    }
+    if (line.startsWith('## ')) {
+      segments.push({ level: 2, text: line.slice(3), type: 'heading' })
+      continue
+    }
+    if (line.startsWith('### ')) {
+      segments.push({ level: 3, text: line.slice(4), type: 'heading' })
+      continue
+    }
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      segments.push({ text: line.slice(2), type: 'listItem' })
+      continue
+    }
+    if (line.trim() === '') {
+      segments.push({ type: 'spacer' })
+      continue
+    }
+    segments.push({ text: line, type: 'paragraph' })
+  }
+  if (codeLanguage !== undefined) flushCodeBlock()
+  return segments
+}
 
 const messageContentKey = (message: Pick<DisplayMessage, 'content_json' | 'message_type'>) =>
   `${message.message_type}:${parseContent(message.content_json).replace(/\s+/g, ' ').trim()}`
@@ -417,20 +508,14 @@ export default function ChatTab() {
     setComposerHeight(COMPOSER_INPUT_MIN_HEIGHT)
     setSending(true)
     try {
-      const uploadedFiles: string[] = []
+      const uploadedFiles: UploadedMediaPromptItem[] = []
       for (const file of stagedFiles) {
-        await uploadMedia(file.base64, file.filename, file.mimeType)
-        uploadedFiles.push(file.filename)
+        const result = await uploadMedia(file.base64, file.filename, file.mimeType)
+        uploadedFiles.push(normalizeUploadedMediaResult(file, result))
       }
-      const parts: string[] = []
-      if (uploadedFiles.length > 0) {
-        parts.push(`[附件: ${uploadedFiles.join(', ')}]`)
-      }
-      if (body) {
-        parts.push(body)
-      }
+      const prompt = buildUploadedMediaPrompt(uploadedFiles, body)
       const sendOutcome =
-        parts.length > 0 ? await sendPromptToOrchestratorWithOutcome(parts.join('\n')) : 'sent'
+        prompt.length > 0 ? await sendPromptToOrchestratorWithOutcome(prompt) : 'sent'
       setOptimistic((prev) =>
         prev.map((m) =>
           m.id === msgId
@@ -1278,58 +1363,65 @@ const MediaContent = ({
 }
 
 const MarkdownText = ({ text }: { text: string }) => {
-  const lines = text.split('\n')
+  const segments = buildMarkdownSegments(text)
   const seen = new Map<string, number>()
-  const keyedLines = lines.map((line) => {
-    const count = seen.get(line) ?? 0
-    seen.set(line, count + 1)
-    return { key: `${line || 'blank'}-${count}`, line }
+  const keyedSegments = segments.map((segment) => {
+    const keyText = 'text' in segment ? segment.text : segment.type
+    const count = seen.get(`${segment.type}:${keyText}`) ?? 0
+    seen.set(`${segment.type}:${keyText}`, count + 1)
+    return { key: `${segment.type}:${keyText || 'blank'}-${count}`, segment }
   })
   return (
     <View>
-      {keyedLines.map(({ key, line }) => {
-        if (line.startsWith('# ')) {
+      {keyedSegments.map(({ key, segment }) => {
+        if (segment.type === 'heading' && segment.level === 1) {
           return (
             <Text key={key} selectable style={mdStyles.h1}>
-              {line.slice(2)}
+              {segment.text}
             </Text>
           )
         }
-        if (line.startsWith('## ')) {
+        if (segment.type === 'heading' && segment.level === 2) {
           return (
             <Text key={key} selectable style={mdStyles.h2}>
-              {line.slice(3)}
+              {segment.text}
             </Text>
           )
         }
-        if (line.startsWith('### ')) {
+        if (segment.type === 'heading' && segment.level === 3) {
           return (
             <Text key={key} selectable style={mdStyles.h3}>
-              {line.slice(4)}
+              {segment.text}
             </Text>
           )
         }
-        if (line.startsWith('- ') || line.startsWith('* ')) {
+        if (segment.type === 'listItem') {
           return (
             <View key={key} style={mdStyles.listItem}>
               <Text selectable style={mdStyles.bullet}>
                 {'  •  '}
               </Text>
               <Text selectable style={mdStyles.listText}>
-                {renderInline(line.slice(2))}
+                {renderInline(segment.text)}
               </Text>
             </View>
           )
         }
-        if (line.startsWith('```')) {
-          return null
+        if (segment.type === 'code') {
+          return (
+            <View key={key} style={mdStyles.codeBlock}>
+              <Text selectable style={mdStyles.codeText}>
+                {segment.text}
+              </Text>
+            </View>
+          )
         }
-        if (line.trim() === '') {
+        if (segment.type === 'spacer') {
           return <View key={key} style={mdStyles.spacer} />
         }
         return (
           <Text key={key} selectable style={mdStyles.paragraph}>
-            {renderInline(line)}
+            {renderInline(segment.text)}
           </Text>
         )
       })}
@@ -1370,6 +1462,20 @@ const mediaStyles = StyleSheet.create({
 
 const mdStyles = StyleSheet.create({
   bullet: { color: colors.textSoft, fontSize: 15 },
+  codeBlock: {
+    backgroundColor: 'rgba(13, 17, 23, 0.36)',
+    borderColor: colors.borderMuted,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginVertical: 4,
+    padding: spacing.sm,
+  },
+  codeText: {
+    color: colors.text,
+    fontFamily: Platform.select({ default: 'monospace', ios: 'Menlo' }),
+    fontSize: 13,
+    lineHeight: 19,
+  },
   h1: { color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 4 },
   h2: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: 3 },
   h3: { color: colors.text, fontSize: 15, fontWeight: '600', marginBottom: 2 },
