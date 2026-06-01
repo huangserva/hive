@@ -103,6 +103,9 @@ const COCKPIT_KEYS = [
   'cockpit.actionBar.action.answer',
   'cockpit.actionBar.action.view',
   'cockpit.actionBar.action.confirm',
+  'cockpit.actionBar.action.addNote',
+  'cockpit.actionBar.action.prepare',
+  'cockpit.actionBar.action.startImpl',
 ] as const
 
 const PLAN_KEYS = [

@@ -115,4 +115,27 @@ describe('ActionBar i18n', () => {
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '查看' })).not.toBeInTheDocument()
   })
+
+  test('EN locale translates audit/playbook/impl backend Chinese action labels', () => {
+    const actions = [
+      makeAction({ action: '补 note', id: 'note', text: 'Add research note', type: 'audit' }),
+      makeAction({ action: '准备', id: 'prep', text: 'Prepare handoff brief', type: 'playbook' }),
+      makeAction({
+        action: '开实施',
+        id: 'impl',
+        text: 'Open impl milestone',
+        type: 'missing_impl_milestone',
+      }),
+    ]
+    render(
+      <I18nProvider>
+        <ActionBar actions={actions} />
+      </I18nProvider>
+    )
+    expect(screen.getByRole('button', { name: 'Add note' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Prepare' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start impl' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '补 note' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开实施' })).not.toBeInTheDocument()
+  })
 })
