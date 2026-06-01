@@ -245,4 +245,31 @@ describe('relay server', () => {
     sendJson(device, { type: 'data', payload: 'aGVsbG8=' })
     await expect(nextMessage(secondDaemon)).resolves.toEqual({ type: 'data', payload: 'aGVsbG8=' })
   })
+
+  it('removes an evicted replaced peer from its room before admitting the replacement', async () => {
+    const server = await startRelay()
+    const firstDevice = await connect(server)
+    const secondDevice = await connect(server)
+
+    await joinRoom(firstDevice, 'room-replaced-device-only', 'device')
+    expect(server.roomPeerCount('room-replaced-device-only')).toBe(1)
+
+    sendJson(secondDevice, {
+      type: 'join',
+      room: 'room-replaced-device-only',
+      role: 'device',
+      auth_token: 'secret',
+    })
+
+    await expect(nextMessage(firstDevice)).resolves.toMatchObject({
+      type: 'error',
+      code: 'replaced',
+    })
+    await expect(nextMessage(secondDevice)).resolves.toMatchObject({
+      type: 'joined',
+      room: 'room-replaced-device-only',
+      role: 'device',
+    })
+    expect(server.roomPeerCount('room-replaced-device-only')).toBe(1)
+  })
 })

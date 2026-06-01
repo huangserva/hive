@@ -20,6 +20,7 @@ export interface RelayServerHandle {
   readonly ready: Promise<void>
   close(): Promise<void>
   roomCount(): number
+  roomPeerCount(roomName: string): number
 }
 
 type JoinedPeer = {
@@ -163,16 +164,17 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       // a fresh socket while the previous one can linger as a zombie behind a proxy
       // and would otherwise hold the slot forever — rejecting every reconnect with
       // role_occupied. Newest connection wins; the daemon re-keys its e2ee session
-      // by device_id when the new device sends its hello. We delete the old peer
-      // from `peers` BEFORE closing it so the async close handler's removePeer is a
-      // no-op and can't wipe the slot we're about to hand to the new connection.
-      peers.delete(existing.ws)
+      // by device_id when the new device sends its hello. removePeer clears both
+      // the peer map and the room slot before close, so the async close handler is
+      // a no-op and stale room references cannot survive the replacement.
+      removePeer(existing.ws, false)
       sendJson(existing.ws, {
         type: 'error',
         code: 'replaced',
         message: `Replaced by a newer ${frame.role} connection`,
       })
       existing.ws.close(1008, 'replaced')
+      rooms.set(frame.room, room)
     }
 
     const peer: JoinedPeer = { ws, room: frame.room, role: frame.role, lastSeenAt: Date.now() }
@@ -308,6 +310,11 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
     },
     ready,
     roomCount: () => rooms.size,
+    roomPeerCount: (roomName: string) => {
+      const room = rooms.get(roomName)
+      if (!room) return 0
+      return Number(Boolean(room.daemon)) + Number(Boolean(room.device))
+    },
     close: async () => {
       clearInterval(heartbeatTimer)
       clearInterval(cleanupTimer)

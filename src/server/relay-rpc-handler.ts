@@ -59,7 +59,13 @@ interface RelayRpcHandlerDeps {
 }
 
 type RelayRpcParams = Record<string, unknown>
-const pendingUploadPaths = new Map<string, string[]>()
+type PendingUploadPath = {
+  path: string
+  uploadedAt: number
+}
+
+const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
+const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
 const asParams = (value: unknown): RelayRpcParams =>
@@ -84,6 +90,23 @@ const readOptionalNumberParam = (params: RelayRpcParams, key: string, fallback: 
 }
 
 const getPendingUploadKey = (workspaceId: string, deviceId: string) => `${workspaceId}:${deviceId}`
+
+const prunePendingUploads = (uploads: PendingUploadPath[], now = Date.now()) =>
+  uploads.filter((upload) => now - upload.uploadedAt <= PENDING_UPLOAD_TTL_MS)
+
+const consumePendingUploadPaths = (key: string) => {
+  const uploadPaths = prunePendingUploads(pendingUploadPaths.get(key) ?? []).map(
+    (upload) => upload.path
+  )
+  pendingUploadPaths.delete(key)
+  return uploadPaths
+}
+
+const addPendingUploadPath = (key: string, path: string) => {
+  const pending = prunePendingUploads(pendingUploadPaths.get(key) ?? [])
+  pending.push({ path, uploadedAt: Date.now() })
+  pendingUploadPaths.set(key, pending)
+}
 
 const requireCapability = (
   store: RelayRpcHandlerDeps['store'],
@@ -248,8 +271,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         throw new Error('Orchestrator is not running')
       }
       const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
-      const uploadPaths = pendingUploadPaths.get(pendingUploadKey) ?? []
-      pendingUploadPaths.delete(pendingUploadKey)
+      const uploadPaths = consumePendingUploadPaths(pendingUploadKey)
       const pathHints = uploadPaths.map((p) => `[Image: source: ${p}]`).join('\n')
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
@@ -316,9 +338,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       writeFileSync(diskPath, dataBuffer)
       const url = `/api/mobile/uploads/${fileId}${ext}`
       const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
-      const pending = pendingUploadPaths.get(pendingUploadKey) ?? []
-      pending.push(diskPath)
-      pendingUploadPaths.set(pendingUploadKey, pending)
+      addPendingUploadPath(pendingUploadKey, diskPath)
       deps.store.insertMobileChatMessage(
         workspaceId,
         'inbound',

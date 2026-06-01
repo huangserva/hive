@@ -36,9 +36,32 @@ import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
-const pendingUploadPaths = new Map<string, string[]>()
+type PendingUploadPath = {
+  path: string
+  uploadedAt: number
+}
+
+const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
+const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
 
 const getPendingUploadKey = (workspaceId: string, deviceId: string) => `${workspaceId}:${deviceId}`
+
+const prunePendingUploads = (uploads: PendingUploadPath[], now = Date.now()) =>
+  uploads.filter((upload) => now - upload.uploadedAt <= PENDING_UPLOAD_TTL_MS)
+
+const consumePendingUploadPaths = (key: string) => {
+  const uploadPaths = prunePendingUploads(pendingUploadPaths.get(key) ?? []).map(
+    (upload) => upload.path
+  )
+  pendingUploadPaths.delete(key)
+  return uploadPaths
+}
+
+const addPendingUploadPath = (key: string, path: string) => {
+  const pending = prunePendingUploads(pendingUploadPaths.get(key) ?? [])
+  pending.push({ path, uploadedAt: Date.now() })
+  pendingUploadPaths.set(key, pending)
+}
 
 const ALLOWED_AUDIO_FORMATS = new Set(['m4a', 'mp3', 'wav', 'ogg', 'webm', 'opus', 'aac', 'flac'])
 
@@ -729,8 +752,7 @@ export const mobileRoutes: RouteDefinition[] = [
         throw new BadRequestError('Orchestrator is not running')
       }
       const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
-      const uploadPaths = pendingUploadPaths.get(pendingUploadKey) ?? []
-      pendingUploadPaths.delete(pendingUploadKey)
+      const uploadPaths = consumePendingUploadPaths(pendingUploadKey)
       const pathHints = uploadPaths.map((p) => `[Image: source: ${p}]`).join('\n')
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
@@ -932,9 +954,7 @@ export const mobileRoutes: RouteDefinition[] = [
       const diskPath = join(uploadsDir, storageName)
       const url = `/api/mobile/uploads/${fileId}${ext}`
       const pendingUploadKey = getPendingUploadKey(workspaceId, device.id)
-      const pending = pendingUploadPaths.get(pendingUploadKey) ?? []
-      pending.push(diskPath)
-      pendingUploadPaths.set(pendingUploadKey, pending)
+      addPendingUploadPath(pendingUploadKey, diskPath)
       store.insertMobileChatMessage(
         workspaceId,
         'inbound',

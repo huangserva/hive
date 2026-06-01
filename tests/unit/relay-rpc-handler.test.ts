@@ -9,6 +9,7 @@ import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 const tempDirs: string[] = []
 
 afterEach(() => {
+  vi.useRealTimers()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -174,6 +175,7 @@ describe('relay RPC handler', () => {
           id: 'dispatch-1',
           status: 'pending',
           task_summary: 'Run the mobile task endpoint smoke test',
+          worker_id: 'worker-1',
           worker_name: 'Alice',
         },
       ],
@@ -533,5 +535,59 @@ describe('relay RPC handler', () => {
       expect.stringContaining('[Image: source: ')
     )
     expect(existsSync(join(dataDir, 'uploads'))).toBe(true)
+  })
+
+  it('expires stale uploaded media before prompting the orchestrator over relay RPC', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-upload-expire-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(join(workspacePath, '.hive'), { recursive: true })
+    writeFileSync(
+      join(workspacePath, '.hive', 'open-questions.md'),
+      ['# Open Questions', '', '## 🟠 medium — 影响下一步规划', '', '（暂无）'].join('\n'),
+      'utf8'
+    )
+    tempDirs.push(dataDir)
+
+    const recordUserInput = vi.fn()
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir, port: 4010 },
+      store: createBaseStore({
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: workspacePath } })),
+        recordUserInput,
+      }),
+    })
+
+    await expect(
+      handler(
+        'workspace.upload',
+        {
+          data: Buffer.from('stale-image-bytes').toString('base64'),
+          filename: 'stale.png',
+          mime_type: 'image/png',
+          workspace_id: 'ws-1',
+        },
+        'device-expire',
+        ['send_prompt']
+      )
+    ).resolves.toMatchObject({ ok: true, filename: 'stale.png' })
+
+    vi.setSystemTime(new Date('2026-06-01T00:06:00.000Z'))
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { text: 'This message should not inherit stale media', workspace_id: 'ws-1' },
+        'device-expire',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+    expect(recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.not.stringContaining('[Image: source:')
+    )
   })
 })

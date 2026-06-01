@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 
 import { buildMobileWorkerTranscript } from '../../src/server/routes-mobile.js'
@@ -12,6 +12,7 @@ import { getUiCookie } from '../helpers/ui-session.js'
 const tempDirs: string[] = []
 
 afterEach(() => {
+  vi.useRealTimers()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -914,6 +915,68 @@ describe('mobile API', () => {
       expect(messageFromB?.text).not.toContain(firstBody.file_id)
       expect(messageFromA?.text).toContain(firstBody.file_id)
       expect(messageFromA?.text).not.toContain(secondBody.file_id)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('expires stale pending mobile uploads before later prompt submission', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Upload Expiry')
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-upload-expire-echo.js')
+      writeFileSync(
+        orchScript,
+        [
+          "process.stdin.setEncoding('utf8')",
+          "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+        ].join('\n'),
+        'utf8'
+      )
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+
+      const device = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Phone A')
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))
+
+      const staleUpload = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`,
+        {
+          body: JSON.stringify({
+            data: Buffer.from('stale image').toString('base64'),
+            filename: 'stale.png',
+            mime_type: 'image/png',
+          }),
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: device.token }),
+          method: 'POST',
+        }
+      )
+      const staleBody = (await staleUpload.json()) as { file_id: string }
+      expect(staleUpload.status).toBe(200)
+
+      vi.setSystemTime(new Date('2026-06-01T00:06:00.000Z'))
+
+      const prompt = await fetch(`${server.baseUrl}/api/mobile/workspaces/${workspace.id}/prompt`, {
+        body: JSON.stringify({ text: 'Plain text after abandoned upload' }),
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token: device.token }),
+        method: 'POST',
+      })
+      expect(prompt.status).toBe(200)
+
+      const recoveryMessages = server.store.listMessagesForRecovery(workspace.id, 0)
+      const promptMessage = recoveryMessages.find((message) =>
+        message.text.includes('Plain text after abandoned upload')
+      )
+      expect(promptMessage?.text).not.toContain(staleBody.file_id)
+      expect(promptMessage?.text).not.toContain('[Image: source:')
     } finally {
       await server.close()
     }
