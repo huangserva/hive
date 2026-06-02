@@ -13,7 +13,8 @@ last_review: 2026-05-25
 ## 🔴 POST-RESTART TODO（2026-06-02 语音 STT 收口，4010 重启后接力）
 
 > 重启 4010 后新 orch 必读：语音对讲 STT 引擎刚装好+全 commit，**重启就是为激活它**。重启后立刻做：
-> 1. **adb 真机验 STT**：user 华为设备连着 USB（`2PV0224423000586`，`export PATH=/opt/homebrew/share/android-commandlinetools/platform-tools:$PATH` 用 adb）。2.4.3 已装 user 手机。让 user 打开对讲 tab→按住说一句→看能不能转出文字（之前一直 "No speech transcribed"，因为引擎没装）。或 adb 抓 logcat 看 voice.transcribe 结果。
+> 0. **【2026-06-02 晚更新】链路已真机验证全通**：user 已实测 说中文→录音→转写→上屏→注入 orch 整条 work；**唯一遗留=输出英文已修**（`-l zh`/`--language zh` 锁定中文，赵云 commit，PM 最终 args 实跑"让关羽汇报进度/让钟馗审查让马超出包"全简体全对）。**本次重启就是激活 `-l zh`**，预期 user 真机说中文→出中文。重启后只需 user 真机说一句确认是中文即可收工。
+> 1. **adb 真机验 STT**：user 华为设备连着 USB（`2PV0224423000586`，`export PATH=/opt/homebrew/share/android-commandlinetools/platform-tools:$PATH` 用 adb）。2.4.3 已装 user 手机。让 user 打开对讲 tab→按住说一句→**确认转出的是中文**（之前出英文，本次重启后应是中文）。
 > 2. **已就位**：whisper-cli(/opt/homebrew/bin，Metal/M4)+ **ggml-small.bin**(~/.config/hive/whisper-models/,465M；已删 base 换 small,中文更准)+ ffmpeg；local-stt ffmpeg m4a→WAV+模型自动发现已 commit `c687bcd`；**STT 中文提示词**(简体+团队名,whisper-cli `--prompt`/python `--initial_prompt`,赵云做,本 commit)。mobile 三崩溃/录音 bug 已修(voice commits `b9f8309`/`aa1df58`/`858f667`)。**PM 已电脑端实测 STT 转中文准**(say→ffmpeg→whisper-cli:"让关羽汇报进度""让钟馗审查让马超出包"全对),adb 真机验只剩"手机录音→relay→转写"这条链路确认。
 > 3. **设计线待 user 拍（开着）**：语音模式 orch 回复风格——A=口语短回复(推荐:即时确认一句+结果一句summary+长详情说"发你文字了") / B=念完整文字 / C=user 想法。定了做成语音请求的回复规则。
 > 4. 语音 line 全貌见 M35/M14b。**别重复 review，这是 firefight 接力不是新 session 完整 review。**

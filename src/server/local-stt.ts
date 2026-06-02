@@ -44,6 +44,7 @@ interface LocalSttProviderOptions {
 
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_WHISPER_MODEL = 'base'
+const DEFAULT_STT_LANGUAGE = 'zh'
 const DEFAULT_STT_PROMPT =
   '以下是简体中文普通话语音指令。团队成员：关羽、马超、赵云、钟馗、吕布、典韦、张飞、周瑜。'
 
@@ -160,6 +161,8 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
         [
           '-m',
           cli.model,
+          '-l',
+          DEFAULT_STT_LANGUAGE,
           '--prompt',
           DEFAULT_STT_PROMPT,
           '-otxt',
@@ -186,6 +189,8 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
         [
           '--model',
           cli.model ?? DEFAULT_WHISPER_MODEL,
+          '--language',
+          DEFAULT_STT_LANGUAGE,
           '--output_format',
           'txt',
           '--output_dir',
