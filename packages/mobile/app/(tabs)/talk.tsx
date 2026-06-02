@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import {
   type AudioRecorder,
+  type RecorderState,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
@@ -51,6 +52,8 @@ const latestOrchestratorReplyId = (
 
 const snapshotOrchestratorReplyIds = (messages: Array<{ id: string; message_type: string }>) =>
   new Set(messages.filter((message) => message.message_type === 'orch_reply').map((m) => m.id))
+
+const isRecorderPrepared = (status: RecorderState) => status.canRecord || status.isRecording
 
 export default function TalkTab() {
   const {
@@ -135,6 +138,17 @@ export default function TalkTab() {
         allowsRecording: true,
         playsInSilentMode: true,
       })
+      let status = targetRecorder.getStatus()
+      if (status.isRecording) {
+        if (recordingActiveRef.current) return
+        await targetRecorder.stop()
+        status = targetRecorder.getStatus()
+      }
+      if (isRecorderPrepared(status)) {
+        targetRecorder.record()
+        recordingActiveRef.current = true
+        return
+      }
       await targetRecorder.prepareToRecordAsync(recordingOptions)
       targetRecorder.record()
       recordingActiveRef.current = true
@@ -147,9 +161,12 @@ export default function TalkTab() {
       if (processingSegmentRef.current) return
       const recorderForSegment = recorderRef.current
       processingSegmentRef.current = true
-      recordingActiveRef.current = false
       try {
-        await recorderForSegment.stop()
+        const status = recorderForSegment.getStatus()
+        if (isRecorderPrepared(status) || recordingActiveRef.current) {
+          await recorderForSegment.stop()
+        }
+        recordingActiveRef.current = false
         await setAudioModeAsync({
           allowsRecording: false,
           playsInSilentMode: true,
@@ -176,7 +193,11 @@ export default function TalkTab() {
           message: sendError instanceof Error ? sendError.message : String(sendError),
           type: 'failed',
         })
-        if (nextStateOnError === 'listening' && continuousEnabledRef.current) {
+        if (
+          nextStateOnError === 'listening' &&
+          continuousEnabledRef.current &&
+          !recordingActiveRef.current
+        ) {
           dispatchTalkEvent({ type: 'continuousStart' })
         }
       } finally {

@@ -29,6 +29,9 @@ const audioMock = vi.hoisted(() => {
     getStatus: vi.fn(() => recorderStatus),
     id: 'recorder-1',
     prepareToRecordAsync: vi.fn(async () => {
+      if (recorderStatus.canRecord) {
+        throw new Error('AudioRecorder has already been prepared')
+      }
       recorderStatus.canRecord = true
       recorderStatus.url = 'file://recording.m4a'
     }),
@@ -224,6 +227,50 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
     expect(audioMock.recorder.stop).toHaveBeenCalled()
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(2)
+  })
+
+  test('push-to-talk records from an already prepared recorder without preparing again', async () => {
+    Object.assign(audioMock.recorderStatus, {
+      canRecord: true,
+      isRecording: false,
+      url: 'file://prepared-recording.m4a',
+    })
+    render(React.createElement(TalkTab))
+
+    fireEvent.mouseDown(screen.getByText('talk.button.hold'))
+
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalledTimes(1))
+    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalled()
+  })
+
+  test('continuous mode records from an already prepared recorder without preparing again', async () => {
+    Object.assign(audioMock.recorderStatus, {
+      canRecord: true,
+      isRecording: false,
+      url: 'file://prepared-recording.m4a',
+    })
+    render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalledTimes(1))
+    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalled()
+  })
+
+  test('does not prepare a new continuous segment when stopping the previous one fails', async () => {
+    audioMock.recorder.stop.mockImplementationOnce(async () => {
+      throw new Error('native stop failed')
+    })
+    const view = render(React.createElement(TalkTab))
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+
+    await finishCurrentPhrase(view)
+    await flush()
+
+    expect(screen.getByText('native stop failed')).toBeTruthy()
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
   })
 
   test('ignores historical late-loaded replies but speaks this turn new reply across clock skew', async () => {
