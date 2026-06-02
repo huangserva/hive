@@ -1,5 +1,13 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  accessSync,
+  constants,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -22,6 +30,12 @@ export interface LocalTtsResult {
   format: string
   mime: string
   provider: LocalTtsProviderName
+}
+
+interface LocalTtsAudio {
+  audio: Buffer
+  format: string
+  mime: string
 }
 
 export interface LocalTtsProvider {
@@ -88,12 +102,21 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
   }
 
   const runPiper = async (cli: LocalTtsCli, text: string): Promise<Buffer | null> => {
+    if (!cli.model) return null
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-tts-'))
     try {
       const outputPath = join(outputDir, 'tts.wav')
       const inputPath = join(outputDir, 'input.txt')
       writeFileSync(inputPath, text, 'utf8')
-      const args = ['--model', cli.model!, '--input_file', inputPath, '--output_file', outputPath, '--quiet']
+      const args = [
+        '--model',
+        cli.model,
+        '--input_file',
+        inputPath,
+        '--output_file',
+        outputPath,
+        '--quiet',
+      ]
       await execFileP(cli.command, args, {
         maxBuffer: 10 * 1024 * 1024,
         timeout: timeoutMs,
@@ -105,19 +128,48 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
     }
   }
 
-  const runSay = async (cli: LocalTtsCli, text: string): Promise<Buffer | null> => {
+  const runSay = async (cli: LocalTtsCli, text: string): Promise<LocalTtsAudio | null> => {
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-tts-'))
     try {
-      const outputPath = join(outputDir, 'tts.aiff')
-      const args = ['-o', outputPath]
+      const outputAiffPath = join(outputDir, 'tts.aiff')
+      const outputM4aPath = join(outputDir, 'tts.m4a')
+      const outputWavPath = join(outputDir, 'tts.wav')
+      const runWavFallback = async () => {
+        const wavArgs = ['-o', outputWavPath, '--file-format=WAVE', '--data-format=LEI16@22050']
+        if (cli.voice) wavArgs.push('-v', cli.voice)
+        wavArgs.push(text)
+        await execFileP(cli.command, wavArgs, {
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: timeoutMs,
+        })
+        if (!existsSync(outputWavPath)) return null
+        return { audio: readFileSync(outputWavPath), format: 'wav', mime: 'audio/wav' }
+      }
+      const ffmpeg = findExecutable('ffmpeg', env)
+      if (!ffmpeg) return await runWavFallback()
+
+      const args = ['-o', outputAiffPath]
       if (cli.voice) args.push('-v', cli.voice)
       args.push(text)
       await execFileP(cli.command, args, {
         maxBuffer: 10 * 1024 * 1024,
         timeout: timeoutMs,
       })
-      if (!existsSync(outputPath)) return null
-      return readFileSync(outputPath)
+      if (!existsSync(outputAiffPath)) return null
+
+      try {
+        await execFileP(
+          ffmpeg,
+          ['-i', outputAiffPath, '-c:a', 'aac', '-b:a', '64k', '-y', outputM4aPath],
+          { maxBuffer: 10 * 1024 * 1024, timeout: timeoutMs }
+        )
+        if (existsSync(outputM4aPath)) {
+          return { audio: readFileSync(outputM4aPath), format: 'm4a', mime: 'audio/mp4' }
+        }
+      } catch (error) {
+        options.logger?.warn('local TTS say ffmpeg conversion failed', error)
+      }
+      return await runWavFallback()
     } finally {
       rmSync(outputDir, { force: true, recursive: true })
     }
@@ -131,12 +183,12 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
       if (!text.trim() || text.length > MAX_TEXT_LENGTH) return null
       for (const cli of detectCandidates()) {
         try {
-          const audio =
-            cli.provider === 'piper' ? await runPiper(cli, text) : await runSay(cli, text)
-          if (audio) {
-            const format = cli.provider === 'piper' ? 'wav' : 'aiff'
-            const mime = cli.provider === 'piper' ? 'audio/wav' : 'audio/aiff'
-            return { audio, format, mime, provider: cli.provider }
+          if (cli.provider === 'piper') {
+            const audio = await runPiper(cli, text)
+            if (audio) return { audio, format: 'wav', mime: 'audio/wav', provider: cli.provider }
+          } else {
+            const result = await runSay(cli, text)
+            if (result) return { ...result, provider: cli.provider }
           }
         } catch (error) {
           options.logger?.warn(

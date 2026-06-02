@@ -115,13 +115,14 @@ writeFileSync(outPath, Buffer.from('piper:' + model + ':' + text))
     expect(result?.provider).toBe('piper')
     expect(result?.format).toBe('wav')
     expect(result?.mime).toBe('audio/wav')
-    const content = result!.audio.toString('utf8')
-    expect(content).toContain('piper:' + modelFile + ':')
+    if (!result) throw new Error('expected piper result')
+    const content = result.audio.toString('utf8')
+    expect(content).toContain(`piper:${modelFile}:`)
     expect(content).toContain('hello world')
     expect(readdirSync(tempRoot).filter((name) => name.startsWith('hive-local-tts-'))).toEqual([])
   })
 
-  test('say outputs AIFF format and uses Tingting voice by default', async () => {
+  test('say converts AIFF output to m4a and uses Tingting voice by default', async () => {
     const binDir = setupDir('hive-tts-bin-')
     const tempRoot = setupDir('hive-tts-tmp-')
     writeExecutable(
@@ -137,6 +138,22 @@ const textArg = args[args.length - 1]
 writeFileSync(outFile, Buffer.from('aiff:' + voice + ':' + textArg))
 `)
     )
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { readFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
+const args = process.argv.slice(2)
+const input = args[args.indexOf('-i') + 1]
+const output = args.at(-1)
+if (basename(input) !== 'tts.aiff') process.exit(2)
+if (args[args.indexOf('-c:a') + 1] !== 'aac') process.exit(3)
+if (args[args.indexOf('-b:a') + 1] !== '64k') process.exit(4)
+if (!output || basename(output) !== 'tts.m4a') process.exit(5)
+writeFileSync(output, Buffer.concat([Buffer.from('m4a:'), readFileSync(input)]))
+`)
+    )
 
     const provider = createLocalTtsProvider({
       env: { PATH: binDir },
@@ -146,10 +163,39 @@ writeFileSync(outFile, Buffer.from('aiff:' + voice + ':' + textArg))
     const result = await provider.synthesize('test')
     expect(result).not.toBeNull()
     expect(result?.provider).toBe('say')
-    expect(result?.format).toBe('aiff')
-    expect(result?.mime).toBe('audio/aiff')
-    const content = result!.audio.toString('utf8')
-    expect(content).toContain('aiff:Tingting:test')
+    expect(result?.format).toBe('m4a')
+    expect(result?.mime).toBe('audio/mp4')
+    if (!result) throw new Error('expected say result')
+    const content = result.audio.toString('utf8')
+    expect(content).toContain('m4a:aiff:Tingting:test')
+  })
+
+  test('say falls back to wav when ffmpeg is unavailable', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    writeExecutable(
+      binDir,
+      'say',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outFile = args[args.indexOf('-o') + 1]
+if (!args.includes('--file-format=WAVE')) process.exit(2)
+if (!args.includes('--data-format=LEI16@22050')) process.exit(3)
+writeFileSync(outFile, Buffer.from('wav-fallback'))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir },
+      tempRoot,
+    })
+
+    const result = await provider.synthesize('fallback')
+    expect(result?.provider).toBe('say')
+    expect(result?.format).toBe('wav')
+    expect(result?.mime).toBe('audio/wav')
+    expect(result?.audio.toString('utf8')).toBe('wav-fallback')
   })
 
   test('say uses HIVE_TTS_SAY_VOICE env when set', async () => {
@@ -167,6 +213,15 @@ const voice = voiceIdx >= 0 ? args[voiceIdx + 1] : 'default'
 writeFileSync(outFile, Buffer.from('voice=' + voice))
 `)
     )
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { readFileSync, writeFileSync } from 'node:fs'
+const input = process.argv[process.argv.indexOf('-i') + 1]
+writeFileSync(process.argv.at(-1), readFileSync(input))
+`)
+    )
 
     const provider = createLocalTtsProvider({
       env: { PATH: binDir, HIVE_TTS_SAY_VOICE: 'Kyoko' },
@@ -176,6 +231,7 @@ writeFileSync(outFile, Buffer.from('voice=' + voice))
     const result = await provider.synthesize('konnichiwa')
     expect(result).not.toBeNull()
     expect(result?.audio.toString('utf8')).toBe('voice=Kyoko')
+    expect(result?.format).toBe('m4a')
   })
 
   test('prefers piper over say when both are available with model', async () => {
