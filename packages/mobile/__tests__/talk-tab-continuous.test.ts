@@ -252,6 +252,13 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(2)
   })
 
+  test('does not render internal voice stream test controls in the production talk UI', () => {
+    render(React.createElement(TalkTab))
+
+    expect(screen.queryByText('talk.streamTest.button')).toBeNull()
+    expect(screen.queryByText('talk.streamSynthesis.button')).toBeNull()
+  })
+
   test('push-to-talk records from an already prepared recorder without preparing again', async () => {
     Object.assign(audioMock.recorderStatus, {
       canRecord: true,
