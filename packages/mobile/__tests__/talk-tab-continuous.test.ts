@@ -9,67 +9,74 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 vi.mock('react', async () => await import('../../../node_modules/react/index.js'))
 
 type RecordingStatus = {
+  canRecord: boolean
   durationMillis: number
+  isRecording: boolean
+  mediaServicesDidReset: boolean
   metering?: number
+  url: string | null
 }
 
 const audioMock = vi.hoisted(() => {
-  class MockRecording {
-    onStatus: ((status: RecordingStatus) => void) | null = null
-    stopAndUnloadAsync = vi.fn().mockResolvedValue(undefined)
-    getURI = vi.fn(() => `file://recording-${mockRecordings.length}.m4a`)
-    setProgressUpdateInterval = vi.fn().mockResolvedValue(undefined)
-    setOnRecordingStatusUpdate = vi.fn((callback: (status: RecordingStatus) => void) => {
-      this.onStatus = callback
-    })
+  const recorderStatus: RecordingStatus = {
+    canRecord: false,
+    durationMillis: 0,
+    isRecording: false,
+    mediaServicesDidReset: false,
+    url: null,
+  }
+  const recorder = {
+    getStatus: vi.fn(() => recorderStatus),
+    id: 'recorder-1',
+    prepareToRecordAsync: vi.fn(async () => {
+      recorderStatus.canRecord = true
+      recorderStatus.url = 'file://recording.m4a'
+    }),
+    record: vi.fn(() => {
+      recorderStatus.isRecording = true
+    }),
+    stop: vi.fn(async () => {
+      recorderStatus.isRecording = false
+      recorderStatus.canRecord = false
+      recorderStatus.url = 'file://recording.m4a'
+    }),
+    uri: 'file://recording.m4a',
+  }
+  const playerStatus = {
+    didJustFinish: false,
+    isLoaded: false,
+  }
+  const player = {
+    pause: vi.fn(),
+    play: vi.fn(() => {
+      playerStatus.isLoaded = true
+      playerStatus.didJustFinish = false
+    }),
+    remove: vi.fn(),
+    replace: vi.fn(),
   }
 
-  const mockRecordings: MockRecording[] = []
-  const mockSounds: Array<{
-    onStatus: ((status: { didJustFinish: boolean; isLoaded: boolean }) => void) | null
-    setOnPlaybackStatusUpdate: ReturnType<typeof vi.fn>
-    unloadAsync: ReturnType<typeof vi.fn>
-  }> = []
-  const createAsync = vi.fn(async () => {
-    const recording = new MockRecording()
-    mockRecordings.push(recording)
-    return { recording }
-  })
-  const soundCreateAsync = vi.fn(async () => {
-    const sound = {
-      onStatus: null as ((status: { didJustFinish: boolean; isLoaded: boolean }) => void) | null,
-      setOnPlaybackStatusUpdate: vi.fn(
-        (callback: (status: { didJustFinish: boolean; isLoaded: boolean }) => void) => {
-          sound.onStatus = callback
-        }
-      ),
-      unloadAsync: vi.fn().mockResolvedValue(undefined),
-    }
-    mockSounds.push(sound)
-    return { sound }
-  })
-
-  return { createAsync, mockRecordings, mockSounds, soundCreateAsync }
+  return { player, playerStatus, recorder, recorderStatus }
 })
 
-vi.mock('expo-av', () => ({
-  Audio: {
-    Recording: {
-      createAsync: audioMock.createAsync,
+vi.mock('expo-audio', () => ({
+  RecordingPresets: {
+    HIGH_QUALITY: {
+      android: {},
+      bitRate: 128000,
+      extension: '.m4a',
+      ios: {},
+      numberOfChannels: 2,
+      sampleRate: 44100,
+      web: {},
     },
-    RecordingOptionsPresets: {
-      HIGH_QUALITY: {
-        android: {},
-        ios: {},
-        web: {},
-      },
-    },
-    Sound: {
-      createAsync: audioMock.soundCreateAsync,
-    },
-    requestPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
-    setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
   },
+  requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
+  setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
+  useAudioPlayer: vi.fn(() => audioMock.player),
+  useAudioPlayerStatus: vi.fn(() => audioMock.playerStatus),
+  useAudioRecorder: vi.fn(() => audioMock.recorder),
+  useAudioRecorderState: vi.fn(() => audioMock.recorderStatus),
 }))
 
 vi.mock('expo-file-system', () => ({
@@ -158,29 +165,45 @@ import TalkTab from '../app/(tabs)/talk'
 
 const flush = () => act(async () => {})
 
-const startContinuousMode = async () => {
-  render(React.createElement(TalkTab))
-  fireEvent.click(screen.getByText('talk.mode.continuous'))
-  await waitFor(() => expect(audioMock.createAsync).toHaveBeenCalledTimes(1))
+const setRecorderStatus = async (
+  view: ReturnType<typeof render>,
+  status: Partial<RecordingStatus>
+) => {
+  await act(async () => {
+    Object.assign(audioMock.recorderStatus, status)
+    view.rerender(React.createElement(TalkTab))
+  })
 }
 
-const finishCurrentPhrase = async () => {
-  const recording = audioMock.mockRecordings.at(-1)
-  expect(recording).toBeDefined()
-  await act(async () => {
-    recording?.onStatus?.({ durationMillis: 0, metering: -40 })
-    recording?.onStatus?.({ durationMillis: 400, metering: -60 })
-    recording?.onStatus?.({ durationMillis: 1600, metering: -60 })
-  })
+const finishCurrentPhrase = async (view: ReturnType<typeof render>) => {
+  await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -40 })
+  await setRecorderStatus(view, { durationMillis: 400, isRecording: true, metering: -60 })
+  await setRecorderStatus(view, { durationMillis: 1600, isRecording: true, metering: -60 })
 }
 
 describe('TalkTab continuous mode behavior', () => {
   beforeEach(() => {
     cleanup()
-    audioMock.mockRecordings.length = 0
-    audioMock.mockSounds.length = 0
-    audioMock.createAsync.mockClear()
-    audioMock.soundCreateAsync.mockClear()
+    Object.assign(audioMock.recorderStatus, {
+      canRecord: false,
+      durationMillis: 0,
+      isRecording: false,
+      mediaServicesDidReset: false,
+      metering: undefined,
+      url: null,
+    })
+    Object.assign(audioMock.playerStatus, {
+      didJustFinish: false,
+      isLoaded: false,
+    })
+    audioMock.recorder.getStatus.mockClear()
+    audioMock.recorder.prepareToRecordAsync.mockClear()
+    audioMock.recorder.record.mockClear()
+    audioMock.recorder.stop.mockClear()
+    audioMock.player.pause.mockClear()
+    audioMock.player.play.mockClear()
+    audioMock.player.remove.mockClear()
+    audioMock.player.replace.mockClear()
     runtime.chatMessages = []
     runtime.sendPromptToOrchestratorWithOutcome = vi.fn().mockResolvedValue('sent')
     runtime.state = 'connected'
@@ -192,13 +215,15 @@ describe('TalkTab continuous mode behavior', () => {
 
   test('reopens the microphone after a continuous segment fails to transcribe', async () => {
     runtime.transcribeVoice = vi.fn().mockRejectedValue(new Error('stt failed'))
-    await startContinuousMode()
+    const view = render(React.createElement(TalkTab))
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
 
-    await finishCurrentPhrase()
+    await finishCurrentPhrase(view)
 
-    await waitFor(() => expect(audioMock.createAsync).toHaveBeenCalledTimes(2))
-    expect(audioMock.mockRecordings[0]?.stopAndUnloadAsync).toHaveBeenCalled()
-    expect(audioMock.mockRecordings[1]?.setOnRecordingStatusUpdate).toHaveBeenCalled()
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
+    expect(audioMock.recorder.stop).toHaveBeenCalled()
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(2)
   })
 
   test('ignores historical late-loaded replies but speaks this turn new reply across clock skew', async () => {
@@ -215,8 +240,8 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
-    await waitFor(() => expect(audioMock.createAsync).toHaveBeenCalledTimes(1))
-    await finishCurrentPhrase()
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
     await flush()
 
     expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith('turn on diagnostics')
@@ -234,6 +259,10 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('new answer'))
+    expect(audioMock.player.replace).toHaveBeenCalledWith({
+      uri: 'data:audio/wav;base64,reply-audio',
+    })
+    expect(audioMock.player.play).toHaveBeenCalled()
     now.mockRestore()
   })
 
@@ -241,8 +270,8 @@ describe('TalkTab continuous mode behavior', () => {
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
-    await waitFor(() => expect(audioMock.createAsync).toHaveBeenCalledTimes(1))
-    await finishCurrentPhrase()
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
     runtime.chatMessages = [
       {
         content_json: JSON.stringify({ text: 'fresh reply' }),
@@ -252,14 +281,15 @@ describe('TalkTab continuous mode behavior', () => {
       },
     ]
     view.rerender(React.createElement(TalkTab))
-    await waitFor(() => expect(audioMock.soundCreateAsync).toHaveBeenCalledTimes(1))
-    expect(audioMock.createAsync).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      audioMock.mockSounds[0]?.onStatus?.({ didJustFinish: true, isLoaded: true })
+      Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+      view.rerender(React.createElement(TalkTab))
     })
 
-    await waitFor(() => expect(audioMock.createAsync).toHaveBeenCalledTimes(2))
-    expect(audioMock.createAsync).not.toHaveBeenCalledTimes(3)
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
+    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalledTimes(3)
   })
 })

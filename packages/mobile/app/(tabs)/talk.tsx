@@ -1,7 +1,16 @@
 import { Ionicons } from '@expo/vector-icons'
-import { Audio } from 'expo-av'
+import {
+  type AudioRecorder,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio'
 import * as FileSystem from 'expo-file-system'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import {
@@ -57,12 +66,22 @@ export default function TalkTab() {
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
+  const recordingOptions = useMemo(
+    () => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }),
+    []
+  )
+  const recorder = useAudioRecorder(recordingOptions)
+  const recorderState = useAudioRecorderState(recorder, 200)
+  const player = useAudioPlayer(null, { updateInterval: 100 })
+  const playerStatus = useAudioPlayerStatus(player)
   const talkStateRef = useRef<TalkbackState>('idle')
+  const inputModeRef = useRef<TalkInputMode>('push_to_talk')
   const continuousEnabledRef = useRef(false)
   const processingSegmentRef = useRef(false)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
-  const recordingRef = useRef<Audio.Recording | null>(null)
-  const activeSoundRef = useRef<Audio.Sound | null>(null)
+  const recorderRef = useRef<AudioRecorder>(recorder)
+  const recordingActiveRef = useRef(false)
+  const activePlaybackReplyIdRef = useRef<string | null>(null)
   const chatMessagesRef = useRef(chatMessages)
   const lastSpokenReplyIdRef = useRef<string | null>(null)
   const promptBaselineReplyIdsRef = useRef<Set<string> | null>(null)
@@ -70,6 +89,8 @@ export default function TalkTab() {
   const inFlightReplyIdRef = useRef<string | null>(null)
   const connected = state === 'connected'
   chatMessagesRef.current = chatMessages
+  inputModeRef.current = inputMode
+  recorderRef.current = recorder
 
   const dispatchTalkEvent = useCallback((event: Parameters<typeof reduceTalkbackState>[1]) => {
     talkStateRef.current = reduceTalkbackState(talkStateRef.current, event)
@@ -97,45 +118,43 @@ export default function TalkTab() {
 
   useEffect(() => {
     return () => {
-      void recordingRef.current?.stopAndUnloadAsync().catch(() => {})
-      void activeSoundRef.current?.unloadAsync().catch(() => {})
+      if (recordingActiveRef.current) void recorder.stop().catch(() => {})
+      player.pause()
+      player.remove()
     }
-  }, [])
+  }, [player, recorder])
 
-  const createRecording = useCallback(
-    async ({ enableMetering }: { enableMetering: boolean }) => {
-      const permission = await Audio.requestPermissionsAsync()
+  const startRecorderSegment = useCallback(
+    async (targetRecorder: AudioRecorder = recorderRef.current) => {
+      const permission = await requestRecordingPermissionsAsync()
       if (!permission.granted) {
         throw new Error(t('talk.error.microphoneDenied'))
       }
-      await activeSoundRef.current?.unloadAsync().catch(() => {})
-      activeSoundRef.current = null
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      player.pause()
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       })
-      const options = {
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: enableMetering,
-      }
-      const { recording } = await Audio.Recording.createAsync(options)
-      return recording
+      await targetRecorder.prepareToRecordAsync(recordingOptions)
+      targetRecorder.record()
+      recordingActiveRef.current = true
     },
-    [t]
+    [player, recordingOptions, t]
   )
 
   const processRecordedSegment = useCallback(
-    async (recording: Audio.Recording, nextStateOnError: 'error' | 'listening' = 'error') => {
+    async (nextStateOnError: 'error' | 'listening' = 'error') => {
       if (processingSegmentRef.current) return
+      const recorderForSegment = recorderRef.current
       processingSegmentRef.current = true
-      if (recordingRef.current === recording) recordingRef.current = null
+      recordingActiveRef.current = false
       try {
-        await recording.stopAndUnloadAsync()
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
+        await recorderForSegment.stop()
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
         })
-        const uri = recording.getURI()
+        const uri = recorderForSegment.uri ?? recorderForSegment.getStatus().url
         if (!uri) throw new Error(t('talk.error.recordingMissing'))
         const audioBase64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
@@ -165,7 +184,7 @@ export default function TalkTab() {
         if (
           continuousEnabledRef.current &&
           talkStateRef.current === 'listening' &&
-          !recordingRef.current
+          !recordingActiveRef.current
         ) {
           setContinuousRunnerTick((current) => current + 1)
         }
@@ -175,69 +194,77 @@ export default function TalkTab() {
   )
 
   const startContinuousRecording = useCallback(async () => {
-    if (!continuousEnabledRef.current || recordingRef.current || processingSegmentRef.current) {
+    if (
+      !continuousEnabledRef.current ||
+      recordingActiveRef.current ||
+      processingSegmentRef.current
+    ) {
       return
     }
     try {
       vadStateRef.current = createInitialVoiceVadState()
-      const recording = await createRecording({ enableMetering: true })
-      recordingRef.current = recording
-      await recording.setProgressUpdateInterval(200)
-      recording.setOnRecordingStatusUpdate((status) => {
-        if (!continuousEnabledRef.current || processingSegmentRef.current) return
-        const metering =
-          'metering' in status && typeof status.metering === 'number' ? status.metering : null
-        const timestampMs =
-          'durationMillis' in status && typeof status.durationMillis === 'number'
-            ? status.durationMillis
-            : Date.now()
-        const result = applyVadMeteringSample(vadStateRef.current, {
-          metering,
-          timestampMs,
-        })
-        vadStateRef.current = result.state
-        if (result.event === 'speechStart') {
-          dispatchTalkEvent({ type: 'voiceDetected' })
-          return
-        }
-        if (result.event === 'speechEnd') {
-          promptBaselineReplyIdsRef.current = snapshotOrchestratorReplyIds(chatMessagesRef.current)
-          dispatchTalkEvent({ type: 'silenceDetected' })
-          void processRecordedSegment(recording, 'listening')
-        }
-      })
+      await startRecorderSegment()
     } catch (recordError) {
       continuousEnabledRef.current = false
       setInputMode('push_to_talk')
-      recordingRef.current = null
+      recordingActiveRef.current = false
       dispatchTalkEvent({
         message: recordError instanceof Error ? recordError.message : String(recordError),
         type: 'failed',
       })
     }
-  }, [createRecording, dispatchTalkEvent, processRecordedSegment])
+  }, [dispatchTalkEvent, startRecorderSegment])
+
+  useEffect(() => {
+    if (
+      !continuousEnabledRef.current ||
+      !recordingActiveRef.current ||
+      processingSegmentRef.current
+    ) {
+      return
+    }
+    const metering = typeof recorderState.metering === 'number' ? recorderState.metering : null
+    const timestampMs =
+      typeof recorderState.durationMillis === 'number' ? recorderState.durationMillis : Date.now()
+    const result = applyVadMeteringSample(vadStateRef.current, {
+      metering,
+      timestampMs,
+    })
+    vadStateRef.current = result.state
+    if (result.event === 'speechStart') {
+      dispatchTalkEvent({ type: 'voiceDetected' })
+      return
+    }
+    if (result.event === 'speechEnd') {
+      promptBaselineReplyIdsRef.current = snapshotOrchestratorReplyIds(chatMessagesRef.current)
+      dispatchTalkEvent({ type: 'silenceDetected' })
+      void processRecordedSegment('listening')
+    }
+  }, [
+    dispatchTalkEvent,
+    processRecordedSegment,
+    recorderState.durationMillis,
+    recorderState.metering,
+  ])
 
   const startRecording = useCallback(async () => {
     if (talkStateRef.current !== 'idle' && talkStateRef.current !== 'error') return
     try {
       dispatchTalkEvent({ type: 'recordStart' })
-      const recording = await createRecording({ enableMetering: false })
-      recordingRef.current = recording
+      await startRecorderSegment()
     } catch (recordError) {
-      recordingRef.current = null
+      recordingActiveRef.current = false
       dispatchTalkEvent({
         message: recordError instanceof Error ? recordError.message : String(recordError),
         type: 'failed',
       })
     }
-  }, [createRecording, dispatchTalkEvent])
+  }, [dispatchTalkEvent, startRecorderSegment])
 
   const stopRecording = useCallback(async () => {
-    const recording = recordingRef.current
-    if (!recording || talkStateRef.current !== 'recording') return
-    recordingRef.current = null
+    if (!recordingActiveRef.current || talkStateRef.current !== 'recording') return
     dispatchTalkEvent({ type: 'recordStop' })
-    await processRecordedSegment(recording)
+    await processRecordedSegment()
   }, [dispatchTalkEvent, processRecordedSegment])
 
   const startContinuousMode = useCallback(async () => {
@@ -255,26 +282,25 @@ export default function TalkTab() {
     promptBaselineReplyIdsRef.current = null
     vadStateRef.current = createInitialVoiceVadState()
     setInputMode('push_to_talk')
-    const recording = recordingRef.current
-    recordingRef.current = null
-    if (recording) {
-      await recording.stopAndUnloadAsync().catch(() => {})
+    if (recordingActiveRef.current) {
+      recordingActiveRef.current = false
+      await recorderRef.current.stop().catch(() => {})
     }
-    await activeSoundRef.current?.unloadAsync().catch(() => {})
-    activeSoundRef.current = null
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
+    activePlaybackReplyIdRef.current = null
+    player.pause()
+    await setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
     }).catch(() => {})
     dispatchTalkEvent({ type: 'continuousStop' })
-  }, [dispatchTalkEvent])
+  }, [dispatchTalkEvent, player])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: continuousRunnerTick intentionally wakes this ref-based microphone runner after async failures clear processingSegmentRef.
   useEffect(() => {
     if (
       !continuousEnabledRef.current ||
       talkState !== 'listening' ||
-      recordingRef.current ||
+      recordingActiveRef.current ||
       processingSegmentRef.current
     ) {
       return
@@ -290,7 +316,9 @@ export default function TalkTab() {
       lastSpokenReplyId: lastSpokenReplyIdRef.current,
       messages: chatMessages,
     })
-    if (!reply || inFlightReplyIdRef.current === reply.id) return
+    if (!reply || inFlightReplyIdRef.current === reply.id || activePlaybackReplyIdRef.current) {
+      return
+    }
     inFlightReplyIdRef.current = reply.id
     dispatchTalkEvent({ type: 'replyDetected' })
     void (async () => {
@@ -299,31 +327,36 @@ export default function TalkTab() {
         if (!isVoiceSynthesisResult(synthesized)) {
           throw new Error(t('talk.error.synthesisFailed'))
         }
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `data:${synthesized.mime};base64,${synthesized.audio}` },
-          { shouldPlay: true }
-        )
-        activeSoundRef.current = sound
-        await new Promise<void>((resolve) => {
-          sound.setOnPlaybackStatusUpdate((status) => {
-            if (status.isLoaded && status.didJustFinish) resolve()
-          })
-        })
-        await sound.unloadAsync()
-        activeSoundRef.current = null
-        lastSpokenReplyIdRef.current = reply.id
-        inFlightReplyIdRef.current = null
-        const continueListening = inputMode === 'continuous' && continuousEnabledRef.current
-        dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
+        player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
+        activePlaybackReplyIdRef.current = reply.id
+        player.play()
       } catch (playError) {
         inFlightReplyIdRef.current = null
+        activePlaybackReplyIdRef.current = null
         dispatchTalkEvent({
           message: playError instanceof Error ? playError.message : String(playError),
           type: 'failed',
         })
       }
     })()
-  }, [chatMessages, dispatchTalkEvent, inputMode, synthesizeVoice, t, talkState])
+  }, [chatMessages, dispatchTalkEvent, player, synthesizeVoice, t, talkState])
+
+  useEffect(() => {
+    if (
+      !activePlaybackReplyIdRef.current ||
+      !playerStatus.isLoaded ||
+      !playerStatus.didJustFinish
+    ) {
+      return
+    }
+    const replyId = activePlaybackReplyIdRef.current
+    activePlaybackReplyIdRef.current = null
+    player.pause()
+    lastSpokenReplyIdRef.current = replyId
+    inFlightReplyIdRef.current = null
+    const continueListening = inputModeRef.current === 'continuous' && continuousEnabledRef.current
+    dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
+  }, [dispatchTalkEvent, player, playerStatus.didJustFinish, playerStatus.isLoaded])
 
   const pushToTalkSelected = inputMode === 'push_to_talk'
   const continuousSelected = inputMode === 'continuous'

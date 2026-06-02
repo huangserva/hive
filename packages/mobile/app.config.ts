@@ -56,6 +56,13 @@ const config: ExpoConfigWithSplash = {
     'expo-localization',
     'expo-notifications',
     [
+      'expo-audio',
+      {
+        microphonePermission:
+          'HippoTeam uses the microphone to turn voice commands into agent tasks.',
+      },
+    ],
+    [
       'expo-camera',
       {
         cameraPermission: 'HippoTeam uses the camera to scan desktop connection QR codes.',
