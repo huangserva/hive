@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   createAnthropicFastVoiceReplyProvider,
+  FAST_VOICE_REPLY_FALLBACK_TEXTS,
   FAST_VOICE_REPLY_MODEL,
   maybeInsertFastVoiceReply,
   normalizeFastVoiceReply,
@@ -66,6 +67,74 @@ describe('fast voice reply', () => {
       })
     ).resolves.toBeNull()
     expect(store.insertMobileChatMessage).not.toHaveBeenCalled()
+  })
+
+  it('inserts an immediate deterministic acknowledgement when no fast model reply is available', async () => {
+    const store = { insertMobileChatMessage: vi.fn() }
+    const provider = { generate: vi.fn().mockResolvedValue(null) }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '帮我查一下语音延迟',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBe(FAST_VOICE_REPLY_FALLBACK_TEXTS[0])
+
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'outbound',
+      'orch_reply',
+      JSON.stringify({
+        fast_reply: true,
+        source: 'voice_fast_reply',
+        text: FAST_VOICE_REPLY_FALLBACK_TEXTS[0],
+      })
+    )
+  })
+
+  it('does not reject when inserting the fast model reply fails', async () => {
+    const store = {
+      insertMobileChatMessage: vi.fn(() => {
+        throw new Error('sqlite write failed')
+      }),
+    }
+    const provider = { generate: vi.fn().mockResolvedValue('好，我先处理。') }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '查一下 relay',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBeNull()
+  })
+
+  it('does not reject when provider and fallback insertion both fail', async () => {
+    const store = {
+      insertMobileChatMessage: vi.fn(() => {
+        throw new Error('sqlite write failed')
+      }),
+    }
+    const provider = {
+      generate: vi.fn(async () => {
+        throw new Error('anthropic failed')
+      }),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '帮我查一下语音延迟',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBeNull()
   })
 
   it('normalizes long model responses before insertion', () => {

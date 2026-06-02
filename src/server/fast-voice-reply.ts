@@ -1,5 +1,10 @@
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
 export const FAST_VOICE_REPLY_TIMEOUT_MS = 2500
+export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
+  '好的，收到，正在处理，稍等。',
+  '收到，我来处理，稍等一下。',
+  '好，我先记下，马上处理。',
+]
 
 const FAST_VOICE_REPLY_SYSTEM_PROMPT =
   '你是 HippoTeam 的车载语音助手。用简体中文口语化回应，1-2 句，短而明确。不要长篇解释；如果用户是在安排任务，只先确认会去处理，不要声称已经完成。'
@@ -26,6 +31,41 @@ type CreateAnthropicFastVoiceReplyProviderOptions = {
 
 export const normalizeFastVoiceReply = (text: string) =>
   text.replace(/\s+/g, ' ').trim().slice(0, 180)
+
+const pickFallbackReply = (transcript: string) => {
+  const normalized = transcript.trim()
+  const index = normalized.length % FAST_VOICE_REPLY_FALLBACK_TEXTS.length
+  return FAST_VOICE_REPLY_FALLBACK_TEXTS[index] ?? FAST_VOICE_REPLY_FALLBACK_TEXTS[0]
+}
+
+const insertFastVoiceReply = ({
+  reply,
+  store,
+  workspaceId,
+}: {
+  reply: string
+  store: {
+    insertMobileChatMessage(
+      workspaceId: string,
+      direction: 'inbound' | 'outbound',
+      messageType: string,
+      contentJson: string
+    ): unknown
+  }
+  workspaceId: string
+}) => {
+  try {
+    store.insertMobileChatMessage(
+      workspaceId,
+      'outbound',
+      'orch_reply',
+      JSON.stringify({ fast_reply: true, source: 'voice_fast_reply', text: reply })
+    )
+    return true
+  } catch {
+    return false
+  }
+}
 
 const extractAnthropicText = (body: AnthropicMessageResponse) => {
   if (!Array.isArray(body.content)) return null
@@ -106,16 +146,10 @@ export const maybeInsertFastVoiceReply = async ({
 }) => {
   if (source !== 'voice') return null
   try {
-    const reply = await provider.generate({ transcript: text })
-    if (!reply) return null
-    store.insertMobileChatMessage(
-      workspaceId,
-      'outbound',
-      'orch_reply',
-      JSON.stringify({ fast_reply: true, source: 'voice_fast_reply', text: reply })
-    )
-    return reply
+    const reply = (await provider.generate({ transcript: text })) ?? pickFallbackReply(text)
+    return insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null
   } catch {
-    return null
+    const reply = pickFallbackReply(text)
+    return insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null
   }
 }
