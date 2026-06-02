@@ -44,6 +44,8 @@ interface LocalSttProviderOptions {
 
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_WHISPER_MODEL = 'base'
+const DEFAULT_STT_PROMPT =
+  '以下是简体中文普通话语音指令。团队成员：关羽、马超、赵云、钟馗、吕布、典韦、张飞、周瑜。'
 
 const isExecutable = (filePath: string) => {
   try {
@@ -155,7 +157,18 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
       const outputBase = join(outputDir, parse(wavPath).name)
       const { stdout } = await execFileP(
         cli.command,
-        ['-m', cli.model, '-otxt', '-of', outputBase, '-np', '-nt', wavPath],
+        [
+          '-m',
+          cli.model,
+          '--prompt',
+          DEFAULT_STT_PROMPT,
+          '-otxt',
+          '-of',
+          outputBase,
+          '-np',
+          '-nt',
+          wavPath,
+        ],
         { maxBuffer: 5 * 1024 * 1024, timeout: timeoutMs }
       )
       return readFirstTranscript([`${outputBase}.txt`], stdout)
@@ -177,6 +190,8 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
           'txt',
           '--output_dir',
           outputDir,
+          '--initial_prompt',
+          DEFAULT_STT_PROMPT,
           '--verbose',
           'False',
           audioPath,

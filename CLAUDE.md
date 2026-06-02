@@ -41,7 +41,7 @@ HippoTeam 是 `tt-a1i/hive` 的 fork，但**治理模式完全不同**：
 
 | 层 | 是什么 | 例子 | 可被 LLM 绕过？ |
 |---|---|---|---|
-| **L1 机制 / 代码** | 硬编码逻辑，物理执行 | `team send` CLI → dispatch ledger 写表 → PTY 注入；状态机三态；SQL 约束；runtime 自动维护 tasks.md dispatch lifecycle；baseline staleness git log 检测 | ❌ 不能 |
+| **L1 机制 / 代码** | 硬编码逻辑，物理执行 | `team send` CLI → dispatch ledger 写表 → PTY 注入；状态机三态；SQL 约束；runtime 自动维护 tasks.md dispatch lifecycle；baseline staleness git log 检测；sentinel 心跳巡检 + stale-dispatch 卡死探测 | ❌ 不能 |
 | **L2 政策 / 提示词** | 给 LLM 看的规则，影响判断 | `ORCHESTRATOR_RULES` 17 条（在 `src/server/hive-team-guidance.ts`）；`REMINDER_TAIL` 每轮注入；`.hive/PROTOCOL.md`；CLAUDE.md（本文件）；AGENTS.md | ✅ 能 |
 | **L3 选择 / runtime** | LLM 实际行为 | 派关羽 vs 自己做 vs 挂 open-questions | LLM 的选择 |
 
@@ -189,7 +189,7 @@ HippoTeam 是 `tt-a1i/hive` 的 fork，但**治理模式完全不同**：
 | 路由信息 | 每个 PTY 注入 env: `HIVE_PORT / HIVE_PROJECT_ID / HIVE_AGENT_ID / HIVE_AGENT_TOKEN` |
 | `team` CLI 部署 | PATH prepend，不全局安装 |
 | Crash 恢复 | 4 种场景 + 2 层引擎 (Layer A native resume / Layer B fallback)。runtime 重启**不自动**启 agent，要按 [Restart] |
-| Agent 状态机 | 仅 `working` / `idle` / `stopped` 三态。不做超时检测，不做心跳 |
+| Agent 状态机 | **状态机本身**仅 `working` / `idle` / `stopped` 三态、不做超时/心跳（刻意保持简单）。**但卡死探测在编排层另做，不是没有**：sentinel 哨兵定时巡检（`sentinel-heartbeat.ts`，周瑜）+ stale-dispatch 探测（M30 `stale-dispatch-status.ts` / `stalled-dispatch-nudge.ts`，把超期/卡住 dispatch 捅进 Cockpit + orchestrator）+ idle 自愈（M26，worker 干完没 report 自动兜）+ "worker 退出但有未完成 dispatch" 系统提醒。**别把"状态机三态"误读成"无 liveness 检测"**（外部分析 2026-06-01 就踩了这个坑） |
 | 默认权限 | YOLO 模式（自动跳过 CLI agent 权限确认）。飞书远控时高风险动作必须 `team approve` |
 | 数据存储 | 详见 `.hive/baseline/state-storage.md` |
 | 数据流 | 详见 `.hive/baseline/runtime-flows.md` |

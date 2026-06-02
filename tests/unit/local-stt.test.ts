@@ -67,8 +67,11 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join, parse } from 'node:path'
 const args = process.argv.slice(2)
 const outputDir = args[args.indexOf('--output_dir') + 1]
+const prompt = args[args.indexOf('--initial_prompt') + 1]
 const mediaPath = args.at(-1)
 if (!mediaPath || basename(mediaPath) !== 'voice.ogg') process.exit(3)
+if (!prompt?.includes('简体中文普通话语音指令')) process.exit(4)
+if (!prompt?.includes('关羽') || !prompt?.includes('马超')) process.exit(5)
 mkdirSync(outputDir, { recursive: true })
 writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), ' local whisper transcript \\n')
 `)
@@ -121,9 +124,12 @@ import { basename } from 'node:path'
 const args = process.argv.slice(2)
 const model = args[args.indexOf('-m') + 1]
 const outputBase = args[args.indexOf('-of') + 1]
+const prompt = args[args.indexOf('--prompt') + 1]
 const mediaPath = args.at(-1)
 if (!model.endsWith('ggml-small.bin')) process.exit(4)
 if (!mediaPath || basename(mediaPath) !== 'voice.wav') process.exit(10)
+if (!prompt?.includes('简体中文普通话语音指令')) process.exit(11)
+if (!prompt?.includes('赵云') || !prompt?.includes('钟馗')) process.exit(12)
 writeFileSync(outputBase + '.txt', 'whisper cpp transcript')
 `)
     )
@@ -330,6 +336,8 @@ import { join, parse } from 'node:path'
 const args = process.argv.slice(2)
 const outputDir = args[args.indexOf('--output_dir') + 1]
 const mediaPath = args.at(-1)
+const prompt = args[args.indexOf('--initial_prompt') + 1]
+if (!prompt?.includes('典韦') || !prompt?.includes('周瑜')) process.exit(4)
 mkdirSync(outputDir, { recursive: true })
 writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), 'fallback transcript')
 `)
