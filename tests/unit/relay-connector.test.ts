@@ -62,9 +62,10 @@ const nextRelayFrame = async <T>(socket: WebSocket): Promise<T> =>
   })
 
 const dataPayload = async (socket: WebSocket): Promise<string> => {
-  const frame = await nextRelayFrame<{ payload: string; type: string }>(socket)
-  expect(frame.type).toBe('data')
-  return frame.payload
+  for (;;) {
+    const frame = await nextRelayFrame<{ payload?: string; type: string }>(socket)
+    if (frame.type === 'data' && typeof frame.payload === 'string') return frame.payload
+  }
 }
 
 const waitFor = async (predicate: () => boolean, timeoutMs = 1_000) => {
@@ -115,6 +116,35 @@ const createConnector = (config: RelayConfig) => {
   return { calls, connector }
 }
 
+const createConnectorWithVoiceStreamHandler = (
+  config: RelayConfig,
+  handler: Parameters<typeof createRelayConnector>[2]['voiceStreamHandler']
+) => {
+  const calls: Array<{ method: string }> = []
+  const connector = createRelayConnector(
+    config,
+    async (method) => {
+      calls.push({ method })
+      return { ok: true, method }
+    },
+    {
+      authenticateDevice: (token) => {
+        if (token !== 'device-token') throw new Error('bad token')
+        return {
+          capabilities: ['read_dashboard', 'send_prompt'],
+          id: 'device-1',
+        }
+      },
+      heartbeatIntervalMs: 25,
+      reconnectBaseDelayMs: 20,
+      reconnectMaxDelayMs: 50,
+      voiceStreamHandler: handler,
+    }
+  )
+  connectors.push(connector)
+  return { calls, connector }
+}
+
 const completeHandshake = async (socket: WebSocket): Promise<EncryptedChannel> => {
   const initiator = createHandshakeInitiator(generateKeyPair())
   socket.send(
@@ -122,6 +152,33 @@ const completeHandshake = async (socket: WebSocket): Promise<EncryptedChannel> =
       payload: encodeBase64(
         encodeJson({
           capabilities: ['read_dashboard'],
+          device_id: 'device-1',
+          handshake: initiator.getInitMessage(),
+          token: 'device-token',
+          type: 'e2ee_hello',
+        })
+      ),
+      type: 'data',
+    })
+  )
+  const ready = decodeJson(decodeBase64(await dataPayload(socket))) as {
+    handshake: { ephemeral_public_key: string }
+    type: string
+  }
+  expect(ready.type).toBe('e2ee_ready')
+  return initiator.processResponse(ready.handshake)
+}
+
+const completeHandshakeWithCapabilities = async (
+  socket: WebSocket,
+  capabilities: string[]
+): Promise<EncryptedChannel> => {
+  const initiator = createHandshakeInitiator(generateKeyPair())
+  socket.send(
+    JSON.stringify({
+      payload: encodeBase64(
+        encodeJson({
+          capabilities,
           device_id: 'device-1',
           handshake: initiator.getInitMessage(),
           token: 'device-token',
@@ -272,6 +329,143 @@ describe('relay connector', () => {
         params: { after: 'voice_stream' },
       },
     ])
+  })
+
+  it('pushes synthesized audio chunks over voice_stream without dispatching JSON-RPC', async () => {
+    const relay = await startRelay()
+    const { calls, connector } = createConnectorWithVoiceStreamHandler(
+      configFor(relay),
+      async (frame, context) => {
+        if (frame.op !== 'open' || typeof frame.text !== 'string') return false
+        context.send({
+          done: false,
+          format: 'm4a',
+          mime: 'audio/mp4',
+          op: 'chunk',
+          payload: 'aaaa',
+          seq: 1,
+          stream_id: frame.stream_id,
+          type: 'voice_stream',
+        })
+        context.send({
+          done: true,
+          format: 'm4a',
+          mime: 'audio/mp4',
+          op: 'chunk',
+          payload: 'bbbb',
+          seq: 2,
+          stream_id: frame.stream_id,
+          type: 'voice_stream',
+        })
+        return true
+      }
+    )
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshake(device)
+
+    const encryptedPayloads: string[] = []
+    const collectData = (data: WebSocket.RawData) => {
+      const frame = JSON.parse(data.toString()) as { payload?: string; type?: string }
+      if (frame.type === 'data' && typeof frame.payload === 'string') {
+        encryptedPayloads.push(frame.payload)
+      }
+    }
+    device.on('message', collectData)
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            op: 'open',
+            seq: 0,
+            stream_id: 'voice-audio',
+            text: '你好这是流式测试',
+            type: 'voice_stream',
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    await waitFor(() => encryptedPayloads.length >= 2)
+    device.off('message', collectData)
+    const firstChunk = decodeJson(channel.decrypt(encryptedPayloads[0] ?? '') ?? new Uint8Array())
+    const secondChunk = decodeJson(channel.decrypt(encryptedPayloads[1] ?? '') ?? new Uint8Array())
+    expect(firstChunk).toMatchObject({
+      done: false,
+      op: 'chunk',
+      payload: 'aaaa',
+      seq: 1,
+      stream_id: 'voice-audio',
+      type: 'voice_stream',
+    })
+    expect(secondChunk).toMatchObject({
+      done: true,
+      op: 'chunk',
+      payload: 'bbbb',
+      seq: 2,
+      stream_id: 'voice-audio',
+      type: 'voice_stream',
+    })
+    expect(calls).toEqual([])
+  })
+
+  it('passes capabilities to voice_stream handlers so read-only devices can be rejected', async () => {
+    const relay = await startRelay()
+    const { calls, connector } = createConnectorWithVoiceStreamHandler(
+      configFor(relay),
+      async (frame, context) => {
+        if (frame.op !== 'open' || typeof frame.text !== 'string') return false
+        if (!context.capabilities.includes('send_prompt')) {
+          context.send({
+            error: 'missing_mobile_capability: send_prompt',
+            op: 'error',
+            seq: frame.seq,
+            stream_id: frame.stream_id,
+            type: 'voice_stream',
+          })
+          return true
+        }
+        context.send({
+          done: true,
+          format: 'm4a',
+          mime: 'audio/mp4',
+          op: 'chunk',
+          payload: 'audio',
+          seq: 1,
+          stream_id: frame.stream_id,
+          type: 'voice_stream',
+        })
+        return true
+      }
+    )
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshakeWithCapabilities(device, ['read_dashboard'])
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            op: 'open',
+            seq: 0,
+            stream_id: 'voice-audio',
+            text: '你好这是流式测试',
+            type: 'voice_stream',
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    const response = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array())
+    expect(response).toMatchObject({
+      error: 'missing_mobile_capability: send_prompt',
+      op: 'error',
+      stream_id: 'voice-audio',
+      type: 'voice_stream',
+    })
+    expect(calls).toEqual([])
   })
 
   it('rejects handshake when requested capabilities exceed the device record', async () => {

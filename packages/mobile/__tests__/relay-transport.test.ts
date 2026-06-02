@@ -258,6 +258,56 @@ describe('relay transport', () => {
     })
   })
 
+  test('requests voice_stream synthesis and reassembles audio chunks by seq before resolving', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+
+    const audioPromise = transport.requestVoiceStreamSynthesis('你好这是流式测试')
+    const openFrame = socket.sent.at(-1) as { payload: string; type: string }
+    const open = decodeJson(channel.decrypt(openFrame.payload) ?? new Uint8Array()) as {
+      seq: number
+      stream_id: string
+      text: string
+      type: string
+    }
+    expect(open).toMatchObject({
+      seq: 0,
+      text: '你好这是流式测试',
+      type: 'voice_stream',
+    })
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(
+          createVoiceStreamFrame('chunk', open.stream_id, 2, {
+            done: true,
+            format: 'm4a',
+            mime: 'audio/mp4',
+            payload: 'bbbb',
+          })
+        )
+      ),
+      type: 'data',
+    })
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(
+          createVoiceStreamFrame('chunk', open.stream_id, 1, {
+            done: false,
+            payload: 'aaaa',
+          })
+        )
+      ),
+      type: 'data',
+    })
+
+    await expect(audioPromise).resolves.toEqual({
+      audio: 'aaaabbbb',
+      format: 'm4a',
+      mime: 'audio/mp4',
+      stream_id: open.stream_id,
+    })
+  })
+
   test('rejects JSON-RPC calls when encrypted response carries an error', async () => {
     const { channel, socket, transport } = await setupReadyRelay()
 
@@ -698,6 +748,7 @@ describe('runtime client relay fallback', () => {
       onEvent: vi.fn(() => () => {}),
       onStatusChange: vi.fn(() => () => {}),
       onVoiceStreamFrame: vi.fn(() => () => {}),
+      requestVoiceStreamSynthesis: vi.fn(),
       sendVoiceStreamFrame: vi.fn(),
       status: vi.fn(() => 'ready' as const),
     }

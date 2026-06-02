@@ -3,8 +3,10 @@ import { describe, expect, test } from 'vitest'
 import {
   calculateVoiceStreamLatency,
   createVoiceStreamFrame,
+  createVoiceStreamReassembler,
   isVoiceStreamFrame,
   nextVoiceStreamId,
+  splitAudioBase64ToVoiceStreamFrames,
 } from '../src/api/voice-stream-protocol.js'
 
 describe('voice stream protocol', () => {
@@ -68,6 +70,65 @@ describe('voice stream protocol', () => {
       p95_ms: 90,
       received: 4,
       stream_id: 'voice-1',
+    })
+  })
+
+  test('splits audio into ordered chunk frames and marks the final chunk done', () => {
+    const frames = splitAudioBase64ToVoiceStreamFrames({
+      chunkSize: 4,
+      format: 'm4a',
+      mime: 'audio/mp4',
+      payload: 'abcdefghijkl',
+      startSeq: 2,
+      streamId: 'voice-audio',
+    })
+
+    expect(frames).toEqual([
+      expect.objectContaining({ done: false, payload: 'abcd', seq: 2 }),
+      expect.objectContaining({ done: false, payload: 'efgh', seq: 3 }),
+      expect.objectContaining({
+        done: true,
+        format: 'm4a',
+        mime: 'audio/mp4',
+        payload: 'ijkl',
+        seq: 4,
+      }),
+    ])
+  })
+
+  test('reassembles out-of-order audio chunks only when the done frame closes the sequence', () => {
+    const reassembler = createVoiceStreamReassembler('voice-audio')
+
+    expect(
+      reassembler.accept(
+        createVoiceStreamFrame('chunk', 'voice-audio', 2, {
+          done: true,
+          format: 'm4a',
+          mime: 'audio/mp4',
+          payload: 'cccc',
+        })
+      )
+    ).toBeNull()
+    expect(
+      reassembler.accept(
+        createVoiceStreamFrame('chunk', 'voice-audio', 0, {
+          done: false,
+          payload: 'aaaa',
+        })
+      )
+    ).toBeNull()
+    expect(
+      reassembler.accept(
+        createVoiceStreamFrame('chunk', 'voice-audio', 1, {
+          done: false,
+          payload: 'bbbb',
+        })
+      )
+    ).toEqual({
+      audio: 'aaaabbbbcccc',
+      format: 'm4a',
+      mime: 'audio/mp4',
+      stream_id: 'voice-audio',
     })
   })
 })

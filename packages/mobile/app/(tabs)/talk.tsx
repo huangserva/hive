@@ -65,6 +65,7 @@ export default function TalkTab() {
     sendPromptToOrchestratorWithOutcome,
     state,
     synthesizeVoice,
+    synthesizeVoiceStream,
     transcribeVoice,
   } = useMobileRuntime()
   const t = useT()
@@ -74,6 +75,7 @@ export default function TalkTab() {
   const [error, setError] = useState<string | null>(null)
   const [streamLatencyText, setStreamLatencyText] = useState<string | null>(null)
   const [streamLatencyTesting, setStreamLatencyTesting] = useState(false)
+  const [streamSynthesisTesting, setStreamSynthesisTesting] = useState(false)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
   const recordingOptions = useMemo(
@@ -388,6 +390,25 @@ export default function TalkTab() {
     }
   }, [connected, measureRelayVoiceStreamLatency, streamLatencyTesting, t])
 
+  const testRelayVoiceStreamSynthesis = useCallback(async () => {
+    if (!connected || streamSynthesisTesting) return
+    setStreamSynthesisTesting(true)
+    setError(null)
+    try {
+      const result = await synthesizeVoiceStream(t('talk.streamSynthesis.sample'))
+      if (!result) {
+        setError(t('talk.streamSynthesis.unavailable'))
+        return
+      }
+      player.replace({ uri: `data:${result.mime};base64,${result.audio}` })
+      player.play()
+    } catch (streamError) {
+      setError(streamError instanceof Error ? streamError.message : String(streamError))
+    } finally {
+      setStreamSynthesisTesting(false)
+    }
+  }, [connected, player, streamSynthesisTesting, synthesizeVoiceStream, t])
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: continuousRunnerTick intentionally wakes this ref-based microphone runner after async failures clear processingSegmentRef.
   useEffect(() => {
     if (
@@ -633,6 +654,26 @@ export default function TalkTab() {
             </Text>
           </Pressable>
           {streamLatencyText ? <Text style={styles.statusHint}>{streamLatencyText}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={!connected || streamSynthesisTesting}
+            onPress={() => void testRelayVoiceStreamSynthesis()}
+            style={[
+              styles.streamTestButton,
+              (!connected || streamSynthesisTesting) && styles.streamTestButtonDisabled,
+            ]}
+          >
+            {streamSynthesisTesting ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : (
+              <Ionicons color={colors.text} name="volume-high-outline" size={16} />
+            )}
+            <Text style={styles.streamTestButtonText}>
+              {streamSynthesisTesting
+                ? t('talk.streamSynthesis.testing')
+                : t('talk.streamSynthesis.button')}
+            </Text>
+          </Pressable>
           {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>

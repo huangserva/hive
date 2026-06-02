@@ -56,6 +56,14 @@ interface RelayConnectorOptions {
   WebSocketCtor?: new (
     url: string
   ) => WebSocket
+  voiceStreamHandler?: (
+    frame: VoiceStreamFrame,
+    context: {
+      capabilities: string[]
+      deviceId: string
+      send: (frame: VoiceStreamFrame) => void
+    }
+  ) => Promise<boolean> | boolean
 }
 
 type RelayDataFrame = { payload: string; type: 'data' }
@@ -82,12 +90,17 @@ interface RelayDeviceSession {
   deviceId: string
 }
 
-interface VoiceStreamFrame {
+export interface VoiceStreamFrame {
+  done?: boolean
+  error?: string
+  format?: string
+  mime?: string
   op?: string
   payload?: string
   sent_at_ms?: number
   seq?: number
   stream_id?: string
+  text?: string
   type?: string
 }
 
@@ -300,8 +313,18 @@ export const createRelayConnector = (
     })
   }
 
-  const handleVoiceStreamFrame = (session: RelayDeviceSession, frame: unknown) => {
+  const handleVoiceStreamFrame = async (session: RelayDeviceSession, frame: unknown) => {
     if (!isVoiceStreamFrame(frame)) return false
+    if (
+      options.voiceStreamHandler &&
+      (await options.voiceStreamHandler(frame, {
+        capabilities: session.capabilities,
+        deviceId: session.deviceId,
+        send: (outbound) => sendEncryptedResponse(session, outbound),
+      }))
+    ) {
+      return true
+    }
     if (frame.op === 'close') return true
     sendEncryptedResponse(session, {
       op: 'ack',
@@ -340,7 +363,7 @@ export const createRelayConnector = (
         return
       }
 
-      if (handleVoiceStreamFrame(session, request)) return
+      if (await handleVoiceStreamFrame(session, request)) return
 
       const rpcRequest = request as { id?: string; method?: string; params?: unknown }
       const id = rpcRequest.id ?? null

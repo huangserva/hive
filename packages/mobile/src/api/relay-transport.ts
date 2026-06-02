@@ -10,8 +10,10 @@ import {
 import {
   calculateVoiceStreamLatency,
   createVoiceStreamFrame,
+  createVoiceStreamReassembler,
   isVoiceStreamFrame,
   nextVoiceStreamId,
+  type VoiceStreamAudioResult,
   type VoiceStreamFrame,
   type VoiceStreamLatencyOptions,
   type VoiceStreamLatencyResult,
@@ -56,6 +58,7 @@ export interface RelayTransport {
   onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
   onVoiceStreamFrame(cb: (frame: VoiceStreamFrame) => void): () => void
+  requestVoiceStreamSynthesis(text: string): Promise<VoiceStreamAudioResult>
   sendVoiceStreamFrame(frame: VoiceStreamFrame): void
   status(): RelayTransportStatus
 }
@@ -534,6 +537,53 @@ export const createRelayTransport = (
     })
   }
 
+  const requestVoiceStreamSynthesis = (text: string): Promise<VoiceStreamAudioResult> => {
+    const streamId = nextVoiceStreamId()
+    const timeoutMs = 35_000
+    const reassembler = createVoiceStreamReassembler(streamId, 1)
+    let finished = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    return new Promise<VoiceStreamAudioResult>((resolve, reject) => {
+      const cleanup = () => {
+        if (timeout) clearTimeout(timeout)
+        unsubscribe()
+      }
+      const unsubscribe = (() => {
+        const listener = (frame: VoiceStreamFrame) => {
+          if (frame.stream_id !== streamId) return
+          if (frame.op === 'error') {
+            if (finished) return
+            finished = true
+            cleanup()
+            reject(new Error(frame.error ?? 'voice_stream synthesis failed'))
+            return
+          }
+          const result = reassembler.accept(frame)
+          if (!result || finished) return
+          finished = true
+          cleanup()
+          resolve(result)
+        }
+        voiceStreamListeners.add(listener)
+        return () => voiceStreamListeners.delete(listener)
+      })()
+      timeout = setTimeout(() => {
+        if (finished) return
+        finished = true
+        cleanup()
+        reject(new Error('voice_stream synthesis timed out'))
+      }, timeoutMs)
+
+      try {
+        sendVoiceStreamFrame(createVoiceStreamFrame('open', streamId, 0, { text }))
+      } catch (error) {
+        finished = true
+        cleanup()
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
   return {
     call<T>(method: string, params?: unknown) {
       if (!channel || state !== 'ready')
@@ -591,6 +641,7 @@ export const createRelayTransport = (
       voiceStreamListeners.add(cb)
       return () => voiceStreamListeners.delete(cb)
     },
+    requestVoiceStreamSynthesis,
     sendVoiceStreamFrame,
     status() {
       return state

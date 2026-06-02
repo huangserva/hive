@@ -77,7 +77,11 @@ import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
 import type { RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
-import type { VoiceStreamLatencyOptions, VoiceStreamLatencyResult } from './voice-stream-protocol'
+import type {
+  VoiceStreamAudioResult,
+  VoiceStreamLatencyOptions,
+  VoiceStreamLatencyResult,
+} from './voice-stream-protocol'
 
 export type { RelayPairingInput }
 
@@ -143,6 +147,7 @@ interface MobileRuntimeContextValue {
   token: string
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
   synthesizeVoice: (text: string) => Promise<MobileVoiceSynthesisResult | null>
+  synthesizeVoiceStream: (text: string) => Promise<VoiceStreamAudioResult | null>
   uploadMedia: (
     data: string,
     filename: string,
@@ -964,6 +969,22 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     []
   )
 
+  const synthesizeVoiceStream = useCallback(async (text: string) => {
+    const transport = observedRelayTransportRef.current
+    if (!transport || transport.status() !== 'ready') {
+      setError('Relay transport is not ready')
+      return null
+    }
+    setError(null)
+    try {
+      return await transport.requestVoiceStreamSynthesis(text)
+    } catch (streamError) {
+      const message = streamError instanceof Error ? streamError.message : String(streamError)
+      setError(message)
+      return null
+    }
+  }, [])
+
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (text: string): Promise<ChatSendOutcome> => {
       if (!selectedWorkspaceId) {
@@ -1440,6 +1461,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       syncRevision,
       stopWorker,
       synthesizeVoice,
+      synthesizeVoiceStream,
       token,
       transcribeVoice,
       uploadMedia,
@@ -1483,6 +1505,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       syncRevision,
       stopWorker,
       synthesizeVoice,
+      synthesizeVoiceStream,
       token,
       transcribeVoice,
       uploadMedia,

@@ -1,12 +1,16 @@
 export type VoiceStreamOperation = 'ack' | 'chunk' | 'close' | 'error' | 'open'
 
 export interface VoiceStreamFrame {
+  done?: boolean
   error?: string
+  format?: string
+  mime?: string
   op: VoiceStreamOperation
   payload?: string
   sent_at_ms?: number
   seq: number
   stream_id: string
+  text?: string
   type: 'voice_stream'
 }
 
@@ -90,5 +94,88 @@ export const calculateVoiceStreamLatency = ({
     p95_ms: percentile(sorted, 95),
     received: sorted.length,
     stream_id: streamId,
+  }
+}
+
+export const splitAudioBase64ToVoiceStreamFrames = ({
+  chunkSize,
+  format,
+  mime,
+  payload,
+  startSeq = 1,
+  streamId,
+}: {
+  chunkSize: number
+  format: string
+  mime: string
+  payload: string
+  startSeq?: number
+  streamId: string
+}): VoiceStreamFrame[] => {
+  if (chunkSize <= 0) throw new Error('chunkSize must be positive')
+  if (!payload) {
+    return [
+      createVoiceStreamFrame('chunk', streamId, startSeq, {
+        done: true,
+        format,
+        mime,
+        payload: '',
+      }),
+    ]
+  }
+  const frames: VoiceStreamFrame[] = []
+  for (let offset = 0; offset < payload.length; offset += chunkSize) {
+    frames.push(
+      createVoiceStreamFrame('chunk', streamId, startSeq + frames.length, {
+        done: offset + chunkSize >= payload.length,
+        format,
+        mime,
+        payload: payload.slice(offset, offset + chunkSize),
+      })
+    )
+  }
+  return frames
+}
+
+export interface VoiceStreamAudioResult {
+  audio: string
+  format: string
+  mime: string
+  stream_id: string
+}
+
+export const createVoiceStreamReassembler = (streamId: string, startSeq = 0) => {
+  const chunks = new Map<number, string>()
+  let doneSeq: number | null = null
+  let format = 'm4a'
+  let mime = 'audio/mp4'
+
+  const tryBuild = (): VoiceStreamAudioResult | null => {
+    if (doneSeq === null) return null
+    const ordered: string[] = []
+    for (let seq = startSeq; seq <= doneSeq; seq++) {
+      const payload = chunks.get(seq)
+      if (payload === undefined) return null
+      ordered.push(payload)
+    }
+    return {
+      audio: ordered.join(''),
+      format,
+      mime,
+      stream_id: streamId,
+    }
+  }
+
+  return {
+    accept(frame: VoiceStreamFrame): VoiceStreamAudioResult | null {
+      if (frame.type !== 'voice_stream' || frame.op !== 'chunk') return null
+      if (frame.stream_id !== streamId) return null
+      if (typeof frame.payload !== 'string') return null
+      chunks.set(frame.seq, frame.payload)
+      if (frame.mime) mime = frame.mime
+      if (frame.format) format = frame.format
+      if (frame.done) doneSeq = frame.seq
+      return tryBuild()
+    },
   }
 }

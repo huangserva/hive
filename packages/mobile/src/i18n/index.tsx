@@ -387,6 +387,10 @@ const en = {
   'talk.streamTest.result': 'Relay RTT p50 {p50}ms · p95 {p95}ms · max {max}ms · lost {lost}',
   'talk.streamTest.testing': 'Testing stream...',
   'talk.streamTest.unavailable': 'Relay stream is not ready.',
+  'talk.streamSynthesis.button': 'Test streamed reply',
+  'talk.streamSynthesis.sample': 'Hello, this is a streamed voice test.',
+  'talk.streamSynthesis.testing': 'Streaming reply...',
+  'talk.streamSynthesis.unavailable': 'Streamed voice reply is not available.',
   'talk.subtitle':
     'Hold the button, say one instruction, then release. HippoTeam will transcribe it, send it to Orchestrator, and read the next reply aloud.',
   'talk.title': 'Talk Mode',
@@ -759,6 +763,10 @@ const zh: Record<keyof typeof en, string> = {
   'talk.streamTest.result': '中继 RTT p50 {p50}ms · p95 {p95}ms · max {max}ms · 丢 {lost}',
   'talk.streamTest.testing': '测试中...',
   'talk.streamTest.unavailable': '中继流尚未就绪。',
+  'talk.streamSynthesis.button': '测试流式念回',
+  'talk.streamSynthesis.sample': '你好，这是流式语音测试。',
+  'talk.streamSynthesis.testing': '念回流测试中...',
+  'talk.streamSynthesis.unavailable': '流式念回暂不可用。',
   'talk.subtitle':
     '按住按钮说一句指令，松开后自动转写、发送给 Orchestrator，并把下一条回复念出来。',
   'talk.title': '对讲模式',

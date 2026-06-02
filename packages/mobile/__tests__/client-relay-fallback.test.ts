@@ -39,6 +39,9 @@ const makeRelay = (
     onVoiceStreamFrame() {
       return () => {}
     },
+    async requestVoiceStreamSynthesis() {
+      return { audio: '', format: 'm4a', mime: 'audio/mp4', stream_id: 'test' }
+    },
     sendVoiceStreamFrame() {},
     status() {
       return status

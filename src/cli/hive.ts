@@ -19,6 +19,7 @@ import { readPackageVersion } from '../server/package-version.js'
 import { loadRelayConfig } from '../server/relay-config.js'
 import { createRelayConnector, type RelayConnectorHandle } from '../server/relay-connector.js'
 import { createRelayRpcHandler } from '../server/relay-rpc-handler.js'
+import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
 
@@ -184,6 +185,7 @@ export const runHiveCommand = async (
         createRelayRpcHandler({ runtimeInfo: { dataDir, port }, store }),
         {
           authenticateDevice: (token) => store.authenticateMobileDevice(token),
+          voiceStreamHandler: createVoiceStreamTtsHandler(),
         }
       )
       logger.info(
