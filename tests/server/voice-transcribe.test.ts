@@ -8,10 +8,22 @@ import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
 const tempDirs: string[] = []
+const originalHome = process.env.HOME
+const originalPath = process.env.PATH
 
 afterEach(() => {
+  process.env.HOME = originalHome
+  process.env.PATH = originalPath
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
+
+const isolateLocalSttEnvironment = () => {
+  const binDir = mkdtempSync(join(tmpdir(), 'hive-voice-bin-'))
+  const homeDir = mkdtempSync(join(tmpdir(), 'hive-voice-home-'))
+  tempDirs.push(binDir, homeDir)
+  process.env.HOME = homeDir
+  process.env.PATH = binDir
+}
 
 const createMobileToken = async (
   baseUrl: string,
@@ -30,6 +42,7 @@ const createMobileToken = async (
 
 describe('POST /api/mobile/voice/transcribe', () => {
   test('returns stt_unavailable when whisper is not installed', async () => {
+    isolateLocalSttEnvironment()
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-voice-data-'))
     tempDirs.push(dataDir)
     const server = await startTestServer({ dataDir })

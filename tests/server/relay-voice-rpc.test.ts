@@ -9,6 +9,7 @@ import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 
 const tempDirs: string[] = []
+const originalHome = process.env.HOME
 const originalPath = process.env.PATH
 const stores: Array<ReturnType<typeof createRuntimeStore>> = []
 
@@ -30,10 +31,19 @@ const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25)
 }
 
 afterEach(async () => {
+  process.env.HOME = originalHome
   process.env.PATH = originalPath
   await Promise.all(stores.splice(0).map((store) => store.close()))
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
+
+const isolateLocalSttEnvironment = () => {
+  const binDir = mkdtempSync(join(tmpdir(), 'hive-relay-stt-bin-'))
+  const homeDir = mkdtempSync(join(tmpdir(), 'hive-relay-stt-home-'))
+  tempDirs.push(binDir, homeDir)
+  process.env.HOME = homeDir
+  process.env.PATH = binDir
+}
 
 const createMockStore = () => {
   const store = createRuntimeStore()
@@ -55,6 +65,7 @@ const createMockStore = () => {
 
 describe('relay RPC voice.transcribe', () => {
   test('returns stt_unavailable when whisper is not installed', async () => {
+    isolateLocalSttEnvironment()
     const store = createMockStore()
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp', port: 0 },

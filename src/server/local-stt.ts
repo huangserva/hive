@@ -5,10 +5,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, join, parse, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -68,11 +69,38 @@ const findExecutable = (name: string, env: NodeJS.ProcessEnv): string | null => 
   return null
 }
 
-const resolveWhisperCppModel = (env: NodeJS.ProcessEnv): string | null => {
+const findExecutableAny = (names: string[], env: NodeJS.ProcessEnv): string | null => {
+  for (const name of names) {
+    const executable = findExecutable(name, env)
+    if (executable) return executable
+  }
+  return null
+}
+
+const getHomeDir = (env: NodeJS.ProcessEnv) => env.HOME ?? homedir()
+
+const resolveWhisperCppModel = (
+  env: NodeJS.ProcessEnv,
+  logger?: Pick<HiveLogger, 'warn'>
+): string | null => {
   const model = env.HIVE_STT_WHISPER_CPP_MODEL ?? env.WHISPER_CPP_MODEL
-  if (!model) return null
-  const absolute = resolve(model)
-  return existsSync(absolute) ? absolute : null
+  if (model) {
+    const absolute = resolve(model)
+    return existsSync(absolute) ? absolute : null
+  }
+  const modelDir = join(getHomeDir(env), '.config', 'hive', 'whisper-models')
+  if (!existsSync(modelDir)) return null
+  let modelFiles: string[]
+  try {
+    modelFiles = readdirSync(modelDir)
+      .filter((name) => name.endsWith('.bin'))
+      .sort((a, b) => a.localeCompare(b))
+  } catch (error) {
+    logger?.warn(`failed to scan whisper.cpp model directory: ${modelDir}`, error)
+    return null
+  }
+  const firstModel = modelFiles[0]
+  return firstModel ? join(modelDir, firstModel) : null
 }
 
 const readFirstTranscript = (paths: string[], stdout: string) => {
@@ -92,8 +120,8 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
 
   const detectCandidates = (): LocalSttCli[] => {
     const candidates: LocalSttCli[] = []
-    const whisperCli = findExecutable('whisper-cli', env)
-    const whisperCppModel = resolveWhisperCppModel(env)
+    const whisperCli = findExecutableAny(['whisper-cli', 'whisper-cpp', 'main'], env)
+    const whisperCppModel = resolveWhisperCppModel(env, options.logger)
     if (whisperCli && whisperCppModel) {
       candidates.push({ command: whisperCli, model: whisperCppModel, provider: 'whisper-cli' })
     }
@@ -112,12 +140,22 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
 
   const runWhisperCli = async (cli: LocalSttCli, audioPath: string): Promise<string | null> => {
     if (!cli.model) return null
+    const ffmpeg = findExecutable('ffmpeg', env)
+    if (!ffmpeg) {
+      throw new Error('ffmpeg is required to convert audio for whisper.cpp')
+    }
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-stt-'))
     try {
-      const outputBase = join(outputDir, parse(audioPath).name)
+      const wavPath = join(outputDir, `${parse(audioPath).name}.wav`)
+      await execFileP(
+        ffmpeg,
+        ['-i', audioPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', wavPath],
+        { maxBuffer: 5 * 1024 * 1024, timeout: timeoutMs }
+      )
+      const outputBase = join(outputDir, parse(wavPath).name)
       const { stdout } = await execFileP(
         cli.command,
-        ['-m', cli.model, '-otxt', '-of', outputBase, '-np', '-nt', audioPath],
+        ['-m', cli.model, '-otxt', '-of', outputBase, '-np', '-nt', wavPath],
         { maxBuffer: 5 * 1024 * 1024, timeout: timeoutMs }
       )
       return readFirstTranscript([`${outputBase}.txt`], stdout)
