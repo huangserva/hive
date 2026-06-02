@@ -321,7 +321,10 @@ describe('TalkTab continuous mode behavior', () => {
     await finishCurrentPhrase(view)
     await flush()
 
-    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith('turn on diagnostics')
+    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith(
+      'turn on diagnostics',
+      { source: 'voice' }
+    )
     expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalled()
     expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
 

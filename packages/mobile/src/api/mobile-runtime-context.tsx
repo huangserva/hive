@@ -31,6 +31,7 @@ import {
   type MobileDashboard,
   type MobileDeviceSummary,
   type MobileDispatchResponse,
+  type MobilePromptSource,
   type MobileWorkerTranscript,
   type MobileWorkspace,
   type MobileWorkspaceTasks,
@@ -138,7 +139,10 @@ interface MobileRuntimeContextValue {
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
   sendPromptToOrchestrator: (text: string) => Promise<boolean>
-  sendPromptToOrchestratorWithOutcome: (text: string) => Promise<ChatSendOutcome>
+  sendPromptToOrchestratorWithOutcome: (
+    text: string,
+    options?: { source?: MobilePromptSource }
+  ) => Promise<ChatSendOutcome>
   setHost: (host: string) => void
   setToken: (token: string) => void
   state: MobileRuntimeState
@@ -986,7 +990,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   }, [])
 
   const sendPromptToOrchestratorWithOutcome = useCallback(
-    async (text: string): Promise<ChatSendOutcome> => {
+    async (
+      text: string,
+      options: { source?: MobilePromptSource } = {}
+    ): Promise<ChatSendOutcome> => {
       if (!selectedWorkspaceId) {
         setError('Select a workspace before sending prompts')
         return 'error'
@@ -1018,7 +1025,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         return 'queued'
       }
       try {
-        await client.sendPromptToOrchestrator(selectedWorkspaceId, text)
+        await client.sendPromptToOrchestrator(selectedWorkspaceId, text, options)
         chatFetchFailureCountRef.current = 0
         void syncWorkspaceData(selectedWorkspaceId, { resetChat: true })
         return 'sent'

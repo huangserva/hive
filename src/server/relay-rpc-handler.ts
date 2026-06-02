@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
+import { type FastVoiceReplyProvider, maybeInsertFastVoiceReply } from './fast-voice-reply.js'
 import { createLocalSttProvider } from './local-stt.js'
 import { createLocalTtsProvider } from './local-tts.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
@@ -29,6 +30,7 @@ export type RelayRpcHandler = (
 ) => Promise<unknown>
 
 interface RelayRpcHandlerDeps {
+  fastVoiceReplyProvider?: FastVoiceReplyProvider
   runtimeInfo: RuntimeInfo
   store: Pick<
     RuntimeStore,
@@ -266,6 +268,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const device = requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
       const workspaceId = readStringParam(params, 'workspace_id')
       const text = readStringParam(params, 'text')
+      const source = typeof params.source === 'string' ? params.source : undefined
       const orchId = getOrchestratorId(workspaceId)
       const activeRun = deps.store.getActiveRunByAgentId(workspaceId, orchId)
       if (!activeRun) {
@@ -282,8 +285,15 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         workspaceId,
         'inbound',
         'user_text',
-        JSON.stringify({ text })
+        JSON.stringify(source === 'voice' ? { source, text } : { text })
       )
+      await maybeInsertFastVoiceReply({
+        ...(deps.fastVoiceReplyProvider ? { provider: deps.fastVoiceReplyProvider } : {}),
+        source,
+        store: deps.store,
+        text,
+        workspaceId,
+      })
       return { ok: true, workspace_id: workspaceId }
     }
 

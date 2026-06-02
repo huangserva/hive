@@ -41,6 +41,8 @@ export interface RuntimeClientDiagnosticEvent {
   type: 'lan_attempt' | 'relay_rpc'
 }
 
+export type MobilePromptSource = 'text' | 'voice'
+
 export interface MobileDeviceSummary {
   active?: boolean
   capabilities?: string[]
@@ -572,13 +574,21 @@ export const createRuntimeClient = ({
         }
       )
     },
-    async sendPromptToOrchestrator(workspaceId: string, text: string): Promise<{ ok: boolean }> {
+    async sendPromptToOrchestrator(
+      workspaceId: string,
+      text: string,
+      options: { source?: MobilePromptSource } = {}
+    ): Promise<{ ok: boolean }> {
+      const relayParams = options.source
+        ? { source: options.source, text, workspace_id: workspaceId }
+        : { text, workspace_id: workspaceId }
+      const body = options.source ? { source: options.source, text } : { text }
       return readMobileJson<{ ok: boolean }>(
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/prompt`,
         'workspace.prompt',
-        { text, workspace_id: workspaceId },
+        relayParams,
         {
-          body: { text },
+          body,
           method: 'POST',
         }
       )

@@ -359,11 +359,24 @@ describe('relay RPC handler', () => {
         ['read_dashboard']
       )
     ).resolves.toEqual({ ok: true })
-    await expect(
-      handler('voice.transcribe', { audio: 'fake' }, 'device-1', ['send_prompt'])
-    ).resolves.toMatchObject({
-      error: 'stt_unavailable',
-    })
+    const originalPath = process.env.PATH
+    const originalHome = process.env.HOME
+    const isolatedBin = join(dataDir, 'isolated-bin')
+    const isolatedHome = join(dataDir, 'isolated-home')
+    mkdirSync(isolatedBin, { recursive: true })
+    mkdirSync(isolatedHome, { recursive: true })
+    process.env.PATH = isolatedBin
+    process.env.HOME = isolatedHome
+    try {
+      await expect(
+        handler('voice.transcribe', { audio: 'fake' }, 'device-1', ['send_prompt'])
+      ).resolves.toMatchObject({
+        error: 'stt_unavailable',
+      })
+    } finally {
+      process.env.PATH = originalPath
+      process.env.HOME = originalHome
+    }
     await expect(
       handler('worker.stop', { workspace_id: 'ws-1', worker_id: 'worker-1' }, 'device-1', [
         'admin_runtime',
@@ -588,6 +601,76 @@ describe('relay RPC handler', () => {
       'ws-1',
       'ws-1:orchestrator',
       expect.not.stringContaining('[Image: source:')
+    )
+  })
+
+  it('adds a fast voice reply while still injecting voice prompts to orchestrator', async () => {
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('好，我先安排。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '让关羽汇报', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n让关羽汇报'
+    )
+    expect(fastVoiceReplyProvider.generate).toHaveBeenCalledWith({ transcript: '让关羽汇报' })
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'inbound',
+      'user_text',
+      JSON.stringify({ source: 'voice', text: '让关羽汇报' })
+    )
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'outbound',
+      'orch_reply',
+      JSON.stringify({ fast_reply: true, source: 'voice_fast_reply', text: '好，我先安排。' })
+    )
+  })
+
+  it('does not call the fast voice layer for ordinary text prompts', async () => {
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('不应触发'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler('workspace.prompt', { text: '普通文字', workspace_id: 'ws-1' }, 'device-1', [
+        'send_prompt',
+      ])
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(fastVoiceReplyProvider.generate).not.toHaveBeenCalled()
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'inbound',
+      'user_text',
+      JSON.stringify({ text: '普通文字' })
     )
   })
 })

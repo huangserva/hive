@@ -16,6 +16,7 @@ import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
+import { maybeInsertFastVoiceReply } from './fast-voice-reply.js'
 import type { ResolvedApproval } from './feishu-approval-ledger.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
@@ -745,8 +746,9 @@ export const mobileRoutes: RouteDefinition[] = [
         'Workspace id is required'
       )
       if (!workspaceId) return
-      const body = await readJsonBody<{ text?: unknown }>(request)
+      const body = await readJsonBody<{ source?: unknown; text?: unknown }>(request)
       const text = readNonEmptyString(body.text, 'text')
+      const source = typeof body.source === 'string' ? body.source : undefined
       const orchId = getOrchestratorId(workspaceId)
       const activeRun = store.getActiveRunByAgentId(workspaceId, orchId)
       if (!activeRun) {
@@ -759,7 +761,13 @@ export const mobileRoutes: RouteDefinition[] = [
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
       store.recordUserInput(workspaceId, orchId, formatted)
-      store.insertMobileChatMessage(workspaceId, 'inbound', 'user_text', JSON.stringify({ text }))
+      store.insertMobileChatMessage(
+        workspaceId,
+        'inbound',
+        'user_text',
+        JSON.stringify(source === 'voice' ? { source, text } : { text })
+      )
+      await maybeInsertFastVoiceReply({ source, store, text, workspaceId })
       sendJson(response, 200, { ok: true, workspace_id: workspaceId })
     }
   ),
@@ -934,7 +942,11 @@ export const mobileRoutes: RouteDefinition[] = [
       sendJson(response, 200, { error: 'synthesis_failed' })
       return
     }
-    sendJson(response, 200, { audio: result.audio.toString('base64'), format: result.format, mime: result.mime })
+    sendJson(response, 200, {
+      audio: result.audio.toString('base64'),
+      format: result.format,
+      mime: result.mime,
+    })
   }),
   route(
     'POST',

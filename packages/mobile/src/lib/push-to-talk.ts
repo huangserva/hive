@@ -1,3 +1,4 @@
+import type { MobilePromptSource } from '../api/client'
 import type { ChatSendOutcome } from './chat-send-status'
 
 export type TalkbackState =
@@ -53,14 +54,17 @@ export const runTalkbackInput = async ({
 }: {
   audioBase64: string
   format: string
-  sendPromptToOrchestratorWithOutcome: (text: string) => Promise<ChatSendOutcome>
+  sendPromptToOrchestratorWithOutcome: (
+    text: string,
+    options?: { source?: MobilePromptSource }
+  ) => Promise<ChatSendOutcome>
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
 }): Promise<{ outcome: ChatSendOutcome; text: string }> => {
   const transcript = (await transcribeVoice(audioBase64, format))?.trim()
   if (!transcript) {
     throw new Error('No speech was transcribed')
   }
-  const outcome = await sendPromptToOrchestratorWithOutcome(transcript)
+  const outcome = await sendPromptToOrchestratorWithOutcome(transcript, { source: 'voice' })
   return { outcome, text: transcript }
 }
 

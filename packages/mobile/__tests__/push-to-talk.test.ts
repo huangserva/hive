@@ -40,7 +40,9 @@ describe('push-to-talk phase 1 logic', () => {
 
     expect(outcome).toEqual({ outcome: 'sent', text: 'check relay status' })
     expect(transcribeVoice).toHaveBeenCalledWith('base64-audio', 'm4a')
-    expect(sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith('check relay status')
+    expect(sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith('check relay status', {
+      source: 'voice',
+    })
   })
 
   test('does not inject empty transcripts', async () => {
