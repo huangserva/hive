@@ -47,6 +47,7 @@ const DEFAULT_WHISPER_MODEL = 'base'
 const DEFAULT_STT_LANGUAGE = 'zh'
 const DEFAULT_STT_PROMPT =
   '以下是简体中文普通话语音指令。团队成员：关羽、马超、赵云、钟馗、吕布、典韦、张飞、周瑜。'
+const MIN_PROMPT_ECHO_CHARS = 8
 
 const isExecutable = (filePath: string) => {
   try {
@@ -114,6 +115,16 @@ const readFirstTranscript = (paths: string[], stdout: string) => {
   }
   const text = stdout.trim()
   return text ? text : null
+}
+
+const normalizeTranscriptForPromptEcho = (text: string) =>
+  text.replace(/[^\p{L}\p{N}]/gu, '').trim()
+
+const isDefaultPromptEcho = (text: string) => {
+  const normalized = normalizeTranscriptForPromptEcho(text)
+  if (normalized.length < MIN_PROMPT_ECHO_CHARS) return false
+  const normalizedPrompt = normalizeTranscriptForPromptEcho(DEFAULT_STT_PROMPT)
+  return normalizedPrompt.includes(normalized) || normalized.includes(normalizedPrompt)
 }
 
 export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): LocalSttProvider => {
@@ -226,7 +237,10 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
             cli.provider === 'whisper-cli'
               ? await runWhisperCli(cli, audioPath)
               : await runWhisper(cli, audioPath)
-          if (text) return { provider: cli.provider, text }
+          if (text) {
+            if (isDefaultPromptEcho(text)) return null
+            return { provider: cli.provider, text }
+          }
         } catch (error) {
           options.logger?.warn(
             `local STT failed provider=${cli.provider} command=${cli.command} audio=${audioPath}`,
