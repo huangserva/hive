@@ -7,6 +7,7 @@ export interface OptimisticChatMessage {
   created_at: number
   id: string
   message_type: 'user_text'
+  workspaceId?: string
 }
 
 const parseMessageContent = (json: string) => {
@@ -44,16 +45,21 @@ const compareMessageOrder = (
 
 export const filterPendingOptimisticMessages = <T extends OptimisticChatMessage>({
   chatMessages,
+  currentWorkspaceId,
   optimisticMessages,
 }: {
   chatMessages: Array<Pick<ChatMessage, 'content_json' | 'created_at' | 'id' | 'message_type'>>
+  currentWorkspaceId?: string | null
   optimisticMessages: T[]
 }): T[] => {
   const serverIds = new Set(chatMessages.map((message) => message.id))
+  const scopedOptimisticMessages = currentWorkspaceId
+    ? optimisticMessages.filter((message) => message.workspaceId === currentWorkspaceId)
+    : optimisticMessages
 
   // 每个 key 一桶 optimistic，桶内按创建时间升序。
   const optimisticByKey = new Map<string, T[]>()
-  for (const message of optimisticMessages) {
+  for (const message of scopedOptimisticMessages) {
     const key = stableMessageKey(message)
     const bucket = optimisticByKey.get(key)
     if (bucket) {
@@ -81,7 +87,7 @@ export const filterPendingOptimisticMessages = <T extends OptimisticChatMessage>
     }
   }
 
-  return optimisticMessages.filter(
+  return scopedOptimisticMessages.filter(
     (message) => !serverIds.has(message.id) && !matchedOptimisticIds.has(message.id)
   )
 }

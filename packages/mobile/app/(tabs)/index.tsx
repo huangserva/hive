@@ -49,6 +49,7 @@ import { colors, radius, spacing } from '../../src/theme'
 type OptimisticMessage = {
   clientNonce: string
   id: string
+  workspaceId: string
   direction: 'inbound'
   queued?: boolean
   message_type: 'user_text'
@@ -200,6 +201,7 @@ export default function ChatTab() {
     fetchChatMessages,
     host,
     sendPromptToOrchestratorWithOutcome,
+    selectedWorkspaceId,
     state,
     token,
     uploadMedia,
@@ -230,8 +232,10 @@ export default function ChatTab() {
   const forceScrollRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dimensionSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const keyboardSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const selectedWorkspaceIdRef = useRef(selectedWorkspaceId)
   const keyboardInsetRef = useRef(0)
   const viewportHeightRef = useRef(0)
+  selectedWorkspaceIdRef.current = selectedWorkspaceId
   const isConnected = state === 'connected' && Boolean(dashboard)
 
   const connectionLabel = useMemo(() => {
@@ -255,12 +259,13 @@ export default function ChatTab() {
   const allMessages = useMemo<DisplayMessage[]>(() => {
     const pending = filterPendingOptimisticMessages({
       chatMessages,
+      currentWorkspaceId: selectedWorkspaceId,
       optimisticMessages: optimistic,
     })
     return dedupeAdjacentMessages(
       [...chatMessages, ...pending].sort((a, b) => a.created_at - b.created_at)
     )
-  }, [chatMessages, optimistic])
+  }, [chatMessages, optimistic, selectedWorkspaceId])
 
   const latestMessageToken = useMemo(() => {
     const latest = allMessages.at(-1)
@@ -474,6 +479,8 @@ export default function ChatTab() {
     const body = draft.trim()
     if (!body && attachments.length === 0) return
     if (sending) return
+    const workspaceId = selectedWorkspaceIdRef.current
+    if (!workspaceId) return
     const clientNonce = createClientNonce()
     const msgId = `opt-${clientNonce}`
     // 把全部 N 张附件都写进 optimistic content（attachments 数组），气泡才能渲染 N 个真实缩略图，
@@ -492,6 +499,7 @@ export default function ChatTab() {
     const msg: OptimisticMessage = {
       clientNonce,
       id: msgId,
+      workspaceId,
       direction: 'inbound',
       message_type: 'user_text',
       content_json: optimisticContentJson,

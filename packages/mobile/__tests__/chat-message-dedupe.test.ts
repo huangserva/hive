@@ -14,15 +14,97 @@ const optimisticMessage = (overrides: {
   content_json: string
   created_at: number
   id: string
+  workspaceId?: string
 }) => ({
   clientNonce: overrides.clientNonce,
   content_json: overrides.content_json,
   created_at: overrides.created_at,
   id: overrides.id,
   message_type: 'user_text' as const,
+  workspaceId: overrides.workspaceId,
 })
 
 describe('filterPendingOptimisticMessages', () => {
+  test('keeps pending optimistic messages scoped to the selected workspace only', () => {
+    const content_json = JSON.stringify({ text: 'workspace scoped' })
+    const optimistic = [
+      optimisticMessage({
+        clientNonce: 'nonce-a',
+        content_json,
+        created_at: Date.parse('2026-06-02T10:00:00Z'),
+        id: 'opt-a',
+        workspaceId: 'workspace-a',
+      }),
+      optimisticMessage({
+        clientNonce: 'nonce-b',
+        content_json,
+        created_at: Date.parse('2026-06-02T10:00:01Z'),
+        id: 'opt-b',
+        workspaceId: 'workspace-b',
+      }),
+    ]
+
+    expect(
+      filterPendingOptimisticMessages({
+        chatMessages: [],
+        currentWorkspaceId: 'workspace-b',
+        optimisticMessages: optimistic,
+      }).map((message) => message.id)
+    ).toEqual(['opt-b'])
+
+    expect(
+      filterPendingOptimisticMessages({
+        chatMessages: [],
+        currentWorkspaceId: 'workspace-a',
+        optimisticMessages: optimistic,
+      }).map((message) => message.id)
+    ).toEqual(['opt-a'])
+  })
+
+  test('hides other workspaces without deleting them, so switch-back and late-failure updates still work', () => {
+    const content_json = JSON.stringify({ text: 'late failure' })
+    let optimistic = [
+      {
+        ...optimisticMessage({
+          clientNonce: 'nonce-a',
+          content_json,
+          created_at: Date.parse('2026-06-02T10:00:00Z'),
+          id: 'opt-a',
+          workspaceId: 'workspace-a',
+        }),
+        pending: true,
+      },
+    ]
+
+    expect(
+      filterPendingOptimisticMessages({
+        chatMessages: [],
+        currentWorkspaceId: 'workspace-b',
+        optimisticMessages: optimistic,
+      })
+    ).toEqual([])
+
+    expect(
+      filterPendingOptimisticMessages({
+        chatMessages: [],
+        currentWorkspaceId: 'workspace-a',
+        optimisticMessages: optimistic,
+      }).map((message) => message.id)
+    ).toEqual(['opt-a'])
+
+    optimistic = optimistic.map((message) =>
+      message.id === 'opt-a' ? { ...message, error: true, pending: false } : message
+    )
+
+    expect(
+      filterPendingOptimisticMessages({
+        chatMessages: [],
+        currentWorkspaceId: 'workspace-a',
+        optimisticMessages: optimistic,
+      })
+    ).toMatchObject([{ error: true, id: 'opt-a', pending: false }])
+  })
+
   test('removes only the optimistic shadow for one server echo even if the echo arrives much later', () => {
     const content_json = JSON.stringify({ text: 'hello' })
     const optimistic = [
