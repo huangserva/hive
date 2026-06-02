@@ -164,6 +164,9 @@ const runtime = {
   synthesizeVoice: vi
     .fn()
     .mockResolvedValue({ audio: 'reply-audio', format: 'wav', mime: 'audio/wav' }),
+  synthesizeVoiceStream: vi
+    .fn()
+    .mockResolvedValue({ audio: 'stream-audio', format: 'wav', mime: 'audio/wav' }),
   transcribeVoice: vi.fn().mockResolvedValue('turn on diagnostics'),
 }
 
@@ -230,6 +233,9 @@ describe('TalkTab continuous mode behavior', () => {
     runtime.synthesizeVoice = vi
       .fn()
       .mockResolvedValue({ audio: 'reply-audio', format: 'wav', mime: 'audio/wav' })
+    runtime.synthesizeVoiceStream = vi
+      .fn()
+      .mockResolvedValue({ audio: 'stream-audio', format: 'wav', mime: 'audio/wav' })
     runtime.transcribeVoice = vi.fn().mockResolvedValue('turn on diagnostics')
   })
 
@@ -309,6 +315,7 @@ describe('TalkTab continuous mode behavior', () => {
     await flush()
 
     expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith('turn on diagnostics')
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalled()
     expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
 
     runtime.chatMessages = [
@@ -322,9 +329,10 @@ describe('TalkTab continuous mode behavior', () => {
     ]
     view.rerender(React.createElement(TalkTab))
 
-    await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('new answer'))
+    await waitFor(() => expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new answer'))
+    expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
     expect(audioMock.player.replace).toHaveBeenCalledWith({
-      uri: 'data:audio/wav;base64,reply-audio',
+      uri: 'data:audio/wav;base64,stream-audio',
     })
     expect(audioMock.player.play).toHaveBeenCalled()
     now.mockRestore()
@@ -392,8 +400,12 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoice).toHaveBeenCalledWith('first streamed sentence')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first streamed sentence')
     )
+    expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
+    expect(audioMock.player.replace).toHaveBeenCalledWith({
+      uri: 'data:audio/wav;base64,stream-audio',
+    })
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
 
     await act(async () => {
@@ -402,14 +414,14 @@ describe('TalkTab continuous mode behavior', () => {
     })
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoice).toHaveBeenCalledWith('second streamed sentence')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second streamed sentence')
     )
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
   })
 
   test('drops stale synthesized audio after continuous mode is stopped before synthesis resolves', async () => {
     const synthesized = deferred<{ audio: string; format: string; mime: string }>()
-    runtime.synthesizeVoice = vi.fn().mockReturnValue(synthesized.promise)
+    runtime.synthesizeVoiceStream = vi.fn().mockReturnValue(synthesized.promise)
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -424,7 +436,7 @@ describe('TalkTab continuous mode behavior', () => {
       },
     ]
     view.rerender(React.createElement(TalkTab))
-    await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('stale reply'))
+    await waitFor(() => expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('stale reply'))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
     await act(async () => {
@@ -435,5 +447,35 @@ describe('TalkTab continuous mode behavior', () => {
 
     expect(audioMock.player.replace).not.toHaveBeenCalled()
     expect(audioMock.player.play).not.toHaveBeenCalled()
+  })
+
+  test('falls back to legacy synthesis when streamed talkback synthesis is unavailable', async () => {
+    runtime.synthesizeVoiceStream = vi.fn().mockResolvedValue(null)
+    runtime.synthesizeVoice = vi
+      .fn()
+      .mockResolvedValue({ audio: 'fallback-audio', format: 'wav', mime: 'audio/wav' })
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'fallback reply' }),
+        created_at: 2,
+        id: 'reply-fallback',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('fallback reply')
+    )
+    await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('fallback reply'))
+    expect(audioMock.player.replace).toHaveBeenCalledWith({
+      uri: 'data:audio/wav;base64,fallback-audio',
+    })
+    expect(audioMock.player.play).toHaveBeenCalled()
   })
 })

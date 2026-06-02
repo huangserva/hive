@@ -447,22 +447,26 @@ export default function TalkTab() {
     lastPlaybackFinishedAtMsRef.current = null
     inFlightReplyIdRef.current = reply.id
     const playbackGeneration = replyQueueGenerationRef.current
+    const playbackStillCurrent = () =>
+      replyQueueGenerationRef.current === playbackGeneration &&
+      inFlightReplyIdRef.current === reply.id &&
+      !activePlaybackReplyIdRef.current &&
+      isTalkbackPlaybackAllowed() &&
+      (talkStateRef.current === 'waiting_for_orchestrator' ||
+        talkStateRef.current === 'processing' ||
+        talkStateRef.current === 'speaking')
     dispatchTalkEvent({ type: 'replyDetected' })
     void (async () => {
       try {
-        const synthesized = (await synthesizeVoice(reply.text)) as unknown
+        const streamed = (await synthesizeVoiceStream(reply.text)) as unknown
+        if (!playbackStillCurrent()) return
+        const synthesized = isVoiceSynthesisResult(streamed)
+          ? streamed
+          : ((await synthesizeVoice(reply.text)) as unknown)
         if (!isVoiceSynthesisResult(synthesized)) {
           throw new Error(t('talk.error.synthesisFailed'))
         }
-        const playbackStillCurrent =
-          replyQueueGenerationRef.current === playbackGeneration &&
-          inFlightReplyIdRef.current === reply.id &&
-          !activePlaybackReplyIdRef.current &&
-          isTalkbackPlaybackAllowed() &&
-          (talkStateRef.current === 'waiting_for_orchestrator' ||
-            talkStateRef.current === 'processing' ||
-            talkStateRef.current === 'speaking')
-        if (!playbackStillCurrent) return
+        if (!playbackStillCurrent()) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
         activePlaybackReplyIdRef.current = reply.id
         player.play()
@@ -488,6 +492,7 @@ export default function TalkTab() {
     isTalkbackPlaybackAllowed,
     player,
     synthesizeVoice,
+    synthesizeVoiceStream,
     t,
     talkbackQueueTick,
     talkState,
