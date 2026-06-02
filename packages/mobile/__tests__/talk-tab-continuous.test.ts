@@ -84,6 +84,13 @@ vi.mock('expo-audio', () => ({
 
 vi.mock('expo-file-system', () => ({
   EncodingType: { Base64: 'base64' },
+  readAsStringAsync: vi.fn(() => {
+    throw new Error('Method readAsStringAsync imported from "expo-file-system" is deprecated')
+  }),
+}))
+
+vi.mock('expo-file-system/legacy', () => ({
+  EncodingType: { Base64: 'base64' },
   readAsStringAsync: vi.fn().mockResolvedValue('audio-base64'),
 }))
 

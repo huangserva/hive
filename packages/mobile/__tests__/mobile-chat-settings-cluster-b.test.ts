@@ -35,7 +35,7 @@ vi.mock('expo-camera', () => ({
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }))
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }))
 vi.mock('expo-document-picker', () => ({ getDocumentAsync: vi.fn() }))
-vi.mock('expo-file-system', () => ({ readAsStringAsync: vi.fn() }))
+vi.mock('expo-file-system/legacy', () => ({ readAsStringAsync: vi.fn() }))
 vi.mock('expo-image-manipulator', () => ({
   manipulateAsync: vi.fn(),
   SaveFormat: { PNG: 'png' },
