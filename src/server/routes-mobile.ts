@@ -20,6 +20,7 @@ import type { ResolvedApproval } from './feishu-approval-ledger.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import { createLocalSttProvider } from './local-stt.js'
+import { createLocalTtsProvider } from './local-tts.js'
 import {
   extractMobileToken,
   type MobileCapability,
@@ -915,6 +916,25 @@ export const mobileRoutes: RouteDefinition[] = [
     } finally {
       rmSync(tmpDir, { force: true, recursive: true })
     }
+  }),
+  route('POST', '/api/mobile/voice/synthesize', async ({ request, response, store }) => {
+    requireMobileCapability(request, store, 'send_prompt')
+    const body = await readJsonBody<{ text?: unknown }>(request, { limitBytes: 1024 * 1024 })
+    if (typeof body.text !== 'string' || !body.text.trim()) {
+      throw new BadRequestError('text string is required')
+    }
+    const ttsProvider = createLocalTtsProvider()
+    const cli = await ttsProvider.detect()
+    if (!cli) {
+      sendJson(response, 200, { error: 'tts_unavailable' })
+      return
+    }
+    const result = await ttsProvider.synthesize(body.text)
+    if (!result) {
+      sendJson(response, 200, { error: 'synthesis_failed' })
+      return
+    }
+    sendJson(response, 200, { audio: result.audio.toString('base64'), format: result.format, mime: result.mime })
   }),
   route(
     'POST',

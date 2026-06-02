@@ -88,6 +88,7 @@ const OUTBOX_KEY = 'hippoteam.mobileOutbox'
 
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 type RuntimeClient = ReturnType<typeof createRuntimeClient>
+export type MobileVoiceSynthesisResult = { audio: string; format: string; mime: string }
 
 interface MobileRuntimeContextValue {
   answerQuestion: (questionId: string, answer: string) => Promise<boolean>
@@ -137,6 +138,7 @@ interface MobileRuntimeContextValue {
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
+  synthesizeVoice: (text: string) => Promise<MobileVoiceSynthesisResult | null>
   uploadMedia: (
     data: string,
     filename: string,
@@ -919,6 +921,26 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client]
   )
 
+  const synthesizeVoice = useCallback(
+    async (text: string) => {
+      setError(null)
+      try {
+        const result = await client.synthesizeVoice(text)
+        if ('error' in result && result.error) {
+          setError(result.error)
+          return null
+        }
+        const success = result as { audio: string; format: string; mime: string }
+        return { audio: success.audio, format: success.format, mime: success.mime }
+      } catch (ttsError) {
+        const message = ttsError instanceof Error ? ttsError.message : String(ttsError)
+        setError(message)
+        return null
+      }
+    },
+    [client]
+  )
+
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (text: string): Promise<ChatSendOutcome> => {
       if (!selectedWorkspaceId) {
@@ -1393,6 +1415,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       state: demoMode ? 'connected' : state,
       syncRevision,
       stopWorker,
+      synthesizeVoice,
       token,
       transcribeVoice,
       uploadMedia,
@@ -1434,6 +1457,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       state,
       syncRevision,
       stopWorker,
+      synthesizeVoice,
       token,
       transcribeVoice,
       uploadMedia,

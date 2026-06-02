@@ -559,6 +559,19 @@ export const createRuntimeClient = ({
         }
       )
     },
+    async synthesizeVoice(
+      text: string
+    ): Promise<{ audio: string; format: string; mime: string } | { error: string }> {
+      return readMobileJson<{ audio: string; format: string; mime: string } | { error: string }>(
+        '/api/mobile/voice/synthesize',
+        'voice.synthesize',
+        { text },
+        {
+          body: { text },
+          method: 'POST',
+        }
+      )
+    },
     async sendPromptToOrchestrator(workspaceId: string, text: string): Promise<{ ok: boolean }> {
       return readMobileJson<{ ok: boolean }>(
         `/api/mobile/workspaces/${encodeURIComponent(workspaceId)}/prompt`,

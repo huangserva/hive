@@ -50,6 +50,10 @@ export default function TabsLayout() {
         options={{ tabBarIcon: tabIcon('pulse-outline'), title: t('tabs.status') }}
       />
       <Tabs.Screen
+        name="talk"
+        options={{ tabBarIcon: tabIcon('mic-outline'), title: t('tabs.talk') }}
+      />
+      <Tabs.Screen
         name="cockpit"
         options={{ tabBarIcon: tabIcon('grid-outline'), title: t('tabs.cockpit') }}
       />

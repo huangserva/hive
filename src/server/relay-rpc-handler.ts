@@ -5,6 +5,7 @@ import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { createLocalSttProvider } from './local-stt.js'
+import { createLocalTtsProvider } from './local-tts.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
 import { answerQuestionInFile } from './pm-questions-doc.js'
 import type { RuntimeInfo } from './route-types.js'
@@ -405,6 +406,18 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       } finally {
         rmSync(tmpDir, { force: true, recursive: true })
       }
+    }
+
+    if (method === 'voice.synthesize') {
+      requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      const text = readStringParam(params, 'text')
+      if (!text.trim()) return { error: 'text_is_required' }
+      const ttsProvider = createLocalTtsProvider()
+      const cli = await ttsProvider.detect()
+      if (!cli) return { error: 'tts_unavailable' }
+      const result = await ttsProvider.synthesize(text)
+      if (!result) return { error: 'synthesis_failed' }
+      return { audio: result.audio.toString('base64'), format: result.format, mime: result.mime }
     }
 
     throw new Error(`Unknown relay RPC method: ${method}`)
