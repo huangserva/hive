@@ -82,9 +82,19 @@ interface RelayDeviceSession {
   deviceId: string
 }
 
+interface VoiceStreamFrame {
+  op?: string
+  payload?: string
+  sent_at_ms?: number
+  seq?: number
+  stream_id?: string
+  type?: string
+}
+
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1_000
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30_000
+const VOICE_STREAM_OPERATIONS = new Set(['ack', 'chunk', 'close', 'error', 'open'])
 
 const emptyStatus = (config: RelayConfig): RelayConnectionStatus => ({
   connected_at: null,
@@ -112,6 +122,21 @@ const hasCapabilities = (available: string[], requested: string[]) => {
 
 const isHandshakeHello = (frame: ClearHandshakeFrame): frame is RelayHandshakeHello =>
   frame.type === 'e2ee_hello' && 'device_id' in frame && 'handshake' in frame && 'token' in frame
+
+const isVoiceStreamFrame = (value: unknown): value is VoiceStreamFrame => {
+  if (typeof value !== 'object' || value === null) return false
+  const frame = value as VoiceStreamFrame
+  return (
+    frame.type === 'voice_stream' &&
+    typeof frame.stream_id === 'string' &&
+    frame.stream_id.length > 0 &&
+    typeof frame.seq === 'number' &&
+    Number.isInteger(frame.seq) &&
+    frame.seq >= 0 &&
+    typeof frame.op === 'string' &&
+    VOICE_STREAM_OPERATIONS.has(frame.op)
+  )
+}
 
 const parseRelayFrame = (data: WebSocket.RawData): RelayFrame | null => {
   try {
@@ -275,6 +300,20 @@ export const createRelayConnector = (
     })
   }
 
+  const handleVoiceStreamFrame = (session: RelayDeviceSession, frame: unknown) => {
+    if (!isVoiceStreamFrame(frame)) return false
+    if (frame.op === 'close') return true
+    sendEncryptedResponse(session, {
+      op: 'ack',
+      payload: frame.op === 'chunk' ? 'pong' : undefined,
+      sent_at_ms: frame.sent_at_ms,
+      seq: frame.seq,
+      stream_id: frame.stream_id,
+      type: 'voice_stream',
+    })
+    return true
+  }
+
   const handleEncryptedRpc = async (payload: string) => {
     for (const session of sessions.values()) {
       // 畸形 base64 会让 decrypt 内部的 atob 抛错（bug ③a）；逐会话捕获后继续尝试下一个会话，
@@ -288,9 +327,9 @@ export const createRelayConnector = (
       if (!plaintext) continue
 
       // 解密成功 = 命中正确会话。后续畸形输入一律优雅回标准 JSON-RPC error，不再 throw（bug ③a/③b）。
-      let request: { id?: string; method?: string; params?: unknown }
+      let request: unknown
       try {
-        request = decodeJson(plaintext) as { id?: string; method?: string; params?: unknown }
+        request = decodeJson(plaintext)
       } catch {
         // JSON 畸形：取不到 id，按 JSON-RPC 规范回 -32700 Parse error（id 为 null）。
         sendEncryptedResponse(session, {
@@ -301,8 +340,11 @@ export const createRelayConnector = (
         return
       }
 
-      const id = request.id ?? null
-      if (typeof request.method !== 'string') {
+      if (handleVoiceStreamFrame(session, request)) return
+
+      const rpcRequest = request as { id?: string; method?: string; params?: unknown }
+      const id = rpcRequest.id ?? null
+      if (typeof rpcRequest.method !== 'string') {
         sendEncryptedResponse(session, {
           error: { code: -32600, message: 'Invalid Request' },
           id,
@@ -313,8 +355,8 @@ export const createRelayConnector = (
 
       try {
         const result = await rpcHandler(
-          request.method,
-          request.params ?? {},
+          rpcRequest.method,
+          rpcRequest.params ?? {},
           session.deviceId,
           session.capabilities
         )

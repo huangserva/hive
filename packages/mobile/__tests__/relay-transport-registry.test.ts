@@ -22,8 +22,11 @@ const createFakeTransport = () => {
     call: vi.fn(),
     close: vi.fn(),
     connect: vi.fn(),
+    measureVoiceStreamLatency: vi.fn(),
     onEvent: vi.fn(() => () => {}),
     onStatusChange: vi.fn(() => () => {}),
+    onVoiceStreamFrame: vi.fn(() => () => {}),
+    sendVoiceStreamFrame: vi.fn(),
     status: vi.fn((): RelayTransportStatus => 'disconnected'),
   }
   return transport

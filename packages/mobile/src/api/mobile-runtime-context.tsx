@@ -77,6 +77,7 @@ import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
 import type { RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
+import type { VoiceStreamLatencyOptions, VoiceStreamLatencyResult } from './voice-stream-protocol'
 
 export type { RelayPairingInput }
 
@@ -110,6 +111,9 @@ interface MobileRuntimeContextValue {
   disconnect: () => Promise<void>
   dispatchTask: (workerId: string, task: string) => Promise<MobileDispatchResponse | null>
   listCommandPresets: () => Promise<MobileCommandPreset[]>
+  measureRelayVoiceStreamLatency: (
+    options?: VoiceStreamLatencyOptions
+  ) => Promise<VoiceStreamLatencyResult | null>
   enableDemoMode: () => void
   error: string | null
   fetchChatMessages: (options?: { resetSince?: boolean }) => Promise<void>
@@ -941,6 +945,25 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client]
   )
 
+  const measureRelayVoiceStreamLatency = useCallback(
+    async (options?: VoiceStreamLatencyOptions) => {
+      const transport = observedRelayTransportRef.current
+      if (!transport || transport.status() !== 'ready') {
+        setError('Relay transport is not ready')
+        return null
+      }
+      setError(null)
+      try {
+        return await transport.measureVoiceStreamLatency(options)
+      } catch (latencyError) {
+        const message = latencyError instanceof Error ? latencyError.message : String(latencyError)
+        setError(message)
+        return null
+      }
+    },
+    []
+  )
+
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (text: string): Promise<ChatSendOutcome> => {
       if (!selectedWorkspaceId) {
@@ -1390,6 +1413,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       dispatchTask,
       enableDemoMode,
       listCommandPresets,
+      measureRelayVoiceStreamLatency,
       error,
       fetchChatMessages,
       getCockpit,
@@ -1438,6 +1462,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       error,
       fetchChatMessages,
       listCommandPresets,
+      measureRelayVoiceStreamLatency,
       getCockpit,
       getWorkerTranscript,
       getWorkspaceTasks,

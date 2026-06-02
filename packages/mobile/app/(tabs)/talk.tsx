@@ -61,6 +61,7 @@ const isRecorderPrepared = (status: RecorderState) => status.canRecord || status
 export default function TalkTab() {
   const {
     chatMessages,
+    measureRelayVoiceStreamLatency,
     sendPromptToOrchestratorWithOutcome,
     state,
     synthesizeVoice,
@@ -71,6 +72,8 @@ export default function TalkTab() {
   const [inputMode, setInputMode] = useState<TalkInputMode>('push_to_talk')
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [streamLatencyText, setStreamLatencyText] = useState<string | null>(null)
+  const [streamLatencyTesting, setStreamLatencyTesting] = useState(false)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
   const recordingOptions = useMemo(
@@ -355,6 +358,36 @@ export default function TalkTab() {
     }).catch(() => {})
   }, [dispatchTalkEvent, player, resetReplyQueueForPrompt])
 
+  const testRelayVoiceStream = useCallback(async () => {
+    if (!connected || streamLatencyTesting) return
+    setStreamLatencyTesting(true)
+    setStreamLatencyText(null)
+    setError(null)
+    try {
+      const result = await measureRelayVoiceStreamLatency({
+        count: 20,
+        intervalMs: 50,
+        timeoutMs: 5_000,
+      })
+      if (!result) {
+        setError(t('talk.streamTest.unavailable'))
+        return
+      }
+      setStreamLatencyText(
+        t('talk.streamTest.result', {
+          lost: result.lost,
+          max: result.max_ms,
+          p50: result.p50_ms,
+          p95: result.p95_ms,
+        })
+      )
+    } catch (streamError) {
+      setError(streamError instanceof Error ? streamError.message : String(streamError))
+    } finally {
+      setStreamLatencyTesting(false)
+    }
+  }, [connected, measureRelayVoiceStreamLatency, streamLatencyTesting, t])
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: continuousRunnerTick intentionally wakes this ref-based microphone runner after async failures clear processingSegmentRef.
   useEffect(() => {
     if (
@@ -581,6 +614,25 @@ export default function TalkTab() {
             </Text>
           ) : null}
           {!connected ? <Text style={styles.statusHint}>{t('talk.connectFirst')}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={!connected || streamLatencyTesting}
+            onPress={() => void testRelayVoiceStream()}
+            style={[
+              styles.streamTestButton,
+              (!connected || streamLatencyTesting) && styles.streamTestButtonDisabled,
+            ]}
+          >
+            {streamLatencyTesting ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : (
+              <Ionicons color={colors.text} name="git-network-outline" size={16} />
+            )}
+            <Text style={styles.streamTestButtonText}>
+              {streamLatencyTesting ? t('talk.streamTest.testing') : t('talk.streamTest.button')}
+            </Text>
+          </Pressable>
+          {streamLatencyText ? <Text style={styles.statusHint}>{streamLatencyText}</Text> : null}
           {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
@@ -706,6 +758,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.xs,
     padding: spacing.md,
+  },
+  streamTestButton: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    minHeight: 34,
+    paddingHorizontal: spacing.sm,
+  },
+  streamTestButtonDisabled: {
+    opacity: 0.55,
+  },
+  streamTestButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
   },
   subtitle: {
     color: colors.textSoft,

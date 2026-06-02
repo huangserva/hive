@@ -213,6 +213,67 @@ describe('relay connector', () => {
     ])
   })
 
+  it('echoes encrypted voice_stream frames without dispatching them as JSON-RPC', async () => {
+    const relay = await startRelay()
+    const { calls, connector } = createConnector(configFor(relay))
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshake(device)
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            op: 'chunk',
+            payload: 'ping',
+            sent_at_ms: 1_234,
+            seq: 1,
+            stream_id: 'voice-1',
+            type: 'voice_stream',
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    const voiceResponse = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array())
+    expect(voiceResponse).toMatchObject({
+      op: 'ack',
+      sent_at_ms: 1_234,
+      seq: 1,
+      stream_id: 'voice-1',
+      type: 'voice_stream',
+    })
+    expect(calls).toEqual([])
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            id: 'rpc-after-voice',
+            jsonrpc: '2.0',
+            method: 'runtime.status',
+            params: { after: 'voice_stream' },
+          })
+        ),
+        type: 'data',
+      })
+    )
+    const rpcResponse = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array())
+    expect(rpcResponse).toMatchObject({
+      id: 'rpc-after-voice',
+      result: { ok: true, method: 'runtime.status', params: { after: 'voice_stream' } },
+    })
+    expect(calls).toEqual([
+      {
+        capabilities: ['read_dashboard'],
+        deviceId: 'device-1',
+        method: 'runtime.status',
+        params: { after: 'voice_stream' },
+      },
+    ])
+  })
+
   it('rejects handshake when requested capabilities exceed the device record', async () => {
     const relay = await startRelay()
     const { connector } = createConnector(configFor(relay))

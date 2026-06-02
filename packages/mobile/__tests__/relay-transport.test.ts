@@ -10,6 +10,7 @@ import {
 } from '../../relay-crypto/src/index.js'
 import { createRuntimeClient } from '../src/api/client.js'
 import { createRelayTransport, type RelayTransportConfig } from '../src/api/relay-transport.js'
+import { createVoiceStreamFrame } from '../src/api/voice-stream-protocol.js'
 
 class FakeRelaySocket {
   static instances: FakeRelaySocket[] = []
@@ -154,6 +155,107 @@ describe('relay transport', () => {
     })
 
     await expect(callPromise).resolves.toEqual({ version: '2.0.0' })
+  })
+
+  test('sends encrypted voice_stream frames without creating an RPC pending request', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+
+    transport.sendVoiceStreamFrame(createVoiceStreamFrame('open', 'voice-1', 0))
+    const encryptedFrame = socket.sent.at(-1) as { payload: string; type: string }
+    expect(encryptedFrame.type).toBe('data')
+    const decrypted = decodeJson(channel.decrypt(encryptedFrame.payload) ?? new Uint8Array()) as {
+      op: string
+      seq: number
+      stream_id: string
+      type: string
+    }
+
+    expect(decrypted).toMatchObject({
+      op: 'open',
+      seq: 0,
+      stream_id: 'voice-1',
+      type: 'voice_stream',
+    })
+  })
+
+  test('routes inbound voice_stream frames to stream listeners and leaves RPC frames untouched', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const voiceFrames: unknown[] = []
+    transport.onVoiceStreamFrame((frame) => voiceFrames.push(frame))
+
+    const callPromise = transport.call<{ ok: boolean }>('runtime.status')
+    const encryptedRequest = socket.sent.at(-1) as { payload: string }
+    const request = decodeJson(channel.decrypt(encryptedRequest.payload) ?? new Uint8Array()) as {
+      id: string
+    }
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(createVoiceStreamFrame('ack', 'voice-1', 1, { sent_at_ms: 1_000 }))
+      ),
+      type: 'data',
+    })
+    expect(voiceFrames).toEqual([
+      expect.objectContaining({ op: 'ack', seq: 1, stream_id: 'voice-1' }),
+    ])
+
+    socket.receive({
+      payload: channel.encrypt(encodeJson({ id: request.id, result: { ok: true } })),
+      type: 'data',
+    })
+    await expect(callPromise).resolves.toEqual({ ok: true })
+  })
+
+  test('measures voice_stream latency from daemon echo acknowledgements', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+
+    let sentCursor = socket.sent.length
+    const measurePromise = transport.measureVoiceStreamLatency({
+      count: 3,
+      intervalMs: 10,
+      timeoutMs: 1_000,
+    })
+
+    for (let acked = 0; acked < 3; ) {
+      const outboundFrame = socket.sent.slice(sentCursor).find((frame) => {
+        const candidate = frame as { payload?: string; type?: string }
+        if (candidate.type !== 'data' || !candidate.payload) return false
+        const decoded = decodeJson(channel.decrypt(candidate.payload) ?? new Uint8Array()) as {
+          op?: string
+        }
+        return decoded.op === 'chunk'
+      }) as { payload: string } | undefined
+      sentCursor = socket.sent.length
+      if (!outboundFrame) {
+        await vi.advanceTimersByTimeAsync(10)
+        continue
+      }
+      const outbound = decodeJson(channel.decrypt(outboundFrame.payload) ?? new Uint8Array()) as {
+        sent_at_ms?: number
+        seq: number
+        stream_id: string
+      }
+      acked += 1
+      await vi.advanceTimersByTimeAsync(acked * 5)
+      socket.receive({
+        payload: channel.encrypt(
+          encodeJson(
+            createVoiceStreamFrame('ack', outbound.stream_id, outbound.seq, {
+              sent_at_ms: outbound.sent_at_ms,
+            })
+          )
+        ),
+        type: 'data',
+      })
+    }
+
+    await expect(measurePromise).resolves.toMatchObject({
+      count: 3,
+      lost: 0,
+      max_ms: 20,
+      p95_ms: 20,
+      received: 3,
+    })
   })
 
   test('rejects JSON-RPC calls when encrypted response carries an error', async () => {
@@ -592,8 +694,11 @@ describe('runtime client relay fallback', () => {
       call: vi.fn().mockResolvedValue({ version: 'relay-version' }),
       close: vi.fn(),
       connect: vi.fn().mockResolvedValue(undefined),
+      measureVoiceStreamLatency: vi.fn(),
       onEvent: vi.fn(() => () => {}),
       onStatusChange: vi.fn(() => () => {}),
+      onVoiceStreamFrame: vi.fn(() => () => {}),
+      sendVoiceStreamFrame: vi.fn(),
       status: vi.fn(() => 'ready' as const),
     }
     const client = createRuntimeClient({

@@ -27,12 +27,19 @@ const makeRelay = (
       }
       status = overrides.statusAfterConnect ?? 'ready'
     },
+    async measureVoiceStreamLatency() {
+      return { count: 0, lost: 0, max_ms: 0, p50_ms: 0, p95_ms: 0, received: 0, stream_id: 'test' }
+    },
     onEvent() {
       return () => {}
     },
     onStatusChange() {
       return () => {}
     },
+    onVoiceStreamFrame() {
+      return () => {}
+    },
+    sendVoiceStreamFrame() {},
     status() {
       return status
     },

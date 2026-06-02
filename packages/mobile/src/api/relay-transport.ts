@@ -7,6 +7,15 @@ import {
   encodeJson,
   type KeyPair,
 } from '@huangserva/hippoteam-relay-crypto'
+import {
+  calculateVoiceStreamLatency,
+  createVoiceStreamFrame,
+  isVoiceStreamFrame,
+  nextVoiceStreamId,
+  type VoiceStreamFrame,
+  type VoiceStreamLatencyOptions,
+  type VoiceStreamLatencyResult,
+} from './voice-stream-protocol'
 
 export interface RelayTransportConfig {
   capabilities: string[]
@@ -42,9 +51,12 @@ export interface RelayTransport {
   call<T>(method: string, params?: unknown): Promise<T>
   close(): void
   connect(): Promise<void>
+  measureVoiceStreamLatency(options?: VoiceStreamLatencyOptions): Promise<VoiceStreamLatencyResult>
   onDiagnosticsEvent?: (cb: (event: RelayTransportDiagnosticEvent) => void) => () => void
   onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
+  onVoiceStreamFrame(cb: (frame: VoiceStreamFrame) => void): () => void
+  sendVoiceStreamFrame(frame: VoiceStreamFrame): void
   status(): RelayTransportStatus
 }
 
@@ -110,6 +122,7 @@ export const createRelayTransport = (
   const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
   const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
+  const voiceStreamListeners = new Set<(frame: VoiceStreamFrame) => void>()
   const pending = new Map<
     string,
     {
@@ -246,6 +259,10 @@ export const createRelayTransport = (
       for (const listener of eventListeners) {
         listener({ kind: message.kind, payload: message.payload })
       }
+      return
+    }
+    if (isVoiceStreamFrame(message)) {
+      for (const listener of voiceStreamListeners) listener(message)
       return
     }
     if (!message.id) return
@@ -436,6 +453,87 @@ export const createRelayTransport = (
     return connectPromise
   }
 
+  const sendVoiceStreamFrame = (frame: VoiceStreamFrame) => {
+    if (!channel || state !== 'ready') throw new Error('Relay transport not ready')
+    sendFrame({
+      payload: channel.encrypt(encodeJson(frame)),
+      room: config.room_id,
+      type: 'data',
+    })
+  }
+
+  const measureVoiceStreamLatency = (
+    options: VoiceStreamLatencyOptions = {}
+  ): Promise<VoiceStreamLatencyResult> => {
+    const count = options.count ?? 20
+    const intervalMs = options.intervalMs ?? 50
+    const timeoutMs = options.timeoutMs ?? 5_000
+    const streamId = nextVoiceStreamId()
+    const rtts: number[] = []
+    let nextSeq = 1
+    let finished = false
+    let interval: ReturnType<typeof setInterval> | null = null
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    return new Promise<VoiceStreamLatencyResult>((resolve, reject) => {
+      const unsubscribe = (() => {
+        const listener = (frame: VoiceStreamFrame) => {
+          if (frame.stream_id !== streamId || frame.op !== 'ack') return
+          if (typeof frame.sent_at_ms !== 'number') return
+          rtts.push(Date.now() - frame.sent_at_ms)
+          if (rtts.length >= count) finish()
+        }
+        voiceStreamListeners.add(listener)
+        return () => voiceStreamListeners.delete(listener)
+      })()
+      const finish = () => {
+        if (finished) return
+        finished = true
+        if (interval) clearInterval(interval)
+        if (timeout) clearTimeout(timeout)
+        unsubscribe()
+        try {
+          sendVoiceStreamFrame(createVoiceStreamFrame('close', streamId, nextSeq))
+        } catch {
+          // Closing the measurement stream is best-effort; the transport itself remains healthy.
+        }
+        resolve(calculateVoiceStreamLatency({ expectedCount: count, rtts, streamId }))
+      }
+      const sendPing = () => {
+        if (finished || nextSeq > count) return
+        try {
+          sendVoiceStreamFrame(
+            createVoiceStreamFrame('chunk', streamId, nextSeq, {
+              payload: 'ping',
+              sent_at_ms: Date.now(),
+            })
+          )
+          nextSeq += 1
+        } catch (error) {
+          if (interval) clearInterval(interval)
+          if (timeout) clearTimeout(timeout)
+          unsubscribe()
+          finished = true
+          reject(error instanceof Error ? error : new Error(String(error)))
+        }
+        if (nextSeq > count && interval) {
+          clearInterval(interval)
+          interval = null
+        }
+      }
+
+      try {
+        sendVoiceStreamFrame(createVoiceStreamFrame('open', streamId, 0))
+      } catch (error) {
+        unsubscribe()
+        reject(error instanceof Error ? error : new Error(String(error)))
+        return
+      }
+      sendPing()
+      interval = setInterval(sendPing, intervalMs)
+      timeout = setTimeout(finish, timeoutMs)
+    })
+  }
+
   return {
     call<T>(method: string, params?: unknown) {
       if (!channel || state !== 'ready')
@@ -476,6 +574,7 @@ export const createRelayTransport = (
       setStatus('disconnected')
     },
     connect,
+    measureVoiceStreamLatency,
     onDiagnosticsEvent(cb) {
       diagnosticsListeners.add(cb)
       return () => diagnosticsListeners.delete(cb)
@@ -488,6 +587,11 @@ export const createRelayTransport = (
       listeners.add(cb)
       return () => listeners.delete(cb)
     },
+    onVoiceStreamFrame(cb) {
+      voiceStreamListeners.add(cb)
+      return () => voiceStreamListeners.delete(cb)
+    },
+    sendVoiceStreamFrame,
     status() {
       return state
     },
