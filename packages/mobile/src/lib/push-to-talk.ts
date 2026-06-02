@@ -71,6 +71,12 @@ type TalkbackMessage = {
   message_type: string
 }
 
+export type TalkbackReply = {
+  createdAt: number
+  id: string
+  text: string
+}
+
 const parseMessageText = (contentJson: string) => {
   try {
     const parsed = JSON.parse(contentJson) as { text?: unknown }
@@ -93,15 +99,18 @@ export const findNextTalkbackReply = ({
   messages: TalkbackMessage[]
 }): { id: string; text: string } | null => {
   if (!enabled) return null
+  const queuedReply = listPendingTalkbackReplies({
+    baselineReplyIds,
+    enabled,
+    messages,
+    spokenReplyIds: lastSpokenReplyId ? new Set([lastSpokenReplyId]) : undefined,
+  }).at(0)
+  if (baselineReplyIds && queuedReply) return { id: queuedReply.id, text: queuedReply.text }
+  if (baselineReplyIds) return null
+
   const replies = messages
     .filter((message) => message.message_type === 'orch_reply')
     .sort((a, b) => a.created_at - b.created_at)
-  if (baselineReplyIds) {
-    const nextReply = replies.find((message) => !baselineReplyIds.has(message.id)) ?? null
-    if (!nextReply) return null
-    const text = parseMessageText(nextReply.content_json)
-    return text ? { id: nextReply.id, text } : null
-  }
   const lastIndex = lastSpokenReplyId
     ? replies.findIndex((message) => message.id === lastSpokenReplyId)
     : -1
@@ -111,3 +120,55 @@ export const findNextTalkbackReply = ({
   const text = parseMessageText(nextReply.content_json)
   return text ? { id: nextReply.id, text } : null
 }
+
+export const listPendingTalkbackReplies = ({
+  activePlaybackReplyId,
+  baselineReplyIds,
+  enabled,
+  inFlightReplyId,
+  messages,
+  spokenReplyIds,
+}: {
+  activePlaybackReplyId?: string | null
+  baselineReplyIds?: ReadonlySet<string> | null
+  enabled: boolean
+  inFlightReplyId?: string | null
+  messages: TalkbackMessage[]
+  spokenReplyIds?: ReadonlySet<string> | null
+}): TalkbackReply[] => {
+  if (!enabled) return []
+  return messages
+    .filter((message) => message.message_type === 'orch_reply')
+    .filter((message) => !baselineReplyIds?.has(message.id))
+    .filter((message) => !spokenReplyIds?.has(message.id))
+    .filter((message) => message.id !== inFlightReplyId)
+    .filter((message) => message.id !== activePlaybackReplyId)
+    .sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id))
+    .map((message) => ({
+      createdAt: message.created_at,
+      id: message.id,
+      text: parseMessageText(message.content_json),
+    }))
+    .filter((reply) => reply.text.length > 0)
+}
+
+export const shouldFinishTalkbackReplyRound = ({
+  activePlaybackReplyId,
+  idleTimeoutMs,
+  inFlightReplyId,
+  lastPlaybackFinishedAtMs,
+  nowMs,
+  pendingReplyCount,
+}: {
+  activePlaybackReplyId: string | null
+  idleTimeoutMs: number
+  inFlightReplyId: string | null
+  lastPlaybackFinishedAtMs: number | null
+  nowMs: number
+  pendingReplyCount: number
+}) =>
+  lastPlaybackFinishedAtMs !== null &&
+  !activePlaybackReplyId &&
+  !inFlightReplyId &&
+  pendingReplyCount === 0 &&
+  nowMs - lastPlaybackFinishedAtMs >= idleTimeoutMs

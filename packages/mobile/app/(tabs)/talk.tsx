@@ -21,9 +21,10 @@ import {
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
 import {
-  findNextTalkbackReply,
+  listPendingTalkbackReplies,
   reduceTalkbackState,
   runTalkbackInput,
+  shouldFinishTalkbackReplyRound,
   type TalkbackState,
 } from '../../src/lib/push-to-talk'
 import {
@@ -35,6 +36,8 @@ import {
 import { colors, radius, spacing } from '../../src/theme'
 
 type TalkInputMode = 'push_to_talk' | 'continuous'
+
+const TALKBACK_REPLY_IDLE_TIMEOUT_MS = 3500
 
 const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisResult =>
   typeof value === 'object' &&
@@ -69,6 +72,7 @@ export default function TalkTab() {
   const [transcript, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
+  const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
   const recordingOptions = useMemo(
     () => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }),
     []
@@ -87,9 +91,13 @@ export default function TalkTab() {
   const activePlaybackReplyIdRef = useRef<string | null>(null)
   const chatMessagesRef = useRef(chatMessages)
   const lastSpokenReplyIdRef = useRef<string | null>(null)
+  const spokenReplyIdsRef = useRef<Set<string>>(new Set())
   const promptBaselineReplyIdsRef = useRef<Set<string> | null>(null)
   const initializedReplyCursorRef = useRef(false)
   const inFlightReplyIdRef = useRef<string | null>(null)
+  const lastPlaybackFinishedAtMsRef = useRef<number | null>(null)
+  const replyQueueGenerationRef = useRef(0)
+  const replyRoundFinishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const connected = state === 'connected'
   chatMessagesRef.current = chatMessages
   inputModeRef.current = inputMode
@@ -112,6 +120,25 @@ export default function TalkTab() {
     }
   }, [])
 
+  const clearReplyRoundFinishTimer = useCallback(() => {
+    if (replyRoundFinishTimerRef.current) clearTimeout(replyRoundFinishTimerRef.current)
+    replyRoundFinishTimerRef.current = null
+  }, [])
+
+  const resetReplyQueueForPrompt = useCallback(() => {
+    replyQueueGenerationRef.current += 1
+    clearReplyRoundFinishTimer()
+    activePlaybackReplyIdRef.current = null
+    inFlightReplyIdRef.current = null
+    lastPlaybackFinishedAtMsRef.current = null
+    spokenReplyIdsRef.current = new Set()
+  }, [clearReplyRoundFinishTimer])
+
+  const isTalkbackPlaybackAllowed = useCallback(
+    () => inputModeRef.current === 'push_to_talk' || continuousEnabledRef.current,
+    []
+  )
+
   useEffect(() => {
     if (!initializedReplyCursorRef.current) {
       lastSpokenReplyIdRef.current = latestOrchestratorReplyId(chatMessages)
@@ -121,11 +148,13 @@ export default function TalkTab() {
 
   useEffect(() => {
     return () => {
+      replyQueueGenerationRef.current += 1
+      clearReplyRoundFinishTimer()
       if (recordingActiveRef.current) void recorder.stop().catch(() => {})
       player.pause()
       player.remove()
     }
-  }, [player, recorder])
+  }, [clearReplyRoundFinishTimer, player, recorder])
 
   const startRecorderSegment = useCallback(
     async (targetRecorder: AudioRecorder = recorderRef.current) => {
@@ -176,6 +205,7 @@ export default function TalkTab() {
         const audioBase64 = await FileSystem.readAsStringAsync(uri, {
           encoding: FileSystem.EncodingType.Base64,
         })
+        resetReplyQueueForPrompt()
         promptBaselineReplyIdsRef.current = snapshotOrchestratorReplyIds(chatMessagesRef.current)
         const result = await runTalkbackInput({
           audioBase64,
@@ -211,7 +241,13 @@ export default function TalkTab() {
         }
       }
     },
-    [dispatchTalkEvent, sendPromptToOrchestratorWithOutcome, t, transcribeVoice]
+    [
+      dispatchTalkEvent,
+      resetReplyQueueForPrompt,
+      sendPromptToOrchestratorWithOutcome,
+      t,
+      transcribeVoice,
+    ]
   )
 
   const startContinuousRecording = useCallback(async () => {
@@ -257,6 +293,7 @@ export default function TalkTab() {
       return
     }
     if (result.event === 'speechEnd') {
+      resetReplyQueueForPrompt()
       promptBaselineReplyIdsRef.current = snapshotOrchestratorReplyIds(chatMessagesRef.current)
       dispatchTalkEvent({ type: 'silenceDetected' })
       void processRecordedSegment('listening')
@@ -266,6 +303,7 @@ export default function TalkTab() {
     processRecordedSegment,
     recorderState.durationMillis,
     recorderState.metering,
+    resetReplyQueueForPrompt,
   ])
 
   const startRecording = useCallback(async () => {
@@ -301,8 +339,10 @@ export default function TalkTab() {
     continuousEnabledRef.current = false
     processingSegmentRef.current = false
     promptBaselineReplyIdsRef.current = null
+    resetReplyQueueForPrompt()
     vadStateRef.current = createInitialVoiceVadState()
     setInputMode('push_to_talk')
+    dispatchTalkEvent({ type: 'continuousStop' })
     if (recordingActiveRef.current) {
       recordingActiveRef.current = false
       await recorderRef.current.stop().catch(() => {})
@@ -313,8 +353,7 @@ export default function TalkTab() {
       allowsRecording: false,
       playsInSilentMode: true,
     }).catch(() => {})
-    dispatchTalkEvent({ type: 'continuousStop' })
-  }, [dispatchTalkEvent, player])
+  }, [dispatchTalkEvent, player, resetReplyQueueForPrompt])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: continuousRunnerTick intentionally wakes this ref-based microphone runner after async failures clear processingSegmentRef.
   useEffect(() => {
@@ -329,18 +368,31 @@ export default function TalkTab() {
     void startContinuousRecording()
   }, [continuousRunnerTick, startContinuousRecording, talkState])
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: talkbackQueueTick intentionally wakes this ref-based playback queue after a clip finishes without changing chatMessages.
   useEffect(() => {
-    if (talkState !== 'waiting_for_orchestrator' && talkState !== 'processing') return
-    const reply = findNextTalkbackReply({
-      enabled: true,
-      baselineReplyIds: promptBaselineReplyIdsRef.current,
-      lastSpokenReplyId: lastSpokenReplyIdRef.current,
-      messages: chatMessages,
-    })
-    if (!reply || inFlightReplyIdRef.current === reply.id || activePlaybackReplyIdRef.current) {
+    if (
+      talkState !== 'waiting_for_orchestrator' &&
+      talkState !== 'processing' &&
+      talkState !== 'speaking'
+    ) {
       return
     }
+    if (!isTalkbackPlaybackAllowed()) return
+    const reply = listPendingTalkbackReplies({
+      activePlaybackReplyId: activePlaybackReplyIdRef.current,
+      enabled: true,
+      baselineReplyIds: promptBaselineReplyIdsRef.current,
+      inFlightReplyId: inFlightReplyIdRef.current,
+      messages: chatMessages,
+      spokenReplyIds: spokenReplyIdsRef.current,
+    }).at(0)
+    if (!reply || activePlaybackReplyIdRef.current) {
+      return
+    }
+    clearReplyRoundFinishTimer()
+    lastPlaybackFinishedAtMsRef.current = null
     inFlightReplyIdRef.current = reply.id
+    const playbackGeneration = replyQueueGenerationRef.current
     dispatchTalkEvent({ type: 'replyDetected' })
     void (async () => {
       try {
@@ -348,10 +400,25 @@ export default function TalkTab() {
         if (!isVoiceSynthesisResult(synthesized)) {
           throw new Error(t('talk.error.synthesisFailed'))
         }
+        const playbackStillCurrent =
+          replyQueueGenerationRef.current === playbackGeneration &&
+          inFlightReplyIdRef.current === reply.id &&
+          !activePlaybackReplyIdRef.current &&
+          isTalkbackPlaybackAllowed() &&
+          (talkStateRef.current === 'waiting_for_orchestrator' ||
+            talkStateRef.current === 'processing' ||
+            talkStateRef.current === 'speaking')
+        if (!playbackStillCurrent) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
         activePlaybackReplyIdRef.current = reply.id
         player.play()
       } catch (playError) {
+        if (
+          replyQueueGenerationRef.current !== playbackGeneration ||
+          inFlightReplyIdRef.current !== reply.id
+        ) {
+          return
+        }
         inFlightReplyIdRef.current = null
         activePlaybackReplyIdRef.current = null
         dispatchTalkEvent({
@@ -360,7 +427,17 @@ export default function TalkTab() {
         })
       }
     })()
-  }, [chatMessages, dispatchTalkEvent, player, synthesizeVoice, t, talkState])
+  }, [
+    chatMessages,
+    clearReplyRoundFinishTimer,
+    dispatchTalkEvent,
+    isTalkbackPlaybackAllowed,
+    player,
+    synthesizeVoice,
+    t,
+    talkbackQueueTick,
+    talkState,
+  ])
 
   useEffect(() => {
     if (
@@ -374,10 +451,61 @@ export default function TalkTab() {
     activePlaybackReplyIdRef.current = null
     player.pause()
     lastSpokenReplyIdRef.current = replyId
+    spokenReplyIdsRef.current.add(replyId)
     inFlightReplyIdRef.current = null
-    const continueListening = inputModeRef.current === 'continuous' && continuousEnabledRef.current
-    dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
-  }, [dispatchTalkEvent, player, playerStatus.didJustFinish, playerStatus.isLoaded])
+    lastPlaybackFinishedAtMsRef.current = Date.now()
+
+    const pendingReplies = listPendingTalkbackReplies({
+      activePlaybackReplyId: activePlaybackReplyIdRef.current,
+      baselineReplyIds: promptBaselineReplyIdsRef.current,
+      enabled: true,
+      inFlightReplyId: inFlightReplyIdRef.current,
+      messages: chatMessagesRef.current,
+      spokenReplyIds: spokenReplyIdsRef.current,
+    })
+    if (pendingReplies.length > 0) {
+      setTalkbackQueueTick((current) => current + 1)
+      return
+    }
+
+    clearReplyRoundFinishTimer()
+    replyRoundFinishTimerRef.current = setTimeout(() => {
+      const nextPendingReplies = listPendingTalkbackReplies({
+        activePlaybackReplyId: activePlaybackReplyIdRef.current,
+        baselineReplyIds: promptBaselineReplyIdsRef.current,
+        enabled: true,
+        inFlightReplyId: inFlightReplyIdRef.current,
+        messages: chatMessagesRef.current,
+        spokenReplyIds: spokenReplyIdsRef.current,
+      })
+      if (
+        !shouldFinishTalkbackReplyRound({
+          activePlaybackReplyId: activePlaybackReplyIdRef.current,
+          idleTimeoutMs: TALKBACK_REPLY_IDLE_TIMEOUT_MS,
+          inFlightReplyId: inFlightReplyIdRef.current,
+          lastPlaybackFinishedAtMs: lastPlaybackFinishedAtMsRef.current,
+          nowMs: Date.now(),
+          pendingReplyCount: nextPendingReplies.length,
+        })
+      ) {
+        if (nextPendingReplies.length > 0) setTalkbackQueueTick((current) => current + 1)
+        return
+      }
+      replyRoundFinishTimerRef.current = null
+      lastPlaybackFinishedAtMsRef.current = null
+      promptBaselineReplyIdsRef.current = null
+      spokenReplyIdsRef.current = new Set()
+      const continueListening =
+        inputModeRef.current === 'continuous' && continuousEnabledRef.current
+      dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
+    }, TALKBACK_REPLY_IDLE_TIMEOUT_MS)
+  }, [
+    clearReplyRoundFinishTimer,
+    dispatchTalkEvent,
+    player,
+    playerStatus.didJustFinish,
+    playerStatus.isLoaded,
+  ])
 
   const pushToTalkSelected = inputMode === 'push_to_talk'
   const continuousSelected = inputMode === 'continuous'

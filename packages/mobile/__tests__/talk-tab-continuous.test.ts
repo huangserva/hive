@@ -191,6 +191,16 @@ const finishCurrentPhrase = async (view: ReturnType<typeof render>) => {
   await setRecorderStatus(view, { durationMillis: 1600, isRecording: true, metering: -60 })
 }
 
+const deferred = <T>() => {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, reject, resolve }
+}
+
 describe('TalkTab continuous mode behavior', () => {
   beforeEach(() => {
     cleanup()
@@ -338,12 +348,92 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
 
+    vi.useFakeTimers()
+    await act(async () => {
+      Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+      view.rerender(React.createElement(TalkTab))
+    })
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(3499)
+    })
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(1)
+    })
+    await act(async () => {})
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
+    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalledTimes(3)
+    vi.useRealTimers()
+  })
+
+  test('plays multiple orchestrator replies from one turn before reopening the microphone', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'first streamed sentence' }),
+        created_at: 2,
+        id: 'reply-1',
+        message_type: 'orch_reply',
+      },
+      {
+        content_json: JSON.stringify({ text: 'second streamed sentence' }),
+        created_at: 3,
+        id: 'reply-2',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoice).toHaveBeenCalledWith('first streamed sentence')
+    )
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+
     await act(async () => {
       Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
       view.rerender(React.createElement(TalkTab))
     })
 
-    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
-    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalledTimes(3)
+    await waitFor(() =>
+      expect(runtime.synthesizeVoice).toHaveBeenCalledWith('second streamed sentence')
+    )
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+  })
+
+  test('drops stale synthesized audio after continuous mode is stopped before synthesis resolves', async () => {
+    const synthesized = deferred<{ audio: string; format: string; mime: string }>()
+    runtime.synthesizeVoice = vi.fn().mockReturnValue(synthesized.promise)
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'stale reply' }),
+        created_at: 2,
+        id: 'reply-stale',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('stale reply'))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await act(async () => {
+      synthesized.resolve({ audio: 'stale-audio', format: 'wav', mime: 'audio/wav' })
+      await synthesized.promise
+    })
+    await flush()
+
+    expect(audioMock.player.replace).not.toHaveBeenCalled()
+    expect(audioMock.player.play).not.toHaveBeenCalled()
   })
 })
