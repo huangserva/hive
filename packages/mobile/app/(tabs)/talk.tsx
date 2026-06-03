@@ -40,10 +40,11 @@ type TalkInputMode = 'push_to_talk' | 'continuous'
 const TALKBACK_REPLY_IDLE_TIMEOUT_MS = 3500
 const BARGE_IN_VAD_CONFIG = {
   ...DEFAULT_VAD_CONFIG,
-  confirmedSpeechMarginDb: 22,
-  speechMarginDb: 22,
-  startupSpeechThresholdDb: -30,
+  confirmedSpeechMarginDb: 25,
+  speechMarginDb: 25,
+  startupSpeechThresholdDb: -26,
 }
+const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
 
 const isTalkbackBargeInAndroidEnabled = () =>
   process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
@@ -105,6 +106,7 @@ export default function TalkTab() {
   const continuousEnabledRef = useRef(false)
   const processingSegmentRef = useRef(false)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
+  const bargeInSpeechStartSampleCountRef = useRef(0)
   const recorderRef = useRef<AudioRecorder>(recorder)
   const recordingActiveRef = useRef(false)
   const activePlaybackReplyIdRef = useRef<string | null>(null)
@@ -148,6 +150,7 @@ export default function TalkTab() {
 
   const resetReplyQueueForPrompt = useCallback(() => {
     replyQueueGenerationRef.current += 1
+    bargeInSpeechStartSampleCountRef.current = 0
     clearReplyRoundFinishTimer()
     activePlaybackReplyIdRef.current = null
     inFlightReplyIdRef.current = null
@@ -345,13 +348,24 @@ export default function TalkTab() {
       `[BARGEDBG] m=${typeof metering === 'number' ? metering.toFixed(1) : metering} floor=${typeof result.state.noiseFloorDb === 'number' ? result.state.noiseFloorDb.toFixed(1) : result.state.noiseFloorDb} talk=${talkStateRef.current} cfg=${talkStateRef.current === 'speaking' ? 'BARGE' : 'DEF'} ev=${result.event ?? 'none'}`
     )
     if (result.event === 'speechStart') {
-      if (
+      const activePlaybackReplyId = activePlaybackReplyIdRef.current
+      const isBargeInCandidate =
         isBargeInListeningAllowed() &&
         talkStateRef.current === 'speaking' &&
-        activePlaybackReplyIdRef.current
-      ) {
-        const interruptedReplyId = activePlaybackReplyIdRef.current
-        spokenReplyIdsRef.current.add(interruptedReplyId)
+        activePlaybackReplyId !== null
+      if (isBargeInCandidate) {
+        bargeInSpeechStartSampleCountRef.current += 1
+        if (bargeInSpeechStartSampleCountRef.current < BARGE_IN_SPEECH_START_SAMPLE_COUNT) {
+          vadStateRef.current = {
+            ...result.state,
+            phase: 'listening',
+            recentSpeechDb: null,
+            silenceStartedAtMs: null,
+          }
+          return
+        }
+        bargeInSpeechStartSampleCountRef.current = 0
+        spokenReplyIdsRef.current.add(activePlaybackReplyId)
         replyQueueGenerationRef.current += 1
         clearReplyRoundFinishTimer()
         activePlaybackReplyIdRef.current = null
@@ -361,9 +375,11 @@ export default function TalkTab() {
         dispatchTalkEvent({ type: 'voiceDetected' })
         return
       }
+      bargeInSpeechStartSampleCountRef.current = 0
       dispatchTalkEvent({ type: 'voiceDetected' })
       return
     }
+    bargeInSpeechStartSampleCountRef.current = 0
     if (result.event === 'speechEnd') {
       resetReplyQueueForPrompt()
       dispatchTalkEvent({ type: 'silenceDetected' })
@@ -417,6 +433,7 @@ export default function TalkTab() {
     continuousEnabledRef.current = false
     processingSegmentRef.current = false
     resetReplyQueueForPrompt()
+    bargeInSpeechStartSampleCountRef.current = 0
     vadStateRef.current = createInitialVoiceVadState()
     setInputMode('push_to_talk')
     dispatchTalkEvent({ type: 'continuousStop' })

@@ -578,6 +578,8 @@ describe('TalkTab continuous mode behavior', () => {
 
     await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
     await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -20 })
+    await setRecorderStatus(view, { durationMillis: 600, isRecording: true, metering: -18 })
+    await setRecorderStatus(view, { durationMillis: 900, isRecording: true, metering: -17 })
 
     await waitFor(() => expect(audioMock.player.pause).toHaveBeenCalledTimes(1))
     expect(screen.getByText('talk.state.capturing')).toBeTruthy()
@@ -587,7 +589,7 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
   })
 
-  test('does not interrupt playback for low-level residual echo while speaking', async () => {
+  test('does not interrupt playback for sustained TTS echo while speaking', async () => {
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -606,9 +608,41 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.player.pause.mockClear()
     runtime.transcribeVoice.mockClear()
 
-    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
-    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -35 })
-    await setRecorderStatus(view, { durationMillis: 600, isRecording: true, metering: -36 })
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -46 })
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -24 })
+    await setRecorderStatus(view, { durationMillis: 600, isRecording: true, metering: -26 })
+    await setRecorderStatus(view, { durationMillis: 900, isRecording: true, metering: -27 })
+    await setRecorderStatus(view, { durationMillis: 1200, isRecording: true, metering: -24 })
+    await flush()
+
+    expect(audioMock.player.pause).not.toHaveBeenCalled()
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
+  })
+
+  test('does not interrupt playback for a single loud spike while speaking', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'spike-safe reply' }),
+        created_at: 2,
+        id: 'spike-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -46 })
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -15 })
+    await setRecorderStatus(view, { durationMillis: 600, isRecording: true, metering: -46 })
+    await setRecorderStatus(view, { durationMillis: 900, isRecording: true, metering: -46 })
     await flush()
 
     expect(audioMock.player.pause).not.toHaveBeenCalled()
