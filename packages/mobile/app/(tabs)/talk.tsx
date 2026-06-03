@@ -46,7 +46,7 @@ const BARGE_IN_VAD_CONFIG = {
 }
 
 const isTalkbackBargeInAndroidEnabled = () =>
-  process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
+  process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED === '1' && Platform.OS === 'android'
 
 const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisResult =>
   typeof value === 'object' &&

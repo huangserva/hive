@@ -282,7 +282,16 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.queryByText('talk.streamSynthesis.button')).toBeNull()
   })
 
-  test('uses the Android voice communication recorder source for barge-in AEC', () => {
+  test('does not use the Android voice communication recorder source by default', () => {
+    render(React.createElement(TalkTab))
+
+    expect(audioMock.lastRecorderOptions).not.toMatchObject({
+      android: { audioSource: 'voice_communication' },
+    })
+  })
+
+  test('uses the Android voice communication recorder source when barge-in is explicitly enabled', () => {
+    vi.stubEnv('EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED', '1')
     render(React.createElement(TalkTab))
 
     expect(audioMock.lastRecorderOptions).toMatchObject({
@@ -397,6 +406,7 @@ describe('TalkTab continuous mode behavior', () => {
   })
 
   test('keeps the microphone open while speaking in continuous mode when barge-in is enabled', async () => {
+    vi.stubEnv('EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED', '1')
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -549,6 +559,7 @@ describe('TalkTab continuous mode behavior', () => {
   })
 
   test('pauses playback and starts capturing when barge-in speech is detected', async () => {
+    vi.stubEnv('EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED', '1')
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -579,6 +590,7 @@ describe('TalkTab continuous mode behavior', () => {
   })
 
   test('does not interrupt playback for low-level residual echo while speaking', async () => {
+    vi.stubEnv('EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED', '1')
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -767,8 +779,11 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.player.replace).toHaveBeenCalledWith({
       uri: 'data:audio/wav;base64,stream-audio',
     })
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
-    expect(audioMock.recorderStatus.isRecording).toBe(true)
+    expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+      allowsRecording: false,
+      playsInSilentMode: true,
+    })
+    expect(audioMock.recorderStatus.isRecording).toBe(false)
 
     await act(async () => {
       Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
@@ -780,7 +795,8 @@ describe('TalkTab continuous mode behavior', () => {
         voice: 'zh-CN-YunxiNeural',
       })
     )
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorderStatus.isRecording).toBe(false)
   })
 
   test('drops stale synthesized audio after continuous mode is stopped before synthesis resolves', async () => {

@@ -184,4 +184,50 @@ describe('voice VAD metering', () => {
     expect(events).toEqual(['speechStart'])
     expect(state.phase).toBe('capturing')
   })
+
+  test('does not end speech while sustained loud speech raises the rolling floor', () => {
+    const { events, state } = applySamples([
+      { metering: -45, timestampMs: 0 },
+      { metering: -44, timestampMs: 200 },
+      { metering: -12, timestampMs: 400 },
+      { metering: -13, timestampMs: 600 },
+      { metering: -14, timestampMs: 800 },
+      { metering: -12, timestampMs: 1000 },
+      { metering: -13, timestampMs: 1200 },
+      { metering: -14, timestampMs: 1400 },
+      { metering: -12, timestampMs: 1600 },
+      { metering: -13, timestampMs: 1800 },
+      { metering: -14, timestampMs: 2000 },
+      { metering: -12, timestampMs: 2200 },
+      { metering: -13, timestampMs: 2400 },
+      { metering: -14, timestampMs: 2600 },
+      { metering: -12, timestampMs: 2800 },
+      { metering: -13, timestampMs: 3000 },
+      { metering: -12.4, timestampMs: 3200 },
+    ])
+
+    expect(events).toEqual(['speechStart'])
+    expect(state.phase).toBe('capturing')
+    expect(state.noiseFloorDb).toBeGreaterThan(-20)
+  })
+
+  test('ends sustained loud speech only after a real drop to silence', () => {
+    const { events, state } = applySamples([
+      { metering: -45, timestampMs: 0 },
+      { metering: -44, timestampMs: 200 },
+      { metering: -12, timestampMs: 400 },
+      { metering: -13, timestampMs: 600 },
+      { metering: -14, timestampMs: 800 },
+      { metering: -12, timestampMs: 1000 },
+      { metering: -13, timestampMs: 1200 },
+      { metering: -14, timestampMs: 1400 },
+      { metering: -12, timestampMs: 1600 },
+      { metering: -45, timestampMs: 1800 },
+      { metering: -45, timestampMs: 2400 },
+      { metering: -45, timestampMs: 3000 },
+    ])
+
+    expect(events).toEqual(['speechStart', 'speechEnd'])
+    expect(state.phase).toBe('listening')
+  })
 })

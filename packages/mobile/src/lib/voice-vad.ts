@@ -168,7 +168,10 @@ export const applyVadMeteringSample = (
   const isRelativeSilence =
     recentSpeechDb !== null && sample.metering <= recentSpeechDb - config.speechDropDb
   const isFloorSilence = sample.metering <= silenceThresholdDb
-  if (!isRelativeSilence && !isFloorSilence) {
+  const floorWasDraggedIntoSpeechRange =
+    recentSpeechDb !== null && noiseFloorDb > recentSpeechDb - config.speechDropDb
+  const isSustainedSilence = isRelativeSilence && (isFloorSilence || floorWasDraggedIntoSpeechRange)
+  if (!isSustainedSilence) {
     return {
       event: null,
       state: {
