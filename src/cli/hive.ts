@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { once } from 'node:events'
-import { realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,6 +38,38 @@ type ListenError = Error & {
   code?: string
   port?: number
 }
+
+export const loadRootEnvFile = ({
+  cwd = process.cwd(),
+  env = process.env,
+}: {
+  cwd?: string
+  env?: NodeJS.ProcessEnv
+} = {}) => {
+  const envPath = join(cwd, '.env')
+  if (!existsSync(envPath)) return false
+  try {
+    let loaded = false
+    for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) continue
+      const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed)
+      if (!match) continue
+      const key = match[1]
+      const rawValue = match[2]
+      if (!key || rawValue === undefined) continue
+      if (env[key] !== undefined) continue
+      const value = rawValue.trim().replace(/^(['"])(.*)\1$/, '$2')
+      env[key] = value
+      loaded = true
+    }
+    return loaded
+  } catch {
+    return false
+  }
+}
+
+loadRootEnvFile()
 
 export const HIVE_USAGE = [
   'Usage:',

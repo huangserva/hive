@@ -1,4 +1,6 @@
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
+export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
+export const GLM_FAST_VOICE_REPLY_BASE_URL = 'https://open.bigmodel.cn/api/coding/paas/v4'
 export const FAST_VOICE_REPLY_TIMEOUT_MS = 2500
 export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
   '好的，收到，正在处理，稍等。',
@@ -22,10 +24,34 @@ type AnthropicMessageResponse = {
   content?: unknown
 }
 
+type GlmChatCompletionResponse = {
+  choices?: unknown
+}
+
+type GlmChoice = {
+  message?: {
+    content?: unknown
+  }
+}
+
 type CreateAnthropicFastVoiceReplyProviderOptions = {
   apiKey?: string
   fetchImpl?: typeof fetch
   model?: string
+  timeoutMs?: number
+}
+
+type CreateGlmFastVoiceReplyProviderOptions = {
+  apiKey?: string
+  baseUrl?: string
+  fetchImpl?: typeof fetch
+  model?: string
+  timeoutMs?: number
+}
+
+type CreateFastVoiceReplyProviderOptions = {
+  env?: NodeJS.ProcessEnv
+  fetchImpl?: typeof fetch
   timeoutMs?: number
 }
 
@@ -78,6 +104,15 @@ const extractAnthropicText = (body: AnthropicMessageResponse) => {
   return normalized ? normalized : null
 }
 
+const extractGlmText = (body: GlmChatCompletionResponse) => {
+  if (!Array.isArray(body.choices)) return null
+  const firstChoice = body.choices[0] as GlmChoice | undefined
+  const content = firstChoice?.message?.content
+  if (typeof content !== 'string') return null
+  const normalized = normalizeFastVoiceReply(content)
+  return normalized ? normalized : null
+}
+
 export const createAnthropicFastVoiceReplyProvider = (
   options: CreateAnthropicFastVoiceReplyProviderOptions = {}
 ): FastVoiceReplyProvider => {
@@ -124,8 +159,87 @@ export const createAnthropicFastVoiceReplyProvider = (
   }
 }
 
+export const createGlmFastVoiceReplyProvider = (
+  options: CreateGlmFastVoiceReplyProviderOptions = {}
+): FastVoiceReplyProvider => {
+  const apiKey = options.apiKey ?? process.env.GLM_API_KEY
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const model = options.model ?? process.env.GLM_FAST_MODEL ?? GLM_FAST_VOICE_REPLY_MODEL
+  const baseUrl = (options.baseUrl ?? process.env.GLM_BASE_URL ?? GLM_FAST_VOICE_REPLY_BASE_URL)
+    .trim()
+    .replace(/\/+$/, '')
+  const timeoutMs = options.timeoutMs ?? FAST_VOICE_REPLY_TIMEOUT_MS
+
+  return {
+    async generate({ transcript }) {
+      const prompt = transcript.trim()
+      if (!apiKey || !fetchImpl || !prompt) return null
+
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetchImpl(`${baseUrl}/chat/completions`, {
+          body: JSON.stringify({
+            max_tokens: 80,
+            messages: [
+              {
+                content: FAST_VOICE_REPLY_SYSTEM_PROMPT,
+                role: 'system',
+              },
+              {
+                content: prompt,
+                role: 'user',
+              },
+            ],
+            model,
+          }),
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'content-type': 'application/json',
+          },
+          method: 'POST',
+          signal: controller.signal,
+        })
+        if (!response.ok) return null
+        return extractGlmText((await response.json()) as GlmChatCompletionResponse)
+      } finally {
+        clearTimeout(timeout)
+      }
+    },
+  }
+}
+
+const createNullFastVoiceReplyProvider = (): FastVoiceReplyProvider => ({
+  async generate() {
+    return null
+  },
+})
+
+export const createFastVoiceReplyProvider = (
+  options: CreateFastVoiceReplyProviderOptions = {}
+): FastVoiceReplyProvider => {
+  const env = options.env ?? process.env
+  if (env.GLM_API_KEY) {
+    return createGlmFastVoiceReplyProvider({
+      apiKey: env.GLM_API_KEY,
+      ...(env.GLM_BASE_URL ? { baseUrl: env.GLM_BASE_URL } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(env.GLM_FAST_MODEL ? { model: env.GLM_FAST_MODEL } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    })
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    return createAnthropicFastVoiceReplyProvider({
+      apiKey: env.ANTHROPIC_API_KEY,
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    })
+  }
+  return createNullFastVoiceReplyProvider()
+}
+
 export const maybeInsertFastVoiceReply = async ({
-  provider = createAnthropicFastVoiceReplyProvider(),
+  provider = createFastVoiceReplyProvider(),
   source,
   store,
   text,
