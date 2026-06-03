@@ -12,7 +12,7 @@ import {
 } from 'expo-audio'
 import * as FileSystem from 'expo-file-system/legacy'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import {
   type MobileVoiceSynthesisResult,
@@ -38,6 +38,15 @@ import { colors, radius, spacing } from '../../src/theme'
 type TalkInputMode = 'push_to_talk' | 'continuous'
 
 const TALKBACK_REPLY_IDLE_TIMEOUT_MS = 3500
+const BARGE_IN_VAD_CONFIG = {
+  ...DEFAULT_VAD_CONFIG,
+  confirmedSpeechMarginDb: 22,
+  speechMarginDb: 22,
+  startupSpeechThresholdDb: -30,
+}
+
+const isTalkbackBargeInAndroidEnabled = () =>
+  process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
 
 const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisResult =>
   typeof value === 'object' &&
@@ -75,7 +84,16 @@ export default function TalkTab() {
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
   const recordingOptions = useMemo(
-    () => ({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true }),
+    () => ({
+      ...RecordingPresets.HIGH_QUALITY,
+      android: {
+        ...RecordingPresets.HIGH_QUALITY.android,
+        ...(isTalkbackBargeInAndroidEnabled()
+          ? { audioSource: 'voice_communication' as const }
+          : {}),
+      },
+      isMeteringEnabled: true,
+    }),
     []
   )
   const recorder = useAudioRecorder(recordingOptions)
@@ -152,6 +170,14 @@ export default function TalkTab() {
 
   const isTalkbackPlaybackAllowed = useCallback(
     () => inputModeRef.current === 'push_to_talk' || continuousEnabledRef.current,
+    []
+  )
+
+  const isBargeInListeningAllowed = useCallback(
+    () =>
+      isTalkbackBargeInAndroidEnabled() &&
+      inputModeRef.current === 'continuous' &&
+      continuousEnabledRef.current,
     []
   )
 
@@ -306,12 +332,32 @@ export default function TalkTab() {
     const metering = typeof recorderState.metering === 'number' ? recorderState.metering : null
     const timestampMs =
       typeof recorderState.durationMillis === 'number' ? recorderState.durationMillis : Date.now()
-    const result = applyVadMeteringSample(vadStateRef.current, {
-      metering,
-      timestampMs,
-    })
+    const result = applyVadMeteringSample(
+      vadStateRef.current,
+      {
+        metering,
+        timestampMs,
+      },
+      talkStateRef.current === 'speaking' ? BARGE_IN_VAD_CONFIG : DEFAULT_VAD_CONFIG
+    )
     vadStateRef.current = result.state
     if (result.event === 'speechStart') {
+      if (
+        isBargeInListeningAllowed() &&
+        talkStateRef.current === 'speaking' &&
+        activePlaybackReplyIdRef.current
+      ) {
+        const interruptedReplyId = activePlaybackReplyIdRef.current
+        spokenReplyIdsRef.current.add(interruptedReplyId)
+        replyQueueGenerationRef.current += 1
+        clearReplyRoundFinishTimer()
+        activePlaybackReplyIdRef.current = null
+        inFlightReplyIdRef.current = null
+        lastPlaybackFinishedAtMsRef.current = null
+        player.pause()
+        dispatchTalkEvent({ type: 'voiceDetected' })
+        return
+      }
       dispatchTalkEvent({ type: 'voiceDetected' })
       return
     }
@@ -322,7 +368,10 @@ export default function TalkTab() {
     }
   }, [
     dispatchTalkEvent,
+    clearReplyRoundFinishTimer,
+    isBargeInListeningAllowed,
     processRecordedSegment,
+    player,
     recorderState.durationMillis,
     recorderState.metering,
     resetReplyQueueForPrompt,
@@ -439,7 +488,8 @@ export default function TalkTab() {
     dispatchTalkEvent({ type: 'replyDetected' })
     void (async () => {
       try {
-        if (recordingActiveRef.current) {
+        const keepRecordingForBargeIn = isBargeInListeningAllowed()
+        if (recordingActiveRef.current && !keepRecordingForBargeIn) {
           await recorderRef.current.stop().catch(() => {})
           recordingActiveRef.current = false
         }
@@ -452,10 +502,15 @@ export default function TalkTab() {
           throw new Error(t('talk.error.synthesisFailed'))
         }
         if (!playbackStillCurrent()) return
-        await setAudioModeAsync({
-          allowsRecording: false,
-          playsInSilentMode: true,
-        })
+        if (keepRecordingForBargeIn) {
+          vadStateRef.current = createInitialVoiceVadState()
+          await startRecorderSegment()
+        } else {
+          await setAudioModeAsync({
+            allowsRecording: false,
+            playsInSilentMode: true,
+          })
+        }
         if (!playbackStillCurrent()) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
         activePlaybackReplyIdRef.current = reply.id
@@ -481,6 +536,8 @@ export default function TalkTab() {
     dispatchTalkEvent,
     isTalkbackPlaybackAllowed,
     player,
+    isBargeInListeningAllowed,
+    startRecorderSegment,
     synthesizeVoice,
     synthesizeVoiceStream,
     t,

@@ -34,6 +34,7 @@ export const reduceTalkbackState = (state: TalkbackState, event: TalkbackEvent):
   if (event.type === 'continuousStop') return 'idle'
   if (state === 'listening' && event.type === 'voiceDetected') return 'capturing'
   if (state === 'capturing' && event.type === 'silenceDetected') return 'processing'
+  if (state === 'speaking' && event.type === 'voiceDetected') return 'capturing'
   if (state === 'idle' && event.type === 'recordStart') return 'recording'
   if (state === 'recording' && event.type === 'recordStop') return 'sending'
   if ((state === 'idle' || state === 'listening') && event.type === 'replyDetected') {

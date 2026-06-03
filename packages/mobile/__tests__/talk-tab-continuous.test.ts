@@ -60,7 +60,14 @@ const audioMock = vi.hoisted(() => {
   }
   const setAudioModeAsync = vi.fn().mockResolvedValue(undefined)
 
-  return { player, playerStatus, recorder, recorderStatus, setAudioModeAsync }
+  return {
+    lastRecorderOptions: null as unknown,
+    player,
+    playerStatus,
+    recorder,
+    recorderStatus,
+    setAudioModeAsync,
+  }
 })
 
 vi.mock('expo-audio', () => ({
@@ -79,7 +86,10 @@ vi.mock('expo-audio', () => ({
   setAudioModeAsync: audioMock.setAudioModeAsync,
   useAudioPlayer: vi.fn(() => audioMock.player),
   useAudioPlayerStatus: vi.fn(() => audioMock.playerStatus),
-  useAudioRecorder: vi.fn(() => audioMock.recorder),
+  useAudioRecorder: vi.fn((options: unknown) => {
+    audioMock.lastRecorderOptions = options
+    return audioMock.recorder
+  }),
   useAudioRecorderState: vi.fn(() => audioMock.recorderStatus),
 }))
 
@@ -136,6 +146,7 @@ vi.mock('react-native', () => {
     )
   return {
     ActivityIndicator: () => React.createElement('span', { 'data-testid': 'activity' }),
+    Platform: { OS: 'android' },
     Pressable,
     StyleSheet: { create: <T>(styles: T) => styles },
     Text,
@@ -237,6 +248,8 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.player.remove.mockClear()
     audioMock.player.replace.mockClear()
     audioMock.setAudioModeAsync.mockClear()
+    audioMock.lastRecorderOptions = null
+    vi.unstubAllEnvs()
     runtime.chatMessages = []
     runtime.sendPromptToOrchestratorWithOutcome = vi.fn().mockResolvedValue('sent')
     runtime.state = 'connected'
@@ -267,6 +280,14 @@ describe('TalkTab continuous mode behavior', () => {
 
     expect(screen.queryByText('talk.streamTest.button')).toBeNull()
     expect(screen.queryByText('talk.streamSynthesis.button')).toBeNull()
+  })
+
+  test('uses the Android voice communication recorder source for barge-in AEC', () => {
+    render(React.createElement(TalkTab))
+
+    expect(audioMock.lastRecorderOptions).toMatchObject({
+      android: { audioSource: 'voice_communication' },
+    })
   })
 
   test('push-to-talk records from an already prepared recorder without preparing again', async () => {
@@ -371,12 +392,14 @@ describe('TalkTab continuous mode behavior', () => {
     now.mockRestore()
   })
 
-  test('reopens exactly one microphone after playback finishes in continuous mode', async () => {
+  test('keeps the microphone open while speaking in continuous mode when barge-in is enabled', async () => {
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
     await finishCurrentPhrase(view)
+    audioMock.recorder.record.mockClear()
+    audioMock.setAudioModeAsync.mockClear()
     runtime.chatMessages = [
       {
         content_json: JSON.stringify({ text: 'fresh reply' }),
@@ -387,30 +410,39 @@ describe('TalkTab continuous mode behavior', () => {
     ]
     view.rerender(React.createElement(TalkTab))
     await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorderStatus.isRecording).toBe(true)
+    expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+      allowsRecording: true,
+      playsInSilentMode: true,
+    })
+    expect(audioMock.setAudioModeAsync).not.toHaveBeenCalledWith({
+      allowsRecording: false,
+      playsInSilentMode: true,
+    })
 
     vi.useFakeTimers()
     await act(async () => {
       Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
       view.rerender(React.createElement(TalkTab))
     })
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       vi.advanceTimersByTime(3499)
     })
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
 
     await act(async () => {
       vi.advanceTimersByTime(1)
     })
     await act(async () => {})
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
-    expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalledTimes(3)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 
-  test('switches continuous audio mode to playback before speaking and back to recording when listening resumes', async () => {
+  test('keeps the old stop-recorder playback behavior when barge-in is disabled', async () => {
+    vi.stubEnv('EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED', '0')
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -422,6 +454,7 @@ describe('TalkTab continuous mode behavior', () => {
     )
     await finishCurrentPhrase(view)
     audioMock.setAudioModeAsync.mockClear()
+    audioMock.recorder.record.mockClear()
     runtime.chatMessages = [
       {
         content_json: JSON.stringify({ text: 'speaker reply' }),
@@ -441,6 +474,7 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.setAudioModeAsync.mock.invocationCallOrder.at(-1)).toBeLessThan(
       audioMock.player.play.mock.invocationCallOrder[0]
     )
+    expect(audioMock.recorder.record).not.toHaveBeenCalled()
 
     try {
       vi.useFakeTimers()
@@ -460,6 +494,65 @@ describe('TalkTab continuous mode behavior', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  test('pauses playback and starts capturing when barge-in speech is detected', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'interruptible reply' }),
+        created_at: 2,
+        id: 'barge-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -20 })
+
+    await waitFor(() => expect(audioMock.player.pause).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('talk.state.capturing')).toBeTruthy()
+
+    await setRecorderStatus(view, { durationMillis: 700, isRecording: true, metering: -50 })
+    await setRecorderStatus(view, { durationMillis: 1900, isRecording: true, metering: -50 })
+    await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+  })
+
+  test('does not interrupt playback for low-level residual echo while speaking', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'echo-safe reply' }),
+        created_at: 2,
+        id: 'echo-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -35 })
+    await setRecorderStatus(view, { durationMillis: 600, isRecording: true, metering: -36 })
+    await flush()
+
+    expect(audioMock.player.pause).not.toHaveBeenCalled()
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
   })
 
   test('speaks every new orchestrator reply while the talk page remains open', async () => {
@@ -612,7 +705,8 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.player.replace).toHaveBeenCalledWith({
       uri: 'data:audio/wav;base64,stream-audio',
     })
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
+    expect(audioMock.recorderStatus.isRecording).toBe(true)
 
     await act(async () => {
       Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
@@ -622,7 +716,7 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() =>
       expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second streamed sentence')
     )
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
   })
 
   test('drops stale synthesized audio after continuous mode is stopped before synthesis resolves', async () => {

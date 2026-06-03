@@ -14,7 +14,9 @@ export const DEFAULT_VAD_CONFIG = {
   windowSampleCount: 12,
 } as const
 
-export type VoiceVadConfig = typeof DEFAULT_VAD_CONFIG
+export type VoiceVadConfig = {
+  [Key in keyof typeof DEFAULT_VAD_CONFIG]: number
+}
 
 export type VoiceVadState = {
   confirmedSpeechPeakDb: number | null
