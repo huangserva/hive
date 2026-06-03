@@ -62,6 +62,23 @@ const PROMPT_ECHO_CONTENT_TOKENS = [
 ] as const
 const PROMPT_ECHO_TOKEN_OVERLAP_RATIO = 0.7
 const MIN_PROMPT_ECHO_TOKEN_COUNT = 3
+const MIN_TEAM_NAME_ECHO_COUNT = 3
+const MAX_PROMPT_ECHO_RESIDUAL_CHARS = 2
+const PROMPT_ECHO_NOISE_FRAGMENTS = ['词', '字幕', '以下是', '以下', '是'] as const
+const PROMPT_ECHO_ACTION_FRAGMENTS = [
+  '看',
+  '看下',
+  '查',
+  '测',
+  '审',
+  '停',
+  '重启',
+  '汇报',
+  '做',
+  '去',
+  '来',
+  '等',
+] as const
 const SILENT_AUDIO_HALLUCINATION_PHRASES = [
   '网络中文普通话语音指令',
   '网站中文普通话语音指令',
@@ -154,11 +171,48 @@ const isSilentAudioHallucination = (text: string) => {
   })
 }
 
+const countTeamNameMentions = (normalized: string) => {
+  let count = 0
+  for (const name of TEAM_MEMBER_NAMES) {
+    let cursor = 0
+    while (cursor < normalized.length) {
+      const index = normalized.indexOf(name, cursor)
+      if (index === -1) break
+      count += 1
+      cursor = index + name.length
+    }
+  }
+  return count
+}
+
+const stripPromptEchoNoise = (normalized: string) => {
+  let residual = normalized
+  for (const name of TEAM_MEMBER_NAMES) {
+    residual = residual.replaceAll(name, '')
+  }
+  for (const fragment of PROMPT_ECHO_NOISE_FRAGMENTS) {
+    residual = residual.replaceAll(fragment, '')
+  }
+  return residual
+}
+
+const hasActionResidual = (residual: string) =>
+  PROMPT_ECHO_ACTION_FRAGMENTS.some((fragment) => residual.includes(fragment))
+
+const isTeamNamePromptEcho = (normalized: string) => {
+  const teamMentionCount = countTeamNameMentions(normalized)
+  if (teamMentionCount < MIN_TEAM_NAME_ECHO_COUNT) return false
+  const residual = stripPromptEchoNoise(normalized)
+  if (hasActionResidual(residual)) return false
+  return residual.length <= MAX_PROMPT_ECHO_RESIDUAL_CHARS
+}
+
 const isDefaultPromptEcho = (text: string) => {
   const normalized = normalizeTranscriptForPromptEcho(text)
   if (normalized.length < MIN_PROMPT_ECHO_CHARS) return false
   const normalizedPrompt = normalizeTranscriptForPromptEcho(DEFAULT_STT_PROMPT)
   if (normalizedPrompt.includes(normalized) || normalized.includes(normalizedPrompt)) return true
+  if (isTeamNamePromptEcho(normalized)) return true
 
   const promptTokenCharacters = new Set(
     PROMPT_ECHO_CONTENT_TOKENS.join('').split('').filter(Boolean)
