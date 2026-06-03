@@ -48,6 +48,20 @@ const DEFAULT_STT_LANGUAGE = 'zh'
 const DEFAULT_STT_PROMPT =
   '以下是简体中文普通话语音指令。团队成员：关羽、马超、赵云、钟馗、吕布、典韦、张飞、周瑜。'
 const MIN_PROMPT_ECHO_CHARS = 8
+const TEAM_MEMBER_NAMES = ['关羽', '马超', '赵云', '钟馗', '吕布', '典韦', '张飞', '周瑜'] as const
+const PROMPT_ECHO_CONTENT_TOKENS = [
+  '以下',
+  '简体',
+  '中文',
+  '普通话',
+  '语音',
+  '指令',
+  '团队',
+  '成员',
+  ...TEAM_MEMBER_NAMES,
+] as const
+const PROMPT_ECHO_TOKEN_OVERLAP_RATIO = 0.7
+const MIN_PROMPT_ECHO_TOKEN_COUNT = 3
 
 const isExecutable = (filePath: string) => {
   try {
@@ -124,7 +138,18 @@ const isDefaultPromptEcho = (text: string) => {
   const normalized = normalizeTranscriptForPromptEcho(text)
   if (normalized.length < MIN_PROMPT_ECHO_CHARS) return false
   const normalizedPrompt = normalizeTranscriptForPromptEcho(DEFAULT_STT_PROMPT)
-  return normalizedPrompt.includes(normalized) || normalized.includes(normalizedPrompt)
+  if (normalizedPrompt.includes(normalized) || normalized.includes(normalizedPrompt)) return true
+
+  const promptTokenCharacters = new Set(
+    PROMPT_ECHO_CONTENT_TOKENS.join('').split('').filter(Boolean)
+  )
+  const nonPromptCharacters = normalized
+    .split('')
+    .filter((character) => !promptTokenCharacters.has(character))
+  const matchedTokens = PROMPT_ECHO_CONTENT_TOKENS.filter((token) => normalized.includes(token))
+  if (matchedTokens.length < MIN_PROMPT_ECHO_TOKEN_COUNT) return false
+  const tokenCoverage = matchedTokens.join('').length / normalized.length
+  return tokenCoverage >= PROMPT_ECHO_TOKEN_OVERLAP_RATIO && nonPromptCharacters.length === 0
 }
 
 export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): LocalSttProvider => {

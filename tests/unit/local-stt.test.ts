@@ -469,4 +469,88 @@ writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), '让关羽汇报'
       text: '让关羽汇报',
     })
   })
+
+  test('treats non-contiguous team name prompt echo as no speech', async () => {
+    const binDir = setupDir('hive-stt-bin-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const audioPath = join(tempRoot, 'voice.ogg')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'whisper',
+      nodeScript(`
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join, parse } from 'node:path'
+const args = process.argv.slice(2)
+const outputDir = args[args.indexOf('--output_dir') + 1]
+const mediaPath = args.at(-1)
+mkdirSync(outputDir, { recursive: true })
+writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), '马超、赵云、钟馗、张飞、周瑜')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: { PATH: binDir },
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
+  })
+
+  test('treats full team name prompt echo as no speech', async () => {
+    const binDir = setupDir('hive-stt-bin-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const audioPath = join(tempRoot, 'voice.ogg')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'whisper',
+      nodeScript(`
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join, parse } from 'node:path'
+const args = process.argv.slice(2)
+const outputDir = args[args.indexOf('--output_dir') + 1]
+const mediaPath = args.at(-1)
+mkdirSync(outputDir, { recursive: true })
+writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), '关羽 马超 赵云 钟馗 吕布 典韦 张飞 周瑜')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: { PATH: binDir },
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
+  })
+
+  test('does not filter ordinary Chinese question without prompt tokens', async () => {
+    const binDir = setupDir('hive-stt-bin-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const audioPath = join(tempRoot, 'voice.ogg')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'whisper',
+      nodeScript(`
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join, parse } from 'node:path'
+const args = process.argv.slice(2)
+const outputDir = args[args.indexOf('--output_dir') + 1]
+const mediaPath = args.at(-1)
+mkdirSync(outputDir, { recursive: true })
+writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), '现在几点了')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: { PATH: binDir },
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'whisper',
+      text: '现在几点了',
+    })
+  })
 })
