@@ -16,7 +16,7 @@ import type { HiveLogger } from './logger.js'
 
 const execFileP = promisify(execFile)
 
-export type LocalTtsProviderName = 'piper' | 'say'
+export type LocalTtsProviderName = 'edge-tts' | 'piper' | 'say'
 
 export interface LocalTtsCli {
   command: string
@@ -51,6 +51,8 @@ interface LocalTtsProviderOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_EDGE_TIMEOUT_MS = 8_000
+const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoxiaoNeural'
 const DEFAULT_SAY_VOICE = 'Tingting'
 const MAX_TEXT_LENGTH = 2000
 
@@ -86,6 +88,12 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
   const detectCandidates = (): LocalTtsCli[] => {
     const candidates: LocalTtsCli[] = []
 
+    const edgeTts = findExecutable('edge-tts', env)
+    if (edgeTts) {
+      const voice = env.HIVE_TTS_EDGE_VOICE ?? DEFAULT_EDGE_VOICE
+      candidates.push({ command: edgeTts, provider: 'edge-tts', voice })
+    }
+
     const piper = findExecutable('piper', env)
     const piperModel = env.HIVE_TTS_PIPER_MODEL
     if (piper && piperModel) {
@@ -99,6 +107,25 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
     }
 
     return candidates
+  }
+
+  const runEdgeTts = async (cli: LocalTtsCli, text: string): Promise<LocalTtsAudio | null> => {
+    const outputDir = mkdtempSync(join(tempRoot, 'hive-local-tts-'))
+    try {
+      const outputPath = join(outputDir, 'tts.mp3')
+      await execFileP(
+        cli.command,
+        ['--voice', cli.voice ?? DEFAULT_EDGE_VOICE, '--text', text, '--write-media', outputPath],
+        {
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: Math.min(timeoutMs, DEFAULT_EDGE_TIMEOUT_MS),
+        }
+      )
+      if (!existsSync(outputPath)) return null
+      return { audio: readFileSync(outputPath), format: 'mp3', mime: 'audio/mpeg' }
+    } finally {
+      rmSync(outputDir, { force: true, recursive: true })
+    }
   }
 
   const runPiper = async (cli: LocalTtsCli, text: string): Promise<Buffer | null> => {
@@ -183,7 +210,10 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
       if (!text.trim() || text.length > MAX_TEXT_LENGTH) return null
       for (const cli of detectCandidates()) {
         try {
-          if (cli.provider === 'piper') {
+          if (cli.provider === 'edge-tts') {
+            const result = await runEdgeTts(cli, text)
+            if (result) return { ...result, provider: cli.provider }
+          } else if (cli.provider === 'piper') {
             const audio = await runPiper(cli, text)
             if (audio) return { audio, format: 'wav', mime: 'audio/wav', provider: cli.provider }
           } else {

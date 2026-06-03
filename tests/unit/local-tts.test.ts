@@ -234,6 +234,104 @@ writeFileSync(process.argv.at(-1), readFileSync(input))
     expect(result?.format).toBe('m4a')
   })
 
+  test('edge-tts is preferred over piper and say and returns mp3 audio with Xiaoxiao by default', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    const modelFile = join(setupDir('hive-tts-model-'), 'model.onnx')
+    writeFileSync(modelFile, 'fake-model', 'utf8')
+
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const voice = args[args.indexOf('--voice') + 1]
+const text = args[args.indexOf('--text') + 1]
+const outPath = args[args.indexOf('--write-media') + 1]
+if (voice !== 'zh-CN-XiaoxiaoNeural') process.exit(2)
+writeFileSync(outPath, Buffer.from('edge:' + voice + ':' + text))
+`)
+    )
+    writeExecutable(binDir, 'piper', nodeScript("throw new Error('piper should not run')\n"))
+    writeExecutable(binDir, 'say', nodeScript("throw new Error('say should not run')\n"))
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir, HIVE_TTS_PIPER_MODEL: modelFile },
+      tempRoot,
+    })
+
+    const detected = await provider.detect()
+    expect(detected?.provider).toBe('edge-tts')
+    expect(detected?.voice).toBe('zh-CN-XiaoxiaoNeural')
+    const result = await provider.synthesize('你好')
+    expect(result?.provider).toBe('edge-tts')
+    expect(result?.format).toBe('mp3')
+    expect(result?.mime).toBe('audio/mpeg')
+    expect(result?.audio.toString('utf8')).toBe('edge:zh-CN-XiaoxiaoNeural:你好')
+  })
+
+  test('edge-tts uses HIVE_TTS_EDGE_VOICE env when set', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outPath = args[args.indexOf('--write-media') + 1]
+writeFileSync(outPath, Buffer.from('voice=' + args[args.indexOf('--voice') + 1]))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir, HIVE_TTS_EDGE_VOICE: 'zh-CN-YunxiNeural' },
+      tempRoot,
+    })
+
+    const result = await provider.synthesize('你好')
+    expect(result?.provider).toBe('edge-tts')
+    expect(result?.audio.toString('utf8')).toBe('voice=zh-CN-YunxiNeural')
+  })
+
+  test('edge-tts failure falls back to say instead of failing the whole synthesis', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    writeExecutable(binDir, 'edge-tts', nodeScript('process.exit(1)\n'))
+    writeExecutable(
+      binDir,
+      'say',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outFile = args[args.indexOf('-o') + 1]
+writeFileSync(outFile, Buffer.from('say-fallback'))
+`)
+    )
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { readFileSync, writeFileSync } from 'node:fs'
+const input = process.argv[process.argv.indexOf('-i') + 1]
+writeFileSync(process.argv.at(-1), readFileSync(input))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir },
+      tempRoot,
+      timeoutMs: 1000,
+    })
+
+    const result = await provider.synthesize('fallback')
+    expect(result?.provider).toBe('say')
+    expect(result?.format).toBe('m4a')
+    expect(result?.mime).toBe('audio/mp4')
+    expect(result?.audio.toString('utf8')).toBe('say-fallback')
+  })
+
   test('prefers piper over say when both are available with model', async () => {
     const binDir = setupDir('hive-tts-bin-')
     const tempRoot = setupDir('hive-tts-tmp-')
