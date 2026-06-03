@@ -341,6 +341,9 @@ export default function TalkTab() {
       talkStateRef.current === 'speaking' ? BARGE_IN_VAD_CONFIG : DEFAULT_VAD_CONFIG
     )
     vadStateRef.current = result.state
+    console.log(
+      `[BARGEDBG] m=${typeof metering === 'number' ? metering.toFixed(1) : metering} floor=${typeof result.state.noiseFloorDb === 'number' ? result.state.noiseFloorDb.toFixed(1) : result.state.noiseFloorDb} talk=${talkStateRef.current} cfg=${talkStateRef.current === 'speaking' ? 'BARGE' : 'DEF'} ev=${result.event ?? 'none'}`
+    )
     if (result.event === 'speechStart') {
       if (
         isBargeInListeningAllowed() &&
@@ -493,11 +496,12 @@ export default function TalkTab() {
           await recorderRef.current.stop().catch(() => {})
           recordingActiveRef.current = false
         }
-        const streamed = (await synthesizeVoiceStream(reply.text)) as unknown
+        const synthesisOptions = { voice: reply.voice }
+        const streamed = (await synthesizeVoiceStream(reply.text, synthesisOptions)) as unknown
         if (!playbackStillCurrent()) return
         const synthesized = isVoiceSynthesisResult(streamed)
           ? streamed
-          : ((await synthesizeVoice(reply.text)) as unknown)
+          : ((await synthesizeVoice(reply.text, synthesisOptions)) as unknown)
         if (!isVoiceSynthesisResult(synthesized)) {
           throw new Error(t('talk.error.synthesisFailed'))
         }

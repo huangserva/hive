@@ -295,6 +295,30 @@ writeFileSync(outPath, Buffer.from('voice=' + args[args.indexOf('--voice') + 1])
     expect(result?.audio.toString('utf8')).toBe('voice=zh-CN-YunxiNeural')
   })
 
+  test('edge-tts request voice overrides the configured default for one synthesis', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outPath = args[args.indexOf('--write-media') + 1]
+writeFileSync(outPath, Buffer.from('voice=' + args[args.indexOf('--voice') + 1]))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir, HIVE_TTS_EDGE_VOICE: 'zh-CN-XiaoxiaoNeural' },
+      tempRoot,
+    })
+
+    const result = await provider.synthesize('你好', { voice: 'zh-CN-YunxiNeural' })
+    expect(result?.provider).toBe('edge-tts')
+    expect(result?.audio.toString('utf8')).toBe('voice=zh-CN-YunxiNeural')
+  })
+
   test('edge-tts failure falls back to say instead of failing the whole synthesis', async () => {
     const binDir = setupDir('hive-tts-bin-')
     const tempRoot = setupDir('hive-tts-tmp-')

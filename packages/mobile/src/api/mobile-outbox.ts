@@ -238,6 +238,10 @@ export const retryFailedOutboxItems = (state: MobileOutboxState): MobileOutboxSt
   ),
 })
 
+export const clearFailedOutboxItems = (state: MobileOutboxState): MobileOutboxState => ({
+  items: state.items.filter((item) => item.status !== 'failed'),
+})
+
 export const serializeOutboxState = (state: MobileOutboxState) => JSON.stringify(state.items)
 
 export const parseOutboxState = (serialized: string | null): MobileOutboxState => {

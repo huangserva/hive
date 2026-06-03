@@ -12,6 +12,7 @@ export interface VoiceStreamFrame {
   stream_id: string
   text?: string
   type: 'voice_stream'
+  voice?: string
 }
 
 export interface VoiceStreamLatencyOptions {

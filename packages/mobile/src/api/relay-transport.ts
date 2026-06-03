@@ -58,7 +58,10 @@ export interface RelayTransport {
   onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
   onVoiceStreamFrame(cb: (frame: VoiceStreamFrame) => void): () => void
-  requestVoiceStreamSynthesis(text: string): Promise<VoiceStreamAudioResult>
+  requestVoiceStreamSynthesis(
+    text: string,
+    options?: { voice?: string }
+  ): Promise<VoiceStreamAudioResult>
   sendVoiceStreamFrame(frame: VoiceStreamFrame): void
   status(): RelayTransportStatus
 }
@@ -537,7 +540,10 @@ export const createRelayTransport = (
     })
   }
 
-  const requestVoiceStreamSynthesis = (text: string): Promise<VoiceStreamAudioResult> => {
+  const requestVoiceStreamSynthesis = (
+    text: string,
+    options: { voice?: string } = {}
+  ): Promise<VoiceStreamAudioResult> => {
     const streamId = nextVoiceStreamId()
     const timeoutMs = 35_000
     const reassembler = createVoiceStreamReassembler(streamId, 1)
@@ -575,7 +581,12 @@ export const createRelayTransport = (
       }, timeoutMs)
 
       try {
-        sendVoiceStreamFrame(createVoiceStreamFrame('open', streamId, 0, { text }))
+        sendVoiceStreamFrame(
+          createVoiceStreamFrame('open', streamId, 0, {
+            text,
+            ...(options.voice ? { voice: options.voice } : {}),
+          })
+        )
       } catch (error) {
         finished = true
         cleanup()

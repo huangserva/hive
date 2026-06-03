@@ -421,11 +421,17 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
     if (method === 'voice.synthesize') {
       requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
       const text = readStringParam(params, 'text')
+      const voice =
+        typeof params === 'object' &&
+        params !== null &&
+        typeof (params as { voice?: unknown }).voice === 'string'
+          ? (params as { voice: string }).voice
+          : undefined
       if (!text.trim()) return { error: 'text_is_required' }
       const ttsProvider = createLocalTtsProvider()
       const cli = await ttsProvider.detect()
       if (!cli) return { error: 'tts_unavailable' }
-      const result = await ttsProvider.synthesize(text)
+      const result = await ttsProvider.synthesize(text, voice ? { voice } : undefined)
       if (!result) return { error: 'synthesis_failed' }
       return { audio: result.audio.toString('base64'), format: result.format, mime: result.mime }
     }

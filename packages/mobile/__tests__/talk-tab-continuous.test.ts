@@ -383,7 +383,11 @@ describe('TalkTab continuous mode behavior', () => {
     ]
     view.rerender(React.createElement(TalkTab))
 
-    await waitFor(() => expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new answer'))
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new answer', {
+        voice: 'zh-CN-YunxiNeural',
+      })
+    )
     expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
     expect(audioMock.player.replace).toHaveBeenCalledWith({
       uri: 'data:audio/wav;base64,stream-audio',
@@ -439,6 +443,54 @@ describe('TalkTab continuous mode behavior', () => {
     await act(async () => {})
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+
+  test('uses Xiaoxiao voice for GLM fast replies and Yunxi voice for orchestrator replies', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({
+          fast_reply: true,
+          source: 'voice_fast_reply',
+          text: '好的我先看一下',
+        }),
+        created_at: 2,
+        id: 'fast-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('好的我先看一下', {
+        voice: 'zh-CN-XiaoxiaoNeural',
+      })
+    )
+
+    await act(async () => {
+      Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+      view.rerender(React.createElement(TalkTab))
+    })
+    runtime.chatMessages = [
+      ...runtime.chatMessages,
+      {
+        content_json: JSON.stringify({ text: '正式结果已经完成' }),
+        created_at: 3,
+        id: 'orch-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('正式结果已经完成', {
+        voice: 'zh-CN-YunxiNeural',
+      })
+    )
   })
 
   test('keeps the old stop-recorder playback behavior when barge-in is disabled', async () => {
@@ -584,7 +636,9 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first follow-up')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first follow-up', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
     expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('ignore user')
     expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('ignore system')
@@ -620,14 +674,18 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second follow-up')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second follow-up', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
     await act(async () => {
       Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
       view.rerender(React.createElement(TalkTab))
     })
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('third follow-up')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('third follow-up', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
 
     expect(runtime.synthesizeVoiceStream).toHaveBeenCalledTimes(3)
@@ -670,7 +728,9 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new live answer')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new live answer', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
     expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('historical answer one')
     expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('historical answer two')
@@ -699,7 +759,9 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first streamed sentence')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first streamed sentence', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
     expect(runtime.synthesizeVoice).not.toHaveBeenCalled()
     expect(audioMock.player.replace).toHaveBeenCalledWith({
@@ -714,7 +776,9 @@ describe('TalkTab continuous mode behavior', () => {
     })
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second streamed sentence')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second streamed sentence', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
   })
@@ -736,7 +800,11 @@ describe('TalkTab continuous mode behavior', () => {
       },
     ]
     view.rerender(React.createElement(TalkTab))
-    await waitFor(() => expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('stale reply'))
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('stale reply', {
+        voice: 'zh-CN-YunxiNeural',
+      })
+    )
 
     fireEvent.click(screen.getByText('talk.continuous.stop'))
     await act(async () => {
@@ -770,9 +838,15 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
 
     await waitFor(() =>
-      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('fallback reply')
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('fallback reply', {
+        voice: 'zh-CN-YunxiNeural',
+      })
     )
-    await waitFor(() => expect(runtime.synthesizeVoice).toHaveBeenCalledWith('fallback reply'))
+    await waitFor(() =>
+      expect(runtime.synthesizeVoice).toHaveBeenCalledWith('fallback reply', {
+        voice: 'zh-CN-YunxiNeural',
+      })
+    )
     expect(audioMock.player.replace).toHaveBeenCalledWith({
       uri: 'data:audio/wav;base64,fallback-audio',
     })

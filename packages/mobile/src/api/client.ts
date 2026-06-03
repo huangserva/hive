@@ -43,6 +43,10 @@ export interface RuntimeClientDiagnosticEvent {
 
 export type MobilePromptSource = 'text' | 'voice'
 
+export interface MobileVoiceSynthesisOptions {
+  voice?: string
+}
+
 export interface MobileDeviceSummary {
   active?: boolean
   capabilities?: string[]
@@ -562,14 +566,16 @@ export const createRuntimeClient = ({
       )
     },
     async synthesizeVoice(
-      text: string
+      text: string,
+      options: MobileVoiceSynthesisOptions = {}
     ): Promise<{ audio: string; format: string; mime: string } | { error: string }> {
+      const body = options.voice ? { text, voice: options.voice } : { text }
       return readMobileJson<{ audio: string; format: string; mime: string } | { error: string }>(
         '/api/mobile/voice/synthesize',
         'voice.synthesize',
-        { text },
+        body,
         {
-          body: { text },
+          body,
           method: 'POST',
         }
       )

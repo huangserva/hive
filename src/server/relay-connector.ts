@@ -102,6 +102,7 @@ export interface VoiceStreamFrame {
   stream_id?: string
   text?: string
   type?: string
+  voice?: string
 }
 
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000

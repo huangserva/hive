@@ -32,6 +32,7 @@ import {
   type MobileDeviceSummary,
   type MobileDispatchResponse,
   type MobilePromptSource,
+  type MobileVoiceSynthesisOptions,
   type MobileWorkerTranscript,
   type MobileWorkspace,
   type MobileWorkspaceTasks,
@@ -46,6 +47,7 @@ import {
   sanitizeRelayConfigForDiagnostics,
 } from './mobile-diagnostics'
 import {
+  clearFailedOutboxItems,
   createApprovalOutboxItem,
   createDispatchOutboxItem,
   createMobileOutboxState,
@@ -135,6 +137,7 @@ interface MobileRuntimeContextValue {
   refreshDashboard: (workspaceId?: string) => Promise<MobileDashboard | null>
   restartWorker: (workerId: string) => Promise<boolean>
   runtimeStatus: RuntimeStatus | null
+  clearFailedOutbox: () => Promise<void>
   retryOutbox: () => Promise<void>
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
@@ -150,8 +153,14 @@ interface MobileRuntimeContextValue {
   stopWorker: (workerId: string) => Promise<boolean>
   token: string
   transcribeVoice: (audioBase64: string, format?: string) => Promise<string | null>
-  synthesizeVoice: (text: string) => Promise<MobileVoiceSynthesisResult | null>
-  synthesizeVoiceStream: (text: string) => Promise<VoiceStreamAudioResult | null>
+  synthesizeVoice: (
+    text: string,
+    options?: MobileVoiceSynthesisOptions
+  ) => Promise<MobileVoiceSynthesisResult | null>
+  synthesizeVoiceStream: (
+    text: string,
+    options?: MobileVoiceSynthesisOptions
+  ) => Promise<VoiceStreamAudioResult | null>
   uploadMedia: (
     data: string,
     filename: string,
@@ -935,10 +944,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const synthesizeVoice = useCallback(
-    async (text: string) => {
+    async (text: string, options: MobileVoiceSynthesisOptions = {}) => {
       setError(null)
       try {
-        const result = await client.synthesizeVoice(text)
+        const result = await client.synthesizeVoice(text, options)
         if ('error' in result && result.error) {
           setError(result.error)
           return null
@@ -973,21 +982,24 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     []
   )
 
-  const synthesizeVoiceStream = useCallback(async (text: string) => {
-    const transport = observedRelayTransportRef.current
-    if (!transport || transport.status() !== 'ready') {
-      setError('Relay transport is not ready')
-      return null
-    }
-    setError(null)
-    try {
-      return await transport.requestVoiceStreamSynthesis(text)
-    } catch (streamError) {
-      const message = streamError instanceof Error ? streamError.message : String(streamError)
-      setError(message)
-      return null
-    }
-  }, [])
+  const synthesizeVoiceStream = useCallback(
+    async (text: string, options: MobileVoiceSynthesisOptions = {}) => {
+      const transport = observedRelayTransportRef.current
+      if (!transport || transport.status() !== 'ready') {
+        setError('Relay transport is not ready')
+        return null
+      }
+      setError(null)
+      try {
+        return await transport.requestVoiceStreamSynthesis(text, options)
+      } catch (streamError) {
+        const message = streamError instanceof Error ? streamError.message : String(streamError)
+        setError(message)
+        return null
+      }
+    },
+    []
+  )
 
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (
@@ -1278,6 +1290,10 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setOutbox((current) => retryFailedOutboxItems(current))
   }, [])
 
+  const clearFailedOutbox = useCallback(async () => {
+    setOutbox((current) => clearFailedOutboxItems(current))
+  }, [])
+
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       const wasBackgrounded =
@@ -1457,6 +1473,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       refreshDashboard,
       restartWorker,
       runtimeStatus,
+      clearFailedOutbox,
       retryOutbox,
       selectWorkspace,
       selectedWorkspaceId,
@@ -1498,6 +1515,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       host,
       pairedDevice,
       outboxCounts,
+      clearFailedOutbox,
       reconnecting,
       retryOutbox,
       relayConfig,

@@ -59,7 +59,8 @@ export const createVoiceStreamTtsHandler = (options: VoiceStreamTtsHandlerOption
       })
       return true
     }
-    const result = await provider.synthesize(frame.text)
+    const voice = typeof frame.voice === 'string' ? frame.voice : undefined
+    const result = await provider.synthesize(frame.text, voice ? { voice } : undefined)
     if (!result) {
       context.send({
         error: 'synthesis_failed',

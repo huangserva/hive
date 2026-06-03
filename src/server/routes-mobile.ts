@@ -927,7 +927,9 @@ export const mobileRoutes: RouteDefinition[] = [
   }),
   route('POST', '/api/mobile/voice/synthesize', async ({ request, response, store }) => {
     requireMobileCapability(request, store, 'send_prompt')
-    const body = await readJsonBody<{ text?: unknown }>(request, { limitBytes: 1024 * 1024 })
+    const body = await readJsonBody<{ text?: unknown; voice?: unknown }>(request, {
+      limitBytes: 1024 * 1024,
+    })
     if (typeof body.text !== 'string' || !body.text.trim()) {
       throw new BadRequestError('text string is required')
     }
@@ -937,7 +939,8 @@ export const mobileRoutes: RouteDefinition[] = [
       sendJson(response, 200, { error: 'tts_unavailable' })
       return
     }
-    const result = await ttsProvider.synthesize(body.text)
+    const voice = typeof body.voice === 'string' ? body.voice : undefined
+    const result = await ttsProvider.synthesize(body.text, voice ? { voice } : undefined)
     if (!result) {
       sendJson(response, 200, { error: 'synthesis_failed' })
       return

@@ -32,6 +32,10 @@ export interface LocalTtsResult {
   provider: LocalTtsProviderName
 }
 
+export interface LocalTtsSynthesisOptions {
+  voice?: string
+}
+
 interface LocalTtsAudio {
   audio: Buffer
   format: string
@@ -40,7 +44,7 @@ interface LocalTtsAudio {
 
 export interface LocalTtsProvider {
   detect(): Promise<LocalTtsCli | null>
-  synthesize(text: string): Promise<LocalTtsResult | null>
+  synthesize(text: string, options?: LocalTtsSynthesisOptions): Promise<LocalTtsResult | null>
 }
 
 interface LocalTtsProviderOptions {
@@ -109,13 +113,18 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
     return candidates
   }
 
-  const runEdgeTts = async (cli: LocalTtsCli, text: string): Promise<LocalTtsAudio | null> => {
+  const runEdgeTts = async (
+    cli: LocalTtsCli,
+    text: string,
+    voice?: string
+  ): Promise<LocalTtsAudio | null> => {
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-tts-'))
     try {
       const outputPath = join(outputDir, 'tts.mp3')
+      const resolvedVoice = voice?.trim() || cli.voice || DEFAULT_EDGE_VOICE
       await execFileP(
         cli.command,
-        ['--voice', cli.voice ?? DEFAULT_EDGE_VOICE, '--text', text, '--write-media', outputPath],
+        ['--voice', resolvedVoice, '--text', text, '--write-media', outputPath],
         {
           maxBuffer: 10 * 1024 * 1024,
           timeout: Math.min(timeoutMs, DEFAULT_EDGE_TIMEOUT_MS),
@@ -206,12 +215,12 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
     async detect() {
       return detectCandidates()[0] ?? null
     },
-    async synthesize(text: string) {
+    async synthesize(text: string, synthesisOptions: LocalTtsSynthesisOptions = {}) {
       if (!text.trim() || text.length > MAX_TEXT_LENGTH) return null
       for (const cli of detectCandidates()) {
         try {
           if (cli.provider === 'edge-tts') {
-            const result = await runEdgeTts(cli, text)
+            const result = await runEdgeTts(cli, text, synthesisOptions.voice)
             if (result) return { ...result, provider: cli.provider }
           } else if (cli.provider === 'piper') {
             const audio = await runPiper(cli, text)

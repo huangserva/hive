@@ -107,4 +107,41 @@ describe('relay voice stream TTS handler', () => {
       }),
     ])
   })
+
+  test('passes the requested stream voice to the TTS provider', async () => {
+    let requestedVoice: string | undefined
+    const sent: unknown[] = []
+    const handler = createVoiceStreamTtsHandler({
+      createTtsProvider: () => ({
+        async detect() {
+          return { command: 'edge-tts', provider: 'edge-tts' }
+        },
+        async synthesize(_text, options) {
+          requestedVoice = options?.voice
+          return {
+            audio: Buffer.from('audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts',
+          }
+        },
+      }),
+    })
+
+    const handled = await handler(
+      {
+        op: 'open',
+        seq: 0,
+        stream_id: 'voice-audio',
+        text: '你好',
+        type: 'voice_stream',
+        voice: 'zh-CN-YunxiNeural',
+      },
+      { capabilities: ['send_prompt'], deviceId: 'device-1', send: (frame) => sent.push(frame) }
+    )
+
+    expect(handled).toBe(true)
+    expect(requestedVoice).toBe('zh-CN-YunxiNeural')
+    expect(sent).toContainEqual(expect.objectContaining({ op: 'chunk', stream_id: 'voice-audio' }))
+  })
 })

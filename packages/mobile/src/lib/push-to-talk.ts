@@ -83,17 +83,37 @@ export type TalkbackReply = {
   createdAt: number
   id: string
   text: string
+  voice: string
 }
 
-const parseMessageText = (contentJson: string) => {
+export const TALKBACK_FAST_REPLY_VOICE = 'zh-CN-XiaoxiaoNeural'
+export const TALKBACK_ORCHESTRATOR_REPLY_VOICE = 'zh-CN-YunxiNeural'
+
+const parseMessageContent = (contentJson: string) => {
   try {
-    const parsed = JSON.parse(contentJson) as { text?: unknown }
-    if (typeof parsed.text === 'string') return parsed.text.trim()
+    const parsed = JSON.parse(contentJson) as {
+      fast_reply?: unknown
+      source?: unknown
+      text?: unknown
+    }
+    if (typeof parsed.text === 'string') {
+      return {
+        fastReply: parsed.fast_reply === true || parsed.source === 'voice_fast_reply',
+        text: parsed.text.trim(),
+      }
+    }
   } catch {
-    return contentJson.trim()
+    return { fastReply: false, text: contentJson.trim() }
   }
-  return contentJson.trim()
+  return { fastReply: false, text: contentJson.trim() }
 }
+
+const parseMessageText = (contentJson: string) => parseMessageContent(contentJson).text
+
+export const resolveTalkbackReplyVoice = (contentJson: string) =>
+  parseMessageContent(contentJson).fastReply
+    ? TALKBACK_FAST_REPLY_VOICE
+    : TALKBACK_ORCHESTRATOR_REPLY_VOICE
 
 export const findNextTalkbackReply = ({
   baselineReplyIds,
@@ -156,6 +176,7 @@ export const listPendingTalkbackReplies = ({
       createdAt: message.created_at,
       id: message.id,
       text: parseMessageText(message.content_json),
+      voice: resolveTalkbackReplyVoice(message.content_json),
     }))
     .filter((reply) => reply.text.length > 0)
 }

@@ -54,8 +54,13 @@ export const ConnectionModeBadge = () => {
 
 export const ConnectionModeBanner = () => {
   const t = useT()
-  const { outboxFailedCount, outboxPendingCount, outboxSendingCount, retryOutbox } =
-    useMobileRuntime()
+  const {
+    clearFailedOutbox,
+    outboxFailedCount,
+    outboxPendingCount,
+    outboxSendingCount,
+    retryOutbox,
+  } = useMobileRuntime()
   const showRetry = outboxFailedCount > 0
 
   return (
@@ -76,15 +81,16 @@ export const ConnectionModeBanner = () => {
           </View>
         ) : null}
         {showRetry ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void retryOutbox()}
-            style={s.retryBtn}
-          >
+          <View style={s.retryBtn}>
             <Ionicons color={colors.error} name="alert-circle-outline" size={12} />
             <Text style={s.retryText}>{t('outbox.failed', { count: outboxFailedCount })}</Text>
-            <Text style={s.retryAction}>{t('outbox.retry')}</Text>
-          </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => void retryOutbox()}>
+              <Text style={s.retryAction}>{t('outbox.retry')}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => void clearFailedOutbox()}>
+              <Text style={s.retryAction}>{t('outbox.clear')}</Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
     </View>

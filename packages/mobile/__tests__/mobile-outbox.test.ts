@@ -2,10 +2,12 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import {
   applyOutboxFlushResult,
+  clearFailedOutboxItems,
   createPromptOutboxItem,
   enqueueOutboxItem,
   flushOutboxConcurrently,
   flushOutboxState,
+  getOutboxCounts,
   type MobileOutboxItem,
   type MobileOutboxState,
   parseOutboxState,
@@ -201,5 +203,23 @@ describe('randomId must stay unique so id-dedup never silently merges same-ms me
     const state = enqueueTwoSameText()
     expect(state.items).toHaveLength(2)
     expect(state.items[0].id).not.toBe(state.items[1].id)
+  })
+})
+
+describe('clearFailedOutboxItems', () => {
+  test('removes failed items and keeps queued and sending items untouched', () => {
+    const queued = prompt('queued-1', 'queued message', 'ws-1', 'queued')
+    const failed = prompt('failed-1', 'failed message', 'ws-1', 'failed')
+    const sending: MobileOutboxItem = {
+      ...prompt('sending-1', 'sending message', 'ws-1', 'queued'),
+      status: 'sending',
+    }
+
+    const next = clearFailedOutboxItems({ items: [queued, failed, sending] })
+
+    expect(next.items.map((item) => item.id)).toEqual(['queued-1', 'sending-1'])
+    expect(getOutboxCounts(next)).toEqual({ failedCount: 0, queuedCount: 1, sendingCount: 1 })
+    expect(next.items[0]).toBe(queued)
+    expect(next.items[1]).toBe(sending)
   })
 })

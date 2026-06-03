@@ -6,10 +6,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 
+const localTtsMock = vi.hoisted(() => ({
+  detect: vi.fn(),
+  synthesize: vi.fn(),
+}))
+
+vi.mock('../../src/server/local-tts.js', () => ({
+  createLocalTtsProvider: () => localTtsMock,
+}))
+
 const tempDirs: string[] = []
 
 afterEach(() => {
   vi.useRealTimers()
+  localTtsMock.detect.mockReset()
+  localTtsMock.synthesize.mockReset()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -427,6 +438,30 @@ describe('relay RPC handler', () => {
     expect(listMobileChatMessages).toHaveBeenCalledWith('ws-1', 123, 5)
   })
 
+  it('passes voice through relay voice synthesis RPC', async () => {
+    localTtsMock.detect.mockResolvedValue({ command: 'edge-tts', provider: 'edge-tts' })
+    localTtsMock.synthesize.mockResolvedValue({
+      audio: Buffer.from('audio'),
+      format: 'mp3',
+      mime: 'audio/mpeg',
+      provider: 'edge-tts',
+    })
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: createBaseStore(),
+    })
+
+    await expect(
+      handler('voice.synthesize', { text: '正式回复', voice: 'zh-CN-YunxiNeural' }, 'device-1', [
+        'send_prompt',
+      ])
+    ).resolves.toMatchObject({ format: 'mp3', mime: 'audio/mpeg' })
+
+    expect(localTtsMock.synthesize).toHaveBeenCalledWith('正式回复', {
+      voice: 'zh-CN-YunxiNeural',
+    })
+  })
+
   it('serves cockpit data over relay RPC', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-cockpit-'))
     const workspacePath = join(dataDir, 'workspace')
@@ -631,7 +666,9 @@ describe('relay RPC handler', () => {
       'ws-1:orchestrator',
       '[来自手机 Mobile App]\n---\n让关羽汇报'
     )
-    expect(fastVoiceReplyProvider.generate).toHaveBeenCalledWith({ transcript: '让关羽汇报' })
+    expect(fastVoiceReplyProvider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: '让关羽汇报' })
+    )
     expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
       'ws-1',
       'inbound',
