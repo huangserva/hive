@@ -59,14 +59,27 @@ const audioMock = vi.hoisted(() => {
     replace: vi.fn(),
   }
   const setAudioModeAsync = vi.fn().mockResolvedValue(undefined)
+  const stream = {
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn(),
+  }
 
   return {
+    lastStreamOptions: null as {
+      onBuffer?: (buffer: {
+        channels: number
+        data: ArrayBuffer
+        sampleRate: number
+        timestamp: number
+      }) => void
+    } | null,
     lastRecorderOptions: null as unknown,
     player,
     playerStatus,
     recorder,
     recorderStatus,
     setAudioModeAsync,
+    stream,
   }
 })
 
@@ -91,6 +104,10 @@ vi.mock('expo-audio', () => ({
     return audioMock.recorder
   }),
   useAudioRecorderState: vi.fn(() => audioMock.recorderStatus),
+  useAudioStream: vi.fn((options: unknown) => {
+    audioMock.lastStreamOptions = options as typeof audioMock.lastStreamOptions
+    return { isStreaming: false, stream: audioMock.stream }
+  }),
 }))
 
 vi.mock('expo-file-system', () => ({
@@ -243,12 +260,15 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.recorder.prepareToRecordAsync.mockClear()
     audioMock.recorder.record.mockClear()
     audioMock.recorder.stop.mockClear()
+    audioMock.stream.start.mockClear()
+    audioMock.stream.stop.mockClear()
     audioMock.player.pause.mockClear()
     audioMock.player.play.mockClear()
     audioMock.player.remove.mockClear()
     audioMock.player.replace.mockClear()
     audioMock.setAudioModeAsync.mockClear()
     audioMock.lastRecorderOptions = null
+    audioMock.lastStreamOptions = null
     vi.unstubAllEnvs()
     runtime.chatMessages = []
     runtime.sendPromptToOrchestratorWithOutcome = vi.fn().mockResolvedValue('sent')
@@ -280,6 +300,41 @@ describe('TalkTab continuous mode behavior', () => {
 
     expect(screen.queryByText('talk.streamTest.button')).toBeNull()
     expect(screen.queryByText('talk.streamSynthesis.button')).toBeNull()
+  })
+
+  test('keeps the neural VAD PCM probe disabled by default', () => {
+    render(React.createElement(TalkTab))
+
+    expect(audioMock.lastStreamOptions).toBeNull()
+    expect(audioMock.stream.start).not.toHaveBeenCalled()
+  })
+
+  test('starts a PCM probe stream in continuous mode when explicitly enabled without changing recording', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE', '1')
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await act(async () => {
+      const data = new ArrayBuffer(4 * Int16Array.BYTES_PER_ELEMENT)
+      new Int16Array(data).set([0, 16_384, -16_384, 0])
+      audioMock.lastStreamOptions?.onBuffer?.({
+        channels: 1,
+        data,
+        sampleRate: 16_000,
+        timestamp: 0,
+      })
+      view.rerender(React.createElement(TalkTab))
+    })
+
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('[PCMDBG] sr=16000Hz ch=1 bytes=8 samples=4 rms=0.354')
+    )
+    log.mockRestore()
   })
 
   test('uses the Android voice communication recorder source by default', () => {

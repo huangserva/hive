@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons'
 import {
   type AudioRecorder,
+  type AudioStreamBuffer,
   type RecorderState,
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -9,6 +10,7 @@ import {
   useAudioPlayerStatus,
   useAudioRecorder,
   useAudioRecorderState,
+  useAudioStream,
 } from 'expo-audio'
 import * as FileSystem from 'expo-file-system/legacy'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -20,6 +22,11 @@ import {
 } from '../../src/api/mobile-runtime-context'
 import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
+import {
+  buildPcmProbeLogLine,
+  createInitialPcmProbeLogState,
+  resolveNeuralVadPcmProbeEnabled,
+} from '../../src/lib/neural-vad-pcm-probe'
 import {
   listPendingTalkbackReplies,
   reduceTalkbackState,
@@ -49,6 +56,8 @@ const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
 const isTalkbackBargeInAndroidEnabled = () =>
   process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
 
+const isNeuralVadPcmProbeEnabled = () => resolveNeuralVadPcmProbeEnabled(process.env)
+
 const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisResult =>
   typeof value === 'object' &&
   value !== null &&
@@ -67,6 +76,44 @@ const snapshotOrchestratorReplyIds = (messages: Array<{ id: string; message_type
   new Set(messages.filter((message) => message.message_type === 'orch_reply').map((m) => m.id))
 
 const isRecorderPrepared = (status: RecorderState) => status.canRecord || status.isRecording
+
+function NeuralVadPcmProbe({ active }: { active: boolean }) {
+  const logStateRef = useRef(createInitialPcmProbeLogState())
+  const handleBuffer = useCallback((buffer: AudioStreamBuffer) => {
+    const result = buildPcmProbeLogLine(logStateRef.current, buffer, {
+      encoding: 'int16',
+      nowMs: Date.now(),
+    })
+    logStateRef.current = result.state
+    if (result.line) console.log(result.line)
+  }, [])
+  const { stream } = useAudioStream({
+    channels: 1,
+    encoding: 'int16',
+    onBuffer: handleBuffer,
+    sampleRate: 16_000,
+  })
+
+  useEffect(() => {
+    if (!active) {
+      stream.stop()
+      return
+    }
+    let cancelled = false
+    void stream.start().catch((error: unknown) => {
+      if (!cancelled)
+        console.log(
+          `[PCMDBG] stream_start_failed ${error instanceof Error ? error.message : String(error)}`
+        )
+    })
+    return () => {
+      cancelled = true
+      stream.stop()
+    }
+  }, [active, stream])
+
+  return null
+}
 
 export default function TalkTab() {
   const {
@@ -746,6 +793,9 @@ export default function TalkTab() {
           </Text>
         </Pressable>
       </View>
+      {isNeuralVadPcmProbeEnabled() ? (
+        <NeuralVadPcmProbe active={connected && inputMode === 'continuous'} />
+      ) : null}
     </Screen>
   )
 }
