@@ -1,4 +1,5 @@
-import { Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react'
+import { useCallback, useState } from 'react'
 
 import type { AIAction } from '../api.js'
 import { useI18n } from '../i18n.js'
@@ -37,6 +38,15 @@ const hasLocalizedActionLabels = (actions: AIAction[]) =>
 
 const LEGACY_EMPTY_MESSAGE =
   '\u5f53\u524d\u6ca1\u6709 AI \u7b49\u5f85 user \u5904\u7406\u7684\u884c\u52a8\u3002'
+const ACTION_BAR_COLLAPSED_STORAGE_KEY = 'hive.cockpit.actionBar.collapsed'
+
+const readInitialCollapsed = () => {
+  try {
+    return window.localStorage.getItem(ACTION_BAR_COLLAPSED_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 export const ActionBar = ({
   actions,
@@ -46,18 +56,41 @@ export const ActionBar = ({
   onAction?: (action: AIAction) => void
 }) => {
   const { isFallback, t } = useI18n()
+  const [collapsed, setCollapsed] = useState(readInitialCollapsed)
   const useLegacyLabels = isFallback && hasLocalizedActionLabels(actions)
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((current) => {
+      const next = !current
+      try {
+        window.localStorage.setItem(ACTION_BAR_COLLAPSED_STORAGE_KEY, next ? '1' : '0')
+      } catch {
+        // localStorage can be unavailable; keep this as in-memory UI state.
+      }
+      return next
+    })
+  }, [])
   return (
     <footer
       className="shrink-0 border-t px-4 py-3"
       style={{ background: 'var(--bg-0)', borderColor: 'var(--border)' }}
     >
-      <div className="mb-2 flex items-center gap-2 font-medium text-pri text-xs">
+      <button
+        aria-expanded={!collapsed}
+        className={`flex w-full cursor-pointer items-center gap-2 rounded text-left font-medium text-pri text-xs hover:bg-2 ${collapsed ? '' : 'mb-2'}`}
+        type="button"
+        onClick={toggleCollapsed}
+      >
         <Sparkles size={14} className="text-accent" />
         <span>{t('cockpit.actionBar.title')}</span>
         <span className="text-ter tabular-nums">({actions.length})</span>
-      </div>
-      {actions.length ? (
+        <span className="flex-1" />
+        {collapsed ? (
+          <ChevronRight size={14} className="text-ter" />
+        ) : (
+          <ChevronDown size={14} className="text-ter" />
+        )}
+      </button>
+      {!collapsed && actions.length ? (
         <div className="space-y-1.5">
           {actions.slice(0, 10).map((action) => {
             const labelKey = actionLabelKey(action.action)
@@ -90,14 +123,14 @@ export const ActionBar = ({
             )
           })}
         </div>
-      ) : (
+      ) : !collapsed ? (
         <div
           className="rounded border px-3 py-2 text-sec text-xs"
           style={{ borderColor: 'var(--border)' }}
         >
           {isFallback ? LEGACY_EMPTY_MESSAGE : t('cockpit.actionBar.empty')}
         </div>
-      )}
+      ) : null}
     </footer>
   )
 }
