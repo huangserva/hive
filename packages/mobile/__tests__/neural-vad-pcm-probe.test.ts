@@ -2,8 +2,14 @@ import { describe, expect, test } from 'vitest'
 
 import {
   buildPcmProbeLogLine,
+  buildSileroModelInput,
+  buildSileroShadowLogLine,
   createInitialPcmProbeLogState,
+  createInitialSileroModelState,
+  createInitialSileroShadowFrameState,
+  extractSileroShadowFrames,
   resolveNeuralVadPcmProbeEnabled,
+  resolveNeuralVadShadowEnabled,
 } from '../src/lib/neural-vad-pcm-probe'
 
 const int16Buffer = (samples: number[]) => {
@@ -24,6 +30,13 @@ describe('neural VAD PCM probe', () => {
     expect(resolveNeuralVadPcmProbeEnabled({ EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE: '0' })).toBe(false)
     expect(resolveNeuralVadPcmProbeEnabled({ EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE: '1' })).toBe(true)
     expect(resolveNeuralVadPcmProbeEnabled({ EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE: 'true' })).toBe(true)
+  })
+
+  test('keeps Silero shadow mode off unless explicitly enabled', () => {
+    expect(resolveNeuralVadShadowEnabled({})).toBe(false)
+    expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '0' })).toBe(false)
+    expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '1' })).toBe(true)
+    expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: 'true' })).toBe(true)
   })
 
   test('summarizes int16 PCM frames with energy and arrival frequency', () => {
@@ -90,5 +103,57 @@ describe('neural VAD PCM probe', () => {
     expect(throttled.line).toBeNull()
     expect(second.line).toContain('frames=2')
     expect(second.line).toContain('fps=1.7')
+  })
+
+  test('splits int16 PCM into 512-sample Silero frames without dropping residual samples', () => {
+    let state = createInitialSileroShadowFrameState()
+    const firstSamples = Array.from({ length: 300 }, (_, index) => index)
+    const first = extractSileroShadowFrames(state, int16Buffer(firstSamples))
+    state = first.state
+
+    expect(first.frames).toHaveLength(0)
+    expect(state.pendingSamples).toHaveLength(300)
+
+    const secondSamples = Array.from({ length: 300 }, (_, index) => 300 + index)
+    const second = extractSileroShadowFrames(state, int16Buffer(secondSamples))
+
+    expect(second.frames).toHaveLength(1)
+    expect(second.frames[0]?.index).toBe(1)
+    expect(second.frames[0]?.samples).toHaveLength(512)
+    expect(second.frames[0]?.samples[0]).toBeCloseTo(0)
+    expect(second.frames[0]?.samples[511]).toBeCloseTo(511 / 32768)
+    expect(second.state.pendingSamples).toHaveLength(88)
+    expect(second.state.nextFrameIndex).toBe(2)
+  })
+
+  test('formats Silero shadow probability logs with frame index and energy', () => {
+    const line = buildSileroShadowLogLine({
+      frameIndex: 7,
+      probability: 0.9342,
+      rms: 0.1234,
+      sampleRate: 16_000,
+    })
+
+    expect(line).toContain('[SILERODBG]')
+    expect(line).toContain('voice_prob=0.934')
+    expect(line).toContain('frame=7')
+    expect(line).toContain('rms=0.123')
+    expect(line).toContain('sr=16000Hz')
+  })
+
+  test('builds Silero model input with 64-sample context and updates context tail', () => {
+    let state = createInitialSileroModelState()
+    const frame = new Float32Array(Array.from({ length: 512 }, (_, index) => index / 512))
+    const input = buildSileroModelInput(state, frame)
+    state = input.state
+
+    expect(input.samples).toHaveLength(576)
+    expect(input.samples[0]).toBe(0)
+    expect(input.samples[63]).toBe(0)
+    expect(input.samples[64]).toBeCloseTo(0)
+    expect(input.samples[575]).toBeCloseTo(511 / 512)
+    expect(state.context).toHaveLength(64)
+    expect(state.context[0]).toBeCloseTo(448 / 512)
+    expect(state.context[63]).toBeCloseTo(511 / 512)
   })
 })

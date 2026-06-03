@@ -337,6 +337,22 @@ describe('TalkTab continuous mode behavior', () => {
     log.mockRestore()
   })
 
+  test('starts the neural VAD shadow stream when shadow mode is explicitly enabled', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    expect(audioMock.lastStreamOptions).toMatchObject({
+      channels: 1,
+      encoding: 'int16',
+      sampleRate: 16_000,
+    })
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+  })
+
   test('uses the Android voice communication recorder source by default', () => {
     render(React.createElement(TalkTab))
 

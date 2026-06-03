@@ -24,8 +24,12 @@ import { Screen } from '../../src/components/Screen'
 import { useT } from '../../src/i18n'
 import {
   buildPcmProbeLogLine,
+  buildSileroShadowLogLine,
   createInitialPcmProbeLogState,
+  createInitialSileroShadowFrameState,
+  extractSileroShadowFrames,
   resolveNeuralVadPcmProbeEnabled,
+  resolveNeuralVadShadowEnabled,
 } from '../../src/lib/neural-vad-pcm-probe'
 import {
   listPendingTalkbackReplies,
@@ -34,6 +38,10 @@ import {
   shouldFinishTalkbackReplyRound,
   type TalkbackState,
 } from '../../src/lib/push-to-talk'
+import {
+  createSileroVadShadowScorer,
+  type SileroVadShadowScorer,
+} from '../../src/lib/silero-vad-shadow'
 import {
   applyVadMeteringSample,
   createInitialVoiceVadState,
@@ -57,6 +65,7 @@ const isTalkbackBargeInAndroidEnabled = () =>
   process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
 
 const isNeuralVadPcmProbeEnabled = () => resolveNeuralVadPcmProbeEnabled(process.env)
+const isNeuralVadShadowEnabled = () => resolveNeuralVadShadowEnabled(process.env)
 
 const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisResult =>
   typeof value === 'object' &&
@@ -77,16 +86,64 @@ const snapshotOrchestratorReplyIds = (messages: Array<{ id: string; message_type
 
 const isRecorderPrepared = (status: RecorderState) => status.canRecord || status.isRecording
 
-function NeuralVadPcmProbe({ active }: { active: boolean }) {
+function NeuralVadPcmProbe({
+  active,
+  pcmLogEnabled,
+  shadowEnabled,
+}: {
+  active: boolean
+  pcmLogEnabled: boolean
+  shadowEnabled: boolean
+}) {
   const logStateRef = useRef(createInitialPcmProbeLogState())
-  const handleBuffer = useCallback((buffer: AudioStreamBuffer) => {
-    const result = buildPcmProbeLogLine(logStateRef.current, buffer, {
-      encoding: 'int16',
-      nowMs: Date.now(),
-    })
-    logStateRef.current = result.state
-    if (result.line) console.log(result.line)
-  }, [])
+  const sileroFrameStateRef = useRef(createInitialSileroShadowFrameState())
+  const sileroScorerRef = useRef<SileroVadShadowScorer | null>(null)
+  const sileroScoreQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const sileroErrorLoggedRef = useRef(false)
+  const handleBuffer = useCallback(
+    (buffer: AudioStreamBuffer) => {
+      if (pcmLogEnabled) {
+        const result = buildPcmProbeLogLine(logStateRef.current, buffer, {
+          encoding: 'int16',
+          nowMs: Date.now(),
+        })
+        logStateRef.current = result.state
+        if (result.line) console.log(result.line)
+      }
+
+      if (!shadowEnabled) return
+      const extracted = extractSileroShadowFrames(sileroFrameStateRef.current, buffer.data)
+      sileroFrameStateRef.current = extracted.state
+      if (extracted.frames.length === 0) return
+      sileroScorerRef.current ??= createSileroVadShadowScorer()
+      const scorer = sileroScorerRef.current
+      sileroScoreQueueRef.current = sileroScoreQueueRef.current
+        .then(async () => {
+          for (const frame of extracted.frames) {
+            const probability = await scorer.score(frame)
+            if (probability !== null) {
+              console.log(
+                buildSileroShadowLogLine({
+                  frameIndex: frame.index,
+                  probability,
+                  rms: frame.rms,
+                  sampleRate: buffer.sampleRate,
+                })
+              )
+            }
+          }
+        })
+        .catch((error: unknown) => {
+          if (!sileroErrorLoggedRef.current) {
+            sileroErrorLoggedRef.current = true
+            console.log(
+              `[SILERODBG] score_failed ${error instanceof Error ? error.message : String(error)}`
+            )
+          }
+        })
+    },
+    [pcmLogEnabled, shadowEnabled]
+  )
   const { stream } = useAudioStream({
     channels: 1,
     encoding: 'int16',
@@ -793,8 +850,12 @@ export default function TalkTab() {
           </Text>
         </Pressable>
       </View>
-      {isNeuralVadPcmProbeEnabled() ? (
-        <NeuralVadPcmProbe active={connected && inputMode === 'continuous'} />
+      {isNeuralVadPcmProbeEnabled() || isNeuralVadShadowEnabled() ? (
+        <NeuralVadPcmProbe
+          active={connected && inputMode === 'continuous'}
+          pcmLogEnabled={isNeuralVadPcmProbeEnabled()}
+          shadowEnabled={isNeuralVadShadowEnabled()}
+        />
       ) : null}
     </Screen>
   )

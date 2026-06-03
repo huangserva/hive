@@ -17,4 +17,6 @@ config.resolver.extraNodeModules = {
   '@huangserva/hippoteam-relay-crypto': path.resolve(monorepoRoot, 'packages/relay-crypto'),
 }
 
+config.resolver.assetExts = [...new Set([...config.resolver.assetExts, 'onnx'])]
+
 module.exports = config

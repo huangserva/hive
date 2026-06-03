@@ -13,14 +13,45 @@ export type PcmProbeLogState = {
 }
 
 export const PCM_PROBE_LOG_INTERVAL_MS = 1000
+export const SILERO_MODEL_CONTEXT_SAMPLE_COUNT = 64
+export const SILERO_SHADOW_FRAME_SAMPLE_COUNT = 512
 
 export const createInitialPcmProbeLogState = (): PcmProbeLogState => ({
   framesSinceLastLog: 0,
   lastLogAtMs: null,
 })
 
+export type SileroShadowFrame = {
+  index: number
+  rms: number
+  samples: Float32Array
+}
+
+export type SileroShadowFrameState = {
+  nextFrameIndex: number
+  pendingSamples: Float32Array
+}
+
+export const createInitialSileroShadowFrameState = (): SileroShadowFrameState => ({
+  nextFrameIndex: 1,
+  pendingSamples: new Float32Array(0),
+})
+
+export type SileroModelState = {
+  context: Float32Array
+}
+
+export const createInitialSileroModelState = (): SileroModelState => ({
+  context: new Float32Array(SILERO_MODEL_CONTEXT_SAMPLE_COUNT),
+})
+
 export const resolveNeuralVadPcmProbeEnabled = (env: Record<string, string | undefined>) => {
   const value = env.EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE
+  return value === '1' || value === 'true'
+}
+
+export const resolveNeuralVadShadowEnabled = (env: Record<string, string | undefined>) => {
+  const value = env.EXPO_PUBLIC_NEURAL_VAD_SHADOW
   return value === '1' || value === 'true'
 }
 
@@ -52,6 +83,86 @@ const calculateRmsEnergy = (
   }
   return Math.sqrt(sumSquares / sampleCount)
 }
+
+const calculateFloat32Rms = (samples: Float32Array) => {
+  if (samples.length <= 0) return 0
+  let sumSquares = 0
+  for (const sample of samples) {
+    sumSquares += sample * sample
+  }
+  return Math.sqrt(sumSquares / samples.length)
+}
+
+const int16BufferToFloat32 = (buffer: ArrayBuffer) => {
+  const samples = new Int16Array(buffer)
+  const normalized = new Float32Array(samples.length)
+  for (let index = 0; index < samples.length; index += 1) {
+    normalized[index] = (samples[index] ?? 0) / 32768
+  }
+  return normalized
+}
+
+const concatenateFloat32 = (left: Float32Array, right: Float32Array) => {
+  if (left.length === 0) return right
+  if (right.length === 0) return left
+  const combined = new Float32Array(left.length + right.length)
+  combined.set(left, 0)
+  combined.set(right, left.length)
+  return combined
+}
+
+export const extractSileroShadowFrames = (
+  state: SileroShadowFrameState,
+  buffer: ArrayBuffer
+): { frames: SileroShadowFrame[]; state: SileroShadowFrameState } => {
+  const samples = concatenateFloat32(state.pendingSamples, int16BufferToFloat32(buffer))
+  const frames: SileroShadowFrame[] = []
+  let offset = 0
+  let nextFrameIndex = state.nextFrameIndex
+
+  while (offset + SILERO_SHADOW_FRAME_SAMPLE_COUNT <= samples.length) {
+    const frameSamples = samples.slice(offset, offset + SILERO_SHADOW_FRAME_SAMPLE_COUNT)
+    frames.push({
+      index: nextFrameIndex,
+      rms: calculateFloat32Rms(frameSamples),
+      samples: frameSamples,
+    })
+    nextFrameIndex += 1
+    offset += SILERO_SHADOW_FRAME_SAMPLE_COUNT
+  }
+
+  return {
+    frames,
+    state: {
+      nextFrameIndex,
+      pendingSamples: samples.slice(offset),
+    },
+  }
+}
+
+export const buildSileroModelInput = (
+  state: SileroModelState,
+  frame: Float32Array
+): { samples: Float32Array; state: SileroModelState } => {
+  const samples = new Float32Array(SILERO_MODEL_CONTEXT_SAMPLE_COUNT + frame.length)
+  samples.set(state.context, 0)
+  samples.set(frame, SILERO_MODEL_CONTEXT_SAMPLE_COUNT)
+
+  return {
+    samples,
+    state: {
+      context: frame.slice(frame.length - SILERO_MODEL_CONTEXT_SAMPLE_COUNT),
+    },
+  }
+}
+
+export const buildSileroShadowLogLine = (result: {
+  frameIndex: number
+  probability: number
+  rms: number
+  sampleRate: number
+}) =>
+  `[SILERODBG] voice_prob=${result.probability.toFixed(3)} frame=${result.frameIndex} rms=${result.rms.toFixed(3)} sr=${result.sampleRate}Hz`
 
 export const buildPcmProbeLogLine = (
   state: PcmProbeLogState,
