@@ -4,7 +4,10 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
-import { type FastVoiceReplyProvider, maybeInsertFastVoiceReply } from './fast-voice-reply.js'
+import {
+  type FastVoiceReplyProvider,
+  maybeInsertFastVoiceReplyWithGatekeeper,
+} from './fast-voice-reply.js'
 import { createLocalSttProvider } from './local-stt.js'
 import { createLocalTtsProvider } from './local-tts.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
@@ -70,6 +73,8 @@ type PendingUploadPath = {
 const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
 const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+
+const isGlmGatekeeperEnabled = () => process.env.HIVE_GLM_GATEKEEPER !== '0'
 
 const asParams = (value: unknown): RelayRpcParams =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RelayRpcParams) : {}
@@ -280,20 +285,30 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
-      deps.store.recordUserInput(workspaceId, orchId, formatted)
       deps.store.insertMobileChatMessage(
         workspaceId,
         'inbound',
         'user_text',
         JSON.stringify(source === 'voice' ? { source, text } : { text })
       )
-      await maybeInsertFastVoiceReply({
+      const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
         ...(deps.fastVoiceReplyProvider ? { provider: deps.fastVoiceReplyProvider } : {}),
         source,
         store: deps.store,
         text,
         workspaceId,
       })
+      const gatekeeperHandled =
+        isGlmGatekeeperEnabled() &&
+        source === 'voice' &&
+        uploadPaths.length === 0 &&
+        fastReply.gatekeeper === 'handled' &&
+        fastReply.reply !== null
+      if (gatekeeperHandled) {
+        deps.store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+      } else {
+        deps.store.recordUserInput(workspaceId, orchId, formatted)
+      }
       return { ok: true, workspace_id: workspaceId }
     }
 

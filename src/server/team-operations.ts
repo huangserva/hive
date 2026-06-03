@@ -435,10 +435,17 @@ export const createTeamOperations = ({
       const worker = workspaceStore.getWorkerByName(workspaceId, workerName)
       return dispatchTask(workspaceId, worker.id, text, input)
     },
-    recordUserInput(workspaceId: string, orchestratorId: string, text: string) {
+    recordUserInput(
+      workspaceId: string,
+      orchestratorId: string,
+      text: string,
+      input: { forwardToOrchestrator?: boolean } = {}
+    ) {
       workspaceStore.getAgent(workspaceId, orchestratorId)
       if (isMobileAppUserInput(text)) onMobileUserInput?.(workspaceId)
-      agentRuntime.writeUserInputPrompt(workspaceId, text)
+      if (input.forwardToOrchestrator !== false) {
+        agentRuntime.writeUserInputPrompt(workspaceId, text)
+      }
       insertMessage(createUserInputMessage(workspaceId, orchestratorId, text))
     },
     statusTask(workspaceId: string, workerId: string, input: StatusTaskInput = {}) {

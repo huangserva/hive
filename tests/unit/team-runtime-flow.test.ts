@@ -216,4 +216,54 @@ describe('team runtime flow (unit)', () => {
       })
     )
   })
+
+  test('recordUserInput can record a mobile-handled prompt without writing orchestrator stdin', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-user-input-record-only-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(workspacePath, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const orchestratorScript = join(workspacePath, 'orch-record-only-echo.js')
+    writeFileSync(
+      orchestratorScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('ORCH:' + chunk)",
+        '})',
+      ].join('\n')
+    )
+
+    const store = createRuntimeStore({
+      agentManager: createAgentManager(),
+      dataDir,
+    })
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected default orchestrator')
+    }
+    store.configureAgentLaunch(workspace.id, orchestrator.id, {
+      command: process.execPath,
+      args: [orchestratorScript],
+    })
+
+    await store.startAgent(workspace.id, orchestrator.id, {
+      hivePort: '4010',
+    })
+
+    store.recordUserInput(workspace.id, orchestrator.id, 'GLM handled this mobile question', {
+      forwardToOrchestrator: false,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const run = store.getActiveRunByAgentId(workspace.id, orchestrator.id)
+    expect(run?.output).not.toContain('GLM handled this mobile question')
+    expect(store.listMessagesForRecovery(workspace.id, 0)).toContainEqual(
+      expect.objectContaining({
+        text: 'GLM handled this mobile question',
+        type: 'user_input',
+      })
+    )
+  })
 })

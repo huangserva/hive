@@ -58,7 +58,12 @@ interface RuntimeStore {
     workerId: string,
     configPatch: WorkerConfigPatch
   ) => WorkerConfig
-  recordUserInput: (workspaceId: string, orchestratorId: string, text: string) => void
+  recordUserInput: (
+    workspaceId: string,
+    orchestratorId: string,
+    text: string,
+    input?: { forwardToOrchestrator?: boolean }
+  ) => void
   notifyQuestionAnswered: (workspaceId: string, questionId: string, answer: string) => void
   dispatchTask: (
     workspaceId: string,

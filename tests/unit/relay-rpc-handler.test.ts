@@ -683,6 +683,212 @@ describe('relay RPC handler', () => {
     )
   })
 
+  it('skips orchestrator injection only when GLM gatekeeper explicitly handles a voice prompt', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n现在关羽正在 working。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '关羽现在在干嘛', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n关羽现在在干嘛',
+      { forwardToOrchestrator: false }
+    )
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'inbound',
+      'user_text',
+      JSON.stringify({ source: 'voice', text: '关羽现在在干嘛' })
+    )
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'outbound',
+      'orch_reply',
+      JSON.stringify({
+        fast_reply: true,
+        gatekeeper: 'handled',
+        source: 'voice_fast_reply',
+        text: '现在关羽正在 working。',
+      })
+    )
+  })
+
+  it('forwards handled voice prompts when the fast reply cannot be recorded', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+      insertMobileChatMessage: vi.fn(
+        (_workspaceId: string, direction: string, messageType: string, _contentJson: string) => {
+          if (direction === 'outbound' && messageType === 'orch_reply') {
+            throw new Error('database is locked')
+          }
+        }
+      ),
+    })
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider: {
+        generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n现在暂无未完成派单。'),
+      },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '现在有未完成派单吗', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n现在有未完成派单吗'
+    )
+    expect(store.recordUserInput).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      { forwardToOrchestrator: false }
+    )
+  })
+
+  it('still injects operation-like voice prompts when GLM gatekeeper escalates', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi
+        .fn()
+        .mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n好，我让 orchestrator 去办。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '让关羽修一下对讲', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n让关羽修一下对讲'
+    )
+  })
+
+  it('defaults to orchestrator injection when GLM gatekeeper fails or returns an unclear marker', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const unclearStore = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const unclearHandler = createRelayRpcHandler({
+      fastVoiceReplyProvider: {
+        generate: vi.fn().mockResolvedValue('这个问题我可以答。'),
+      },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: unclearStore,
+    })
+
+    await expect(
+      unclearHandler(
+        'workspace.prompt',
+        { source: 'voice', text: '现在进度怎么样', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+    expect(unclearStore.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n现在进度怎么样'
+    )
+
+    const failedStore = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const failedHandler = createRelayRpcHandler({
+      fastVoiceReplyProvider: {
+        generate: vi.fn(async () => {
+          throw new Error('glm timeout')
+        }),
+      },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: failedStore,
+    })
+
+    await expect(
+      failedHandler(
+        'workspace.prompt',
+        { source: 'voice', text: '现在进度怎么样', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+    expect(failedStore.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n现在进度怎么样'
+    )
+  })
+
+  it('injects all prompts when the GLM gatekeeper feature flag is disabled', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider: {
+        generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n现在没有未完成派单。'),
+      },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '现在有未完成派单吗', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n现在有未完成派单吗'
+    )
+  })
+
   it('does not call the fast voice layer for ordinary text prompts', async () => {
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),

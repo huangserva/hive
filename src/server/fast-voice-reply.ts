@@ -12,7 +12,9 @@ const FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT = 240
 const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
 
 const FAST_VOICE_REPLY_SYSTEM_PROMPT =
-  '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确。你只读、不下指令、不执行任务、不派工、不声称已经完成；涉及派 worker、改代码、部署、重启或真实操作时，只确认“好，我让 orchestrator 去办”，最终结果由 orchestrator 回复。'
+  '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确。你只读、不下指令、不执行任务、不派工、不声称已经完成；涉及派 worker、改代码、部署、重启或真实操作时，只确认“好，我让 orchestrator 去办”，最终结果由 orchestrator 回复。\n\n输出第一行必须是门卫标记：`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。只有你能完整回答且不需要任何真实操作时才用 handled；任何不确定、带派工/改代码/部署/重启/执行动作意味的请求必须用 escalate。第二行开始输出给用户听的短回复。'
+
+export type FastVoiceReplyGatekeeperVerdict = 'handled' | 'escalate'
 
 export type FastVoiceReplyHistoryItem = {
   role: 'assistant' | 'user'
@@ -25,6 +27,11 @@ export type FastVoiceReplyProvider = {
     statusContext?: string
     transcript: string
   }): Promise<string | null>
+}
+
+export type FastVoiceReplyResult = {
+  gatekeeper: FastVoiceReplyGatekeeperVerdict
+  reply: string | null
 }
 
 type MobileChatMessageLike = {
@@ -107,6 +114,15 @@ type CreateFastVoiceReplyProviderOptions = {
 
 export const normalizeFastVoiceReply = (text: string) =>
   text.replace(/\s+/g, ' ').trim().slice(0, 180)
+
+const parseGatekeeperReply = (rawText: string) => {
+  const trimmed = rawText.trim()
+  const match = trimmed.match(/^HIVE_GLM_GATEKEEPER\s*:\s*(handled|escalate)\b\s*/iu)
+  if (!match) return { reply: normalizeFastVoiceReply(trimmed), verdict: null }
+  const verdict = match[1]?.toLowerCase() as FastVoiceReplyGatekeeperVerdict
+  const reply = normalizeFastVoiceReply(trimmed.slice(match[0].length))
+  return { reply, verdict }
+}
 
 const pickFallbackReply = (transcript: string) => {
   const normalized = transcript.trim()
@@ -236,21 +252,35 @@ const readFastVoiceReplyStatusContext = ({
 }
 
 const insertFastVoiceReply = ({
+  gatekeeper,
   reply,
   store,
   workspaceId,
 }: {
+  gatekeeper?: FastVoiceReplyGatekeeperVerdict
   reply: string
   store: FastVoiceReplyStore
   workspaceId: string
 }) => {
   try {
-    store.insertMobileChatMessage(
-      workspaceId,
-      'outbound',
-      'orch_reply',
-      JSON.stringify({ fast_reply: true, source: 'voice_fast_reply', text: reply })
-    )
+    const content: {
+      fast_reply: true
+      gatekeeper?: FastVoiceReplyGatekeeperVerdict
+      source: string
+      text: string
+    } = gatekeeper
+      ? {
+          fast_reply: true,
+          gatekeeper,
+          source: 'voice_fast_reply',
+          text: reply,
+        }
+      : {
+          fast_reply: true,
+          source: 'voice_fast_reply',
+          text: reply,
+        }
+    store.insertMobileChatMessage(workspaceId, 'outbound', 'orch_reply', JSON.stringify(content))
     return true
   } catch {
     return false
@@ -423,16 +453,59 @@ export const maybeInsertFastVoiceReply = async ({
   text: string
   workspaceId: string
 }) => {
-  if (source !== 'voice') return null
+  const result = await maybeInsertFastVoiceReplyWithGatekeeper({
+    provider,
+    source,
+    store,
+    text,
+    workspaceId,
+  })
+  return result.reply
+}
+
+export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
+  provider = createFastVoiceReplyProvider(),
+  source,
+  store,
+  text,
+  workspaceId,
+}: {
+  provider?: FastVoiceReplyProvider
+  source: unknown
+  store: FastVoiceReplyStore
+  text: string
+  workspaceId: string
+}): Promise<FastVoiceReplyResult> => {
+  if (source !== 'voice') return { gatekeeper: 'escalate', reply: null }
   const history = readFastVoiceReplyHistory({ store, transcript: text, workspaceId })
   const statusContext = readFastVoiceReplyStatusContext({ store, workspaceId })
   try {
-    const reply =
-      (await provider.generate({ history, statusContext, transcript: text })) ??
-      pickFallbackReply(text)
-    return insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null
+    const generated = await provider.generate({ history, statusContext, transcript: text })
+    if (generated) {
+      const parsed = parseGatekeeperReply(generated)
+      const reply = parsed.reply || pickFallbackReply(text)
+      const gatekeeper = parsed.verdict ?? 'escalate'
+      const inserted = insertFastVoiceReply({
+        ...(parsed.verdict ? { gatekeeper: parsed.verdict } : {}),
+        reply,
+        store,
+        workspaceId,
+      })
+      return {
+        gatekeeper: inserted ? gatekeeper : 'escalate',
+        reply: inserted ? reply : null,
+      }
+    }
+    const reply = pickFallbackReply(text)
+    return {
+      gatekeeper: 'escalate',
+      reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
+    }
   } catch {
     const reply = pickFallbackReply(text)
-    return insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null
+    return {
+      gatekeeper: 'escalate',
+      reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
+    }
   }
 }
