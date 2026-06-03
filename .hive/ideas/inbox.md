@@ -4,6 +4,17 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-03 GLM↔orchestrator 双 agent 连续协作环 — user 语音口述（M36 衍生）
+
+- **idea-9 双 agent 分工协作环**：user 在 M36 连续对讲实测中口述（两次描述方向一致）。当前两套机制：①GLM 快嘴（知情前台,只读,~2-3s）②orchestrator（OFH,管 worker 的重活执行者,~28s）。user 设想让二者**显式协作成连续闭环**：
+  - GLM 先接所有语音 → 能直接答的简单问题（user 估 70-80%:进度/worker 状态/上下文澄清）**当场答掉**；
+  - 判断复杂/需派 worker/办不了的 → **转交 orchestrator**（GLM 不自下指令,只移交）；
+  - orchestrator 后台处理完 → 结果**回流给 GLM**,由 GLM 整理成口语再念给 user；
+  - user 体感 = 一个**连续对话过程**,而非"GLM 应付一句 + orch 半天后另起一句"两个割裂的声音。
+  - **本质**:GLM = 对话前台（低延迟/有人味/负责所有 user 交互口径）,orchestrator = 后台执行引擎（结果不直接面向 user,经 GLM 转述）。把"两个声音"收敛成"一个前台 + 一个隐形后厨"。
+  - 现状差距:当前 GLM 与 orch **并行各自投递**,没有"orch 结果回流给 GLM 二次整理"的环。促成此环 = 让 user 只跟 GLM 一个"人"说话。
+  - 关联:依赖 GLM 知情前台先真能用（本 session 修 GLM 5s 超时后验证）；应纳入 M36 ADR。promote 前 scoping:orch→GLM 结果回流的触发与注入机制（orch 完成事件 → 喂 GLM 二次润色 → 念回）。
+
 ### 2026-06-01 双竞品三角合成：远程可诊断性 + provider 证据 → ✅ **promoted M33**（user 2026-06-01 经手机 Cockpit 提升为正式 milestone）
 
 - **idea-8 远程可诊断性 = HippoTeam 远控产品的签名缺口**：拿两个哲学相反的竞品（OpenTeams 重控制云引擎 / CCB 单机深 runtime）三角定位 HippoTeam，**两家独立指向的同一批缺口 = 高置信度真缺口**。其中最该补的是「远程可诊断性」——我们是三方里唯一"远程优先"，却最缺"user 在手机上看底层证据"的能力。

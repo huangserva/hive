@@ -62,6 +62,11 @@ const PROMPT_ECHO_CONTENT_TOKENS = [
 ] as const
 const PROMPT_ECHO_TOKEN_OVERLAP_RATIO = 0.7
 const MIN_PROMPT_ECHO_TOKEN_COUNT = 3
+const SILENT_AUDIO_HALLUCINATION_PHRASES = [
+  '网络中文普通话语音指令',
+  '网站中文普通话语音指令',
+  '中文普通话语音指令',
+] as const
 
 const isExecutable = (filePath: string) => {
   try {
@@ -134,6 +139,21 @@ const readFirstTranscript = (paths: string[], stdout: string) => {
 const normalizeTranscriptForPromptEcho = (text: string) =>
   text.replace(/[^\p{L}\p{N}]/gu, '').trim()
 
+const normalizeTranscriptForNoSpeech = (text: string) =>
+  text.replace(/\s+/g, '').replace(/[，。！？、,.!?;；:："'“”‘’（）()【】[\]{}<>《》…—-]/g, '')
+
+const isEmptyOrPunctuationOnlyTranscript = (text: string) =>
+  normalizeTranscriptForNoSpeech(text).length === 0
+
+const isSilentAudioHallucination = (text: string) => {
+  const normalized = normalizeTranscriptForPromptEcho(text)
+  if (!normalized) return true
+  return SILENT_AUDIO_HALLUCINATION_PHRASES.some((phrase) => {
+    const normalizedPhrase = normalizeTranscriptForPromptEcho(phrase)
+    return normalized === normalizedPhrase || normalized.includes(normalizedPhrase)
+  })
+}
+
 const isDefaultPromptEcho = (text: string) => {
   const normalized = normalizeTranscriptForPromptEcho(text)
   if (normalized.length < MIN_PROMPT_ECHO_CHARS) return false
@@ -151,6 +171,11 @@ const isDefaultPromptEcho = (text: string) => {
   const tokenCoverage = matchedTokens.join('').length / normalized.length
   return tokenCoverage >= PROMPT_ECHO_TOKEN_OVERLAP_RATIO && nonPromptCharacters.length === 0
 }
+
+const isNoSpeechTranscript = (text: string) =>
+  isEmptyOrPunctuationOnlyTranscript(text) ||
+  isSilentAudioHallucination(text) ||
+  isDefaultPromptEcho(text)
 
 export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): LocalSttProvider => {
   const env = options.env ?? process.env
@@ -263,7 +288,7 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
               ? await runWhisperCli(cli, audioPath)
               : await runWhisper(cli, audioPath)
           if (text) {
-            if (isDefaultPromptEcho(text)) return null
+            if (isNoSpeechTranscript(text)) return null
             return { provider: cli.provider, text }
           }
         } catch (error) {

@@ -1,7 +1,7 @@
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
 export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
 export const GLM_FAST_VOICE_REPLY_BASE_URL = 'https://open.bigmodel.cn/api/coding/paas/v4'
-export const FAST_VOICE_REPLY_TIMEOUT_MS = 2500
+export const FAST_VOICE_REPLY_TIMEOUT_MS = 5000
 export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
   '好的，收到，正在处理，稍等。',
   '收到，我来处理，稍等一下。',

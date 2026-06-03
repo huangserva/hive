@@ -190,9 +190,17 @@ const setRecorderStatus = async (
 }
 
 const finishCurrentPhrase = async (view: ReturnType<typeof render>) => {
-  await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -40 })
-  await setRecorderStatus(view, { durationMillis: 400, isRecording: true, metering: -60 })
-  await setRecorderStatus(view, { durationMillis: 1600, isRecording: true, metering: -60 })
+  await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
+  await setRecorderStatus(view, { durationMillis: 400, isRecording: true, metering: -25 })
+  await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -50 })
+  await setRecorderStatus(view, { durationMillis: 2000, isRecording: true, metering: -50 })
+}
+
+const finishNoiseTriggeredPhrase = async (view: ReturnType<typeof render>) => {
+  await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -44 })
+  await setRecorderStatus(view, { durationMillis: 400, isRecording: true, metering: -29 })
+  await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -44 })
+  await setRecorderStatus(view, { durationMillis: 2000, isRecording: true, metering: -44 })
 }
 
 const deferred = <T>() => {
@@ -303,6 +311,19 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.getByText('native stop failed')).toBeTruthy()
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+  })
+
+  test('drops noise-triggered continuous segments before transcription or prompt delivery', async () => {
+    const view = render(React.createElement(TalkTab))
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+
+    await finishNoiseTriggeredPhrase(view)
+    await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalledTimes(2))
+
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(runtime.sendPromptToOrchestratorWithOutcome).not.toHaveBeenCalled()
+    expect(screen.queryByText('talk.error.sendFailed')).toBeNull()
   })
 
   test('ignores historical late-loaded replies but speaks this turn new reply across clock skew', async () => {

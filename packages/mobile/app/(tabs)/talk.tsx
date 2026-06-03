@@ -216,6 +216,12 @@ export default function TalkTab() {
           allowsRecording: false,
           playsInSilentMode: true,
         })
+        if (nextStateOnError === 'listening' && !vadStateRef.current.hadRealSpeech) {
+          resetReplyQueueForPrompt()
+          dispatchTalkEvent({ type: 'reset' })
+          if (continuousEnabledRef.current) dispatchTalkEvent({ type: 'continuousStart' })
+          return
+        }
         const uri = recorderForSegment.uri ?? recorderForSegment.getStatus().url
         if (!uri) throw new Error(t('talk.error.recordingMissing'))
         const audioBase64 = await FileSystem.readAsStringAsync(uri, {
