@@ -60,9 +60,16 @@ describe('fast voice reply', () => {
       timeoutMs: 1000,
     })
 
-    await expect(provider.generate({ transcript: '让关羽汇报进展' })).resolves.toBe(
-      '好，我马上处理。'
-    )
+    await expect(
+      provider.generate({
+        history: [
+          { role: 'user', text: '刚才手机语音很慢' },
+          { role: 'assistant', text: '我会先检查 STT 和 TTS。' },
+        ],
+        statusContext: '当前状态：关羽 working；赵云 idle；未完成派单 1 个。',
+        transcript: '让关羽汇报进展',
+      })
+    ).resolves.toBe('好，我马上处理。')
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     const firstCall = fetchImpl.mock.calls[0]
@@ -77,7 +84,11 @@ describe('fast voice reply', () => {
     expect(body.max_tokens).toBe(80)
     expect(body.messages[0]).toMatchObject({ role: 'system' })
     expect(body.messages[0].content).toContain('1-2 句')
-    expect(body.messages[1]).toEqual({ content: '让关羽汇报进展', role: 'user' })
+    expect(body.messages[0].content).toContain('只读')
+    expect(body.messages[0].content).toContain('当前状态：关羽 working')
+    expect(body.messages[1]).toEqual({ content: '刚才手机语音很慢', role: 'user' })
+    expect(body.messages[2]).toEqual({ content: '我会先检查 STT 和 TTS。', role: 'assistant' })
+    expect(body.messages[3]).toEqual({ content: '让关羽汇报进展', role: 'user' })
   })
 
   it('prefers GLM over Anthropic when both keys are configured', async () => {
@@ -136,7 +147,59 @@ describe('fast voice reply', () => {
   })
 
   it('inserts a fast orch_reply only for voice prompts', async () => {
-    const store = { insertMobileChatMessage: vi.fn() }
+    const store = {
+      insertMobileChatMessage: vi.fn(),
+      listMobileChatMessages: vi.fn(() => [
+        {
+          content_json: JSON.stringify({ text: '上一句用户问题' }),
+          created_at: 1,
+          direction: 'inbound',
+          id: 'm-1',
+          message_type: 'user_text',
+          workspace_id: 'ws-1',
+        },
+        {
+          content_json: JSON.stringify({ text: '上一句 orch 回答' }),
+          created_at: 2,
+          direction: 'outbound',
+          id: 'm-2',
+          message_type: 'orch_reply',
+          workspace_id: 'ws-1',
+        },
+        {
+          content_json: JSON.stringify({ text: '查一下 relay' }),
+          created_at: 3,
+          direction: 'inbound',
+          id: 'm-3',
+          message_type: 'user_text',
+          workspace_id: 'ws-1',
+        },
+      ]),
+      listDispatches: vi.fn(() => [
+        {
+          id: 'dispatch-1',
+          status: 'submitted',
+          text: '修语音秒回',
+          toAgentId: 'worker-1',
+        },
+      ]),
+      listWorkers: vi.fn(() => [
+        {
+          id: 'worker-1',
+          name: '关羽',
+          pendingTaskCount: 1,
+          role: 'coder',
+          status: 'working',
+        },
+        {
+          id: 'worker-2',
+          name: '赵云',
+          pendingTaskCount: 0,
+          role: 'coder',
+          status: 'idle',
+        },
+      ]),
+    }
     const provider = { generate: vi.fn().mockResolvedValue('好，我先处理。') }
 
     await expect(
@@ -155,6 +218,17 @@ describe('fast voice reply', () => {
       'orch_reply',
       JSON.stringify({ fast_reply: true, source: 'voice_fast_reply', text: '好，我先处理。' })
     )
+    expect(store.listMobileChatMessages).toHaveBeenCalledWith('ws-1', undefined, 15)
+    expect(store.listWorkers).toHaveBeenCalledWith('ws-1')
+    expect(store.listDispatches).toHaveBeenCalledWith('ws-1')
+    expect(provider.generate).toHaveBeenCalledWith({
+      history: [
+        { role: 'user', text: '上一句用户问题' },
+        { role: 'assistant', text: '上一句 orch 回答' },
+      ],
+      statusContext: expect.stringContaining('关羽: working'),
+      transcript: '查一下 relay',
+    })
 
     store.insertMobileChatMessage.mockClear()
     await expect(
@@ -235,6 +309,62 @@ describe('fast voice reply', () => {
         workspaceId: 'ws-1',
       })
     ).resolves.toBeNull()
+  })
+
+  it('does not reject when reading chat history fails before a fallback reply', async () => {
+    const store = {
+      insertMobileChatMessage: vi.fn(),
+      listMobileChatMessages: vi.fn(() => {
+        throw new Error('history read failed')
+      }),
+    }
+    const provider = { generate: vi.fn().mockResolvedValue(null) }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '查一下上下文',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBeTruthy()
+    expect(provider.generate).toHaveBeenCalledWith({
+      history: [],
+      statusContext: '',
+      transcript: '查一下上下文',
+    })
+    expect(store.insertMobileChatMessage).toHaveBeenCalled()
+  })
+
+  it('does not reject when reading workspace status fails before a fallback reply', async () => {
+    const store = {
+      insertMobileChatMessage: vi.fn(),
+      listDispatches: vi.fn(() => {
+        throw new Error('dispatch read failed')
+      }),
+      listMobileChatMessages: vi.fn(() => []),
+      listWorkers: vi.fn(() => {
+        throw new Error('worker read failed')
+      }),
+    }
+    const provider = { generate: vi.fn().mockResolvedValue(null) }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '现在谁在忙',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBeTruthy()
+    expect(provider.generate).toHaveBeenCalledWith({
+      history: [],
+      statusContext: '',
+      transcript: '现在谁在忙',
+    })
+    expect(store.insertMobileChatMessage).toHaveBeenCalled()
   })
 
   it('normalizes long model responses before insertion', () => {

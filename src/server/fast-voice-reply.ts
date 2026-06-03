@@ -7,12 +7,62 @@ export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
   '收到，我来处理，稍等一下。',
   '好，我先记下，马上处理。',
 ]
+const FAST_VOICE_REPLY_HISTORY_LIMIT = 15
+const FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT = 240
+const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
 
 const FAST_VOICE_REPLY_SYSTEM_PROMPT =
-  '你是 HippoTeam 的车载语音助手。用简体中文口语化回应，1-2 句，短而明确。不要长篇解释；如果用户是在安排任务，只先确认会去处理，不要声称已经完成。'
+  '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确。你只读、不下指令、不执行任务、不派工、不声称已经完成；涉及派 worker、改代码、部署、重启或真实操作时，只确认“好，我让 orchestrator 去办”，最终结果由 orchestrator 回复。'
+
+export type FastVoiceReplyHistoryItem = {
+  role: 'assistant' | 'user'
+  text: string
+}
 
 export type FastVoiceReplyProvider = {
-  generate(input: { transcript: string }): Promise<string | null>
+  generate(input: {
+    history?: FastVoiceReplyHistoryItem[]
+    statusContext?: string
+    transcript: string
+  }): Promise<string | null>
+}
+
+type MobileChatMessageLike = {
+  content_json?: unknown
+  message_type?: unknown
+}
+
+type WorkerStatusLike = {
+  id?: unknown
+  name?: unknown
+  pendingTaskCount?: unknown
+  pending_task_count?: unknown
+  role?: unknown
+  status?: unknown
+}
+
+type DispatchStatusLike = {
+  id?: unknown
+  status?: unknown
+  text?: unknown
+  toAgentId?: unknown
+  to_agent_id?: unknown
+}
+
+type FastVoiceReplyStore = {
+  insertMobileChatMessage(
+    workspaceId: string,
+    direction: 'inbound' | 'outbound',
+    messageType: string,
+    contentJson: string
+  ): unknown
+  listMobileChatMessages?(
+    workspaceId: string,
+    since?: number,
+    limit?: number
+  ): MobileChatMessageLike[]
+  listDispatches?(workspaceId: string): DispatchStatusLike[]
+  listWorkers?(workspaceId: string): WorkerStatusLike[]
 }
 
 type AnthropicContentBlock = {
@@ -64,20 +114,134 @@ const pickFallbackReply = (transcript: string) => {
   return FAST_VOICE_REPLY_FALLBACK_TEXTS[index] ?? FAST_VOICE_REPLY_FALLBACK_TEXTS[0]
 }
 
+const buildSystemPrompt = (statusContext?: string) => {
+  const context = statusContext?.trim()
+  return context
+    ? `${FAST_VOICE_REPLY_SYSTEM_PROMPT}\n\n当前状态摘要：\n${context}`
+    : FAST_VOICE_REPLY_SYSTEM_PROMPT
+}
+
+const truncateHistoryText = (text: string) =>
+  text.replace(/\s+/g, ' ').trim().slice(0, FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT)
+
+const truncateStatusText = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 80)
+
+const extractHistoryText = (contentJson: unknown) => {
+  if (typeof contentJson !== 'string') return null
+  try {
+    const parsed = JSON.parse(contentJson) as { text?: unknown }
+    return typeof parsed.text === 'string' ? truncateHistoryText(parsed.text) : null
+  } catch {
+    return truncateHistoryText(contentJson)
+  }
+}
+
+const toFastVoiceReplyHistoryItem = (
+  message: MobileChatMessageLike
+): FastVoiceReplyHistoryItem | null => {
+  const text = extractHistoryText(message.content_json)
+  if (!text) return null
+  if (message.message_type === 'user_text') return { role: 'user', text }
+  if (message.message_type === 'orch_reply') return { role: 'assistant', text }
+  return null
+}
+
+const readFastVoiceReplyHistory = ({
+  store,
+  transcript,
+  workspaceId,
+}: {
+  store: FastVoiceReplyStore
+  transcript: string
+  workspaceId: string
+}) => {
+  try {
+    const messages = store.listMobileChatMessages?.(
+      workspaceId,
+      undefined,
+      FAST_VOICE_REPLY_HISTORY_LIMIT
+    )
+    if (!messages) return []
+    const history = messages
+      .map(toFastVoiceReplyHistoryItem)
+      .filter((item): item is FastVoiceReplyHistoryItem => item !== null)
+    const last = history.at(-1)
+    if (last?.role === 'user' && last.text === truncateHistoryText(transcript)) {
+      history.pop()
+    }
+    return history
+  } catch {
+    return []
+  }
+}
+
+const readFastVoiceReplyStatusContext = ({
+  store,
+  workspaceId,
+}: {
+  store: FastVoiceReplyStore
+  workspaceId: string
+}) => {
+  try {
+    if (!store.listWorkers && !store.listDispatches) return ''
+    const workers = store.listWorkers?.(workspaceId) ?? []
+    const workerById = new Map<string, string>()
+    const workerSummary = workers
+      .map((worker) => {
+        if (typeof worker.id === 'string' && typeof worker.name === 'string') {
+          workerById.set(worker.id, worker.name)
+        }
+        if (typeof worker.name !== 'string' || typeof worker.status !== 'string') return null
+        const pending =
+          typeof worker.pendingTaskCount === 'number'
+            ? worker.pendingTaskCount
+            : typeof worker.pending_task_count === 'number'
+              ? worker.pending_task_count
+              : 0
+        return `${worker.name}: ${worker.status}${pending > 0 ? `, pending ${pending}` : ''}`
+      })
+      .filter((line): line is string => line !== null)
+      .slice(0, 12)
+
+    const openDispatches = (store.listDispatches?.(workspaceId) ?? []).filter(
+      (dispatch) => dispatch.status === 'queued' || dispatch.status === 'submitted'
+    )
+    const dispatchSummary = openDispatches.slice(0, FAST_VOICE_REPLY_DISPATCH_LIMIT).map((item) => {
+      const targetId =
+        typeof item.toAgentId === 'string'
+          ? item.toAgentId
+          : typeof item.to_agent_id === 'string'
+            ? item.to_agent_id
+            : ''
+      const workerName = workerById.get(targetId) ?? (targetId || 'unknown worker')
+      const status = typeof item.status === 'string' ? item.status : 'open'
+      const text = typeof item.text === 'string' ? ` ${truncateStatusText(item.text)}` : ''
+      return `${workerName} ${status}${text}`
+    })
+
+    const lines = []
+    if (workerSummary.length > 0) lines.push(`Workers: ${workerSummary.join('; ')}`)
+    if (store.listDispatches) {
+      lines.push(
+        openDispatches.length > 0
+          ? `Orchestrator: 当前有 ${openDispatches.length} 个未完成派单`
+          : 'Orchestrator: 暂无未完成派单'
+      )
+    }
+    if (dispatchSummary.length > 0) lines.push(`Open dispatches: ${dispatchSummary.join('; ')}`)
+    return lines.join('\n')
+  } catch {
+    return ''
+  }
+}
+
 const insertFastVoiceReply = ({
   reply,
   store,
   workspaceId,
 }: {
   reply: string
-  store: {
-    insertMobileChatMessage(
-      workspaceId: string,
-      direction: 'inbound' | 'outbound',
-      messageType: string,
-      contentJson: string
-    ): unknown
-  }
+  store: FastVoiceReplyStore
   workspaceId: string
 }) => {
   try {
@@ -122,7 +286,7 @@ export const createAnthropicFastVoiceReplyProvider = (
   const timeoutMs = options.timeoutMs ?? FAST_VOICE_REPLY_TIMEOUT_MS
 
   return {
-    async generate({ transcript }) {
+    async generate({ history = [], statusContext = '', transcript }) {
       const prompt = transcript.trim()
       if (!apiKey || !fetchImpl || !prompt) return null
 
@@ -133,13 +297,17 @@ export const createAnthropicFastVoiceReplyProvider = (
           body: JSON.stringify({
             max_tokens: 80,
             messages: [
+              ...history.map((item) => ({
+                content: item.text,
+                role: item.role,
+              })),
               {
                 content: `用户语音转写：${prompt}`,
                 role: 'user',
               },
             ],
             model,
-            system: FAST_VOICE_REPLY_SYSTEM_PROMPT,
+            system: buildSystemPrompt(statusContext),
             temperature: 0.2,
           }),
           headers: {
@@ -171,7 +339,7 @@ export const createGlmFastVoiceReplyProvider = (
   const timeoutMs = options.timeoutMs ?? FAST_VOICE_REPLY_TIMEOUT_MS
 
   return {
-    async generate({ transcript }) {
+    async generate({ history = [], statusContext = '', transcript }) {
       const prompt = transcript.trim()
       if (!apiKey || !fetchImpl || !prompt) return null
 
@@ -183,9 +351,13 @@ export const createGlmFastVoiceReplyProvider = (
             max_tokens: 80,
             messages: [
               {
-                content: FAST_VOICE_REPLY_SYSTEM_PROMPT,
+                content: buildSystemPrompt(statusContext),
                 role: 'system',
               },
+              ...history.map((item) => ({
+                content: item.text,
+                role: item.role,
+              })),
               {
                 content: prompt,
                 role: 'user',
@@ -247,20 +419,17 @@ export const maybeInsertFastVoiceReply = async ({
 }: {
   provider?: FastVoiceReplyProvider
   source: unknown
-  store: {
-    insertMobileChatMessage(
-      workspaceId: string,
-      direction: 'inbound' | 'outbound',
-      messageType: string,
-      contentJson: string
-    ): unknown
-  }
+  store: FastVoiceReplyStore
   text: string
   workspaceId: string
 }) => {
   if (source !== 'voice') return null
+  const history = readFastVoiceReplyHistory({ store, transcript: text, workspaceId })
+  const statusContext = readFastVoiceReplyStatusContext({ store, workspaceId })
   try {
-    const reply = (await provider.generate({ transcript: text })) ?? pickFallbackReply(text)
+    const reply =
+      (await provider.generate({ history, statusContext, transcript: text })) ??
+      pickFallbackReply(text)
     return insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null
   } catch {
     const reply = pickFallbackReply(text)
