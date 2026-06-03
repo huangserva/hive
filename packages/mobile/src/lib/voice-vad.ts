@@ -1,6 +1,6 @@
 export const DEFAULT_VAD_CONFIG = {
   silenceDurationMs: 1200,
-  silenceThresholdDb: -52,
+  silenceThresholdDb: -45,
   speechThresholdDb: -42,
 } as const
 

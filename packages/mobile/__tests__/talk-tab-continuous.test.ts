@@ -58,8 +58,9 @@ const audioMock = vi.hoisted(() => {
     remove: vi.fn(),
     replace: vi.fn(),
   }
+  const setAudioModeAsync = vi.fn().mockResolvedValue(undefined)
 
-  return { player, playerStatus, recorder, recorderStatus }
+  return { player, playerStatus, recorder, recorderStatus, setAudioModeAsync }
 })
 
 vi.mock('expo-audio', () => ({
@@ -75,7 +76,7 @@ vi.mock('expo-audio', () => ({
     },
   },
   requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
-  setAudioModeAsync: vi.fn().mockResolvedValue(undefined),
+  setAudioModeAsync: audioMock.setAudioModeAsync,
   useAudioPlayer: vi.fn(() => audioMock.player),
   useAudioPlayerStatus: vi.fn(() => audioMock.playerStatus),
   useAudioRecorder: vi.fn(() => audioMock.recorder),
@@ -227,6 +228,7 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.player.play.mockClear()
     audioMock.player.remove.mockClear()
     audioMock.player.replace.mockClear()
+    audioMock.setAudioModeAsync.mockClear()
     runtime.chatMessages = []
     runtime.sendPromptToOrchestratorWithOutcome = vi.fn().mockResolvedValue('sent')
     runtime.state = 'connected'
@@ -385,6 +387,58 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
     expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalledTimes(3)
     vi.useRealTimers()
+  })
+
+  test('switches continuous audio mode to playback before speaking and back to recording when listening resumes', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() =>
+      expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      })
+    )
+    await finishCurrentPhrase(view)
+    audioMock.setAudioModeAsync.mockClear()
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'speaker reply' }),
+        created_at: 2,
+        id: 'speaker-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      })
+    )
+    expect(audioMock.setAudioModeAsync.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      audioMock.player.play.mock.invocationCallOrder[0]
+    )
+
+    try {
+      vi.useFakeTimers()
+      await act(async () => {
+        Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+        view.rerender(React.createElement(TalkTab))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(3500)
+      })
+      await act(async () => {})
+
+      expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('plays multiple orchestrator replies from one turn before reopening the microphone', async () => {

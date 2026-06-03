@@ -414,6 +414,11 @@ export default function TalkTab() {
           throw new Error(t('talk.error.synthesisFailed'))
         }
         if (!playbackStillCurrent()) return
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        })
+        if (!playbackStillCurrent()) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
         activePlaybackReplyIdRef.current = reply.id
         player.play()
