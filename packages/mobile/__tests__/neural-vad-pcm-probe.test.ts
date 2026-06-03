@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import Constants from 'expo-constants'
+import { describe, expect, test, vi } from 'vitest'
+
+vi.mock('expo-constants', () => ({ default: { expoConfig: { extra: {} } } }))
 
 import {
   buildPcmProbeLogLine,
@@ -32,11 +35,45 @@ describe('neural VAD PCM probe', () => {
     expect(resolveNeuralVadPcmProbeEnabled({ EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE: 'true' })).toBe(true)
   })
 
+  test('enables PCM probe from Expo config extra before env fallback', () => {
+    expect(resolveNeuralVadPcmProbeEnabled({}, { neuralVadPcmProbe: '1' })).toBe(true)
+    expect(resolveNeuralVadPcmProbeEnabled({}, { neuralVadPcmProbe: true })).toBe(true)
+    expect(
+      resolveNeuralVadPcmProbeEnabled(
+        { EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE: '1' },
+        { neuralVadPcmProbe: '0' }
+      )
+    ).toBe(false)
+  })
+
   test('keeps Silero shadow mode off unless explicitly enabled', () => {
     expect(resolveNeuralVadShadowEnabled({})).toBe(false)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '0' })).toBe(false)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '1' })).toBe(true)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: 'true' })).toBe(true)
+  })
+
+  test('enables Silero shadow from Expo config extra before env fallback', () => {
+    expect(resolveNeuralVadShadowEnabled({}, { neuralVadShadow: '1' })).toBe(true)
+    expect(resolveNeuralVadShadowEnabled({}, { neuralVadShadow: true })).toBe(true)
+    expect(
+      resolveNeuralVadShadowEnabled(
+        { EXPO_PUBLIC_NEURAL_VAD_SHADOW: '1' },
+        { neuralVadShadow: '0' }
+      )
+    ).toBe(false)
+  })
+
+  test('reads default runtime flags from Expo config extra', () => {
+    Constants.expoConfig = {
+      extra: {
+        neuralVadPcmProbe: '1',
+        neuralVadShadow: '1',
+      },
+    } as unknown as typeof Constants.expoConfig
+
+    expect(resolveNeuralVadPcmProbeEnabled({})).toBe(true)
+    expect(resolveNeuralVadShadowEnabled({})).toBe(true)
   })
 
   test('summarizes int16 PCM frames with energy and arrival frequency', () => {

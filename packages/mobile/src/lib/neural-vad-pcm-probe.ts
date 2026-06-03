@@ -1,3 +1,5 @@
+import Constants from 'expo-constants'
+
 export type NeuralVadPcmProbeEncoding = 'float32' | 'int16'
 
 export type NeuralVadPcmProbeBuffer = {
@@ -45,14 +47,33 @@ export const createInitialSileroModelState = (): SileroModelState => ({
   context: new Float32Array(SILERO_MODEL_CONTEXT_SAMPLE_COUNT),
 })
 
-export const resolveNeuralVadPcmProbeEnabled = (env: Record<string, string | undefined>) => {
-  const value = env.EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE
-  return value === '1' || value === 'true'
+type NeuralVadRuntimeExtra = {
+  neuralVadPcmProbe?: boolean | number | string
+  neuralVadShadow?: boolean | number | string
 }
 
-export const resolveNeuralVadShadowEnabled = (env: Record<string, string | undefined>) => {
-  const value = env.EXPO_PUBLIC_NEURAL_VAD_SHADOW
-  return value === '1' || value === 'true'
+const readExpoConfigExtra = (): NeuralVadRuntimeExtra => {
+  const extra = Constants.expoConfig?.extra
+  return extra && typeof extra === 'object' ? (extra as NeuralVadRuntimeExtra) : {}
+}
+
+const isEnabledValue = (value: boolean | number | string | undefined) =>
+  value === true || value === 1 || value === '1' || value === 'true'
+
+export const resolveNeuralVadPcmProbeEnabled = (
+  env: Record<string, string | undefined>,
+  extra: NeuralVadRuntimeExtra = readExpoConfigExtra()
+) => {
+  const value = extra.neuralVadPcmProbe ?? env.EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE
+  return isEnabledValue(value)
+}
+
+export const resolveNeuralVadShadowEnabled = (
+  env: Record<string, string | undefined>,
+  extra: NeuralVadRuntimeExtra = readExpoConfigExtra()
+) => {
+  const value = extra.neuralVadShadow ?? env.EXPO_PUBLIC_NEURAL_VAD_SHADOW
+  return isEnabledValue(value)
 }
 
 const countSamples = (buffer: NeuralVadPcmProbeBuffer, encoding: NeuralVadPcmProbeEncoding) =>

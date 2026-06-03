@@ -96,6 +96,9 @@ const config: ExpoConfigWithSplash = {
   extra: {
     buildSha,
     buildTime: buildTime.toISOString(),
+    neuralVadPcmProbe:
+      process.env.EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE ?? process.env.NEURAL_VAD_PCM_PROBE,
+    neuralVadShadow: process.env.EXPO_PUBLIC_NEURAL_VAD_SHADOW ?? process.env.NEURAL_VAD_SHADOW,
     eas: {
       projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
     },
