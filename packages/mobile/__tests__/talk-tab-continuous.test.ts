@@ -441,6 +441,127 @@ describe('TalkTab continuous mode behavior', () => {
     }
   })
 
+  test('speaks every new orchestrator reply while the talk page remains open', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'first follow-up' }),
+        created_at: 1,
+        id: 'follow-up-1',
+        message_type: 'orch_reply',
+      },
+      {
+        content_json: JSON.stringify({ text: 'ignore user' }),
+        created_at: 2,
+        id: 'user-message',
+        message_type: 'user',
+      },
+      {
+        content_json: JSON.stringify({ text: 'ignore system' }),
+        created_at: 3,
+        id: 'system-event',
+        message_type: 'system_event',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('first follow-up')
+    )
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('ignore user')
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('ignore system')
+
+    try {
+      vi.useFakeTimers()
+      await act(async () => {
+        Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+        view.rerender(React.createElement(TalkTab))
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(3500)
+      })
+      await act(async () => {})
+    } finally {
+      vi.useRealTimers()
+    }
+    runtime.chatMessages = [
+      ...runtime.chatMessages,
+      {
+        content_json: JSON.stringify({ text: 'second follow-up' }),
+        created_at: 4,
+        id: 'follow-up-2',
+        message_type: 'orch_reply',
+      },
+      {
+        content_json: JSON.stringify({ text: 'third follow-up' }),
+        created_at: 5,
+        id: 'follow-up-3',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('second follow-up')
+    )
+    await act(async () => {
+      Object.assign(audioMock.playerStatus, { didJustFinish: true, isLoaded: true })
+      view.rerender(React.createElement(TalkTab))
+    })
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('third follow-up')
+    )
+
+    expect(runtime.synthesizeVoiceStream).toHaveBeenCalledTimes(3)
+  })
+
+  test('does not speak historical replies that late-load after talkback is enabled', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'historical answer one' }),
+        created_at: 10,
+        id: 'history-1',
+        message_type: 'orch_reply',
+      },
+      {
+        content_json: JSON.stringify({ text: 'historical answer two' }),
+        created_at: 11,
+        id: 'history-2',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await flush()
+
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalled()
+    expect(audioMock.player.play).not.toHaveBeenCalled()
+
+    runtime.chatMessages = [
+      ...runtime.chatMessages,
+      {
+        content_json: JSON.stringify({ text: 'new live answer' }),
+        created_at: 12,
+        id: 'live-1',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('new live answer')
+    )
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('historical answer one')
+    expect(runtime.synthesizeVoiceStream).not.toHaveBeenCalledWith('historical answer two')
+  })
+
   test('plays multiple orchestrator replies from one turn before reopening the microphone', async () => {
     const view = render(React.createElement(TalkTab))
 
@@ -502,7 +623,7 @@ describe('TalkTab continuous mode behavior', () => {
     view.rerender(React.createElement(TalkTab))
     await waitFor(() => expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith('stale reply'))
 
-    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    fireEvent.click(screen.getByText('talk.continuous.stop'))
     await act(async () => {
       synthesized.resolve({ audio: 'stale-audio', format: 'wav', mime: 'audio/wav' })
       await synthesized.promise

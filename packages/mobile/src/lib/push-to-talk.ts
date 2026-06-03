@@ -36,6 +36,9 @@ export const reduceTalkbackState = (state: TalkbackState, event: TalkbackEvent):
   if (state === 'capturing' && event.type === 'silenceDetected') return 'processing'
   if (state === 'idle' && event.type === 'recordStart') return 'recording'
   if (state === 'recording' && event.type === 'recordStop') return 'sending'
+  if ((state === 'idle' || state === 'listening') && event.type === 'replyDetected') {
+    return 'speaking'
+  }
   if (state === 'sending' && event.type === 'promptQueued') return 'waiting_for_orchestrator'
   if (state === 'processing' && event.type === 'promptQueued') return 'processing'
   if (state === 'processing' && event.type === 'replyDetected') return 'speaking'
