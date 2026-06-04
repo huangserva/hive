@@ -1,20 +1,60 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: maintenance + PM 体系 rollout
+current_phase: M36/M37 实时语音对讲（连续对讲/晓晓念回/双音色/开口打断/GLM门卫/神经VAD）
 status: active
-last_review: 2026-05-25
+last_review: 2026-06-04
 ---
 
 ## 目标
 
 把 `tt-a1i/hive` fork 维护成 **huangserva 自用的 HippoTeam 多 agent 工作台**，重点能力：飞书远控（含审批卡片）、orchestrator 升级为项目主管（PM）、保持跟上游有价值改动同步。
 
-## 🔴 POST-RESTART TODO（2026-06-02 语音 STT 收口，4010 重启后接力）
+## 🔴 POST-RESTART TODO（2026-06-02 深夜 M36 秒回，4010 重启激活 fast-voice-reply）
 
-> 重启 4010 后新 orch 必读：语音对讲 STT 引擎刚装好+全 commit，**重启就是为激活它**。重启后立刻做：
-> 0. **【2026-06-02 晚更新】链路已真机验证全通**：user 已实测 说中文→录音→转写→上屏→注入 orch 整条 work；**唯一遗留=输出英文已修**（`-l zh`/`--language zh` 锁定中文，赵云 commit，PM 最终 args 实跑"让关羽汇报进度/让钟馗审查让马超出包"全简体全对）。**本次重启就是激活 `-l zh`**，预期 user 真机说中文→出中文。重启后只需 user 真机说一句确认是中文即可收工。
-> 1. **adb 真机验 STT**：user 华为设备连着 USB（`2PV0224423000586`，`export PATH=/opt/homebrew/share/android-commandlinetools/platform-tools:$PATH` 用 adb）。2.4.3 已装 user 手机。让 user 打开对讲 tab→按住说一句→**确认转出的是中文**（之前出英文，本次重启后应是中文）。
+> **背景**：user 暴怒——实测 orchestrator 回复要 28-30s(全是重 agent 同步做完重活才回),user 要 2-3s 应声、500ms relay 无所谓、要双向打电话感、连续对讲改流式。**真瓶颈=orch 回复延迟,不是 relay/音频(我前几轮抓错层)**。
+> **2.6.2 bundle 已 commit+出包(`aedd24a`),APK 已投递 DMIT,需 4010 重启激活**。内含:①**fast-voice-reply 秒回层**(`6bdc8bb`):语音消息 source=voice→有 ANTHROPIC_API_KEY 走 Haiku 1-2s 短回/无 key 秒插固定确认"收到处理中",真答案 orchestrator 随后;钟馗 3 轮审死守"快嘴怎么炸都不连累发消息"②**吐字 bug 修**(`3655376`):无语音不再吐 STT 提示词垃圾③对讲页去测试按钮+版本号修(`cfd0a31`,2.6.1)。
+> **【2026-06-03 凌晨最新·GLM 已就位】**：user 自己点出用**国产 GLM-4-Flash(智谱)**替 Haiku——服务器在国内,PM 从上海实测 **~1s**、中文自然,干掉太平洋延迟。**已 commit `46eac2c`**:快嘴 provider 改 GLM(OpenAI 兼容),key+地址在 **repo 根 .env**(gitignored):`GLM_API_KEY`/`GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4`(⚠️**user 强调:此 /coding/ 接口免费,/api/paas/v4 收费,锁死 coding 别改**)/`GLM_FAST_MODEL=glm-4-flash`。hive.ts 启动读 .env。优先级 GLM>Anthropic>固定确认。
+> 重启后:
+> 1. **GLM 自动激活**:4010 从 repo 根启动→读 .env→GLM key 生效。
+> **【2026-06-03 ~01:30 夜末真机验证结论】**:✅**核心通了**——4010 已重启激活,user 真机实测:说话→source=voice 进来→转写准(清楚说时)→**GLM 真触发 ~1s 应声**(DB 见 `fast_reply:true` orch_reply,GLM 回"明白了我会处理")。但❌**user 听不到回复**=念回声音没播到耳朵。两种可能:①手机媒体音量没开(最可能,user 自己也怀疑"声音没打开")②念回播放有 bug。**adb 当时没连(USB 断)无法抓 logcat 定位**。已让 user 休息(熬到 1 点半),明天:①user 先确认媒体音量开满再试 ②不行就插 USB,新 orch adb logcat 看念回播放时发生啥(设备 `2PV0224423000586`)。
+> **【2026-06-03 早晨最新·一大批已修待激活】**:user 早上回来(明确"别再提睡觉"),继续真机磨。这一波全 commit、**本次 4010 重启 + 装 APK 2.6.4 一起激活**:
+>   - ✅ **GLM ~1s 秒回 user 已亲耳听到**(之前听不到=手机媒体音量没开,开了就通)。核心打电话感达成。
+>   - ✅ **吐字 robust**(`965f080`,服务端,**本次重启激活**):token 重叠判定抓跳选/子集名单回吐(user 实测"马超赵云钟馗张飞周瑜"跳选名字)。**重启前还会吐,重启后停**。
+>   - ✅ **连续对讲 VAD**(`9e5bf44`,silenceThreshold -52→-45):PM USB logcat 实测 user 停顿音量 -47~-50 到不了 -52→永不判说完。-45 后 speechEnd 触发(实测确认)。
+>   - ✅ **连续对讲念回播放**(`9e5bf44`,关羽):play 前切 allowsRecording:false,否则连续录音占 audio session 听不到。
+>   - ✅ **对讲连续念回**(`aa704cc`,APK 2.6.4):**user 核心诉求**——对讲里念我【所有】回复(含处理中追加),不只一问一答。钟馗 3 轮审,pending baseline 防"念几百条历史灾难"。
+>   - 🟡 **GLM 喂只读状态**(user 拍板的架构):GLM 当"知情前台"——能读当前状态答问题、**不下指令**(risky 的留 orch)。**待建**:把只读状态喂进 GLM prompt。
+>   - 🟡 **对讲 turn-coupled 限制已修**(连续念回),但 runtime 无 chatHydrated 信号,残余极罕见边缘(同步前开口+历史晚于prompt返回)待 runtime 暴露信号彻底解。
+>   - 🔬 **吕布(OpenCode,user 点名)在做上游 tt-a1i/hive vs HippoTeam 代码级对比**(clone 到 /Users/huangzongning/development/hive-upstream-compare),出 `.hive/reports/2026-06-03-upstream-hive-vs-hippoteam.html`+research。
+>   - ✅ **GLM 知情前台已建**(`fd03365`,**本次/下次 4010 重启激活**):GLM context 喂【对话历史(最近15条)+ 当前状态(worker status/open dispatch/谁在忙)】,system prompt"只读知情前台不下指令"。钟馗审安全(读状态失败降级不阻断发消息)。→ GLM 能答"现在啥情况/谁在干嘛/进度"等 70-80% 状态问题,不用等 orch。**重启后让 user 问 GLM"现在什么情况"验它能答 worker 状态**。
+>   - ✅ **上游对比报告交付**(吕布,投 DMIT /view/):HippoTeam vs Hive +76 文件+3 包+8 独有模块。
+>   - 🟡 **下一大件·开口打断(barge-in)**:user 明确要"我说话时你也能插话"=真双向。技术较难(外放我的声音麦克风会录到=需回声消除)。列为 GLM 稳后的下一攻坚。
+>   - ✅ **连续对讲可用 SHIPPED `5aea765` (APK 2.6.5 已装,14:10)**：本夜 USB logcat firefight 解决三大坑——①自适应判停(滚动窗口最小值底噪,替换会卡死的EMA;真因=旧EMA被录音启动-160垃圾锚死,回升0.02/样本要20分钟)②真语音闸(hadRealSpeech,静音/杂音不投递;STT拦whisper幻听"网络中文普通话语音指令";真机验DB 0垃圾)③首句不丢(floor未建立前-38绝对启动线)。钟馗审+复审0blocking。
+>   - ✅ **GLM 知情前台真因+修复+真机验证(`5aea765`,4010 14:16重启已激活)**：GLM本身好(独立诊断:答"钟馗在忙其他空闲"2.4s),但喂历史让prompt变大、持续撞穿2500ms超时墙→每次abort回写死兜底。FAST_VOICE_REPLY_TIMEOUT_MS 2500→5000。**已真机验证**:user 问"现在什么模式"→GLM 真答"目前你设置的是【按住说】模式…GAM 这个我不知道,让 orchestrator 帮你确认"(答对+优雅转交),不再"收到稍等"。连续对讲也真机验过(user"对讲模式通了没"经连续对讲转写干净到达)。
+>   - ✅ **念回 TTS 升级 edge-tts 晓晓 SHIPPED `5c58113`+真机验证(4010 14:57重启已激活)**：user 嫌 macOS 婷婷难听,换 edge-tts 晓晓(zh-CN-XiaoxiaoNeural,微软神经,免费已装,~2.3s)。**user 真机听过:"比 MacOS 好太多了"**。优先级 edge-tts>piper>say,失败降级 say 兜底。出 mp3/audio_mpeg,钟馗 code-trace 确认透传手机播放。HIVE_TTS_EDGE_VOICE=zh-CN-YunxiNeural 可换云希男声。
+>   - ✅ **开口打断(barge-in)默认开 + 不切断大声说话 — 真机验证通过 `ae98794`(2.6.9 USB装,18:07)**：barge-in(2.6.6/2.6.7)真机暴露两坑:①回声自触发②**连续大声说话被切**(铁证 m=-12.4 floor=-13.9:floor 滚动最小值被持续说话顶到语音电平→floor+6 把说话当静音切;voice_communication AGC 加剧)+连累 whisper 吐团队名提示。**修复历程(吃教训)**:2.6.8 误把 barge-in 整个默认关(以为是 barge-in 本身坏)→user 怒"改好的功能又改坏";真相=切断是【独立 VAD bug】,与打断无关。**正解 2.6.9**:voice-vad speechEnd 改"相对 recentSpeech 明显下降为主、floor+margin 仅辅助不能单独触发"(治切断,关羽,钟馗审)+ barge-in 改回默认开(`!=='0'`,救回打断)。**BARGEDBG 真机铁证 2.6.9**:打断 OK(user 插话 m=-16~-20 触发 speechStart→pause,3次准);不切断 OK(大声说话 floor 保持低位 -46 无误 speechEnd);无团队名乱码(真转写)。**残留可选调优**:回声峰值 -24~-27 距打断触发线(floor+22≈-24)偏近,可把 BARGE_IN_VAD speechMargin 22→26 给更多回声余量(等 user 说要不要)。barge-in 显式 env=0 仍可关。
+>   - ✅ **双音色分 GLM/orch SHIPPED `6b9b380`(2.6.7,待4010重启+APK)**：user 实测分不清 GLM 还是 orch 在回,提议双音色(测好再还原)。GLM 快嘴→晓晓(女)、orch→云希(男),voice 全链路透传到 local-tts edge-tts。**直接帮诊断 idea-9**(听出 GLM 扛了多少)。降级 say 时不分音色但念回不断。
+>   - ✅ **outbox 失败消息可清除 SHIPPED `6b9b380`(2.6.7)**：ConnectionModeBanner"X条失败"加"清除"(clearFailedOutboxItems 只删failed保留queued/sending);user 截图反馈"6条失败一直在"。
+>   - ✅ **Cockpit ActionBar 可折叠 SHIPPED `25bd9df`(web,待4010重启/刷新)**：user 桌面反馈"AI待办行动(10)占空间影响看板",加折叠+localStorage持久化。
+>   - ✅ **开口打断调优 SHIPPED `e4ad00b`(2.6.10,DMIT+飞书投递,user 出门路上装)**：user 真机发现 barge-in 两敏感问题:①我念回回声把自己打断(BARGEDBG 回声 -24~-27 够到触发线 floor+22)②鞭炮瞬响误触发。调 BARGE_IN_VAD:speechMargin 22→25(线≈-21,回声够不到、人声-16~-20能过)+ 连续3样本(~500ms)才触发(防单尖峰)。钟馗审 0blocking(含"真插话打不断"反向风险已验)。
+>   - ✅ **M37 神经人声 VAD — Phase2 Shadow 真机验证【成功+区分力强】(2.6.15, 赵云)**：on-device Silero VAD ONNX,分阶段 Probe→Shadow→Gate→Replace。**Phase1** `f67197c`:16kHz PCM 通道。**Phase2 集成** `77bf39e` + flag 修 `4dc9267`(EXPO_PUBLIC 改 app.config extra)。**真机崩溃 firefight(6/04)→焊死**:shadow 包真机崩,`-b crash` 定位=Metro asyncRequire 加载 onnxruntime 时顶层 `NativeModules.Onnxruntime.install()` 同步抛(native 未注册)、mqt_v_native 当 FATAL 上报、**绕过 await try/catch**(catch-after 无效)→改**探测式 catch-before** `ee51023`(import 前查 NativeModules.Onnxruntime,缺失绝不 import,2.6.14 真机零崩)。**治本注册** `6464c01`(2.6.15):Expo config plugin `plugins/with-onnxruntime-package.js` prebuild 注入 `OnnxruntimePackage()` 到 MainApplication.kt(autolinking 对该库缺 android package→PackageList 不含;手改 gitignored android/ 不持久故走 plugin;钟馗顺 ExpoReactHostFactory→DefaultReactHost 源码坐实 New Arch 消费手动 packageList)。**真机验证(2.6.15 USB)**:[SILERODBG] **voice_prob 1565 帧真打分、零崩溃**,且**区分力强**:静音 2481 帧→prob≈0.00(frame1 rms0→0.002)、人声 314 帧→prob≈1.00。**模型真的在分辨人声 vs 非人声**。教训存记忆 reference_voice_vad_glm_gotchas。**🟢下一步 Phase3**:用 voice_prob gate barge-in(高分=人声才允许打断,鞭炮/噪声低分不打断)→user 要的"放鞭炮不打断"真正落地(已问 user 是否接)。**❗边界**:神经VAD解决噪声误触发,解决不了"念回回声自触发"(回声是合成人声,模型也判高分)→回声仍靠 BARGE_IN 抬阈值(2.6.10)配合。
+>   - 🟡 **idea-9 GLM 门卫化 已 SHIPPED `a62fbd5`(待4010重启激活)**：user 核心诉求(GLM多扛少推、别双回复)。GLM 标 HIVE_GLM_GATEKEEPER handled/escalate,纯状态问题 handled→不注入 orch;带操作→escalate 转交。钟馗死磕"绝不丢消息"+抓到黑洞 blocking(handled+insert失败)已闭环+复审 0blocking(insert失败/超时/异常/无marker/media 全降级 escalate;flag=0 回退;never-throw)。**待 user 回家重启 4010 激活;激活后 user 问简单状态应只收 GLM 一条(非 GLM+orch 双条)**。flag HIVE_GLM_GATEKEEPER=0 可关。
+> **接力 orch**:**神经VAD 三阶段全打通+真机验"好行"✅**(2.6.16 `849a440`):Phase2 Silero 真打分区分人声(静音0.00/人声1.00)→崩溃 firefight 焊死(探测式`ee51023`+config plugin 注册`6464c01`)→Phase3 voice_prob 接管判停(<0.7 持续900ms)+barge-in(≥0.7+新鲜metering过回声门),钟馗两轮审。user 实时来回测:判停跟手、打断成功、回声不误触发,验收"好行"。阈值 DEFAULT_NEURAL_VOICE_VAD_CONFIG(0.7/900ms/500ms)真机可再调,看[VADDBG]/[BARGEDBG]。⚠️mobile/.env 开着 NEURAL_VAD_SHADOW(神经真生效);出"关 shadow"包须删 flag。
+> **🔴下次4010重启激活=idea-9 v2 两agent协调接力(`b9e613b`,服务端改)**:user 否决"单声音",要"接力模式别废话"。GLM 简短先答→escalate 时把 GLM 原话+协调指令注入 orch(只补未答/不重复/可"无需补充")+团队名噪声 drop。钟馗 0 blocking(命脉绝不丢消息逐路径验,102 tests)。**重启后真机验3条**:①纯团队名噪声 drop(不再 GLM 空转念名)②真指令"关羽张飞重启"仍 forward 不误杀③escalate 时 GLM+我接力【不重复、简洁】。non-blocking:flag=0 不关 drop;GLM 无 marker 文本仍先播。
+> **idea-10 流式架构(RTSP/WebRTC 杀延迟)**user 提,记 inbox,待立项调研(关联 line 55 流式 ADR)。文章核查待 user A/B。**别让 user 打字(他恨),让语音真好用**。
+> 2. **核心仍未全解**:GLM 快嘴先应声(~1s),但**真任务的最终结果仍是 orch 28-30s**(快嘴只先应声/答简单问)。要真·全程快,下一步=快嘴层承担更多直接对话、只把真重活甩 orch 后台。**双向打断、连续对讲改流式**也待建(user 明确要这俩)。
+> 3. **对 user**:少废话、别发半成品。本夜 user 两次关键纠偏(提 GLM、拦收费地址),听 user 的。M36 全貌见 ADR。
+> 4. team idle,2.6.2 全 commit 过钟馗审(本夜钟馗拦了 base64损坏/权限绕过/fallback冒泡 3 个"会让发消息坏"的回归),放心重启。
+
+## ✅ 语音对讲 MVP 端到端打通（2026-06-02，STT+TTS 双向真机验证）
+
+> **里程碑达成**：语音对讲输入输出双向全通，user 真机确认。
+> - **STT(说话→中文文字)** ✅：whisper-cli(Metal/M4)+small 模型+简体/团队名提示词+`-l zh` 锁中文。user 说"你现在可以收到我这样说话吗?"准确出简体。commits `c687bcd`/`e1cb5d6`/`88b6100`。
+> - **TTS 念回(我回复→读给 user)** ✅：根因=macOS `say` 出 AIFF-C 安卓播不了→ffmpeg 转 m4a/audio.mp4（缺 ffmpeg 兜底 WAV）。commit `e44b61b`。user 真机确认"念回确实成功了"。
+> - **遗留盲区教训**：STT 引擎从来没装 + TTS 输出 AIFF 都是"写了集成代码但从没真机端到端验"，user 一上手就暴露。语音这类设备/原生链路必须真机端到端验，单测/代码审查测不到。
+>
+> **🟡 待 user 拍板的下一步决策（延迟）**：user 验完即指出"7~15 秒/轮太慢"。当前是**批处理流水线**（录音→上传→STT→orch LLM→TTS→下载→播放，4G 两次中继往返 + Opus 思考时间）。**对讲(连续)模式不会更快**（每轮同流水线，只是 VAD 免按键更顺手）。要 user 最初要的**"实时对话感"必须做流式**（stream STT partial + stream LLM token→逐句 TTS + P2P WebRTC 砍中继往返，ADR Phase 2，大工程）。已问 user：先用批处理版 vs 立项流式。**等 user 定方向再动**。
 > 2. **已就位**：whisper-cli(/opt/homebrew/bin，Metal/M4)+ **ggml-small.bin**(~/.config/hive/whisper-models/,465M；已删 base 换 small,中文更准)+ ffmpeg；local-stt ffmpeg m4a→WAV+模型自动发现已 commit `c687bcd`；**STT 中文提示词**(简体+团队名,whisper-cli `--prompt`/python `--initial_prompt`,赵云做,本 commit)。mobile 三崩溃/录音 bug 已修(voice commits `b9f8309`/`aa1df58`/`858f667`)。**PM 已电脑端实测 STT 转中文准**(say→ffmpeg→whisper-cli:"让关羽汇报进度""让钟馗审查让马超出包"全对),adb 真机验只剩"手机录音→relay→转写"这条链路确认。
 > 3. **设计线待 user 拍（开着）**：语音模式 orch 回复风格——A=口语短回复(推荐:即时确认一句+结果一句summary+长详情说"发你文字了") / B=念完整文字 / C=user 想法。定了做成语音请求的回复规则。
 > 4. 语音 line 全貌见 M35/M14b。**别重复 review，这是 firefight 接力不是新 session 完整 review。**
@@ -273,10 +313,10 @@ last_review: 2026-05-25
 - 代价：动 runtime + 测试，改动大风险高，必须分阶段 + 强 TDD（§13 集成测试禁 mock PTY）；不破坏 PM 治理/远控等 hive 差异化优势
 
 ### M26 · Worker 汇报可靠性（idle 自愈 + Fix B 误报根治） · shipped 2026-05-30 (`80cfd91`，4010 重启已生效)
-- [ ] **L1 机制**：把卡死检测从「时间驱动(4min) nudge orchestrator」升级为「worker PTY 回到 idle 提示符 + 有 submitted 未 report dispatch → 直接 nudge worker stdin 自补 report」，最多 2 次再回退 orchestrator nudge
-- [ ] 复用 `hasInteractivePromptReady`（post-start-input-writer）+ Fix A「只看新输出」防旧提示符误触发；idle 检测留 nudge/sentinel 层，不侵入 agent 运行热路径
-- [ ] **顺手根治 Fix B 误报**：真 idle 才触发→正在干活的 worker 永不被打扰（本 session 多次误伤赵云/关羽/马超）
-- [ ] **L2 提示词**：WORKER_RULES + REMINDER_TAIL 加硬话——文字总结≠汇报，必须运行 team report CLI，turn 结束自检
+- [x] **L1 机制**：把卡死检测从「时间驱动(4min) nudge orchestrator」升级为「worker PTY 回到 idle 提示符 + 有 submitted 未 report dispatch → 直接 nudge worker stdin 自补 report」，最多 2 次再回退 orchestrator nudge
+- [x] 复用 `hasInteractivePromptReady`（post-start-input-writer）+ Fix A「只看新输出」防旧提示符误触发；idle 检测留 nudge/sentinel 层，不侵入 agent 运行热路径
+- [x] **顺手根治 Fix B 误报**：真 idle 才触发→正在干活的 worker 永不被打扰（本 session 多次误伤赵云/关羽/马超）
+- [x] **L2 提示词**：WORKER_RULES + REMINDER_TAIL 加硬话——文字总结≠汇报，必须运行 team report CLI，turn 结束自检
 - 触发：本 session 马超 M25 干完用文字 recap 收尾、没真跑 team report → dispatch 卡 submitted 看着像卡死；agent 状态 `pendingTaskCount>0?working:idle` 是假信号
 - 强 TDD（§13 禁 mock PTY）；文件边界避开 M25 未提交改动；PM 待落 ADR
 - [x] **加固（马超 2026-05-31，代码完成待 review/commit）：从"只 nudge LLM"升级为"系统直接 surface 给 user，绝不静默"。** 触发：赵云干完 6 项 UX 不跑 team report，是 user 先发现的、不是系统兜住的，user 要彻底解决。
@@ -398,7 +438,7 @@ last_review: 2026-05-25
 - [~] **实现 Phase 1（马超 `7a5ead11`，2026-06-01，code-complete 待钟馗审）**：新 `unreviewed-code-status.ts`（纯函数 `summarizeUnreviewedCodeDispatches` + `isReportOnlyDispatch` 排除器 + `buildUnreviewedCodeActions` + `augmentAiActionsWithUnreviewedCode` 边界合并器）；`cockpit-doc.ts` 仅扩 `AIActionType+='unreviewed_code'`（parseCockpit/buildAiActions 保持 file-only 不碰 DB）；边界合并接 3 处：`cockpit-websocket-server.ts`(web ActionBar，best-effort try/catch)、`routes-mobile.ts`(buildMobileDashboard 加计数 `unreviewed_code_dispatches`+合并 aiActions / cockpit detail 合并)、`relay-rpc-handler.ts`(远程 parity)；push `notifyUnreviewedCode`(mobile-push.ts，每 dispatch 去重) 经 `stalled-dispatch-nudge.ts` 新增可选 hook `surfaceUnreviewedCode` 复用 M30 60s tick、`runtime-store-helpers.ts` 接线。**report-only 排除器**：含代码 artifact→绝不排除(改动信号优先)；否则 reportText 命中 spike/调研关键词 **或** artifacts 全文档→判 report-only（与 spike 文档字面"且"有意偏离：真实 spike 常无 artifacts，确保 M34 spike 自身被排除）。强 TDD：13 测全绿覆盖 ①未审→亮②出 reviewer→灭(+前置不消解)③spike(有/无 artifacts)→不亮④非 claude coder→不亮⑤parseCockpit file-only 契约+宽限/非 reported/code-artifact override。tsc 0、biome 净；回归 80 测(cockpit-ws/mobile/relay/nudge/app)全绿。钟馗复审（功能本身也走审查闭环）。**commit `7000f5c`；钟馗复审 `d5ea3476` 出 1 BLOCKING + 2 风险（PM 判全成立）→ 返工马超 `e6124fc1` 完成（code-complete 待复审）**：①**BLOCKING**=`workspace-store.listWorkers()` 不返回 `commandPresetId`→`isClaudeCoder` 恒 false→生产里整个兜底形同虚设（第二次"测试绿但生产死"）。**修**：新增**唯一**边界入口 `cockpit-unreviewed-augment.ts::resolveCockpitUnreviewedCode(store, ws, now?)`——内部用 `resolveCommandPresetId`(读 launch config/peekAgentLaunchConfig，真实 preset 源)拼 role map；4 处生产注入点(web WS/mobile dashboard/mobile cockpit/relay/push)全改走它，杜绝各点重复犯错；relay store Pick 补 peekAgentLaunchConfig。**+ 真 store 边界集成测试** `unreviewed-code-backstop-integration.test.ts`(5 测，createRuntimeStore+addWorker+configureAgentLaunch(claude)+dispatchTask+reportTask 真实路径；断言 raw listWorkers 无 preset 但 resolveCommandPresetId 解析出 claude、buildMobileDashboard 真出 unreviewed_code_dispatches≥1、出 reviewer 后清零、codex/spike 不亮)。②HIGH=report-only 收窄：正向代码动词信号(改了/新增/重构…)压过 report-only；无 artifacts 时不用裸"调研/spike"，要强短语(不改产品代码/纯设计/未改…代码)；补测试"无 artifacts + spike 文本 + 改了 src/*.ts→必标"。③MEDIUM i18n：`派 reviewer`→`cockpit.actionBar.action.assignReviewer`+en/zh messages，补 EN/ZH locale 测试。`buildMobileDashboard` 加可注入 `now` 供集成测试越过宽限。tsc 0/biome 净；M34 20 测 + 回归 91 测(cockpit-ws/mobile/relay/nudge/app/web-i18n)全绿。**返工 commit `ff6f29f`（PM 验 20 测绿含 5 真 store 集成）→ 钟馗复审 `e382b71c` 通过（0 blocking，BLOCKER+2 风险全闭环，确认集成测试真穿透 RuntimeStore 能抓旧 bug 回归）→ M34 Phase 1 审过**。1 LOW follow-up：集成测试 `stores` 数组 afterEach 只 splice 没 `store.close()`，建议 close 后再 rm 防未来 watcher/DB handle 泄漏（当前通过，未做）。**Phase 2 留**：reviews_dispatch_id 精确配对（现启发式时序）、扩全 coder（现限 claude）。
 - 边界：不阻断 dispatch（不是 gate），只 surface 提醒（PM 仍可判断免审小改）；先覆盖 claude coder，codex/opencode 看需要。
 
-### M35 · 实时语音对讲模式（开车 hands-free 指挥 AI 团队）· proposed (2026-06-02，spike 已出待 user 拍路线)
+### M35 · 实时语音对讲模式（开车 hands-free 指挥 AI 团队）· spike+路线已定 2026-06-02 → 实现见下方 M36(build)/M37(治本)
 > 目标：app 加"实时对讲模式"——开车/看不了手机时，hands-free 用语音实时跟 orchestrator 对话（下指令/问状态/拍板）+ worker 完成语音念回。本质 = **可观测性的语音化**（开车=终极"看不了仪表盘"，接 M33 远程可诊断性）。两条声音通道：①同步对讲(你→系统，低延迟+打断 barge-in) ②异步语音回灌(系统→你，完成/审批/告警念回)。
 > **spike 已完成（钟馗 `91ab5888`，报告 `.hive/reports/2026-06-02-realtime-voice-intercom-spike.html`+research）**：代码级读了 tang-changan(berryxia 长安城,Agora) + agora-skills。关键结论：①**不另造协议**——语音 function call 直接映射现有 `workspace.prompt/dispatch/approve` + 念回复用现有 `pushEvent`+mobile chat 管道（复用不另起炉灶）②自建 OSS 最小栈=移动音频→本机 voice bridge + Silero/WebRTC VAD + faster-whisper/whisper.cpp + 本地 TTS(Piper/Kokoro/XTTS) + 现有 relay RPC；**单用户可砍掉 Agora/LiveKit 级 SFU/RTM**③Agora 重且弱化"数据本地"，OpenAI Realtime 最快验 barge-in/function-calling 体感但音频进云。④诚实标注：tang clone 缺 tang-voice-agent 后端目录，后端只按文档核未源码验证。
 > **钟馗推荐路线**：先用 OpenAI Realtime 做 1-2 周 hands-free **交互体感验证**（barge-in/turn-taking/回灌体感，跟后端无关）→ 再迁自建单用户本地语音桥。
@@ -407,6 +447,23 @@ last_review: 2026-05-25
 > **2026-06-02 路线已细化（user 拍）**：①**直接自建、不绕 OpenAI Realtime**（user 倾向，贴"数据本地"身份）②**传输方案①=复用现有 relay 隧道**（音频帧走现成 WSS+E2E，不碰 Agora/不上 LiveKit SFU；单用户不需要 RTC 中转）；P2P WebRTC 留 Phase 2③berryxia tang-changan 不可 fork（语音是 Agora 云 + 后端目录缺），只当 UX 参照。**两个交互模式并存（user 明确）**：**push-to-talk 按住说**（关羽 Phase 1 已实现 `7550f44a`，talk.tsx+push-to-talk.ts，输入侧通+念回接契约，181 测绿，**未 commit·待地基收口**）+ **对讲模式连续 VAD hands-free**（user 重点，开车用——开车没法按按钮，要"点一下进入→连续听→静音断句→念回→再听"；barge-in 留 Phase 2）。VAD 简版=expo-av 电平+静音超时，抗噪不够再上 Silero。
 > **落地序（防三方撞车，今晚 [id].tsx 已栽）**：吕布 TTS 返工(a253bce2)落 → PM 核实合并 mobile-runtime-context.tsx 连贯(吕布 synthesizeVoice 定义 + 关羽消费类型对齐 {audio,format,mime}) → 钟馗整体审语音子系统(TTS+push-to-talk+共享 synthesizeVoice) → commit 地基 → **再派对讲 VAD（重点）**建其上。
 > **2026-06-02 进展**：①管道层全做完——吕布 TTS(piper --input_file+model+format/mime 贯穿，钟馗审 0 blocking✅) + 关羽 push-to-talk + VAD 连续对讲(状态机+voice-vad.ts)。②**钟馗整体审连抓 4 个"测试绿生产坏"**：piper stdin 坑/format 谎报(TTS,已闭环)、连续模式出错麦死/念旧回复(TalkTab)——后者**第三轮**修中(关羽第二轮用手机时钟比服务端时钟的跨设备时钟陷阱被钟馗拦，改 id-based 过滤 `d9312a30`)。③**UI 设计稿 user 看过"没问题"通过**(`voice-intercom-ui-design.html`)，5 项交互默认拍定(连续默认/蓝牙提示/点屏打断/cue 默认开/全屏沉浸)，**ADR draft 起好** `draft-2026-06-02-realtime-voice-intercom.md`。④**待**：关羽第三轮过审→commit 地基→**前端打磨实现**(照设计稿，等 base commit 后做、避开 talk.tsx 撞车)→张飞/user 真机验+VAD 阈值校准。
+
+### M36 · 实时语音对讲实现（连续对讲核心可用）· shipped 2026-06-03~04（真机验证，APK 2.6.x 系列）
+> M35 spike/路线落地为可用产品。全程真机 USB logcat 调试 + 钟馗质量闸（抓了一长串"测试绿生产坏"回归）。
+> - **STT/TTS 基础**：whisper.cpp 本地中文转写 + edge-tts 晓晓念回（`5c58113`，替换机械 macOS 婷婷，user 真机"比 MacOS 好太多"）。
+> - **连续对讲可用 `5aea765`(2.6.5)**：自适应判停（滚动窗口最小值底噪，替换会卡死的 EMA；真因=录音启动 -160 垃圾锚死，USB floor=-159 铁证）+ 真语音闸（hadRealSpeech，静音/杂音不投递，DB 0 垃圾）+ 首句不丢（floor 未建立前 -38 绝对启动线，钟馗抓 blocking 闭环）。
+> - **双音色 `6b9b380`(2.6.7)**：GLM 快嘴=晓晓(女)、orchestrator=云希(男)，user 听辨谁在答（voice 全链路透传到 local-tts edge-tts）。
+> - **开口打断 barge-in `49371e6`→`ae98794`→`e4ad00b`(2.6.6~2.6.10)**：Android `voice_communication` 音源自带硬件 AEC，念回时可插话打断。多轮血泪：AGC 压平连累判停切断→误把好功能默认关(user 怒)→纠正(打断+不切断并存)→回声自触发/鞭炮误触发调阈值(speechMargin 22→25+连续3样本)。**残留**:回声边际偏薄+只认"响"不认"人声"→催生 M37 神经 VAD。
+> - **clear-failed + Cockpit ActionBar 可折叠 `25bd9df`**：outbox 失败消息可清除 + 看板待办面板可收起（user 反馈占空间）。
+> - 真机验证通过（连续对讲点完即说不丢首句/静默不投垃圾/双音色/打断）。BARGEDBG 调试日志保留。
+
+### M37 · 语音对讲治本（GLM 门卫 + STT 守卫 + 神经人声 VAD）· in_progress 2026-06-03~04
+> M36 暴露的根本问题的治本线，user 拍板。
+> - ✅ **idea-9 GLM 门卫化 `a62fbd5`（待 4010 重启激活）**：纯状态/进度问题 GLM 答完不注入 orchestrator（不再 GLM+orch 双回复），带操作的仍转交。钟馗死磕"绝不丢消息"+抓到消息黑洞 blocking（handled+insert失败）已闭环；所有不确定路径默认 escalate；flag=0 回退。
+> - ✅ **STT 团队名回吐拦截 `8c189fd`（待重启）**：拦 whisper 在噪声上吐"词:张飞吕布…"团队名垃圾，钟馗抓到误杀真短指令 blocking（动作词白名单）已闭环。
+> - 🔬 **神经人声 VAD（Silero ONNX，只认人声不认鞭炮/音乐）**：user 拍"要上"。Phase1 PCM 通道 `f67197c`(useAudioStream 16kHz)→Phase2 Silero 集成 `77bf39e`(onnxruntime-react-native+silero_vad.onnx 2.2MB+pnpm patch 修 Gradle9，**release 构建成功=最大风险已过**，影子打分 flag 隔离钟馗审 0blocking)→flag 修 `4dc9267`(改 expo extra 让 release 生效)。**🟡待**:USB 真机验 [SILERODBG] 打分分布→准了 Phase3(模型 gate barge-in)。**❗边界**:神经VAD解决噪声误触发,解决不了念回回声自触发(合成人声)→仍需 BARGE_IN 抬阈值配合。
+> - 报告：`reports/2026-06-03-neural-vad-调研.html` + `barge-in-调研.html`（DMIT /view/ 已投递 user）。
+> - **待 4010 重启激活**：idea-9 门卫 + STT 拦截 + 双音色服务端 + ActionBar(web 已重建)。
 
 ## Scope
 

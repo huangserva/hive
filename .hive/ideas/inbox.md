@@ -64,3 +64,12 @@
   - 🟡 需先做 scoping spike：看现有 preset 设计有多少真痛点、orch 派单实际需要哪些能力维度，再决定实现范围。见 plan.md M18
 
 - ~~**idea-4 paseo Timeline seq/epoch/gap 模型借鉴**（事件流方向）~~ → **M23**（user 拍板 2026-05-27，调研确认与现有架构互补不冲突）
+
+## 待评估（新）
+
+- **idea-10 实时流式语音传输架构（杀延迟）**（2026-06-04 user 真机验收时提）
+  - user 原话:"目前这种模式其实还是有很大的延迟,后续应该考虑用 RTSP 流式媒体传输模式"。当前批处理管线(录完整段→上传→STT→orch LLM→TTS→下传→播放)每轮 7-15s,是实时对话感的最大瓶颈。
+  - 方向:流式化——流式 STT(边说边出 partial)+ 流式 LLM token→逐句 TTS + 砍中继往返。
+  - ⚠️技术选型待调研:user 提 RTSP,但 RTSP 偏单向直播;双向交互语音业界通常 **WebRTC**(延迟更低 + 自带 AEC 回音消除,正好治回声自打断)。需正经调研出报告:RTSP vs WebRTC vs 流式STT+TTS 管线,各自延迟/复杂度/与现有 relay 架构契合度。**调研类硬规则**:出 reports/*.html + research/*.md。
+  - 关联:plan.md line 55 已挂的"批处理 vs 流式"大决策(ADR Phase 2);神经 VAD 三阶段已打通后,这是语音体验的下一座大山。
+  - 状态:**已立项(2026-06-04 user 拍板"可以考虑做了"+"我同意 webrtc 方案")→方向定 WebRTC**。调研 spike 已派赵云(reports/*.html+research/*.md;3 条 dispatch=同一调研累积细化:广→收窄WebRTC→指 ADR 前置)。承接 `2026-06-02-m36-streaming-voice.md` 既有发现(P2P需TURN、US relay延迟最大头、快嘴层已解orch延迟)。**待调研报告→user 拍落地计划**。ADR 已更新 6-04 WebRTC 段。
