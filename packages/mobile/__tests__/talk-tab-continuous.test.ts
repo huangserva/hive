@@ -59,6 +59,12 @@ const audioMock = vi.hoisted(() => {
     remove: vi.fn(),
     replace: vi.fn(),
   }
+  const cuePlayer = {
+    pause: vi.fn(),
+    play: vi.fn(),
+    remove: vi.fn(),
+    replace: vi.fn(),
+  }
   const setAudioModeAsync = vi.fn().mockResolvedValue(undefined)
   const stream = {
     start: vi.fn().mockResolvedValue(undefined),
@@ -77,6 +83,7 @@ const audioMock = vi.hoisted(() => {
     lastRecorderOptions: null as unknown,
     player,
     playerStatus,
+    cuePlayer,
     recorder,
     recorderStatus,
     setAudioModeAsync,
@@ -103,7 +110,9 @@ vi.mock('expo-audio', () => ({
   },
   requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
   setAudioModeAsync: audioMock.setAudioModeAsync,
-  useAudioPlayer: vi.fn(() => audioMock.player),
+  useAudioPlayer: vi.fn((_source: unknown, options?: { updateInterval?: number }) =>
+    options?.updateInterval === 100 ? audioMock.player : audioMock.cuePlayer
+  ),
   useAudioPlayerStatus: vi.fn(() => audioMock.playerStatus),
   useAudioRecorder: vi.fn((options: unknown) => {
     audioMock.lastRecorderOptions = options
@@ -114,6 +123,13 @@ vi.mock('expo-audio', () => ({
     audioMock.lastStreamOptions = options as typeof audioMock.lastStreamOptions
     return { isStreaming: false, stream: audioMock.stream }
   }),
+}))
+
+vi.mock('expo-haptics', () => ({
+  ImpactFeedbackStyle: { Light: 'light' },
+  NotificationFeedbackType: { Warning: 'warning' },
+  impactAsync: vi.fn().mockResolvedValue(undefined),
+  notificationAsync: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../src/lib/silero-vad-shadow', () => ({
@@ -305,6 +321,10 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.player.play.mockClear()
     audioMock.player.remove.mockClear()
     audioMock.player.replace.mockClear()
+    audioMock.cuePlayer.pause.mockClear()
+    audioMock.cuePlayer.play.mockClear()
+    audioMock.cuePlayer.remove.mockClear()
+    audioMock.cuePlayer.replace.mockClear()
     audioMock.setAudioModeAsync.mockClear()
     sileroMock.score.mockClear()
     sileroMock.score.mockResolvedValue(null)
@@ -1048,7 +1068,7 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.recorderStatus.isRecording).toBe(true)
   })
 
-  test('drops stale synthesized audio after continuous mode is stopped before synthesis resolves', async () => {
+  test('drops stale synthesized audio after playback is stopped before synthesis resolves', async () => {
     const synthesized = deferred<{ audio: string; format: string; mime: string }>()
     runtime.synthesizeVoiceStream = vi.fn().mockReturnValue(synthesized.promise)
     const view = render(React.createElement(TalkTab))
@@ -1071,7 +1091,7 @@ describe('TalkTab continuous mode behavior', () => {
       })
     )
 
-    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    fireEvent.click(screen.getByText('talk.stopPlayback'))
     await act(async () => {
       synthesized.resolve({ audio: 'stale-audio', format: 'wav', mime: 'audio/wav' })
       await synthesized.promise

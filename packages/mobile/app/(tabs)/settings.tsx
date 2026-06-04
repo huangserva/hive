@@ -30,6 +30,10 @@ import {
 import { decodeConnectionQrOutcomeFromPngBase64 } from '../../src/lib/qr-image-decode'
 import type { StoredRelayConfig } from '../../src/lib/relay-config-store'
 import { runUiOperationSafely } from '../../src/lib/ui-operation-timeout'
+import {
+  resolveWebRtcProbeEnabled,
+  runWebRtcRuntimeProbe,
+} from '../../src/lib/webrtc-runtime-probe'
 import { colors, radius, spacing } from '../../src/theme'
 
 // 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
@@ -117,6 +121,8 @@ export default function SettingsTab() {
     'lan' | 'relay' | null
   >(null)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+  const [webRtcProbeBusy, setWebRtcProbeBusy] = useState(false)
+  const [webRtcProbeResult, setWebRtcProbeResult] = useState<string | null>(null)
 
   useEffect(() => {
     setDraftHost(host)
@@ -293,6 +299,17 @@ export default function SettingsTab() {
     Alert.alert(t('settings.diagnosticsCopiedTitle'), t('settings.diagnosticsCopiedBody'))
   }
 
+  const onRunWebRtcProbe = useCallback(async () => {
+    if (webRtcProbeBusy) return
+    setWebRtcProbeBusy(true)
+    setWebRtcProbeResult(null)
+    const result = await runWebRtcRuntimeProbe()
+    const message = result.ok ? t('settings.webrtcProbeOk') : result.reason
+    setWebRtcProbeResult(message)
+    Alert.alert(t('settings.webrtcProbeTitle'), message)
+    setWebRtcProbeBusy(false)
+  }, [t, webRtcProbeBusy])
+
   const switchConnectionDetail = useCallback(
     async (target: 'lan' | 'relay') => {
       if (switchingConnectionTarget || !token.trim()) return
@@ -337,6 +354,9 @@ export default function SettingsTab() {
     .filter(Boolean)
     .join(' • ')
   const appBuildLabel = getAppBuildLabel(t)
+  const webRtcProbeEnabled = resolveWebRtcProbeEnabled(
+    Constants.expoConfig?.extra as { webRtcProbe?: unknown } | undefined
+  )
 
   return (
     <Screen showConnectionModeBanner={false}>
@@ -711,6 +731,34 @@ export default function SettingsTab() {
             >
               <Ionicons color={colors.background} name="save-outline" size={19} />
               <Text style={styles.primaryButtonText}>{t('settings.relayManualSave')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {webRtcProbeEnabled ? (
+          <View style={styles.probeCard}>
+            <View style={styles.probeCopy}>
+              <Text style={styles.probeTitle}>{t('settings.webrtcProbeTitle')}</Text>
+              <Text style={styles.probeHint}>{t('settings.webrtcProbeHint')}</Text>
+              {webRtcProbeResult ? (
+                <Text style={styles.probeResult}>{webRtcProbeResult}</Text>
+              ) : null}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ busy: webRtcProbeBusy }}
+              disabled={webRtcProbeBusy}
+              onPress={() => void onRunWebRtcProbe()}
+              style={[styles.primaryButton, webRtcProbeBusy ? styles.disabled : null]}
+            >
+              {webRtcProbeBusy ? (
+                <ActivityIndicator color={colors.background} size="small" />
+              ) : (
+                <Ionicons color={colors.background} name="radio-outline" size={19} />
+              )}
+              <Text style={styles.primaryButtonText}>
+                {webRtcProbeBusy ? t('settings.webrtcProbeRunning') : t('settings.webrtcProbeRun')}
+              </Text>
             </Pressable>
           </View>
         ) : null}
@@ -1478,6 +1526,33 @@ const styles = StyleSheet.create({
   demoHint: {
     color: colors.muted,
     fontSize: 12,
+  },
+  probeCard: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  probeCopy: {
+    gap: spacing.xs,
+  },
+  probeHint: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  probeResult: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  probeTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
   },
   demoActive: {
     alignItems: 'center',

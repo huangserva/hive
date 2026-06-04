@@ -13,6 +13,7 @@ import {
   useAudioStream,
 } from 'expo-audio'
 import * as FileSystem from 'expo-file-system/legacy'
+import * as Haptics from 'expo-haptics'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
@@ -50,6 +51,14 @@ import {
   type SileroVadShadowScorer,
 } from '../../src/lib/silero-vad-shadow'
 import {
+  getTalkStateVisual,
+  resolveConnectionCue,
+  resolveTalkStateCue,
+  type TalkAudioCue,
+  type TalkCue,
+  type TalkHapticCue,
+} from '../../src/lib/talk-ui-cues'
+import {
   applyVadMeteringSample,
   createInitialVoiceVadState,
   DEFAULT_VAD_CONFIG,
@@ -68,6 +77,8 @@ const BARGE_IN_VAD_CONFIG = {
 }
 const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
 const BARGE_IN_METERING_FRESHNESS_MS = 500
+const TALK_HAPTICS_ENABLED = process.env.EXPO_PUBLIC_TALK_HAPTICS_ENABLED !== '0'
+const TALK_AUDIO_CUES_ENABLED = process.env.EXPO_PUBLIC_TALK_AUDIO_CUES_ENABLED !== '0'
 
 const isTalkbackBargeInAndroidEnabled = () =>
   process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
@@ -93,6 +104,88 @@ const snapshotOrchestratorReplyIds = (messages: Array<{ id: string; message_type
   new Set(messages.filter((message) => message.message_type === 'orch_reply').map((m) => m.id))
 
 const isRecorderPrepared = (status: RecorderState) => status.canRecord || status.isRecording
+
+const encodeBase64Bytes = (bytes: Uint8Array) => {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  let output = ''
+  for (let index = 0; index < bytes.length; index += 3) {
+    const first = bytes[index] ?? 0
+    const second = bytes[index + 1] ?? 0
+    const third = bytes[index + 2] ?? 0
+    const chunk = (first << 16) | (second << 8) | third
+    output += alphabet[(chunk >> 18) & 63]
+    output += alphabet[(chunk >> 12) & 63]
+    output += index + 1 < bytes.length ? alphabet[(chunk >> 6) & 63] : '='
+    output += index + 2 < bytes.length ? alphabet[chunk & 63] : '='
+  }
+  return output
+}
+
+const writeAscii = (bytes: Uint8Array, offset: number, text: string) => {
+  for (let index = 0; index < text.length; index += 1) {
+    bytes[offset + index] = text.charCodeAt(index)
+  }
+}
+
+const writeUint16 = (view: DataView, offset: number, value: number) =>
+  view.setUint16(offset, value, true)
+
+const writeUint32 = (view: DataView, offset: number, value: number) =>
+  view.setUint32(offset, value, true)
+
+const buildToneCueUri = (startFrequency: number, endFrequency: number, durationMs: number) => {
+  const sampleRate = 8000
+  const samples = Math.max(1, Math.floor((sampleRate * durationMs) / 1000))
+  const dataSize = samples * 2
+  const bytes = new Uint8Array(44 + dataSize)
+  const view = new DataView(bytes.buffer)
+  writeAscii(bytes, 0, 'RIFF')
+  writeUint32(view, 4, 36 + dataSize)
+  writeAscii(bytes, 8, 'WAVE')
+  writeAscii(bytes, 12, 'fmt ')
+  writeUint32(view, 16, 16)
+  writeUint16(view, 20, 1)
+  writeUint16(view, 22, 1)
+  writeUint32(view, 24, sampleRate)
+  writeUint32(view, 28, sampleRate * 2)
+  writeUint16(view, 32, 2)
+  writeUint16(view, 34, 16)
+  writeAscii(bytes, 36, 'data')
+  writeUint32(view, 40, dataSize)
+  for (let index = 0; index < samples; index += 1) {
+    const progress = samples === 1 ? 0 : index / (samples - 1)
+    const frequency = startFrequency + (endFrequency - startFrequency) * progress
+    const envelope = Math.sin(Math.PI * progress)
+    const sample = Math.round(
+      Math.sin(2 * Math.PI * frequency * (index / sampleRate)) * 0.28 * envelope * 32767
+    )
+    view.setInt16(44 + index * 2, sample, true)
+  }
+  return `data:audio/wav;base64,${encodeBase64Bytes(bytes)}`
+}
+
+const TALK_CUE_AUDIO_URIS: Record<TalkAudioCue, string> = {
+  error: buildToneCueUri(180, 180, 220),
+  exit: buildToneCueUri(520, 360, 150),
+  listen: buildToneCueUri(720, 1040, 180),
+  network: buildToneCueUri(360, 540, 160),
+  process: buildToneCueUri(440, 260, 180),
+}
+
+const playHapticCue = async (cue: TalkHapticCue) => {
+  if (!TALK_HAPTICS_ENABLED) return
+  if (cue === 'warning') {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    return
+  }
+  await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  if (cue === 'double') {
+    setTimeout(
+      () => void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {}),
+      120
+    )
+  }
+}
 
 function NeuralVadPcmProbe({
   active,
@@ -213,6 +306,7 @@ export default function TalkTab() {
   const [error, setError] = useState<string | null>(null)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
+  const connected = state === 'connected'
   const neuralVadPcmProbeEnabled = isNeuralVadPcmProbeEnabled()
   const neuralVadShadowEnabled = isNeuralVadShadowEnabled()
   const recordingOptions = useMemo(
@@ -231,8 +325,11 @@ export default function TalkTab() {
   const recorder = useAudioRecorder(recordingOptions)
   const recorderState = useAudioRecorderState(recorder, 200)
   const player = useAudioPlayer(null, { updateInterval: 100 })
+  const cuePlayer = useAudioPlayer(null, { updateInterval: 50 })
   const playerStatus = useAudioPlayerStatus(player)
   const talkStateRef = useRef<TalkbackState>('idle')
+  const previousCueTalkStateRef = useRef<TalkbackState>('idle')
+  const previousConnectedRef = useRef(connected)
   const inputModeRef = useRef<TalkInputMode>('push_to_talk')
   const continuousEnabledRef = useRef(false)
   const processingSegmentRef = useRef(false)
@@ -256,7 +353,6 @@ export default function TalkTab() {
   const lastPlaybackFinishedAtMsRef = useRef<number | null>(null)
   const replyQueueGenerationRef = useRef(0)
   const replyRoundFinishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const connected = state === 'connected'
   chatMessagesRef.current = chatMessages
   inputModeRef.current = inputMode
   recorderRef.current = recorder
@@ -277,6 +373,35 @@ export default function TalkTab() {
       setError(null)
     }
   }, [])
+
+  const playTalkCue = useCallback(
+    (cue: TalkCue | null) => {
+      if (!cue) return
+      if (cue.haptic) void playHapticCue(cue.haptic).catch(() => {})
+      if (cue.audio && TALK_AUDIO_CUES_ENABLED) {
+        try {
+          cuePlayer.pause()
+          cuePlayer.replace({ uri: TALK_CUE_AUDIO_URIS[cue.audio] })
+          cuePlayer.play()
+        } catch {
+          // Cue playback is best-effort; it must never interrupt talkback.
+        }
+      }
+    },
+    [cuePlayer]
+  )
+
+  useEffect(() => {
+    const previous = previousCueTalkStateRef.current
+    previousCueTalkStateRef.current = talkState
+    playTalkCue(resolveTalkStateCue(previous, talkState))
+  }, [playTalkCue, talkState])
+
+  useEffect(() => {
+    const previous = previousConnectedRef.current
+    previousConnectedRef.current = connected
+    playTalkCue(resolveConnectionCue(previous, connected))
+  }, [connected, playTalkCue])
 
   const clearReplyRoundFinishTimer = useCallback(() => {
     if (replyRoundFinishTimerRef.current) clearTimeout(replyRoundFinishTimerRef.current)
@@ -355,9 +480,11 @@ export default function TalkTab() {
       clearReplyRoundFinishTimer()
       if (recordingActiveRef.current) void recorder.stop().catch(() => {})
       player.pause()
+      cuePlayer.pause()
       player.remove()
+      cuePlayer.remove()
     }
-  }, [clearReplyRoundFinishTimer, player, recorder])
+  }, [clearReplyRoundFinishTimer, cuePlayer, player, recorder])
 
   const startRecorderSegment = useCallback(
     async (targetRecorder: AudioRecorder = recorderRef.current) => {
@@ -914,6 +1041,8 @@ export default function TalkTab() {
   const pushToTalkSelected = inputMode === 'push_to_talk'
   const continuousSelected = inputMode === 'continuous'
   const speaking = talkState === 'speaking'
+  const visual = getTalkStateVisual(talkState)
+  const immersive = talkState !== 'idle'
   const disabled =
     !connected ||
     (!speaking &&
@@ -928,55 +1057,65 @@ export default function TalkTab() {
 
   return (
     <Screen>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.kicker}>{t('talk.kicker')}</Text>
-          <Text style={styles.title}>{t('talk.title')}</Text>
-          <Text style={styles.subtitle}>{t('talk.subtitle')}</Text>
-        </View>
+      <View style={[styles.container, immersive && styles.containerImmersive]}>
+        {!immersive ? (
+          <>
+            <View style={styles.header}>
+              <Text style={styles.kicker}>{t('talk.kicker')}</Text>
+              <Text style={styles.title}>{t('talk.title')}</Text>
+              <Text style={styles.subtitle}>{t('talk.subtitle')}</Text>
+            </View>
 
-        <View style={styles.modeSwitch}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              if (!pushToTalkSelected) void stopContinuousMode()
-            }}
-            style={[styles.modeButton, pushToTalkSelected && styles.modeButtonActive]}
-          >
-            <Ionicons
-              color={pushToTalkSelected ? colors.text : colors.textSoft}
-              name="hand-left-outline"
-              size={18}
-            />
-            <Text
-              style={[styles.modeButtonText, pushToTalkSelected && styles.modeButtonTextActive]}
-            >
-              {t('talk.mode.pushToTalk')}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() =>
-              continuousSelected ? void stopContinuousMode() : void startContinuousMode()
-            }
-            style={[styles.modeButton, continuousSelected && styles.modeButtonActive]}
-          >
-            <Ionicons
-              color={continuousSelected ? colors.text : colors.textSoft}
-              name="radio-outline"
-              size={18}
-            />
-            <Text
-              style={[styles.modeButtonText, continuousSelected && styles.modeButtonTextActive]}
-            >
-              {t('talk.mode.continuous')}
-            </Text>
-          </Pressable>
-        </View>
+            <View style={styles.modeSwitch}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  if (!pushToTalkSelected) void stopContinuousMode()
+                }}
+                style={[styles.modeButton, pushToTalkSelected && styles.modeButtonActive]}
+              >
+                <Ionicons
+                  color={pushToTalkSelected ? colors.text : colors.textSoft}
+                  name="hand-left-outline"
+                  size={18}
+                />
+                <Text
+                  style={[styles.modeButtonText, pushToTalkSelected && styles.modeButtonTextActive]}
+                >
+                  {t('talk.mode.pushToTalk')}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() =>
+                  continuousSelected ? void stopContinuousMode() : void startContinuousMode()
+                }
+                style={[styles.modeButton, continuousSelected && styles.modeButtonActive]}
+              >
+                <Ionicons
+                  color={continuousSelected ? colors.text : colors.textSoft}
+                  name="radio-outline"
+                  size={18}
+                />
+                <Text
+                  style={[styles.modeButtonText, continuousSelected && styles.modeButtonTextActive]}
+                >
+                  {t('talk.mode.continuous')}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
 
-        <View style={styles.statusPanel}>
-          <View style={[styles.statusDot, talkState === 'error' && styles.statusDotError]} />
-          <Text style={styles.statusLabel}>{statusLabel}</Text>
+        <View
+          style={[
+            styles.statusPanel,
+            { backgroundColor: visual.panel, borderColor: visual.accent },
+            immersive && styles.statusPanelImmersive,
+          ]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: visual.accent }]} />
+          <Text style={[styles.statusLabel, { color: visual.soft }]}>{statusLabel}</Text>
           {continuousSelected ? (
             <Text style={styles.statusHint}>
               {t('talk.vad.hint', {
@@ -1007,16 +1146,15 @@ export default function TalkTab() {
           onPressOut={pushToTalkSelected && !speaking ? () => void stopRecording() : undefined}
           style={({ pressed }) => [
             styles.talkButton,
-            (talkState === 'recording' || talkState === 'capturing') && styles.talkButtonRecording,
-            speaking && styles.talkButtonRecording,
-            talkState === 'listening' && styles.talkButtonListening,
+            { backgroundColor: visual.accent, borderColor: visual.soft },
+            immersive && styles.talkButtonImmersive,
             (speaking ? !connected : pushToTalkSelected ? disabled : !connected) &&
               styles.talkButtonDisabled,
             pressed && styles.talkButtonPressed,
           ]}
         >
           {speaking ? (
-            <Ionicons color={colors.text} name="stop-circle-outline" size={48} />
+            <Ionicons color={colors.text} name="stop-circle-outline" size={64} />
           ) : talkState === 'sending' ||
             talkState === 'waiting_for_orchestrator' ||
             talkState === 'processing' ? (
@@ -1024,8 +1162,8 @@ export default function TalkTab() {
           ) : (
             <Ionicons
               color={colors.text}
-              name={continuousSelected ? 'radio-outline' : 'mic-outline'}
-              size={48}
+              name={visual.icon as keyof typeof Ionicons.glyphMap}
+              size={64}
             />
           )}
           <Text style={styles.buttonText}>
@@ -1054,14 +1192,21 @@ export default function TalkTab() {
 const styles = StyleSheet.create({
   buttonText: {
     color: colors.text,
-    fontSize: 15,
+    fontSize: 20,
     fontWeight: '800',
     marginTop: spacing.sm,
+    textAlign: 'center',
   },
   container: {
+    backgroundColor: colors.background,
     flex: 1,
     justifyContent: 'space-between',
     padding: spacing.lg,
+  },
+  containerImmersive: {
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    paddingVertical: spacing.lg,
   },
   error: {
     color: colors.error,
@@ -1112,9 +1257,6 @@ const styles = StyleSheet.create({
     height: 10,
     width: 10,
   },
-  statusDotError: {
-    backgroundColor: colors.error,
-  },
   statusHint: {
     color: colors.warning,
     fontSize: 13,
@@ -1122,8 +1264,8 @@ const styles = StyleSheet.create({
   },
   statusLabel: {
     color: colors.text,
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '900',
   },
   statusPanel: {
     backgroundColor: colors.card,
@@ -1132,6 +1274,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: spacing.xs,
     padding: spacing.md,
+  },
+  statusPanelImmersive: {
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
   },
   subtitle: {
     color: colors.textSoft,
@@ -1143,23 +1289,26 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: colors.accent,
     borderColor: colors.border,
-    borderRadius: 96,
-    borderWidth: 1,
-    height: 192,
+    borderRadius: 100,
+    borderWidth: 2,
+    height: 164,
     justifyContent: 'center',
-    width: 192,
+    shadowColor: colors.accent,
+    shadowOffset: { height: 0, width: 0 },
+    shadowOpacity: 0.38,
+    shadowRadius: 24,
+    width: 164,
   },
   talkButtonDisabled: {
     opacity: 0.45,
   },
+  talkButtonImmersive: {
+    borderRadius: 108,
+    height: 216,
+    width: 216,
+  },
   talkButtonPressed: {
     transform: [{ scale: 0.98 }],
-  },
-  talkButtonRecording: {
-    backgroundColor: colors.error,
-  },
-  talkButtonListening: {
-    backgroundColor: colors.success,
   },
   title: {
     color: colors.text,
