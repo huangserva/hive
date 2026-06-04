@@ -198,6 +198,17 @@ const renderTalkTab = async () => {
   return render(React.createElement(TalkTab))
 }
 
+const rerenderWithRecorderStatus = async (
+  view: ReturnType<typeof render>,
+  status: Partial<RecordingStatus>
+) => {
+  const { default: TalkTab } = await import('../app/(tabs)/talk')
+  await act(async () => {
+    Object.assign(audioMock.recorderStatus, status)
+    view.rerender(React.createElement(TalkTab))
+  })
+}
+
 describe('TalkTab cue runtime hardening', () => {
   beforeEach(() => {
     cleanup()
@@ -233,15 +244,91 @@ describe('TalkTab cue runtime hardening', () => {
     expect(audioMock.cuePlayer.play).not.toHaveBeenCalled()
   })
 
-  test('swallows cue playback and haptic failures without breaking continuous startup', async () => {
-    hapticsMock.impactAsync.mockRejectedValue(new Error('haptic unavailable'))
-    audioMock.cuePlayer.replace.mockImplementation(() => {
-      throw new Error('cue player unavailable')
-    })
+  test('uses haptics only and does not play an audio cue when entering listening', async () => {
     await renderTalkTab()
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
     await waitFor(() => expect(screen.getByText(/talk.state.listening/)).toBeTruthy())
+
+    expect(hapticsMock.impactAsync).toHaveBeenCalled()
+    expect(audioMock.cuePlayer.replace).not.toHaveBeenCalled()
+    expect(audioMock.cuePlayer.play).not.toHaveBeenCalled()
+  })
+
+  test('suppresses network audio cues while recording is active', async () => {
+    const view = await renderTalkTab()
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(screen.getByText(/talk.state.listening/)).toBeTruthy())
+    audioMock.cuePlayer.replace.mockClear()
+    audioMock.cuePlayer.play.mockClear()
+
+    runtime.state = 'disconnected'
+    const { default: TalkTab } = await import('../app/(tabs)/talk')
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(screen.getByText('talk.connectFirst')).toBeTruthy())
+
+    expect(audioMock.cuePlayer.replace).not.toHaveBeenCalled()
+    expect(audioMock.cuePlayer.play).not.toHaveBeenCalled()
+  })
+
+  test('suppresses processing audio cue until the recorder stop has completed', async () => {
+    const view = await renderTalkTab()
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(screen.getByText(/talk.state.listening/)).toBeTruthy())
+    audioMock.cuePlayer.replace.mockClear()
+    audioMock.cuePlayer.play.mockClear()
+
+    let releaseStop = () => {}
+    audioMock.recorder.stop.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseStop = () => {
+            audioMock.recorderStatus.canRecord = false
+            audioMock.recorderStatus.isRecording = false
+            audioMock.recorderStatus.url = 'file://recording.m4a'
+            resolve()
+          }
+        })
+    )
+
+    await rerenderWithRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -50 })
+    await rerenderWithRecorderStatus(view, {
+      durationMillis: 400,
+      isRecording: true,
+      metering: -25,
+    })
+    await rerenderWithRecorderStatus(view, {
+      durationMillis: 800,
+      isRecording: true,
+      metering: -50,
+    })
+    await rerenderWithRecorderStatus(view, {
+      durationMillis: 2000,
+      isRecording: true,
+      metering: -50,
+    })
+
+    await waitFor(() => expect(screen.getByText(/talk.state.processing/)).toBeTruthy())
+    expect(audioMock.recorder.stop).toHaveBeenCalled()
+    expect(audioMock.cuePlayer.replace).not.toHaveBeenCalled()
+    expect(audioMock.cuePlayer.play).not.toHaveBeenCalled()
+
+    releaseStop()
+    await act(async () => {})
+  })
+
+  test('swallows cue playback and haptic failures without breaking the UI', async () => {
+    hapticsMock.impactAsync.mockRejectedValue(new Error('haptic unavailable'))
+    audioMock.cuePlayer.replace.mockImplementation(() => {
+      throw new Error('cue player unavailable')
+    })
+    const view = await renderTalkTab()
+
+    runtime.state = 'disconnected'
+    const { default: TalkTab } = await import('../app/(tabs)/talk')
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(screen.getByText('talk.connectFirst')).toBeTruthy())
 
     expect(hapticsMock.impactAsync).toHaveBeenCalled()
     expect(audioMock.cuePlayer.replace).toHaveBeenCalled()

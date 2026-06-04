@@ -3,7 +3,7 @@ export const DEFAULT_NEURAL_VOICE_VAD_CONFIG = {
   bargeInDurationMs: 96,
   frameDurationMs: 32,
   neuralFreshnessMs: 1_000,
-  speechEndDurationMs: 900,
+  speechEndDurationMs: 1_600,
   speechEndProbability: 0.4,
   speechStartProbability: 0.7,
 } as const

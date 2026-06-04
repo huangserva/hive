@@ -61,6 +61,35 @@ describe('neural voice VAD decision logic', () => {
     expect(state.phase).toBe('listening')
   })
 
+  test('keeps natural 1.2s speaking pauses open and ends after 1.6s of low voice probability', () => {
+    let state = createInitialNeuralVoiceVadState()
+    const speechStart = applyNeuralVoiceVadProbabilitySample(state, {
+      durationMs: 32,
+      probability: 0.92,
+      timestampMs: 0,
+    })
+    state = speechStart.state
+
+    const naturalPause = applyNeuralVoiceVadProbabilitySample(state, {
+      durationMs: 1_200,
+      probability: 0.08,
+      timestampMs: 1_200,
+    })
+    state = naturalPause.state
+
+    const fullStop = applyNeuralVoiceVadProbabilitySample(state, {
+      durationMs: 400,
+      probability: 0.08,
+      timestampMs: 1_600,
+    })
+
+    expect(speechStart.event).toBe('speechStart')
+    expect(naturalPause.event).toBeNull()
+    expect(naturalPause.state.phase).toBe('capturing')
+    expect(fullStop.event).toBe('speechEnd')
+    expect(fullStop.state.phase).toBe('listening')
+  })
+
   test('does not end a segment before neural voice evidence exists', () => {
     const { events, state } = applyProbabilities(Array.from({ length: 40 }, () => 0.03))
 

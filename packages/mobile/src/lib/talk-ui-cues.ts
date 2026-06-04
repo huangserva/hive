@@ -81,8 +81,8 @@ export const resolveTalkStateCue = (
   if (next === 'error') return { audio: 'error', haptic: 'warning' }
   if (next === 'speaking') return { audio: null, haptic: 'light' }
   if (next === 'processing') return { audio: 'process', haptic: null }
-  if (previous === 'speaking' && next === 'listening') return { audio: 'listen', haptic: 'light' }
-  if (next === 'listening') return { audio: 'listen', haptic: 'light' }
+  if (previous === 'speaking' && next === 'listening') return { audio: null, haptic: 'light' }
+  if (next === 'listening') return { audio: null, haptic: 'light' }
   if (previous === 'listening' && next === 'idle') return { audio: 'exit', haptic: 'double' }
   return null
 }

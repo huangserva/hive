@@ -378,7 +378,13 @@ export default function TalkTab() {
     (cue: TalkCue | null) => {
       if (!cue) return
       if (cue.haptic) void playHapticCue(cue.haptic).catch(() => {})
-      if (cue.audio && TALK_AUDIO_CUES_ENABLED) {
+      const recordingUnsafe =
+        talkStateRef.current === 'listening' ||
+        talkStateRef.current === 'capturing' ||
+        talkStateRef.current === 'recording' ||
+        recordingActiveRef.current ||
+        processingSegmentRef.current
+      if (cue.audio && TALK_AUDIO_CUES_ENABLED && !recordingUnsafe) {
         try {
           cuePlayer.pause()
           cuePlayer.replace({ uri: TALK_CUE_AUDIO_URIS[cue.audio] })
@@ -559,13 +565,6 @@ export default function TalkTab() {
           message: sendError instanceof Error ? sendError.message : String(sendError),
           type: 'failed',
         })
-        if (
-          nextStateOnError === 'listening' &&
-          continuousEnabledRef.current &&
-          !recordingActiveRef.current
-        ) {
-          dispatchTalkEvent({ type: 'continuousStart' })
-        }
       } finally {
         processingSegmentRef.current = false
         if (
@@ -832,6 +831,10 @@ export default function TalkTab() {
     }).catch(() => {})
   }, [dispatchTalkEvent, player, resetNeuralVadDecision, resetReplyQueueForPrompt])
 
+  const exitTalkMode = useCallback(() => {
+    void stopContinuousMode()
+  }, [stopContinuousMode])
+
   const stopTalkbackPlayback = useCallback(() => {
     const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
     if (interruptedReplyId) spokenReplyIdsRef.current.add(interruptedReplyId)
@@ -1041,11 +1044,13 @@ export default function TalkTab() {
   const pushToTalkSelected = inputMode === 'push_to_talk'
   const continuousSelected = inputMode === 'continuous'
   const speaking = talkState === 'speaking'
+  const errored = talkState === 'error'
   const visual = getTalkStateVisual(talkState)
   const immersive = talkState !== 'idle'
   const disabled =
-    !connected ||
+    (!connected && !errored) ||
     (!speaking &&
+      !errored &&
       (!pushToTalkSelected ||
         talkState === 'sending' ||
         talkState === 'waiting_for_orchestrator' ||
@@ -1058,6 +1063,19 @@ export default function TalkTab() {
   return (
     <Screen>
       <View style={[styles.container, immersive && styles.containerImmersive]}>
+        {immersive ? (
+          <View style={styles.immersiveActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={exitTalkMode}
+              style={({ pressed }) => [styles.exitButton, pressed && styles.talkButtonPressed]}
+            >
+              <Ionicons color={colors.text} name="close-circle-outline" size={20} />
+              <Text style={styles.exitButtonText}>{t('talk.exitIntercom')}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
         {!immersive ? (
           <>
             <View style={styles.header}>
@@ -1134,16 +1152,24 @@ export default function TalkTab() {
             speaking ? t('talk.stopPlayback') : t('talk.button.accessibilityLabel')
           }
           accessibilityRole="button"
-          disabled={speaking ? !connected : pushToTalkSelected ? disabled : !connected}
-          onPress={
-            speaking
-              ? stopTalkbackPlayback
-              : pushToTalkSelected
-                ? undefined
-                : () => void stopContinuousMode()
+          disabled={
+            errored ? false : speaking ? !connected : pushToTalkSelected ? disabled : !connected
           }
-          onPressIn={pushToTalkSelected && !speaking ? () => void startRecording() : undefined}
-          onPressOut={pushToTalkSelected && !speaking ? () => void stopRecording() : undefined}
+          onPress={
+            errored
+              ? exitTalkMode
+              : speaking
+                ? stopTalkbackPlayback
+                : pushToTalkSelected
+                  ? undefined
+                  : () => void stopContinuousMode()
+          }
+          onPressIn={
+            pushToTalkSelected && !speaking && !errored ? () => void startRecording() : undefined
+          }
+          onPressOut={
+            pushToTalkSelected && !speaking && !errored ? () => void stopRecording() : undefined
+          }
           style={({ pressed }) => [
             styles.talkButton,
             { backgroundColor: visual.accent, borderColor: visual.soft },
@@ -1169,11 +1195,13 @@ export default function TalkTab() {
           <Text style={styles.buttonText}>
             {speaking
               ? t('talk.stopPlayback')
-              : pushToTalkSelected
-                ? talkState === 'recording'
-                  ? t('talk.button.release')
-                  : t('talk.button.hold')
-                : continuousButtonLabel}
+              : errored
+                ? t('talk.exitIntercom')
+                : pushToTalkSelected
+                  ? talkState === 'recording'
+                    ? t('talk.button.release')
+                    : t('talk.button.hold')
+                  : continuousButtonLabel}
           </Text>
         </Pressable>
       </View>
@@ -1214,8 +1242,28 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: spacing.sm,
   },
+  exitButton: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.xs,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+  },
+  exitButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
   header: {
     gap: spacing.xs,
+  },
+  immersiveActions: {
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
   kicker: {
     color: colors.accent,

@@ -28,9 +28,9 @@ describe('talk UI driving cues', () => {
     expect(TALK_STATE_VISUALS.error.accent).toBe('#F85149')
   })
 
-  test('resolves haptic and audio cues for state transitions without cueing processing haptics', () => {
+  test('resolves haptic and audio cues without playing audio when entering recording states', () => {
     expect(resolveTalkStateCue('idle', 'listening')).toEqual({
-      audio: 'listen',
+      audio: null,
       haptic: 'light',
     })
     expect(resolveTalkStateCue('capturing', 'processing')).toEqual({
@@ -42,7 +42,7 @@ describe('talk UI driving cues', () => {
       haptic: 'light',
     })
     expect(resolveTalkStateCue('speaking', 'listening')).toEqual({
-      audio: 'listen',
+      audio: null,
       haptic: 'light',
     })
     expect(resolveTalkStateCue('listening', 'idle')).toEqual({

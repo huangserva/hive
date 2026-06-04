@@ -12,7 +12,26 @@ const WEBRTC_PROJECT_DIR =
   "project(':react-native-webrtc').projectDir = new File(rootProject.projectDir, '../../../node_modules/react-native-webrtc/android')"
 const WEBRTC_APP_DEPENDENCY = "implementation project(':react-native-webrtc')"
 
-const addWebRtcPackageToMainApplication = (contents) => {
+const normalizeBooleanFlag = (value) => value === true || value === '1' || value === 'true'
+
+const resolveWebRtcNativeRegistrationEnabled = (options = {}) =>
+  normalizeBooleanFlag(options.registerNativeModule) ||
+  normalizeBooleanFlag(process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER) ||
+  normalizeBooleanFlag(process.env.WEBRTC_NATIVE_REGISTER)
+
+const removeWebRtcPackageFromMainApplication = (contents) =>
+  contents
+    .replace(
+      new RegExp(`\\n?${WEBRTC_IMPORT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`, 'g'),
+      '\n'
+    )
+    .replace(/\n\s*add\(WebRTCModulePackage\(\)\)\n/g, '\n')
+
+const addWebRtcPackageToMainApplication = (contents, options = {}) => {
+  if (!resolveWebRtcNativeRegistrationEnabled(options)) {
+    return removeWebRtcPackageFromMainApplication(contents)
+  }
+
   let nextContents = contents
 
   if (!nextContents.includes(WEBRTC_IMPORT)) {
@@ -45,9 +64,12 @@ const addWebRtcDependencyToAppBuildGradle = (contents) => {
   return contents.replace(/(dependencies\s*\{\n)/, `$1    ${WEBRTC_APP_DEPENDENCY}\n`)
 }
 
-const withWebRtcPackage = (config) => {
+const withWebRtcPackage = (config, options = {}) => {
   config = withMainApplication(config, (config) => {
-    config.modResults.contents = addWebRtcPackageToMainApplication(config.modResults.contents)
+    config.modResults.contents = addWebRtcPackageToMainApplication(
+      config.modResults.contents,
+      options
+    )
     return config
   })
 
@@ -66,3 +88,4 @@ module.exports = createRunOncePlugin(withWebRtcPackage, 'with-webrtc-package', '
 module.exports.addWebRtcDependencyToAppBuildGradle = addWebRtcDependencyToAppBuildGradle
 module.exports.addWebRtcPackageToMainApplication = addWebRtcPackageToMainApplication
 module.exports.addWebRtcProjectToSettingsGradle = addWebRtcProjectToSettingsGradle
+module.exports.resolveWebRtcNativeRegistrationEnabled = resolveWebRtcNativeRegistrationEnabled

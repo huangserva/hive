@@ -25,7 +25,7 @@ const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '2.7.1',
+  version: '2.7.4',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',
@@ -85,7 +85,13 @@ const config: ExpoConfigWithSplash = {
       },
     ],
     './plugins/with-onnxruntime-package',
-    './plugins/with-webrtc-package',
+    [
+      './plugins/with-webrtc-package',
+      {
+        registerNativeModule:
+          process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER ?? process.env.WEBRTC_NATIVE_REGISTER,
+      },
+    ],
   ],
   splash: {
     backgroundColor: '#0D1117',
@@ -102,6 +108,8 @@ const config: ExpoConfigWithSplash = {
       process.env.EXPO_PUBLIC_NEURAL_VAD_PCM_PROBE ?? process.env.NEURAL_VAD_PCM_PROBE,
     neuralVadShadow: process.env.EXPO_PUBLIC_NEURAL_VAD_SHADOW ?? process.env.NEURAL_VAD_SHADOW,
     webRtcProbe: process.env.EXPO_PUBLIC_WEBRTC_PROBE ?? process.env.WEBRTC_PROBE,
+    webRtcNativeRegister:
+      process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER ?? process.env.WEBRTC_NATIVE_REGISTER,
     eas: {
       projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
     },

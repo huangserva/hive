@@ -344,7 +344,7 @@ describe('TalkTab continuous mode behavior', () => {
     runtime.transcribeVoice = vi.fn().mockResolvedValue('turn on diagnostics')
   })
 
-  test('reopens the microphone after a continuous segment fails to transcribe', async () => {
+  test('stops continuous recording after a failed segment and exposes an exit action', async () => {
     runtime.transcribeVoice = vi.fn().mockRejectedValue(new Error('stt failed'))
     const view = render(React.createElement(TalkTab))
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -352,9 +352,16 @@ describe('TalkTab continuous mode behavior', () => {
 
     await finishCurrentPhrase(view)
 
-    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByText('stt failed')).toBeTruthy())
+    const exitButtons = screen.getAllByText('talk.exitIntercom')
+    expect(exitButtons.length).toBeGreaterThan(0)
     expect(audioMock.recorder.stop).toHaveBeenCalled()
-    expect(audioMock.recorder.record).toHaveBeenCalledTimes(2)
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(exitButtons[0])
+    expect(screen.getByText('talk.mode.continuous')).toBeTruthy()
+    expect(screen.getByText('talk.button.hold')).toBeTruthy()
   })
 
   test('does not render internal voice stream test controls in the production talk UI', () => {
@@ -429,7 +436,7 @@ describe('TalkTab continuous mode behavior', () => {
     await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -20 })
     await emitNeuralVadProbabilities(
       view,
-      Array.from({ length: 30 }, () => 0.04)
+      Array.from({ length: 51 }, () => 0.04)
     )
 
     await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
@@ -453,7 +460,7 @@ describe('TalkTab continuous mode behavior', () => {
     await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -20 })
     await emitNeuralVadProbabilities(
       view,
-      Array.from({ length: 30 }, () => 0.45)
+      Array.from({ length: 51 }, () => 0.45)
     )
 
     await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))

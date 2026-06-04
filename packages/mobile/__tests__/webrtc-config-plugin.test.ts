@@ -43,9 +43,29 @@ dependencies {
 }
 `
 
+const registeredMainApplication = addWebRtcPackageToMainApplication(mainApplication, {
+  registerNativeModule: true,
+})
+
 describe('with-webrtc-package config plugin', () => {
-  test('adds WebRTC import and package registration to MainApplication.kt', () => {
+  test('does not register WebRTCModulePackage by default so app startup does not initialize WebRTC audio', () => {
     const result = addWebRtcPackageToMainApplication(mainApplication)
+
+    expect(result).not.toContain('import com.oney.WebRTCModule.WebRTCModulePackage')
+    expect(result).not.toContain('add(WebRTCModulePackage())')
+  })
+
+  test('removes a stale WebRTCModulePackage registration when native registration is disabled', () => {
+    const result = addWebRtcPackageToMainApplication(registeredMainApplication)
+
+    expect(result).not.toContain('import com.oney.WebRTCModule.WebRTCModulePackage')
+    expect(result).not.toContain('add(WebRTCModulePackage())')
+  })
+
+  test('adds WebRTC import and package registration only when explicitly enabled', () => {
+    const result = addWebRtcPackageToMainApplication(mainApplication, {
+      registerNativeModule: true,
+    })
 
     expect(result).toContain('import com.oney.WebRTCModule.WebRTCModulePackage')
     expect(result).toContain('add(WebRTCModulePackage())')
@@ -55,8 +75,8 @@ describe('with-webrtc-package config plugin', () => {
   })
 
   test('is idempotent when prebuild runs more than once', () => {
-    const once = addWebRtcPackageToMainApplication(mainApplication)
-    const twice = addWebRtcPackageToMainApplication(once)
+    const once = addWebRtcPackageToMainApplication(mainApplication, { registerNativeModule: true })
+    const twice = addWebRtcPackageToMainApplication(once, { registerNativeModule: true })
 
     expect(twice.match(/import com\.oney\.WebRTCModule\.WebRTCModulePackage/g)).toHaveLength(1)
     expect(twice.match(/add\(WebRTCModulePackage\(\)\)/g)).toHaveLength(1)
