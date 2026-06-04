@@ -925,7 +925,7 @@ describe('TalkTab continuous mode behavior', () => {
       })
     )
 
-    fireEvent.click(screen.getByText('talk.continuous.stop'))
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
     await act(async () => {
       synthesized.resolve({ audio: 'stale-audio', format: 'wav', mime: 'audio/wav' })
       await synthesized.promise
@@ -970,5 +970,45 @@ describe('TalkTab continuous mode behavior', () => {
       uri: 'data:audio/wav;base64,fallback-audio',
     })
     expect(audioMock.player.play).toHaveBeenCalled()
+  })
+
+  test('stops active talkback playback without replaying the same reply', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.mouseDown(screen.getByText('talk.button.hold'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    fireEvent.mouseUp(screen.getByText('talk.button.release'))
+    await waitFor(() => expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalled())
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'long reply that needs manual stop' }),
+        created_at: 2,
+        id: 'manual-stop-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() =>
+      expect(runtime.synthesizeVoiceStream).toHaveBeenCalledWith(
+        'long reply that needs manual stop',
+        {
+          voice: 'zh-CN-YunxiNeural',
+        }
+      )
+    )
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
+    audioMock.player.pause.mockClear()
+
+    fireEvent.click(screen.getByText('talk.stopPlayback'))
+    await flush()
+    view.rerender(React.createElement(TalkTab))
+    await flush()
+
+    expect(audioMock.player.pause).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('talk.state.idle')).toBeTruthy()
+    expect(runtime.synthesizeVoiceStream).toHaveBeenCalledTimes(1)
+    expect(audioMock.player.play).toHaveBeenCalledTimes(1)
   })
 })

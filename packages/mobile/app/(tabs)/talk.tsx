@@ -553,6 +553,28 @@ export default function TalkTab() {
     }).catch(() => {})
   }, [dispatchTalkEvent, player, resetReplyQueueForPrompt])
 
+  const stopTalkbackPlayback = useCallback(() => {
+    const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
+    if (interruptedReplyId) spokenReplyIdsRef.current.add(interruptedReplyId)
+    for (const reply of listPendingTalkbackReplies({
+      activePlaybackReplyId: null,
+      baselineReplyIds: promptBaselineReplyIdsRef.current,
+      enabled: true,
+      inFlightReplyId: null,
+      messages: chatMessagesRef.current,
+      spokenReplyIds: spokenReplyIdsRef.current,
+    })) {
+      spokenReplyIdsRef.current.add(reply.id)
+    }
+    resetReplyQueueForPrompt()
+    player.pause()
+    const continueListening = inputModeRef.current === 'continuous' && continuousEnabledRef.current
+    dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
+    if (continueListening && !recordingActiveRef.current && !processingSegmentRef.current) {
+      setContinuousRunnerTick((current) => current + 1)
+    }
+  }, [dispatchTalkEvent, player, resetReplyQueueForPrompt])
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: continuousRunnerTick intentionally wakes this ref-based microphone runner after async failures clear processingSegmentRef.
   useEffect(() => {
     if (
@@ -738,13 +760,14 @@ export default function TalkTab() {
 
   const pushToTalkSelected = inputMode === 'push_to_talk'
   const continuousSelected = inputMode === 'continuous'
+  const speaking = talkState === 'speaking'
   const disabled =
     !connected ||
-    !pushToTalkSelected ||
-    talkState === 'sending' ||
-    talkState === 'waiting_for_orchestrator' ||
-    talkState === 'processing' ||
-    talkState === 'speaking'
+    (!speaking &&
+      (!pushToTalkSelected ||
+        talkState === 'sending' ||
+        talkState === 'waiting_for_orchestrator' ||
+        talkState === 'processing'))
   const statusLabel = t(`talk.state.${talkState}`)
   const continuousButtonLabel = continuousSelected
     ? t('talk.continuous.stop')
@@ -815,24 +838,35 @@ export default function TalkTab() {
         </View>
 
         <Pressable
-          accessibilityLabel={t('talk.button.accessibilityLabel')}
+          accessibilityLabel={
+            speaking ? t('talk.stopPlayback') : t('talk.button.accessibilityLabel')
+          }
           accessibilityRole="button"
-          disabled={pushToTalkSelected ? disabled : !connected}
-          onPress={pushToTalkSelected ? undefined : () => void stopContinuousMode()}
-          onPressIn={pushToTalkSelected ? () => void startRecording() : undefined}
-          onPressOut={pushToTalkSelected ? () => void stopRecording() : undefined}
+          disabled={speaking ? !connected : pushToTalkSelected ? disabled : !connected}
+          onPress={
+            speaking
+              ? stopTalkbackPlayback
+              : pushToTalkSelected
+                ? undefined
+                : () => void stopContinuousMode()
+          }
+          onPressIn={pushToTalkSelected && !speaking ? () => void startRecording() : undefined}
+          onPressOut={pushToTalkSelected && !speaking ? () => void stopRecording() : undefined}
           style={({ pressed }) => [
             styles.talkButton,
             (talkState === 'recording' || talkState === 'capturing') && styles.talkButtonRecording,
+            speaking && styles.talkButtonRecording,
             talkState === 'listening' && styles.talkButtonListening,
-            (pushToTalkSelected ? disabled : !connected) && styles.talkButtonDisabled,
+            (speaking ? !connected : pushToTalkSelected ? disabled : !connected) &&
+              styles.talkButtonDisabled,
             pressed && styles.talkButtonPressed,
           ]}
         >
-          {talkState === 'sending' ||
-          talkState === 'waiting_for_orchestrator' ||
-          talkState === 'processing' ||
-          talkState === 'speaking' ? (
+          {speaking ? (
+            <Ionicons color={colors.text} name="stop-circle-outline" size={48} />
+          ) : talkState === 'sending' ||
+            talkState === 'waiting_for_orchestrator' ||
+            talkState === 'processing' ? (
             <ActivityIndicator color={colors.text} />
           ) : (
             <Ionicons
@@ -842,11 +876,13 @@ export default function TalkTab() {
             />
           )}
           <Text style={styles.buttonText}>
-            {pushToTalkSelected
-              ? talkState === 'recording'
-                ? t('talk.button.release')
-                : t('talk.button.hold')
-              : continuousButtonLabel}
+            {speaking
+              ? t('talk.stopPlayback')
+              : pushToTalkSelected
+                ? talkState === 'recording'
+                  ? t('talk.button.release')
+                  : t('talk.button.hold')
+                : continuousButtonLabel}
           </Text>
         </Pressable>
       </View>

@@ -384,6 +384,7 @@ const en = {
   'talk.state.sending': 'Sending',
   'talk.state.speaking': 'Speaking reply',
   'talk.state.waiting_for_orchestrator': 'Waiting for Orchestrator',
+  'talk.stopPlayback': 'Stop playback',
   'talk.subtitle':
     'Hold the button, say one instruction, then release. HippoTeam will transcribe it, send it to Orchestrator, and read the next reply aloud.',
   'talk.title': 'Talk Mode',
@@ -753,6 +754,7 @@ const zh: Record<keyof typeof en, string> = {
   'talk.state.sending': '发送中',
   'talk.state.speaking': '念回中',
   'talk.state.waiting_for_orchestrator': '等待 Orchestrator',
+  'talk.stopPlayback': '停止播放',
   'talk.subtitle':
     '按住按钮说一句指令，松开后自动转写、发送给 Orchestrator，并把下一条回复念出来。',
   'talk.title': '对讲模式',
