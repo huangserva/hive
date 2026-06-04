@@ -25,7 +25,7 @@ const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '2.6.14',
+  version: '2.6.15',
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',
@@ -84,6 +84,7 @@ const config: ExpoConfigWithSplash = {
         },
       },
     ],
+    './plugins/with-onnxruntime-package',
   ],
   splash: {
     backgroundColor: '#0D1117',
