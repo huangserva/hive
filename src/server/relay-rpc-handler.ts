@@ -5,6 +5,7 @@ import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import {
+  appendFastReplyCoordination,
   type FastVoiceReplyProvider,
   maybeInsertFastVoiceReplyWithGatekeeper,
 } from './fast-voice-reply.js'
@@ -285,12 +286,6 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
-      deps.store.insertMobileChatMessage(
-        workspaceId,
-        'inbound',
-        'user_text',
-        JSON.stringify(source === 'voice' ? { source, text } : { text })
-      )
       const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
         ...(deps.fastVoiceReplyProvider ? { provider: deps.fastVoiceReplyProvider } : {}),
         source,
@@ -298,16 +293,33 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         text,
         workspaceId,
       })
+      if (source === 'voice' && uploadPaths.length === 0 && fastReply.gatekeeper === 'drop') {
+        return { ok: true, workspace_id: workspaceId }
+      }
+      deps.store.insertMobileChatMessage(
+        workspaceId,
+        'inbound',
+        'user_text',
+        JSON.stringify(source === 'voice' ? { source, text } : { text })
+      )
       const gatekeeperHandled =
         isGlmGatekeeperEnabled() &&
         source === 'voice' &&
         uploadPaths.length === 0 &&
         fastReply.gatekeeper === 'handled' &&
         fastReply.reply !== null
+      const promptForOrchestrator =
+        isGlmGatekeeperEnabled() &&
+        source === 'voice' &&
+        uploadPaths.length === 0 &&
+        fastReply.gatekeeper === 'escalate' &&
+        fastReply.reply !== null
+          ? appendFastReplyCoordination(formatted, fastReply.reply)
+          : formatted
       if (gatekeeperHandled) {
         deps.store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
       } else {
-        deps.store.recordUserInput(workspaceId, orchId, formatted)
+        deps.store.recordUserInput(workspaceId, orchId, promptForOrchestrator)
       }
       return { ok: true, workspace_id: workspaceId }
     }

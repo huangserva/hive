@@ -1108,11 +1108,75 @@ describe('mobile API', () => {
               server.store.getActiveRunByAgentId(workspace.id, orchestratorId)?.output
             ).toContain('让关羽修一下对讲')
           })
+          const output = server.store.getActiveRunByAgentId(workspace.id, orchestratorId)?.output
+          expect(output).toContain('GLM 已经对用户回复了:"好，我让 orchestrator 去办。"')
+          expect(output).toContain('绝不重复')
+          expect(output).toContain('无需补充')
+          const fastReply = server.store
+            .listMobileChatMessages(workspace.id)
+            .find((message) => message.direction === 'outbound')
+          expect(fastReply?.message_type).toBe('orch_reply')
+          expect(JSON.parse(String(fastReply?.content_json))).toMatchObject({
+            fast_reply: true,
+            gatekeeper: 'escalate',
+            source: 'voice_fast_reply',
+            text: '好，我让 orchestrator 去办。',
+          })
         } finally {
           await server.close()
         }
       }
     )
+  })
+
+  test('GLM gatekeeper drops team-name prompt echo noise over LAN without GLM or orchestrator', async () => {
+    await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n我在。', async () => {
+      vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+      const workspacePath = createWorkspaceFixture()
+      const server = await startTestServer()
+      try {
+        const workspace = server.store.createWorkspace(workspacePath, 'Mobile Gatekeeper Noise')
+        const orchestratorId = `${workspace.id}:orchestrator`
+        const orchScript = join(workspacePath, 'orch-gatekeeper-noise-echo.js')
+        writeFileSync(
+          orchScript,
+          [
+            "process.stdin.setEncoding('utf8')",
+            "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+          ].join('\n'),
+          'utf8'
+        )
+        server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+          args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+          command: '/bin/bash',
+        })
+        await server.store.startAgent(workspace.id, orchestratorId, { hivePort: '4010' })
+        const device = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Phone A')
+
+        const prompt = await fetch(
+          `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/prompt`,
+          {
+            body: JSON.stringify({
+              source: 'voice',
+              text: '团队成员：关羽、马超、赵云、钟馗、吕布',
+            }),
+            headers: jsonHeaders({ host: '192.168.1.44:4010', token: device.token }),
+            method: 'POST',
+          }
+        )
+
+        expect(prompt.status).toBe(200)
+        expect(await prompt.json()).toEqual({ ok: true, workspace_id: workspace.id })
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(
+          server.store.getActiveRunByAgentId(workspace.id, orchestratorId)?.output
+        ).not.toContain('团队成员')
+        expect(server.store.listMobileChatMessages(workspace.id)).toEqual([])
+        expect(server.store.listMessagesForRecovery(workspace.id, 0)).toEqual([])
+      } finally {
+        await server.close()
+      }
+    })
   })
 
   test('GLM gatekeeper forwards handled prompts over LAN when fast reply insert fails', async () => {

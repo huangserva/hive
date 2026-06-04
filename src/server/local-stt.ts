@@ -207,7 +207,7 @@ const isTeamNamePromptEcho = (normalized: string) => {
   return residual.length <= MAX_PROMPT_ECHO_RESIDUAL_CHARS
 }
 
-const isDefaultPromptEcho = (text: string) => {
+export const isDefaultPromptEcho = (text: string) => {
   const normalized = normalizeTranscriptForPromptEcho(text)
   if (normalized.length < MIN_PROMPT_ECHO_CHARS) return false
   const normalizedPrompt = normalizeTranscriptForPromptEcho(DEFAULT_STT_PROMPT)

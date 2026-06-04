@@ -661,11 +661,10 @@ describe('relay RPC handler', () => {
       )
     ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
 
-    expect(store.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n让关羽汇报'
-    )
+    const injected = store.recordUserInput.mock.calls[0]?.[2]
+    expect(injected).toContain('[来自手机 Mobile App]\n---\n让关羽汇报')
+    expect(injected).toContain('GLM 已经对用户回复了:"好，我先安排。"')
+    expect(injected).toContain('绝不重复')
     expect(fastVoiceReplyProvider.generate).toHaveBeenCalledWith(
       expect.objectContaining({ transcript: '让关羽汇报' })
     )
@@ -798,11 +797,50 @@ describe('relay RPC handler', () => {
       )
     ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
 
-    expect(store.recordUserInput).toHaveBeenCalledWith(
+    const injected = store.recordUserInput.mock.calls[0]?.[2]
+    expect(injected).toContain('[来自手机 Mobile App]\n---\n让关羽修一下对讲')
+    expect(injected).toContain('GLM 已经对用户回复了:"好，我让 orchestrator 去办。"')
+    expect(injected).toContain('绝不重复')
+    expect(injected).toContain('无需补充')
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
       'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n让关羽修一下对讲'
+      'outbound',
+      'orch_reply',
+      JSON.stringify({
+        fast_reply: true,
+        gatekeeper: 'escalate',
+        source: 'voice_fast_reply',
+        text: '好，我让 orchestrator 去办。',
+      })
     )
+  })
+
+  it('drops team-name prompt echo noise before GLM or orchestrator over relay', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我在。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '团队成员：关羽、马超、赵云、钟馗、吕布', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(fastVoiceReplyProvider.generate).not.toHaveBeenCalled()
+    expect(store.recordUserInput).not.toHaveBeenCalled()
+    expect(store.insertMobileChatMessage).not.toHaveBeenCalled()
   })
 
   it('defaults to orchestrator injection when GLM gatekeeper fails or returns an unclear marker', async () => {
@@ -826,11 +864,10 @@ describe('relay RPC handler', () => {
         ['send_prompt']
       )
     ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
-    expect(unclearStore.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n现在进度怎么样'
-    )
+    const unclearInjected = unclearStore.recordUserInput.mock.calls[0]?.[2]
+    expect(unclearInjected).toContain('[来自手机 Mobile App]\n---\n现在进度怎么样')
+    expect(unclearInjected).toContain('GLM 已经对用户回复了:"这个问题我可以答。"')
+    expect(unclearInjected).toContain('绝不重复')
 
     const failedStore = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -853,11 +890,10 @@ describe('relay RPC handler', () => {
         ['send_prompt']
       )
     ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
-    expect(failedStore.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n现在进度怎么样'
-    )
+    const failedInjected = failedStore.recordUserInput.mock.calls[0]?.[2]
+    expect(failedInjected).toContain('[来自手机 Mobile App]\n---\n现在进度怎么样')
+    expect(failedInjected).toContain('GLM 已经对用户回复了:')
+    expect(failedInjected).toContain('绝不重复')
   })
 
   it('injects all prompts when the GLM gatekeeper feature flag is disabled', async () => {

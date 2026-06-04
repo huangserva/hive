@@ -1,3 +1,5 @@
+import { isDefaultPromptEcho } from './local-stt.js'
+
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
 export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
 export const GLM_FAST_VOICE_REPLY_BASE_URL = 'https://open.bigmodel.cn/api/coding/paas/v4'
@@ -12,9 +14,10 @@ const FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT = 240
 const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
 
 const FAST_VOICE_REPLY_SYSTEM_PROMPT =
-  '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确。你只读、不下指令、不执行任务、不派工、不声称已经完成；涉及派 worker、改代码、部署、重启或真实操作时，只确认“好，我让 orchestrator 去办”，最终结果由 orchestrator 回复。\n\n输出第一行必须是门卫标记：`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。只有你能完整回答且不需要任何真实操作时才用 handled；任何不确定、带派工/改代码/部署/重启/执行动作意味的请求必须用 escalate。第二行开始输出给用户听的短回复。'
+  '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确，不说套话。你只读、不下指令、不执行任务、不派工、不声称已经完成；涉及派 worker、改代码、部署、重启或真实操作时，只给用户一句极短交接话，例如“收到，我让 orchestrator 处理。”，最终补充由 orchestrator 回复。\n\n输出第一行必须是门卫标记：`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。只有你能完整回答且不需要任何真实操作时才用 handled；任何不确定、带派工/改代码/部署/重启/执行动作意味的请求必须用 escalate。第二行开始输出给用户听的短回复。'
 
 export type FastVoiceReplyGatekeeperVerdict = 'handled' | 'escalate'
+export type FastVoiceReplyDisposition = FastVoiceReplyGatekeeperVerdict | 'drop'
 
 export type FastVoiceReplyHistoryItem = {
   role: 'assistant' | 'user'
@@ -30,7 +33,7 @@ export type FastVoiceReplyProvider = {
 }
 
 export type FastVoiceReplyResult = {
-  gatekeeper: FastVoiceReplyGatekeeperVerdict
+  gatekeeper: FastVoiceReplyDisposition
   reply: string | null
 }
 
@@ -128,6 +131,11 @@ const pickFallbackReply = (transcript: string) => {
   const normalized = transcript.trim()
   const index = normalized.length % FAST_VOICE_REPLY_FALLBACK_TEXTS.length
   return FAST_VOICE_REPLY_FALLBACK_TEXTS[index] ?? FAST_VOICE_REPLY_FALLBACK_TEXTS[0]
+}
+
+export const appendFastReplyCoordination = (formattedPrompt: string, fastReplyText: string) => {
+  const reply = fastReplyText.replace(/"/g, '\\"')
+  return `${formattedPrompt}\n\n[协调] GLM 已经对用户回复了:"${reply}"。用户已听到这句。你只需补充 GLM 没回答到的、或需要你实际查证/操作的部分。简洁扼要，绝不重复 GLM 已说的内容。若 GLM 已充分回答，你可以回复“无需补充”，不要再展开。`
 }
 
 const buildSystemPrompt = (statusContext?: string) => {
@@ -477,6 +485,7 @@ export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
   workspaceId: string
 }): Promise<FastVoiceReplyResult> => {
   if (source !== 'voice') return { gatekeeper: 'escalate', reply: null }
+  if (isDefaultPromptEcho(text)) return { gatekeeper: 'drop', reply: null }
   const history = readFastVoiceReplyHistory({ store, transcript: text, workspaceId })
   const statusContext = readFastVoiceReplyStatusContext({ store, workspaceId })
   try {

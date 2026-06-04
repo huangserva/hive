@@ -8,6 +8,7 @@ import {
   GLM_FAST_VOICE_REPLY_BASE_URL,
   GLM_FAST_VOICE_REPLY_MODEL,
   maybeInsertFastVoiceReply,
+  maybeInsertFastVoiceReplyWithGatekeeper,
   normalizeFastVoiceReply,
 } from '../../src/server/fast-voice-reply.js'
 
@@ -286,6 +287,82 @@ describe('fast voice reply', () => {
         workspaceId: 'ws-1',
       })
     ).resolves.toBeNull()
+  })
+
+  it('keeps the GLM voice reply when gatekeeper escalates to orchestrator', async () => {
+    const store = { insertMobileChatMessage: vi.fn() }
+    const provider = {
+      generate: vi
+        .fn()
+        .mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n好，我让 orchestrator 去办。'),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReplyWithGatekeeper({
+        provider,
+        source: 'voice',
+        store,
+        text: '让关羽修一下对讲',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toEqual({ gatekeeper: 'escalate', reply: '好，我让 orchestrator 去办。' })
+
+    expect(provider.generate).toHaveBeenCalled()
+    expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
+      'ws-1',
+      'outbound',
+      'orch_reply',
+      JSON.stringify({
+        fast_reply: true,
+        gatekeeper: 'escalate',
+        source: 'voice_fast_reply',
+        text: '好，我让 orchestrator 去办。',
+      })
+    )
+  })
+
+  it('drops team-name prompt echo noise before calling the fast voice model', async () => {
+    const store = { insertMobileChatMessage: vi.fn() }
+    const provider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我在。'),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReplyWithGatekeeper({
+        provider,
+        source: 'voice',
+        store,
+        text: '团队成员：关羽、马超、赵云、钟馗、吕布',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toEqual({ gatekeeper: 'drop', reply: null })
+
+    expect(provider.generate).not.toHaveBeenCalled()
+    expect(store.insertMobileChatMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps real team-name commands with action words on the orchestrator path', async () => {
+    const store = { insertMobileChatMessage: vi.fn() }
+    const provider = {
+      generate: vi
+        .fn()
+        .mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n好，我让 orchestrator 去办。'),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReplyWithGatekeeper({
+        provider,
+        source: 'voice',
+        store,
+        text: '关羽张飞钟馗重启',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toEqual({ gatekeeper: 'escalate', reply: '好，我让 orchestrator 去办。' })
+
+    expect(provider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: '关羽张飞钟馗重启' })
+    )
+    expect(store.insertMobileChatMessage).toHaveBeenCalled()
   })
 
   it('does not reject when provider and fallback insertion both fail', async () => {

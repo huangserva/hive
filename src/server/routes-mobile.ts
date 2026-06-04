@@ -16,7 +16,10 @@ import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
-import { maybeInsertFastVoiceReplyWithGatekeeper } from './fast-voice-reply.js'
+import {
+  appendFastReplyCoordination,
+  maybeInsertFastVoiceReplyWithGatekeeper,
+} from './fast-voice-reply.js'
 import type { ResolvedApproval } from './feishu-approval-ledger.js'
 import { BadRequestError, NotFoundError } from './http-errors.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
@@ -761,28 +764,40 @@ export const mobileRoutes: RouteDefinition[] = [
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
-      store.insertMobileChatMessage(
-        workspaceId,
-        'inbound',
-        'user_text',
-        JSON.stringify(source === 'voice' ? { source, text } : { text })
-      )
       const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
         source,
         store,
         text,
         workspaceId,
       })
+      if (source === 'voice' && uploadPaths.length === 0 && fastReply.gatekeeper === 'drop') {
+        sendJson(response, 200, { ok: true, workspace_id: workspaceId })
+        return
+      }
+      store.insertMobileChatMessage(
+        workspaceId,
+        'inbound',
+        'user_text',
+        JSON.stringify(source === 'voice' ? { source, text } : { text })
+      )
       const gatekeeperHandled =
         isGlmGatekeeperEnabled() &&
         source === 'voice' &&
         uploadPaths.length === 0 &&
         fastReply.gatekeeper === 'handled' &&
         fastReply.reply !== null
+      const promptForOrchestrator =
+        isGlmGatekeeperEnabled() &&
+        source === 'voice' &&
+        uploadPaths.length === 0 &&
+        fastReply.gatekeeper === 'escalate' &&
+        fastReply.reply !== null
+          ? appendFastReplyCoordination(formatted, fastReply.reply)
+          : formatted
       if (gatekeeperHandled) {
         store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
       } else {
-        store.recordUserInput(workspaceId, orchId, formatted)
+        store.recordUserInput(workspaceId, orchId, promptForOrchestrator)
       }
       sendJson(response, 200, { ok: true, workspace_id: workspaceId })
     }
