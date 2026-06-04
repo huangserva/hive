@@ -7,6 +7,7 @@ import {
 
 const SILERO_SAMPLE_RATE = 16_000
 const SILERO_RECURRENT_STATE_FLOAT_COUNT = 2 * 1 * 128
+const ONNX_RUNTIME_NATIVE_MODULE_NAME = 'Onnxruntime'
 
 type OrtTensor = { data: unknown }
 type OrtOutputTensor = OrtTensor
@@ -34,9 +35,14 @@ export type SileroVadShadowScorer = {
 }
 
 type SileroVadShadowScorerOptions = {
+  hasNativeOrtModule?: () => boolean | Promise<boolean>
   loadModelUri?: () => Promise<string>
   loadOrt?: () => Promise<unknown>
   logScoreFailed?: (message: string) => void
+}
+
+type ReactNativeRuntime = {
+  NativeModules?: Record<string, unknown>
 }
 
 const loadBundledSileroModelUri = async () => {
@@ -72,6 +78,15 @@ const findRecurrentStateOutput = (outputs: Record<string, OrtOutputTensor>) => {
 
 const defaultLoadOrt = async () => import(/* @vite-ignore */ 'onnxruntime-react-native')
 
+const defaultHasNativeOrtModule = async () => {
+  try {
+    const reactNative = (await import(/* @vite-ignore */ 'react-native')) as ReactNativeRuntime
+    return Boolean(reactNative.NativeModules?.[ONNX_RUNTIME_NATIVE_MODULE_NAME])
+  } catch {
+    return false
+  }
+}
+
 const defaultLogScoreFailed = (message: string) => {
   console.warn(message)
 }
@@ -93,6 +108,7 @@ const isOrtRuntime = (value: unknown): value is OrtRuntime => {
 export const createSileroVadShadowScorer = (
   options: SileroVadShadowScorerOptions = {}
 ): SileroVadShadowScorer => {
+  const hasNativeOrtModule = options.hasNativeOrtModule ?? defaultHasNativeOrtModule
   const loadModelUri = options.loadModelUri ?? loadBundledSileroModelUri
   const loadOrtModule = options.loadOrt ?? defaultLoadOrt
   const logScoreFailed = options.logScoreFailed ?? defaultLogScoreFailed
@@ -103,19 +119,22 @@ export const createSileroVadShadowScorer = (
   let disabled = false
   let scoreFailedLogged = false
 
-  const disableAfterFailure = (error: unknown) => {
+  const disableAfterFailure = (error: unknown, code = 'score_failed') => {
     disabled = true
     ortModulePromise = null
     sessionPromise = null
     if (!scoreFailedLogged) {
       scoreFailedLogged = true
-      logScoreFailed(`[SILERODBG] score_failed ${describeError(error)}`)
+      logScoreFailed(`[SILERODBG] ${code} ${describeError(error)}`)
     }
     return null
   }
 
   const loadOrt = () => {
     ortModulePromise ??= (async () => {
+      if (!(await hasNativeOrtModule())) {
+        throw new Error(`${ONNX_RUNTIME_NATIVE_MODULE_NAME} native module is unavailable`)
+      }
       const ort = await loadOrtModule()
       if (!isOrtRuntime(ort)) {
         throw new Error('onnxruntime-react-native module is unavailable')
@@ -156,7 +175,13 @@ export const createSileroVadShadowScorer = (
         recurrentState = nextRecurrentState.slice()
         return probability
       } catch (error) {
-        return disableAfterFailure(error)
+        const errorMessage = describeError(error)
+        const code = errorMessage.includes(
+          `${ONNX_RUNTIME_NATIVE_MODULE_NAME} native module is unavailable`
+        )
+          ? 'neural_unavailable'
+          : 'score_failed'
+        return disableAfterFailure(error, code)
       }
     },
   }

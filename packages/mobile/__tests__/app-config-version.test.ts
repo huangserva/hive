@@ -4,7 +4,7 @@ describe('mobile app config version', () => {
   test('matches the current release version shown in Settings', async () => {
     const { default: config } = await import('../app.config')
 
-    expect(config.version).toBe('2.6.12')
+    expect(config.version).toBe('2.6.14')
   })
 
   test('injects neural VAD flags into Expo extra from build env', async () => {
