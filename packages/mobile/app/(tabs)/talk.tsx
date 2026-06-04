@@ -32,6 +32,13 @@ import {
   resolveNeuralVadShadowEnabled,
 } from '../../src/lib/neural-vad-pcm-probe'
 import {
+  applyNeuralVoiceVadProbabilitySample,
+  buildNeuralVoiceVadDebugLine,
+  createInitialNeuralVoiceVadState,
+  type NeuralVoiceVadState,
+  shouldUseVolumeVadFallback,
+} from '../../src/lib/neural-voice-vad'
+import {
   listPendingTalkbackReplies,
   reduceTalkbackState,
   runTalkbackInput,
@@ -60,6 +67,7 @@ const BARGE_IN_VAD_CONFIG = {
   startupSpeechThresholdDb: -26,
 }
 const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
+const BARGE_IN_METERING_FRESHNESS_MS = 500
 
 const isTalkbackBargeInAndroidEnabled = () =>
   process.env.EXPO_PUBLIC_TALKBACK_BARGE_IN_ENABLED !== '0' && Platform.OS === 'android'
@@ -88,10 +96,19 @@ const isRecorderPrepared = (status: RecorderState) => status.canRecord || status
 
 function NeuralVadPcmProbe({
   active,
+  onScore,
   pcmLogEnabled,
   shadowEnabled,
 }: {
   active: boolean
+  onScore?: (result: {
+    durationMs: number
+    frameIndex: number
+    probability: number
+    rms: number
+    sampleRate: number
+    timestampMs: number
+  }) => void
   pcmLogEnabled: boolean
   shadowEnabled: boolean
 }) {
@@ -130,6 +147,14 @@ function NeuralVadPcmProbe({
                   sampleRate: buffer.sampleRate,
                 })
               )
+              onScore?.({
+                durationMs: 32,
+                frameIndex: frame.index,
+                probability,
+                rms: frame.rms,
+                sampleRate: buffer.sampleRate,
+                timestampMs: Date.now(),
+              })
             }
           }
         })
@@ -142,7 +167,7 @@ function NeuralVadPcmProbe({
           }
         })
     },
-    [pcmLogEnabled, shadowEnabled]
+    [onScore, pcmLogEnabled, shadowEnabled]
   )
   const { stream } = useAudioStream({
     channels: 1,
@@ -188,6 +213,8 @@ export default function TalkTab() {
   const [error, setError] = useState<string | null>(null)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
+  const neuralVadPcmProbeEnabled = isNeuralVadPcmProbeEnabled()
+  const neuralVadShadowEnabled = isNeuralVadShadowEnabled()
   const recordingOptions = useMemo(
     () => ({
       ...RecordingPresets.HIGH_QUALITY,
@@ -210,6 +237,10 @@ export default function TalkTab() {
   const continuousEnabledRef = useRef(false)
   const processingSegmentRef = useRef(false)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
+  const neuralVadStateRef = useRef<NeuralVoiceVadState>(createInitialNeuralVoiceVadState())
+  const latestNeuralSampleAtMsRef = useRef<number | null>(null)
+  const latestMeteringRef = useRef<number | null>(null)
+  const latestMeteringAtMsRef = useRef<number | null>(null)
   const bargeInSpeechStartSampleCountRef = useRef(0)
   const recorderRef = useRef<AudioRecorder>(recorder)
   const recordingActiveRef = useRef(false)
@@ -287,6 +318,29 @@ export default function TalkTab() {
       continuousEnabledRef.current,
     []
   )
+
+  const resetNeuralVadDecision = useCallback(() => {
+    neuralVadStateRef.current = createInitialNeuralVoiceVadState()
+    latestNeuralSampleAtMsRef.current = null
+  }, [])
+
+  const isNeuralBargeInMeteringAllowed = useCallback((nowMs: number) => {
+    const metering = latestMeteringRef.current
+    const latestMeteringAtMs = latestMeteringAtMsRef.current
+    if (
+      metering === null ||
+      latestMeteringAtMs === null ||
+      nowMs - latestMeteringAtMs > BARGE_IN_METERING_FRESHNESS_MS
+    ) {
+      return false
+    }
+    const noiseFloorDb = vadStateRef.current.noiseFloorDb
+    return (
+      metering >= BARGE_IN_VAD_CONFIG.startupSpeechThresholdDb ||
+      (typeof noiseFloorDb === 'number' &&
+        metering >= noiseFloorDb + BARGE_IN_VAD_CONFIG.speechMarginDb)
+    )
+  }, [])
 
   useEffect(() => {
     if (!initializedReplyCursorRef.current) {
@@ -406,6 +460,87 @@ export default function TalkTab() {
     ]
   )
 
+  const handleNeuralVadScore = useCallback(
+    (score: {
+      durationMs: number
+      frameIndex: number
+      probability: number
+      rms: number
+      sampleRate: number
+      timestampMs: number
+    }) => {
+      if (!continuousEnabledRef.current || !recordingActiveRef.current) return
+      latestNeuralSampleAtMsRef.current = score.timestampMs
+      const mode =
+        talkStateRef.current === 'speaking' && isBargeInListeningAllowed()
+          ? 'barge_in'
+          : 'continuous'
+      const result = applyNeuralVoiceVadProbabilitySample(
+        neuralVadStateRef.current,
+        {
+          durationMs: score.durationMs,
+          probability: score.probability,
+          timestampMs: score.timestampMs,
+        },
+        undefined,
+        mode
+      )
+      neuralVadStateRef.current = result.state
+      if (result.state.hadRealSpeech) {
+        vadStateRef.current = { ...vadStateRef.current, hadRealSpeech: true }
+      }
+      console.log(
+        `${buildNeuralVoiceVadDebugLine({
+          event: result.event,
+          mode,
+          probability: score.probability,
+        })} frame=${score.frameIndex} rms=${score.rms.toFixed(3)} sr=${score.sampleRate}Hz`
+      )
+
+      if (result.event === 'speechStart') {
+        const activePlaybackReplyId = activePlaybackReplyIdRef.current
+        const isBargeInCandidate =
+          mode === 'barge_in' &&
+          talkStateRef.current === 'speaking' &&
+          activePlaybackReplyId !== null
+        if (isBargeInCandidate) {
+          if (!isNeuralBargeInMeteringAllowed(score.timestampMs)) {
+            console.log(
+              `[BARGEDBG] mode=neural-barge_in voice_prob=${score.probability.toFixed(3)} ev=blocked_by_metering m=${latestMeteringRef.current}`
+            )
+            return
+          }
+          spokenReplyIdsRef.current.add(activePlaybackReplyId)
+          replyQueueGenerationRef.current += 1
+          clearReplyRoundFinishTimer()
+          activePlaybackReplyIdRef.current = null
+          inFlightReplyIdRef.current = null
+          lastPlaybackFinishedAtMsRef.current = null
+          player.pause()
+          dispatchTalkEvent({ type: 'voiceDetected' })
+          return
+        }
+        if (talkStateRef.current === 'listening') dispatchTalkEvent({ type: 'voiceDetected' })
+        return
+      }
+
+      if (result.event === 'speechEnd' && talkStateRef.current === 'capturing') {
+        resetReplyQueueForPrompt()
+        dispatchTalkEvent({ type: 'silenceDetected' })
+        void processRecordedSegment('listening')
+      }
+    },
+    [
+      clearReplyRoundFinishTimer,
+      dispatchTalkEvent,
+      isBargeInListeningAllowed,
+      isNeuralBargeInMeteringAllowed,
+      player,
+      processRecordedSegment,
+      resetReplyQueueForPrompt,
+    ]
+  )
+
   const startContinuousRecording = useCallback(async () => {
     if (
       !continuousEnabledRef.current ||
@@ -416,6 +551,7 @@ export default function TalkTab() {
     }
     try {
       vadStateRef.current = createInitialVoiceVadState()
+      resetNeuralVadDecision()
       await startRecorderSegment()
     } catch (recordError) {
       continuousEnabledRef.current = false
@@ -426,7 +562,7 @@ export default function TalkTab() {
         type: 'failed',
       })
     }
-  }, [dispatchTalkEvent, startRecorderSegment])
+  }, [dispatchTalkEvent, resetNeuralVadDecision, startRecorderSegment])
 
   useEffect(() => {
     if (
@@ -437,6 +573,20 @@ export default function TalkTab() {
       return
     }
     const metering = typeof recorderState.metering === 'number' ? recorderState.metering : null
+    latestMeteringRef.current = metering
+    if (metering !== null) latestMeteringAtMsRef.current = Date.now()
+    if (
+      !shouldUseVolumeVadFallback({
+        latestNeuralSampleAtMs: latestNeuralSampleAtMsRef.current,
+        neuralEnabled: neuralVadShadowEnabled,
+        nowMs: Date.now(),
+      })
+    ) {
+      console.log(
+        `[BARGEDBG] mode=volume-suppressed m=${typeof metering === 'number' ? metering.toFixed(1) : metering} reason=neural_recent`
+      )
+      return
+    }
     const timestampMs =
       typeof recorderState.durationMillis === 'number' ? recorderState.durationMillis : Date.now()
     const result = applyVadMeteringSample(
@@ -493,6 +643,7 @@ export default function TalkTab() {
     dispatchTalkEvent,
     clearReplyRoundFinishTimer,
     isBargeInListeningAllowed,
+    neuralVadShadowEnabled,
     processRecordedSegment,
     player,
     recorderState.durationMillis,
@@ -537,6 +688,7 @@ export default function TalkTab() {
     continuousEnabledRef.current = false
     processingSegmentRef.current = false
     resetReplyQueueForPrompt()
+    resetNeuralVadDecision()
     bargeInSpeechStartSampleCountRef.current = 0
     vadStateRef.current = createInitialVoiceVadState()
     setInputMode('push_to_talk')
@@ -551,7 +703,7 @@ export default function TalkTab() {
       allowsRecording: false,
       playsInSilentMode: true,
     }).catch(() => {})
-  }, [dispatchTalkEvent, player, resetReplyQueueForPrompt])
+  }, [dispatchTalkEvent, player, resetNeuralVadDecision, resetReplyQueueForPrompt])
 
   const stopTalkbackPlayback = useCallback(() => {
     const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
@@ -651,6 +803,7 @@ export default function TalkTab() {
         if (!playbackStillCurrent()) return
         if (keepRecordingForBargeIn) {
           vadStateRef.current = createInitialVoiceVadState()
+          resetNeuralVadDecision()
           await startRecorderSegment()
         } else {
           await setAudioModeAsync({
@@ -886,11 +1039,12 @@ export default function TalkTab() {
           </Text>
         </Pressable>
       </View>
-      {isNeuralVadPcmProbeEnabled() || isNeuralVadShadowEnabled() ? (
+      {neuralVadPcmProbeEnabled || neuralVadShadowEnabled ? (
         <NeuralVadPcmProbe
           active={connected && inputMode === 'continuous'}
-          pcmLogEnabled={isNeuralVadPcmProbeEnabled()}
-          shadowEnabled={isNeuralVadShadowEnabled()}
+          onScore={handleNeuralVadScore}
+          pcmLogEnabled={neuralVadPcmProbeEnabled}
+          shadowEnabled={neuralVadShadowEnabled}
         />
       ) : null}
     </Screen>

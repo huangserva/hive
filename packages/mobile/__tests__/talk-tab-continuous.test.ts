@@ -84,6 +84,11 @@ const audioMock = vi.hoisted(() => {
   }
 })
 
+const sileroMock = vi.hoisted(() => ({
+  score: vi.fn(async () => null as number | null),
+  scores: [] as Array<number | null>,
+}))
+
 vi.mock('expo-audio', () => ({
   RecordingPresets: {
     HIGH_QUALITY: {
@@ -109,6 +114,12 @@ vi.mock('expo-audio', () => ({
     audioMock.lastStreamOptions = options as typeof audioMock.lastStreamOptions
     return { isStreaming: false, stream: audioMock.stream }
   }),
+}))
+
+vi.mock('../src/lib/silero-vad-shadow', () => ({
+  createSileroVadShadowScorer: vi.fn(() => ({
+    score: sileroMock.score,
+  })),
 }))
 
 vi.mock('expo-file-system', () => ({
@@ -242,6 +253,33 @@ const deferred = <T>() => {
   return { promise, reject, resolve }
 }
 
+const int16SileroFrames = (frameCount: number) => {
+  const data = new ArrayBuffer(frameCount * 512 * Int16Array.BYTES_PER_ELEMENT)
+  const samples = new Int16Array(data)
+  for (let index = 0; index < samples.length; index += 1) {
+    samples[index] = 512
+  }
+  return data
+}
+
+const emitNeuralVadProbabilities = async (
+  view: ReturnType<typeof render>,
+  probabilities: number[]
+) => {
+  sileroMock.scores = [...probabilities]
+  sileroMock.score.mockImplementation(async () => sileroMock.scores.shift() ?? null)
+  await act(async () => {
+    audioMock.lastStreamOptions?.onBuffer?.({
+      channels: 1,
+      data: int16SileroFrames(probabilities.length),
+      sampleRate: 16_000,
+      timestamp: 0,
+    })
+  })
+  await act(async () => {})
+  view.rerender(React.createElement(TalkTab))
+}
+
 describe('TalkTab continuous mode behavior', () => {
   beforeEach(() => {
     cleanup()
@@ -268,6 +306,9 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.player.remove.mockClear()
     audioMock.player.replace.mockClear()
     audioMock.setAudioModeAsync.mockClear()
+    sileroMock.score.mockClear()
+    sileroMock.score.mockResolvedValue(null)
+    sileroMock.scores = []
     audioMock.lastRecorderOptions = null
     audioMock.lastStreamOptions = null
     vi.unstubAllEnvs()
@@ -352,6 +393,54 @@ describe('TalkTab continuous mode behavior', () => {
       sampleRate: 16_000,
     })
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+  })
+
+  test('uses neural voice probability to end a continuous segment while volume stays noisy', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(view, [0.92])
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
+
+    await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -20 })
+    await emitNeuralVadProbabilities(
+      view,
+      Array.from({ length: 30 }, () => 0.04)
+    )
+
+    await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith(
+      'turn on diagnostics',
+      { source: 'voice' }
+    )
+  })
+
+  test('uses uncertain neural probability to end a continuous segment instead of suppressing volume forever', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(view, [0.92])
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
+
+    await setRecorderStatus(view, { durationMillis: 800, isRecording: true, metering: -20 })
+    await emitNeuralVadProbabilities(
+      view,
+      Array.from({ length: 30 }, () => 0.45)
+    )
+
+    await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith(
+      'turn on diagnostics',
+      { source: 'voice' }
+    )
   })
 
   test('uses the Android voice communication recorder source by default', () => {
@@ -645,6 +734,7 @@ describe('TalkTab continuous mode behavior', () => {
     ]
     view.rerender(React.createElement(TalkTab))
     await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('talk.state.speaking')).toBeTruthy())
     audioMock.player.pause.mockClear()
     runtime.transcribeVoice.mockClear()
 
@@ -659,6 +749,62 @@ describe('TalkTab continuous mode behavior', () => {
     await setRecorderStatus(view, { durationMillis: 700, isRecording: true, metering: -50 })
     await setRecorderStatus(view, { durationMillis: 1900, isRecording: true, metering: -50 })
     await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+  })
+
+  test('does not pause playback for neural barge-in when metering has not arrived yet', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'reply with echo risk' }),
+        created_at: 2,
+        id: 'neural-barge-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: undefined })
+    await emitNeuralVadProbabilities(view, [0.95, 0.95, 0.95, 0.95])
+    await flush()
+
+    expect(audioMock.player.pause).not.toHaveBeenCalled()
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
+  })
+
+  test('pauses playback for neural barge-in only after metering passes the echo gate', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'interruptible neural reply' }),
+        created_at: 2,
+        id: 'neural-barge-ok-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('talk.state.speaking')).toBeTruthy())
+    audioMock.player.pause.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: -18 })
+    await emitNeuralVadProbabilities(view, [0.95, 0.95, 0.95, 0.95])
+
+    await waitFor(() => expect(audioMock.player.pause).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('talk.state.capturing')).toBeTruthy()
   })
 
   test('does not interrupt playback for sustained TTS echo while speaking', async () => {
