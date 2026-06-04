@@ -29,6 +29,7 @@ import {
 } from '../../src/lib/connection-qr'
 import { decodeConnectionQrOutcomeFromPngBase64 } from '../../src/lib/qr-image-decode'
 import type { StoredRelayConfig } from '../../src/lib/relay-config-store'
+import { runUiOperationSafely } from '../../src/lib/ui-operation-timeout'
 import { colors, radius, spacing } from '../../src/theme'
 
 // 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
@@ -298,9 +299,12 @@ export default function SettingsTab() {
       if (target === 'relay' && !relayConfig) return
       setSwitchingConnectionTarget(target)
       try {
-        await connect(host, token, relayConfig, {
-          preferredConnectionMode: target,
-        })
+        await runUiOperationSafely(
+          connect(host, token, relayConfig, {
+            preferredConnectionMode: target,
+          }),
+          { label: 'connection switch' }
+        )
       } finally {
         setSwitchingConnectionTarget(null)
       }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useMobileRuntime } from '../api/mobile-runtime-context'
+import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import {
   initialRefreshable,
   onFetchFailure,
@@ -29,7 +30,7 @@ export function useRefreshableData<T>(fetcher: () => Promise<T | null>): Refresh
     inFlightRef.current = true
     setSnap((current) => onFetchStart(current))
     try {
-      const next = await fetcher()
+      const next = await withUiOperationTimeout(fetcher(), { label: 'cockpit refresh' })
       setSnap((current) =>
         next === null || next === undefined
           ? onFetchFailure(current, 'failed')

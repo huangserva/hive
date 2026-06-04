@@ -27,6 +27,7 @@ import { Screen } from '../../src/components/Screen'
 import { StatusBadge, statusColor } from '../../src/components/StatusBadge'
 import { type AppLanguage, useLanguage, useT } from '../../src/i18n'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
+import { runUiOperationSafely } from '../../src/lib/ui-operation-timeout'
 import { colors, radius, spacing } from '../../src/theme'
 
 const AVATAR_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#39d2c0']
@@ -242,8 +243,14 @@ export default function StatusTab() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await Promise.all([refreshDashboard(), refreshCockpit(), refreshWorkspaceTasks()])
-    setRefreshing(false)
+    try {
+      await runUiOperationSafely(
+        Promise.all([refreshDashboard(), refreshCockpit(), refreshWorkspaceTasks()]),
+        { label: 'status refresh' }
+      )
+    } finally {
+      setRefreshing(false)
+    }
   }, [refreshCockpit, refreshDashboard, refreshWorkspaceTasks])
 
   const confirmStop = (worker: MobileDashboardWorker) => {

@@ -18,6 +18,7 @@ import {
   parseStoredRelayConfig,
   type StoredRelayConfig,
 } from '../lib/relay-config-store'
+import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -590,17 +591,19 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           token: trimmedToken,
         })
         applyConnectionPreference(nextClient, nextPreference)
-        const [nextStatus, nextWorkspaces] = await Promise.all([
-          nextClient.getMobileRuntimeStatus(),
-          nextClient.listMobileWorkspaces(),
-        ])
+        const [nextStatus, nextWorkspaces] = await withUiOperationTimeout(
+          Promise.all([nextClient.getMobileRuntimeStatus(), nextClient.listMobileWorkspaces()]),
+          { label: 'runtime connect' }
+        )
         // 用 ref 最新值而非渲染闭包的 selectedWorkspaceId（M 修复）：启动时 setSelectedWorkspaceId 还没
         // flush，闭包是 null → chooseWorkspace 误选 workspaces[0]、丢持久化偏好；重连时闭包可能是切换前旧值。
         const nextWorkspaceId = chooseWorkspace(nextWorkspaces, selectedWorkspaceIdRef.current)
         const nextDashboard = nextWorkspaceId
-          ? await nextClient.getMobileDashboard(nextWorkspaceId)
+          ? await withUiOperationTimeout(nextClient.getMobileDashboard(nextWorkspaceId), {
+              label: 'dashboard load',
+            })
           : null
-        await registerPushToken(nextClient)
+        void registerPushToken(nextClient)
         const shouldResetForConnection = shouldResetChatForConnectionSwitch({
           currentHost: hostRef.current,
           currentToken: tokenRef.current.trim(),
@@ -1322,8 +1325,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       ) {
         client.resetLanCooldown()
       }
-      void client
-        .getMobileRuntimeStatus()
+      void withUiOperationTimeout(client.getMobileRuntimeStatus(), { label: 'foreground probe' })
         .then(() => {
           setReconnecting(false)
           // 探活成功也补一次同步（M 修复）：后台期间漏推的 dashboard/chat 在回前台时立即追平，
