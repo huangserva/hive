@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   createAnthropicFastVoiceReplyProvider,
@@ -13,6 +13,10 @@ import {
 } from '../../src/server/fast-voice-reply.js'
 
 describe('fast voice reply', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('uses the GLM coding paas base URL by default to stay on the free coding plan', () => {
     expect(GLM_FAST_VOICE_REPLY_BASE_URL).toBe('https://open.bigmodel.cn/api/coding/paas/v4')
   })
@@ -43,11 +47,13 @@ describe('fast voice reply', () => {
     expect(body.model).toBe('claude-haiku-4-5')
     expect(body.max_tokens).toBeLessThanOrEqual(80)
     expect(body.system).toContain('简体中文')
-    expect(body.system).toContain('1-2 句')
+    expect(body.system).toContain('1-3句短句')
     expect(body.messages[0].content).toContain('让关羽汇报进展')
   })
 
   it('calls GLM OpenAI-compatible chat completions and parses the first choice', async () => {
+    vi.stubEnv('GLM_FAST_MODEL', '')
+    vi.stubEnv('HIVE_VOICE_FRONT_MODE', 'strong')
     const fetchImpl = vi.fn().mockResolvedValue({
       json: async () => ({
         choices: [{ message: { content: ' 好，我马上处理。 ' } }],
@@ -82,16 +88,205 @@ describe('fast voice reply', () => {
     expect(headers.Authorization).toBe('Bearer glm-key')
     const body = JSON.parse(String(request.body))
     expect(body.model).toBe(GLM_FAST_VOICE_REPLY_MODEL)
-    expect(body.max_tokens).toBe(80)
+    expect(body.max_tokens).toBe(160)
     expect(body.messages[0]).toMatchObject({ role: 'system' })
-    expect(body.messages[0].content).toContain('1-2 句')
-    expect(body.messages[0].content).toContain('只读')
-    expect(body.messages[0].content).toContain('不能说“我会派')
-    expect(body.messages[0].content).toContain('只能说“这个需要主管处理')
+    expect(body.messages[0].content).toContain('1-3句短句')
+    expect(body.messages[0].content).toContain('真对话前台')
+    expect(body.messages[0].content).toContain('状态/简单问题/闲聊')
+    expect(body.messages[0].content).toContain('一律自己handled')
+    expect(body.messages[0].content).toContain('这个我转给主管')
+    expect(body.messages[0].content).toContain('不能')
+    expect(body.messages[0].content).toContain('不说"我已经做完了"')
+    expect(body.messages[0].content).toContain('不说"我已经派人了"')
+    expect(body.messages[0].content).toContain('禁止任何声称自己派工')
+    expect(body.messages[0].content).not.toContain('好,我让团队上')
+    expect(body.messages[0].content).not.toContain('我让团队')
+    expect(body.messages[0].content).not.toContain('我来安排')
+    expect(body.messages[0].content).not.toContain('我会派')
+    expect(body.messages[0].content).not.toContain('我让谁去做')
     expect(body.messages[0].content).toContain('当前状态：关羽 working')
     expect(body.messages[1]).toEqual({ content: '刚才手机语音很慢', role: 'user' })
     expect(body.messages[2]).toEqual({ content: '我会先检查 STT 和 TTS。', role: 'assistant' })
     expect(body.messages[3]).toEqual({ content: '让关羽汇报进展', role: 'user' })
+  })
+
+  it('defaults the strong voice front to GLM 5.1 and keeps env model override', async () => {
+    vi.stubEnv('GLM_FAST_MODEL', '')
+    vi.stubEnv('HIVE_VOICE_FRONT_MODE', 'strong')
+    expect(GLM_FAST_VOICE_REPLY_MODEL).toBe('glm-5.1')
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [{ message: { content: 'HIVE_GLM_GATEKEEPER: handled\n我在。' } }],
+      }),
+      ok: true,
+    })
+    const provider = createGlmFastVoiceReplyProvider({
+      apiKey: 'glm-key',
+      baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await provider.generate({ transcript: '现在什么情况' })
+
+    const firstCall = fetchImpl.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    const [, request] = firstCall as [string, RequestInit]
+    expect(JSON.parse(String(request.body)).model).toBe('glm-5.1')
+
+    fetchImpl.mockClear()
+    const overrideProvider = createGlmFastVoiceReplyProvider({
+      apiKey: 'glm-key',
+      baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      model: 'custom-glm',
+      timeoutMs: 1000,
+    })
+    await overrideProvider.generate({ transcript: '现在什么情况' })
+    const overrideCall = fetchImpl.mock.calls[0]
+    expect(overrideCall).toBeDefined()
+    const [, overrideRequest] = overrideCall as [string, RequestInit]
+    expect(JSON.parse(String(overrideRequest.body)).model).toBe('custom-glm')
+  })
+
+  it('keeps the strong front on GLM 5.1 even when legacy GLM_FAST_MODEL points to flash', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [{ message: { content: 'HIVE_GLM_GATEKEEPER: handled\n我在。' } }],
+      }),
+      ok: true,
+    })
+    const provider = createFastVoiceReplyProvider({
+      env: {
+        GLM_API_KEY: 'glm-key',
+        GLM_BASE_URL: 'https://glm.example/v4',
+        GLM_FAST_MODEL: 'glm-4-flash',
+        HIVE_VOICE_FRONT_MODE: 'strong',
+        NODE_ENV: 'test',
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await provider.generate({ transcript: '现在什么情况' })
+
+    const firstCall = fetchImpl.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    const [, request] = firstCall as [string, RequestInit]
+    const body = JSON.parse(String(request.body))
+    expect(body.model).toBe('glm-5.1')
+    expect(body.thinking).toEqual({ type: 'disabled' })
+  })
+
+  it('allows the strong front model to be overridden only by HIVE_VOICE_STRONG_MODEL', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [{ message: { content: 'HIVE_GLM_GATEKEEPER: handled\n我在。' } }],
+      }),
+      ok: true,
+    })
+    const provider = createFastVoiceReplyProvider({
+      env: {
+        GLM_API_KEY: 'glm-key',
+        GLM_BASE_URL: 'https://glm.example/v4',
+        GLM_FAST_MODEL: 'glm-4-flash',
+        HIVE_VOICE_FRONT_MODE: 'strong',
+        HIVE_VOICE_STRONG_MODEL: 'custom-strong-glm',
+        NODE_ENV: 'test',
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await provider.generate({ transcript: '现在什么情况' })
+
+    const firstCall = fetchImpl.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    const [, request] = firstCall as [string, RequestInit]
+    const body = JSON.parse(String(request.body))
+    expect(body.model).toBe('custom-strong-glm')
+    expect(body.thinking).toEqual({ type: 'disabled' })
+  })
+
+  it('disables GLM 5.1 thinking so the short voice budget is not spent on reasoning', async () => {
+    vi.stubEnv('GLM_FAST_MODEL', '')
+    vi.stubEnv('HIVE_VOICE_FRONT_MODE', 'strong')
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [{ message: { content: 'HIVE_GLM_GATEKEEPER: handled\n我在。' } }],
+      }),
+      ok: true,
+    })
+    const provider = createGlmFastVoiceReplyProvider({
+      apiKey: 'glm-key',
+      baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await provider.generate({ transcript: '现在什么情况' })
+
+    const firstCall = fetchImpl.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    const [, request] = firstCall as [string, RequestInit]
+    const body = JSON.parse(String(request.body))
+    expect(body.thinking).toEqual({ type: 'disabled' })
+    expect(body.max_tokens).toBe(160)
+  })
+
+  it('treats empty GLM content caused by reasoning token exhaustion as no reply', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [
+          {
+            finish_reason: 'length',
+            message: {
+              content: '',
+              reasoning_content: '这里是被模型内部思考吃掉的 token。',
+            },
+          },
+        ],
+      }),
+      ok: true,
+    })
+    const provider = createGlmFastVoiceReplyProvider({
+      apiKey: 'glm-key',
+      baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await expect(provider.generate({ transcript: '现在什么情况' })).resolves.toBeNull()
+  })
+
+  it('falls back to the readonly front prompt and glm-4-flash with HIVE_VOICE_FRONT_MODE=readonly', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      json: async () => ({
+        choices: [{ message: { content: 'HIVE_GLM_GATEKEEPER: escalate\n这个需要主管处理。' } }],
+      }),
+      ok: true,
+    })
+    const provider = createFastVoiceReplyProvider({
+      env: {
+        GLM_API_KEY: 'glm-key',
+        GLM_BASE_URL: 'https://glm.example/v4',
+        GLM_FAST_MODEL: 'custom-glm',
+        HIVE_VOICE_FRONT_MODE: 'readonly',
+        NODE_ENV: 'test',
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      timeoutMs: 1000,
+    })
+
+    await provider.generate({ transcript: '现在什么情况' })
+
+    const firstCall = fetchImpl.mock.calls[0]
+    expect(firstCall).toBeDefined()
+    const [, request] = firstCall as [string, RequestInit]
+    const body = JSON.parse(String(request.body))
+    expect(body.model).toBe('glm-4-flash')
+    expect(body.messages[0].content).toContain('只读知情前台')
+    expect(body.messages[0].content).toContain('这个需要主管处理')
   })
 
   it('prefers GLM over Anthropic when both keys are configured', async () => {
@@ -229,7 +424,15 @@ describe('fast voice reply', () => {
         { role: 'user', text: '上一句用户问题' },
         { role: 'assistant', text: '上一句 orch 回答' },
       ],
-      statusContext: expect.stringContaining('关羽: working'),
+      statusContext: expect.stringContaining('关羽(coder): working'),
+      transcript: '查一下 relay',
+    })
+    expect(provider.generate).toHaveBeenCalledWith({
+      history: [
+        { role: 'user', text: '上一句用户问题' },
+        { role: 'assistant', text: '上一句 orch 回答' },
+      ],
+      statusContext: expect.stringContaining('关羽 submitted 修语音秒回'),
       transcript: '查一下 relay',
     })
 
@@ -321,6 +524,35 @@ describe('fast voice reply', () => {
         text: '好，我让 orchestrator 去办。',
       })
     )
+  })
+
+  it('keeps status questions handled and action requests escalated through the gatekeeper marker', async () => {
+    const store = { insertMobileChatMessage: vi.fn() }
+    const provider = {
+      generate: vi
+        .fn()
+        .mockResolvedValueOnce('HIVE_GLM_GATEKEEPER: handled\n关羽正在修 WebRTC，赵云空闲。')
+        .mockResolvedValueOnce('HIVE_GLM_GATEKEEPER: escalate\n好，这个我转给主管，稍等。'),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReplyWithGatekeeper({
+        provider,
+        source: 'voice',
+        store,
+        text: '现在谁在忙',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toEqual({ gatekeeper: 'handled', reply: '关羽正在修 WebRTC，赵云空闲。' })
+    await expect(
+      maybeInsertFastVoiceReplyWithGatekeeper({
+        provider,
+        source: 'voice',
+        store,
+        text: '派关羽去改代码',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toEqual({ gatekeeper: 'escalate', reply: '好，这个我转给主管，稍等。' })
   })
 
   it('drops team-name prompt echo noise before calling the fast voice model', async () => {

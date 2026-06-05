@@ -1,9 +1,12 @@
 import { isDefaultPromptEcho } from './local-stt.js'
 
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
-export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
+export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-5.1'
+const GLM_READONLY_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
 export const GLM_FAST_VOICE_REPLY_BASE_URL = 'https://open.bigmodel.cn/api/coding/paas/v4'
 export const FAST_VOICE_REPLY_TIMEOUT_MS = 5000
+const GLM_STRONG_FAST_VOICE_REPLY_MAX_TOKENS = 160
+const GLM_READONLY_FAST_VOICE_REPLY_MAX_TOKENS = 80
 export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
   '好的，收到，正在处理，稍等。',
   '收到，我来处理，稍等一下。',
@@ -13,7 +16,16 @@ const FAST_VOICE_REPLY_HISTORY_LIMIT = 15
 const FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT = 240
 const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
 
-const FAST_VOICE_REPLY_SYSTEM_PROMPT =
+type VoiceFrontMode = 'readonly' | 'strong'
+
+const STRONG_VOICE_FRONT_SYSTEM_PROMPT =
+  '你是 HippoTeam 的真对话前台助手,代表团队在语音里跟用户实时对话。用简体中文口语、自然、简短(1-3句短句,像打电话)回应。\n' +
+  '你能做:基于给你的"当前状态摘要"和对话历史,直接、实在地回答用户关于项目进度、worker在干什么、orchestrator状态的问题;能闲聊、能澄清、能做简单判断。答得具体,别打官腔,别用"这个需要主管处理"这种空话填时间。\n' +
+  '你不能:① 绝不声称你做了实际没做的事——不说"我已经做完了",不说"我已经派人了",也不说自己在安排、部署、重启；你没有派单、改代码、部署、执行的权限。② 不编造状态摘要里没有的信息(不知道就说"这个我得确认一下")。禁止任何声称自己派工、安排他人执行、攻坚、汇报安排或编排团队行动的话。\n' +
+  '什么时候交给主管(escalate):只有当用户真的要求一个【动作】——派worker/改代码/部署/重启/拍板决策——且需要主管时才escalate。这时说一句自然短话(如"好,这个我转给主管,稍等"或"这个需要主管处理,我先转过去")然后就停,别反复刷废话。能从上下文回答的(进度/状态/简单问题/闲聊)一律自己handled,别动不动上交。\n' +
+  '输出第一行必须是门卫标记:`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。能自己答全且不需真实动作=handled;需派工/改码/部署/重启/拍板=escalate。第二行起是给用户听的短回复。'
+
+const READONLY_VOICE_FRONT_SYSTEM_PROMPT =
   '你是 HippoTeam 的只读知情前台语音助手。你可以根据最近对话历史、当前状态和上下文，用简体中文口语化回应用户关于进度、worker 状态、orchestrator 状态的问题，1-2 句，短而明确，不说套话。你只读、不下指令、不执行任务、不派工、不声称已经完成。你不能说“我会派 worker”“我来安排”“我让 Codex 去做”“我会攻坚”“我会汇报给相关人员安排行动”等声称自己编排或采取行动的话；你没有派单、安排、执行、汇报安排的权限。涉及派 worker、改代码、部署、重启或真实操作时，只能说“这个需要主管处理”这类极短对称传递话，最终补充由 orchestrator 回复。\n\n输出第一行必须是门卫标记：`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。只有你能完整回答且不需要任何真实操作时才用 handled；任何不确定、带派工/改代码/部署/重启/执行动作意味的请求必须用 escalate。第二行开始输出给用户听的短回复。'
 
 export type FastVoiceReplyGatekeeperVerdict = 'handled' | 'escalate'
@@ -105,6 +117,7 @@ type CreateGlmFastVoiceReplyProviderOptions = {
   apiKey?: string
   baseUrl?: string
   fetchImpl?: typeof fetch
+  frontMode?: VoiceFrontMode
   model?: string
   timeoutMs?: number
 }
@@ -127,6 +140,12 @@ const parseGatekeeperReply = (rawText: string) => {
   return { reply, verdict }
 }
 
+const resolveVoiceFrontMode = (value: unknown): VoiceFrontMode =>
+  typeof value === 'string' && value.trim().toLowerCase() === 'readonly' ? 'readonly' : 'strong'
+
+const readNonEmptyEnvString = (value: unknown) =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined
+
 const pickFallbackReply = (transcript: string) => {
   const normalized = transcript.trim()
   const index = normalized.length % FAST_VOICE_REPLY_FALLBACK_TEXTS.length
@@ -138,11 +157,11 @@ export const appendFastReplyCoordination = (formattedPrompt: string, fastReplyTe
   return `${formattedPrompt}\n\n[协调] GLM 已经对用户回复了:"${reply}"。用户已听到这句。你只需补充 GLM 没回答到的、或需要你实际查证/操作的部分。简洁扼要，绝不重复 GLM 已说的内容。若 GLM 已充分回答，你可以回复“无需补充”，不要再展开。`
 }
 
-const buildSystemPrompt = (statusContext?: string) => {
+const buildSystemPrompt = (statusContext?: string, mode: VoiceFrontMode = 'strong') => {
   const context = statusContext?.trim()
-  return context
-    ? `${FAST_VOICE_REPLY_SYSTEM_PROMPT}\n\n当前状态摘要：\n${context}`
-    : FAST_VOICE_REPLY_SYSTEM_PROMPT
+  const systemPrompt =
+    mode === 'readonly' ? READONLY_VOICE_FRONT_SYSTEM_PROMPT : STRONG_VOICE_FRONT_SYSTEM_PROMPT
+  return context ? `${systemPrompt}\n\n当前状态摘要：\n${context}` : systemPrompt
 }
 
 const truncateHistoryText = (text: string) =>
@@ -216,13 +235,14 @@ const readFastVoiceReplyStatusContext = ({
           workerById.set(worker.id, worker.name)
         }
         if (typeof worker.name !== 'string' || typeof worker.status !== 'string') return null
+        const role = typeof worker.role === 'string' && worker.role.trim() ? `(${worker.role})` : ''
         const pending =
           typeof worker.pendingTaskCount === 'number'
             ? worker.pendingTaskCount
             : typeof worker.pending_task_count === 'number'
               ? worker.pending_task_count
               : 0
-        return `${worker.name}: ${worker.status}${pending > 0 ? `, pending ${pending}` : ''}`
+        return `${worker.name}${role}: ${worker.status}${pending > 0 ? `, pending ${pending}` : ''}`
       })
       .filter((line): line is string => line !== null)
       .slice(0, 12)
@@ -322,6 +342,7 @@ export const createAnthropicFastVoiceReplyProvider = (
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
   const model = options.model ?? FAST_VOICE_REPLY_MODEL
   const timeoutMs = options.timeoutMs ?? FAST_VOICE_REPLY_TIMEOUT_MS
+  const frontMode = resolveVoiceFrontMode(process.env.HIVE_VOICE_FRONT_MODE)
 
   return {
     async generate({ history = [], statusContext = '', transcript }) {
@@ -345,7 +366,7 @@ export const createAnthropicFastVoiceReplyProvider = (
               },
             ],
             model,
-            system: buildSystemPrompt(statusContext),
+            system: buildSystemPrompt(statusContext, frontMode),
             temperature: 0.2,
           }),
           headers: {
@@ -370,11 +391,21 @@ export const createGlmFastVoiceReplyProvider = (
 ): FastVoiceReplyProvider => {
   const apiKey = options.apiKey ?? process.env.GLM_API_KEY
   const fetchImpl = options.fetchImpl ?? globalThis.fetch
-  const model = options.model ?? process.env.GLM_FAST_MODEL ?? GLM_FAST_VOICE_REPLY_MODEL
+  const frontMode = options.frontMode ?? resolveVoiceFrontMode(process.env.HIVE_VOICE_FRONT_MODE)
+  const model =
+    options.model ??
+    (frontMode === 'readonly'
+      ? GLM_READONLY_FAST_VOICE_REPLY_MODEL
+      : (readNonEmptyEnvString(process.env.HIVE_VOICE_STRONG_MODEL) ?? GLM_FAST_VOICE_REPLY_MODEL))
   const baseUrl = (options.baseUrl ?? process.env.GLM_BASE_URL ?? GLM_FAST_VOICE_REPLY_BASE_URL)
     .trim()
     .replace(/\/+$/, '')
   const timeoutMs = options.timeoutMs ?? FAST_VOICE_REPLY_TIMEOUT_MS
+  const maxTokens =
+    frontMode === 'readonly'
+      ? GLM_READONLY_FAST_VOICE_REPLY_MAX_TOKENS
+      : GLM_STRONG_FAST_VOICE_REPLY_MAX_TOKENS
+  const thinkingOptions = frontMode === 'strong' ? { thinking: { type: 'disabled' } } : {}
 
   return {
     async generate({ history = [], statusContext = '', transcript }) {
@@ -386,10 +417,10 @@ export const createGlmFastVoiceReplyProvider = (
       try {
         const response = await fetchImpl(`${baseUrl}/chat/completions`, {
           body: JSON.stringify({
-            max_tokens: 80,
+            max_tokens: maxTokens,
             messages: [
               {
-                content: buildSystemPrompt(statusContext),
+                content: buildSystemPrompt(statusContext, frontMode),
                 role: 'system',
               },
               ...history.map((item) => ({
@@ -402,6 +433,7 @@ export const createGlmFastVoiceReplyProvider = (
               },
             ],
             model,
+            ...thinkingOptions,
           }),
           headers: {
             Authorization: `Bearer ${apiKey}`,
@@ -430,11 +462,15 @@ export const createFastVoiceReplyProvider = (
 ): FastVoiceReplyProvider => {
   const env = options.env ?? process.env
   if (env.GLM_API_KEY) {
+    const frontMode = resolveVoiceFrontMode(env.HIVE_VOICE_FRONT_MODE)
     return createGlmFastVoiceReplyProvider({
       apiKey: env.GLM_API_KEY,
       ...(env.GLM_BASE_URL ? { baseUrl: env.GLM_BASE_URL } : {}),
       ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      ...(env.GLM_FAST_MODEL ? { model: env.GLM_FAST_MODEL } : {}),
+      frontMode,
+      ...(frontMode !== 'readonly' && readNonEmptyEnvString(env.HIVE_VOICE_STRONG_MODEL)
+        ? { model: readNonEmptyEnvString(env.HIVE_VOICE_STRONG_MODEL) as string }
+        : {}),
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     })
   }
