@@ -20,6 +20,7 @@ import {
 } from '../lib/relay-config-store'
 import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import { createWebRtcCaller } from '../lib/webrtc-caller'
+import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -1014,19 +1015,29 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     if (!transport || transport.status() !== 'ready') {
       return { ok: false, reason: 'Relay transport is not ready' }
     }
+    const workspaceId = selectedWorkspaceIdRef.current
+    if (!workspaceId) {
+      return { ok: false, reason: 'Select a workspace before starting WebRTC' }
+    }
     setError(null)
-    try {
-      const session = await createWebRtcCaller({ transport }).start()
+    const result = await runWebRtcConnectionProbeSession(async () => {
+      const session = await createWebRtcCaller({
+        audio: true,
+        transport,
+        workspaceId,
+      }).start()
       console.log('[WEBRTCDBG] connection_probe_started', { callId: session.callId })
-      await session.waitForConnected(15_000)
-      console.log('[WEBRTCDBG] connection_probe_connected', { callId: session.callId })
-      session.close()
-      return { callId: session.callId, ok: true }
-    } catch (probeError) {
-      const reason = probeError instanceof Error ? probeError.message : String(probeError)
+      return session
+    })
+    if (result.ok) {
+      console.log('[WEBRTCDBG] connection_probe_connected', { callId: result.callId })
+      return result
+    }
+    {
+      const reason = result.reason
       console.warn('[WEBRTCDBG] connection_probe_failed', reason)
       setError(reason)
-      return { ok: false, reason }
+      return result
     }
   }, [])
 

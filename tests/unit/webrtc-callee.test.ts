@@ -5,7 +5,11 @@ import type { WebRtcSignalFrame } from '../../src/server/webrtc-signal-protocol.
 
 class FakePeerConnection {
   localDescription: { sdp: string; type: 'answer' } | null = null
+  connectionState = 'new'
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null = null
+  onconnectionstatechange: (() => void) | null = null
+  ontrack: ((event: { receiver?: unknown; streams?: unknown[]; track?: unknown }) => void) | null =
+    null
   remoteDescription: unknown = null
   addedCandidates: unknown[] = []
   closed = false
@@ -210,5 +214,150 @@ describe('WebRTC callee', () => {
       { send: () => {} }
     )
     expect(peers[0]?.addedCandidates).toEqual([])
+  })
+
+  test('starts an upstream audio session for remote audio tracks and closes it on bye', async () => {
+    const peers: FakePeerConnection[] = []
+    const closedSessions: string[] = []
+    const startedTracks: unknown[] = []
+    const callee = createWebRtcCallee({
+      audioSink: {
+        start: ({ callId, track }) => {
+          startedTracks.push(track)
+          return {
+            close: () => {
+              closedSessions.push(callId)
+            },
+          }
+        },
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-audio',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      { send: () => {} }
+    )
+    const audioTrack = { kind: 'audio' }
+    peers[0]?.ontrack?.({ receiver: { id: 'receiver-1' }, streams: [], track: audioTrack })
+    await callee.handleSignal(
+      { call_id: 'call-audio', kind: 'bye', type: 'webrtc_signal' },
+      { send: () => {} }
+    )
+
+    expect(startedTracks).toEqual([audioTrack])
+    expect(closedSessions).toEqual(['call-audio'])
+  })
+
+  test('closes and forgets a peer when addIceCandidate throws', async () => {
+    const peers: FakePeerConnection[] = []
+    class ThrowingIcePeerConnection extends FakePeerConnection {
+      async addIceCandidate() {
+        throw new Error('bad candidate')
+      }
+    }
+    const callee = createWebRtcCallee({
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends ThrowingIcePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-bad-ice',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+    await expect(
+      callee.handleSignal(
+        {
+          call_id: 'call-bad-ice',
+          candidate: { candidate: 'candidate:bad' },
+          kind: 'ice',
+          type: 'webrtc_signal',
+        },
+        { send: () => {} }
+      )
+    ).rejects.toThrow('bad candidate')
+    expect(peers[0]?.closed).toBe(true)
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-bad-ice',
+        candidate: { candidate: 'candidate:after-error' },
+        kind: 'ice',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+    expect(peers[0]?.addedCandidates).toEqual([])
+  })
+
+  test('closes and forgets a peer when connection state fails or closes', async () => {
+    const peers: FakePeerConnection[] = []
+    const callee = createWebRtcCallee({
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-failed',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+    const peer = peers[0]
+    expect(peer).toBeDefined()
+    if (!peer) throw new Error('peer connection was not created')
+    peer.connectionState = 'failed'
+    peer.onconnectionstatechange?.()
+    expect(peer.closed).toBe(true)
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-failed',
+        candidate: { candidate: 'candidate:after-failed' },
+        kind: 'ice',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+    expect(peer.addedCandidates).toEqual([])
   })
 })

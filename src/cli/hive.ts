@@ -23,6 +23,7 @@ import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
 import { createWebRtcCallee } from '../server/webrtc-callee.js'
+import { createWebRtcUpstreamAudioSink } from '../server/webrtc-upstream-audio.js'
 
 interface RunHiveCommandResult {
   port: number
@@ -220,6 +221,7 @@ export const runHiveCommand = async (
           authenticateDevice: (token) => store.authenticateMobileDevice(token),
           voiceStreamHandler: createVoiceStreamTtsHandler(),
           webrtcSignalHandler: createWebRtcCallee({
+            audioSink: createWebRtcUpstreamAudioSink({ logger, store }),
             getIceServers: async () => resolveWebRtcIceServers(),
           }).handleSignal,
         }

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import type { WebRtcSignalFrame } from '../src/api/webrtc-signal-protocol.js'
 import { createWebRtcCaller } from '../src/lib/webrtc-caller.js'
+import { runWebRtcConnectionProbeSession } from '../src/lib/webrtc-connection-probe.js'
 
 class FakePeerConnection {
+  addedTracks: Array<{ stream: unknown; track: unknown }> = []
   localDescription: unknown = null
   connectionState = 'new'
   onconnectionstatechange: (() => void) | null = null
@@ -12,6 +14,10 @@ class FakePeerConnection {
   closed = false
 
   constructor(readonly config: unknown) {}
+
+  addTrack(track: unknown, stream: unknown) {
+    this.addedTracks.push({ stream, track })
+  }
 
   async createOffer() {
     return { sdp: 'offer-sdp', type: 'offer' as const }
@@ -139,5 +145,131 @@ describe('WebRTC caller', () => {
     peer.onconnectionstatechange?.()
 
     await expect(connected).resolves.toBeUndefined()
+  })
+
+  test('acquires microphone audio inside the WebRTC interlock and adds tracks before creating offer', async () => {
+    const order: string[] = []
+    const sent: WebRtcSignalFrame[] = []
+    const peers: FakePeerConnection[] = []
+    const audioTrack = { kind: 'audio', stop: () => order.push('track.stop') }
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    }
+    const caller = createWebRtcCaller({
+      audio: true,
+      loadRuntime: async () => ({
+        mediaDevices: {
+          getUserMedia: async (constraints) => {
+            order.push(`getUserMedia:${constraints.audio}:${constraints.video}`)
+            return stream
+          },
+        },
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+
+          async createOffer() {
+            order.push('createOffer')
+            return super.createOffer()
+          }
+        },
+      }),
+      nextCallId: () => 'call-audio',
+      runAudioSession: async (session) => {
+        order.push('interlock.enter')
+        return {
+          close: () => {
+            order.push('interlock.exit')
+          },
+          result: await session(),
+        }
+      },
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {},
+        sendWebRtcSignalFrame: (frame) => sent.push(frame),
+      },
+      workspaceId: 'workspace-1',
+    })
+
+    const session = await caller.start()
+
+    expect(order).toEqual(['interlock.enter', 'getUserMedia:true:false', 'createOffer'])
+    expect(peers[0]?.addedTracks).toEqual([{ stream, track: audioTrack }])
+    expect(sent[0]).toMatchObject({
+      call_id: 'call-audio',
+      kind: 'offer',
+      type: 'webrtc_signal',
+      workspace_id: 'workspace-1',
+    })
+
+    session.close()
+    expect(order).toEqual([
+      'interlock.enter',
+      'getUserMedia:true:false',
+      'createOffer',
+      'track.stop',
+      'interlock.exit',
+    ])
+  })
+
+  test('closes tracks, peer, signaling, and interlock when connection probe times out', async () => {
+    const order: string[] = []
+    const sent: WebRtcSignalFrame[] = []
+    const peers: FakePeerConnection[] = []
+    const audioTrack = { kind: 'audio', stop: () => order.push('track.stop') }
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    }
+    const caller = createWebRtcCaller({
+      audio: true,
+      loadRuntime: async () => ({
+        mediaDevices: {
+          getUserMedia: async () => stream,
+        },
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+      nextCallId: () => 'call-timeout',
+      runAudioSession: async (session) => ({
+        close: () => {
+          order.push('interlock.exit')
+        },
+        result: await session(),
+      }),
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {
+          order.push('unsubscribe')
+        },
+        sendWebRtcSignalFrame: (frame) => sent.push(frame),
+      },
+      workspaceId: 'workspace-1',
+    })
+
+    const result = await runWebRtcConnectionProbeSession(() => caller.start(), 1)
+
+    expect(result).toEqual({
+      callId: 'call-timeout',
+      ok: false,
+      reason: 'WebRTC connection timed out',
+    })
+    expect(peers[0]?.closed).toBe(true)
+    expect(order).toEqual(['unsubscribe', 'track.stop', 'interlock.exit'])
+    expect(sent.at(-1)).toMatchObject({
+      call_id: 'call-timeout',
+      kind: 'bye',
+      type: 'webrtc_signal',
+    })
   })
 })

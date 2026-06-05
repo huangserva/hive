@@ -15,6 +15,7 @@ export interface WebRtcSignalFrame {
   sdp_type?: 'answer' | 'offer'
   sent_at_ms?: number
   type: 'webrtc_signal'
+  workspace_id?: string
 }
 
 const WEBRTC_SIGNAL_KINDS = new Set<WebRtcSignalKind>(['answer', 'bye', 'ice', 'offer'])
@@ -50,7 +51,8 @@ export const isWebRtcSignalFrame = (value: unknown): value is WebRtcSignalFrame 
       typeof frame.sdp === 'string' &&
       frame.sdp.length > 0 &&
       frame.sdp_type === frame.kind &&
-      (frame.sent_at_ms === undefined || typeof frame.sent_at_ms === 'number')
+      (frame.sent_at_ms === undefined || typeof frame.sent_at_ms === 'number') &&
+      (frame.workspace_id === undefined || typeof frame.workspace_id === 'string')
     )
   }
   if (frame.kind === 'ice') {

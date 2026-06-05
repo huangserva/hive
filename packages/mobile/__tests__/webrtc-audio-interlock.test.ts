@@ -1,6 +1,9 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { runWithWebRtcAudioInterlock } from '../src/lib/webrtc-audio-interlock'
+import {
+  runWithWebRtcAudioInterlock,
+  startWebRtcAudioInterlockSession,
+} from '../src/lib/webrtc-audio-interlock'
 
 describe('WebRTC audio interlock', () => {
   test('stops expo recording before a WebRTC audio session and restores it afterwards', async () => {
@@ -94,5 +97,34 @@ describe('WebRTC audio interlock', () => {
 
     expect(events).toEqual(['stop', 'mode:false', 'session'])
     expect(restoreExpoRecording).not.toHaveBeenCalled()
+  })
+
+  test('keeps expo recording suspended until the WebRTC session is closed', async () => {
+    const events: string[] = []
+
+    const scope = await startWebRtcAudioInterlockSession({
+      isExpoRecordingActive: () => true,
+      restoreExpoRecording: async () => {
+        events.push('restore')
+      },
+      setExpoRecordingAudioMode: async (allowsRecording) => {
+        events.push(`mode:${allowsRecording}`)
+      },
+      shouldRestoreExpoRecording: () => true,
+      startSession: async () => {
+        events.push('start')
+        return 'connected'
+      },
+      stopExpoRecording: async () => {
+        events.push('stop')
+      },
+    })
+
+    expect(scope.result).toBe('connected')
+    expect(events).toEqual(['stop', 'mode:false', 'start'])
+
+    await scope.close()
+
+    expect(events).toEqual(['stop', 'mode:false', 'start', 'mode:true', 'restore'])
   })
 })

@@ -13,8 +13,18 @@ type WebRtcPeerConnection = {
   createAnswer(): Promise<{ sdp: string; type: 'answer' }>
   onconnectionstatechange?: (() => void) | null
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null
+  ontrack?: ((event: WebRtcTrackEvent) => void) | null
   setLocalDescription(description: { sdp: string; type: 'answer' }): Promise<void> | void
   setRemoteDescription(description: { sdp: string; type: 'offer' }): Promise<void> | void
+}
+
+export interface WebRtcTrackEvent {
+  receiver?: unknown
+  streams?: unknown[]
+  track?: {
+    kind?: string
+    [key: string]: unknown
+  }
 }
 
 export interface WebRtcRuntime {
@@ -25,13 +35,34 @@ export interface WebRtcCalleeContext {
   send(frame: WebRtcSignalFrame): void
 }
 
+export interface WebRtcRemoteAudioSession {
+  close(): Promise<void> | void
+}
+
+export interface WebRtcRemoteAudioSink {
+  start(input: {
+    callId: string
+    receiver?: unknown
+    streams?: unknown[] | undefined
+    track: NonNullable<WebRtcTrackEvent['track']>
+    workspaceId: string
+  }):
+    | Promise<WebRtcRemoteAudioSession | null | undefined>
+    | WebRtcRemoteAudioSession
+    | null
+    | undefined
+}
+
 export interface WebRtcCalleeOptions {
+  audioSink?: WebRtcRemoteAudioSink
   callTimeoutMs?: number
   getIceServers: () => Promise<WebRtcIceServer[]> | WebRtcIceServer[]
   loadRuntime?: () => Promise<WebRtcRuntime>
 }
 
 type WebRtcCall = {
+  audioSessions: Set<WebRtcRemoteAudioSession>
+  closed: boolean
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
 }
@@ -76,13 +107,20 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
   const closeCall = (callId: string) => {
     const call = calls.get(callId)
     if (!call) return
+    call.closed = true
     clearCallTimer(call)
+    for (const audioSession of call.audioSessions) {
+      void Promise.resolve(audioSession.close()).catch(() => {})
+    }
+    call.audioSessions.clear()
     call.peer.close()
     calls.delete(callId)
   }
 
   const rememberCall = (callId: string, peer: WebRtcPeerConnection) => {
     const call: WebRtcCall = {
+      audioSessions: new Set(),
+      closed: false,
       peer,
       timer: setTimeout(() => closeCall(callId), callTimeoutMs),
     }
@@ -115,6 +153,36 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
           closeCall(frame.call_id)
         }
+      }
+      peer.ontrack = (event) => {
+        const track = event.track
+        if (!options.audioSink || track?.kind !== 'audio' || !frame.workspace_id) return
+        const startedSession = options.audioSink.start({
+          callId: frame.call_id,
+          receiver: event.receiver,
+          streams: event.streams,
+          track,
+          workspaceId: frame.workspace_id,
+        })
+        if (startedSession && typeof (startedSession as Promise<unknown>).then !== 'function') {
+          const audioSession = startedSession as WebRtcRemoteAudioSession
+          if (call.closed) {
+            void Promise.resolve(audioSession.close()).catch(() => {})
+          } else {
+            call.audioSessions.add(audioSession)
+          }
+          return
+        }
+        void Promise.resolve(startedSession)
+          .then((audioSession) => {
+            if (!audioSession) return
+            if (call.closed) {
+              void Promise.resolve(audioSession.close()).catch(() => {})
+              return
+            }
+            call.audioSessions.add(audioSession)
+          })
+          .catch(() => {})
       }
       try {
         if (!frame.sdp) throw new Error('WebRTC offer SDP is required')
