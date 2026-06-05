@@ -278,16 +278,22 @@ const int16SileroFrames = (frameCount: number) => {
   return data
 }
 
+const int16SilentSileroFrames = (frameCount: number) =>
+  new ArrayBuffer(frameCount * 512 * Int16Array.BYTES_PER_ELEMENT)
+
 const emitNeuralVadProbabilities = async (
   view: ReturnType<typeof render>,
-  probabilities: number[]
+  probabilities: number[],
+  options: { silentPcm?: boolean } = {}
 ) => {
   sileroMock.scores = [...probabilities]
   sileroMock.score.mockImplementation(async () => sileroMock.scores.shift() ?? null)
   await act(async () => {
     audioMock.lastStreamOptions?.onBuffer?.({
       channels: 1,
-      data: int16SileroFrames(probabilities.length),
+      data: options.silentPcm
+        ? int16SilentSileroFrames(probabilities.length)
+        : int16SileroFrames(probabilities.length),
       sampleRate: 16_000,
       timestamp: 0,
     })
@@ -453,6 +459,20 @@ describe('TalkTab continuous mode behavior', () => {
     await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -15 })
 
     expect(screen.getByText('talk.state.listening')).toBeTruthy()
+  })
+
+  test('falls back to recorder metering when fresh neural PCM frames are silent', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(view, [0, 0, 0], { silentPcm: true })
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -50 })
+    await setRecorderStatus(view, { durationMillis: 500, isRecording: true, metering: -24 })
+
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
   })
 
   test('uses neural voice probability to end a continuous segment while volume stays noisy', async () => {

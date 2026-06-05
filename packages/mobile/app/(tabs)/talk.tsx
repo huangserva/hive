@@ -77,6 +77,7 @@ const BARGE_IN_VAD_CONFIG = {
 }
 const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
 const BARGE_IN_METERING_FRESHNESS_MS = 500
+const NEURAL_VAD_DEAD_PCM_RMS_THRESHOLD = 0.0001
 const TALK_HAPTICS_ENABLED = process.env.EXPO_PUBLIC_TALK_HAPTICS_ENABLED !== '0'
 const TALK_AUDIO_CUES_ENABLED = process.env.EXPO_PUBLIC_TALK_AUDIO_CUES_ENABLED !== '0'
 
@@ -335,7 +336,7 @@ export default function TalkTab() {
   const processingSegmentRef = useRef(false)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
   const neuralVadStateRef = useRef<NeuralVoiceVadState>(createInitialNeuralVoiceVadState())
-  const latestNeuralSampleAtMsRef = useRef<number | null>(null)
+  const latestUsableNeuralSampleAtMsRef = useRef<number | null>(null)
   const latestMeteringRef = useRef<number | null>(null)
   const latestMeteringAtMsRef = useRef<number | null>(null)
   const bargeInSpeechStartSampleCountRef = useRef(0)
@@ -452,7 +453,7 @@ export default function TalkTab() {
 
   const resetNeuralVadDecision = useCallback(() => {
     neuralVadStateRef.current = createInitialNeuralVoiceVadState()
-    latestNeuralSampleAtMsRef.current = null
+    latestUsableNeuralSampleAtMsRef.current = null
   }, [])
 
   const isNeuralBargeInMeteringAllowed = useCallback((nowMs: number) => {
@@ -596,7 +597,9 @@ export default function TalkTab() {
       timestampMs: number
     }) => {
       if (!continuousEnabledRef.current || !recordingActiveRef.current) return
-      latestNeuralSampleAtMsRef.current = score.timestampMs
+      if (score.rms > NEURAL_VAD_DEAD_PCM_RMS_THRESHOLD) {
+        latestUsableNeuralSampleAtMsRef.current = score.timestampMs
+      }
       const mode =
         talkStateRef.current === 'speaking' && isBargeInListeningAllowed()
           ? 'barge_in'
@@ -703,7 +706,7 @@ export default function TalkTab() {
     if (metering !== null) latestMeteringAtMsRef.current = Date.now()
     if (
       !shouldUseVolumeVadFallback({
-        latestNeuralSampleAtMs: latestNeuralSampleAtMsRef.current,
+        latestNeuralSampleAtMs: latestUsableNeuralSampleAtMsRef.current,
         neuralEnabled: neuralVadShadowEnabled,
         nowMs: Date.now(),
       })
