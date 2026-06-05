@@ -1,5 +1,6 @@
 import { createLocalTtsProvider, type LocalTtsProvider } from './local-tts.js'
 import type { VoiceStreamFrame } from './relay-connector.js'
+import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 
 interface VoiceStreamTtsHandlerOptions {
   chunkSize?: number
@@ -60,7 +61,10 @@ export const createVoiceStreamTtsHandler = (options: VoiceStreamTtsHandlerOption
       return true
     }
     const voice = typeof frame.voice === 'string' ? frame.voice : undefined
-    const result = await provider.synthesize(frame.text, voice ? { voice } : undefined)
+    const result = await provider.synthesize(
+      sanitizeForSpeech(frame.text),
+      voice ? { voice } : undefined
+    )
     if (!result) {
       context.send({
         error: 'synthesis_failed',

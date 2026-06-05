@@ -86,6 +86,8 @@ describe('fast voice reply', () => {
     expect(body.messages[0]).toMatchObject({ role: 'system' })
     expect(body.messages[0].content).toContain('1-2 句')
     expect(body.messages[0].content).toContain('只读')
+    expect(body.messages[0].content).toContain('不能说“我会派')
+    expect(body.messages[0].content).toContain('只能说“这个需要主管处理')
     expect(body.messages[0].content).toContain('当前状态：关羽 working')
     expect(body.messages[1]).toEqual({ content: '刚才手机语音很慢', role: 'user' })
     expect(body.messages[2]).toEqual({ content: '我会先检查 STT 和 TTS。', role: 'assistant' })

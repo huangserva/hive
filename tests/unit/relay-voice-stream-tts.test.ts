@@ -144,4 +144,44 @@ describe('relay voice stream TTS handler', () => {
     expect(requestedVoice).toBe('zh-CN-YunxiNeural')
     expect(sent).toContainEqual(expect.objectContaining({ op: 'chunk', stream_id: 'voice-audio' }))
   })
+
+  test('sanitizes stream text before TTS without mutating the frame', async () => {
+    let synthesizedText = ''
+    const sent: unknown[] = []
+    const frame = {
+      op: 'open' as const,
+      seq: 0,
+      stream_id: 'voice-audio',
+      text: '🔴 **构建完成** https://example.com/app-release-2.7.4-a1b2c3d4.apk `5aea765`',
+      type: 'voice_stream' as const,
+    }
+    const handler = createVoiceStreamTtsHandler({
+      createTtsProvider: () => ({
+        async detect() {
+          return { command: 'edge-tts', provider: 'edge-tts' }
+        },
+        async synthesize(text) {
+          synthesizedText = text
+          return {
+            audio: Buffer.from('audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts',
+          }
+        },
+      }),
+    })
+
+    await expect(
+      handler(frame, {
+        capabilities: ['send_prompt'],
+        deviceId: 'device-1',
+        send: (sentFrame) => sent.push(sentFrame),
+      })
+    ).resolves.toBe(true)
+
+    expect(synthesizedText).toBe('构建完成 链接 一个版本')
+    expect(frame.text).toContain('https://example.com')
+    expect(sent).toContainEqual(expect.objectContaining({ op: 'chunk', stream_id: 'voice-audio' }))
+  })
 })

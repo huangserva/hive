@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
@@ -10,9 +10,12 @@ import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
 const tempDirs: string[] = []
+const originalPath = process.env.PATH
 
 afterEach(() => {
   vi.useRealTimers()
+  process.env.PATH = originalPath
+  delete process.env.HIVE_EDGE_TTS_ARGS_PATH
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -217,6 +220,51 @@ describe('mobile API', () => {
       })
       expect(nonLocalHost.status).toBe(200)
       expect(await nonLocalHost.json()).toEqual([])
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('sanitizes LAN voice synthesis text before invoking local TTS', async () => {
+    const binDir = mkdtempSync(join(tmpdir(), 'hive-mobile-tts-bin-'))
+    const argsPath = join(binDir, 'edge-tts-args.json')
+    tempDirs.push(binDir)
+    const edgeTtsPath = join(binDir, 'edge-tts')
+    writeFileSync(
+      edgeTtsPath,
+      `#!/usr/bin/env node
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+fs.writeFileSync(process.env.HIVE_EDGE_TTS_ARGS_PATH, JSON.stringify(args), 'utf8')
+const outputPath = args[args.indexOf('--write-media') + 1]
+fs.writeFileSync(outputPath, 'audio')
+`,
+      'utf8'
+    )
+    chmodSync(edgeTtsPath, 0o755)
+    process.env.HIVE_EDGE_TTS_ARGS_PATH = argsPath
+    process.env.PATH = `${binDir}${delimiter}${originalPath ?? ''}`
+    const server = await startTestServer()
+    try {
+      const { token } = await createMobileTokenForTest(server.baseUrl)
+      const text =
+        '✅ 下载 https://example.com/builds/app-release-2.7.4-a1b2c3d4.apk commit `5aea765`'
+
+      const response = await fetch(`${server.baseUrl}/api/mobile/voice/synthesize`, {
+        body: JSON.stringify({ text, voice: 'zh-CN-XiaoxiaoNeural' }),
+        headers: jsonHeaders({ token }),
+        method: 'POST',
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        audio: Buffer.from('audio').toString('base64'),
+        format: 'mp3',
+        mime: 'audio/mpeg',
+      })
+      const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[]
+      expect(args[args.indexOf('--text') + 1]).toBe('完成 下载 链接 commit 一个版本')
+      expect(text).toContain('https://example.com/builds')
     } finally {
       await server.close()
     }

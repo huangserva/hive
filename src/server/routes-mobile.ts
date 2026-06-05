@@ -35,6 +35,7 @@ import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers
 import type { RouteDefinition } from './route-types.js'
 import { serializeCommandPreset } from './routes-settings.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
@@ -971,7 +972,10 @@ export const mobileRoutes: RouteDefinition[] = [
       return
     }
     const voice = typeof body.voice === 'string' ? body.voice : undefined
-    const result = await ttsProvider.synthesize(body.text, voice ? { voice } : undefined)
+    const result = await ttsProvider.synthesize(
+      sanitizeForSpeech(body.text),
+      voice ? { voice } : undefined
+    )
     if (!result) {
       sendJson(response, 200, { error: 'synthesis_failed' })
       return

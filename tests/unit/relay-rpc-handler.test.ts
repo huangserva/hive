@@ -462,6 +462,33 @@ describe('relay RPC handler', () => {
     })
   })
 
+  it('sanitizes relay voice synthesis text before TTS without mutating the RPC payload', async () => {
+    localTtsMock.detect.mockResolvedValue({ command: 'edge-tts', provider: 'edge-tts' })
+    localTtsMock.synthesize.mockResolvedValue({
+      audio: Buffer.from('audio'),
+      format: 'mp3',
+      mime: 'audio/mpeg',
+      provider: 'edge-tts',
+    })
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: createBaseStore(),
+    })
+    const params = {
+      text: '✅ 下载 https://example.com/app-release-2.7.4-a1b2c3d4.apk commit 5aea765',
+      voice: 'zh-CN-YunxiNeural',
+    }
+
+    await expect(handler('voice.synthesize', params, 'device-1', ['send_prompt'])).resolves.toEqual(
+      expect.objectContaining({ format: 'mp3', mime: 'audio/mpeg' })
+    )
+
+    expect(localTtsMock.synthesize).toHaveBeenCalledWith('完成 下载 链接 commit 一个版本', {
+      voice: 'zh-CN-YunxiNeural',
+    })
+    expect(params.text).toContain('https://example.com/app-release')
+  })
+
   it('serves cockpit data over relay RPC', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-cockpit-'))
     const workspacePath = join(dataDir, 'workspace')

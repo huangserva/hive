@@ -24,6 +24,7 @@ import {
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 export type RelayRpcHandler = (
@@ -458,7 +459,10 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const ttsProvider = createLocalTtsProvider()
       const cli = await ttsProvider.detect()
       if (!cli) return { error: 'tts_unavailable' }
-      const result = await ttsProvider.synthesize(text, voice ? { voice } : undefined)
+      const result = await ttsProvider.synthesize(
+        sanitizeForSpeech(text),
+        voice ? { voice } : undefined
+      )
       if (!result) return { error: 'synthesis_failed' }
       return { audio: result.audio.toString('base64'), format: result.format, mime: result.mime }
     }
