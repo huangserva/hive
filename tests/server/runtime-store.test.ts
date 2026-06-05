@@ -177,24 +177,32 @@ describe('runtime store', () => {
     expect(store.getWorker(workspace.id, worker.id).status).toBe('idle')
   })
 
-  test('startAgent success clears stale pending from a stopped previous session', async () => {
+  test('startAgent success preserves queued pending tasks for a stopped worker', async () => {
     const store = createRuntimeStore({ agentManager: createFakeAgentManager() })
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, {
       name: 'Alice',
       role: 'coder',
     })
-    // Simulate the worker already having an active PTY before queuing.
-    store.getWorker(workspace.id, worker.id).status = 'idle'
-    store.dispatchTask(workspace.id, worker.id, 'Implement feature')
-    store.getWorker(workspace.id, worker.id).status = 'stopped'
+    store.dispatchTask(workspace.id, worker.id, 'Implement first feature')
+    store.dispatchTask(workspace.id, worker.id, 'Implement second feature')
     store.configureAgentLaunch(workspace.id, worker.id, { command: '/bin/bash', args: [] })
 
     await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
 
     const restartedWorker = store.getWorker(workspace.id, worker.id)
-    expect(restartedWorker.pendingTaskCount).toBe(0)
-    expect(restartedWorker.status).toBe('idle')
+    expect(restartedWorker.pendingTaskCount).toBe(2)
+    expect(restartedWorker.status).toBe('working')
+
+    store.reportTask(workspace.id, worker.id, { status: 'success', text: 'First done' })
+    const partiallyDrainedWorker = store.getWorker(workspace.id, worker.id)
+    expect(partiallyDrainedWorker.pendingTaskCount).toBe(1)
+    expect(partiallyDrainedWorker.status).toBe('working')
+
+    store.reportTask(workspace.id, worker.id, { status: 'success', text: 'Second done' })
+    const drainedWorker = store.getWorker(workspace.id, worker.id)
+    expect(drainedWorker.pendingTaskCount).toBe(0)
+    expect(drainedWorker.status).toBe('idle')
   })
 
   test('reportTask resets worker pending count and returns it to idle', () => {
