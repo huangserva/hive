@@ -9,6 +9,7 @@ class FakePeerConnection {
   connectionState = 'new'
   onconnectionstatechange: (() => void) | null = null
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null = null
+  ontrack: ((event: { streams?: unknown[]; track?: unknown }) => void) | null = null
   remoteDescription: unknown = null
   addedCandidates: unknown[] = []
   closed = false
@@ -271,5 +272,36 @@ describe('WebRTC caller', () => {
       kind: 'bye',
       type: 'webrtc_signal',
     })
+  })
+
+  test('notifies when remote downlink audio track arrives', async () => {
+    const peers: FakePeerConnection[] = []
+    const received: unknown[] = []
+    const caller = createWebRtcCaller({
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+      nextCallId: () => 'call-downlink',
+      onRemoteTrack: (event) => {
+        received.push(event.track)
+      },
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {},
+        sendWebRtcSignalFrame: () => {},
+      },
+    })
+
+    await caller.start()
+    const remoteAudioTrack = { kind: 'audio' }
+    peers[0]?.ontrack?.({ streams: [], track: remoteAudioTrack })
+
+    expect(received).toEqual([remoteAudioTrack])
   })
 })

@@ -29,6 +29,7 @@ type WebRtcPeerConnection = {
   createOffer(): Promise<{ sdp: string; type: 'offer' }>
   onconnectionstatechange?: (() => void) | null
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null
+  ontrack?: ((event: { streams?: unknown[]; track?: unknown }) => void) | null
   setLocalDescription(description: { sdp: string; type: 'offer' }): Promise<void> | void
   setRemoteDescription(description: { sdp: string; type: 'answer' }): Promise<void> | void
 }
@@ -44,6 +45,7 @@ export interface WebRtcCallerOptions {
   audio?: boolean
   loadRuntime?: () => Promise<WebRtcRuntime>
   nextCallId?: () => string
+  onRemoteTrack?: (event: { streams?: unknown[]; track?: unknown }) => void
   runAudioSession?: <T>(
     session: () => Promise<T>
   ) => Promise<{ close: () => Promise<void> | void; result: T }>
@@ -120,6 +122,9 @@ export const createWebRtcCaller = (options: WebRtcCallerOptions) => {
             candidate: normalizeIceCandidate(event.candidate),
           })
         )
+      }
+      peer.ontrack = (event) => {
+        options.onRemoteTrack?.(event)
       }
 
       peer.onconnectionstatechange = () => {

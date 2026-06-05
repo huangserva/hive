@@ -23,6 +23,7 @@ import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
 import { createWebRtcCallee } from '../server/webrtc-callee.js'
+import { createWebRtcDownlinkAudio } from '../server/webrtc-downlink-audio.js'
 import { createWebRtcUpstreamAudioSink } from '../server/webrtc-upstream-audio.js'
 
 interface RunHiveCommandResult {
@@ -222,6 +223,7 @@ export const runHiveCommand = async (
           voiceStreamHandler: createVoiceStreamTtsHandler(),
           webrtcSignalHandler: createWebRtcCallee({
             audioSink: createWebRtcUpstreamAudioSink({ logger, store }),
+            downlinkAudio: createWebRtcDownlinkAudio({ logger, store }),
             getIceServers: async () => resolveWebRtcIceServers(),
           }).handleSignal,
         }

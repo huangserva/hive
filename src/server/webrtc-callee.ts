@@ -8,6 +8,7 @@ export interface WebRtcIceServer {
 
 type WebRtcPeerConnection = {
   addIceCandidate(candidate: WebRtcIceCandidateInit): Promise<void> | void
+  addTrack?: (track: WebRtcLocalAudioTrack) => unknown
   close(): void
   connectionState?: string
   createAnswer(): Promise<{ sdp: string; type: 'answer' }>
@@ -35,6 +36,27 @@ export interface WebRtcCalleeContext {
   send(frame: WebRtcSignalFrame): void
 }
 
+export interface WebRtcLocalAudioTrack {
+  kind?: string
+  stop?: () => void
+}
+
+export interface WebRtcDownlinkAudioSession {
+  close(): Promise<void> | void
+  track: WebRtcLocalAudioTrack
+}
+
+export interface WebRtcDownlinkAudio {
+  startCall(input: {
+    callId: string
+    workspaceId: string
+  }):
+    | Promise<WebRtcDownlinkAudioSession | null | undefined>
+    | WebRtcDownlinkAudioSession
+    | null
+    | undefined
+}
+
 export interface WebRtcRemoteAudioSession {
   close(): Promise<void> | void
 }
@@ -56,6 +78,7 @@ export interface WebRtcRemoteAudioSink {
 export interface WebRtcCalleeOptions {
   audioSink?: WebRtcRemoteAudioSink
   callTimeoutMs?: number
+  downlinkAudio?: WebRtcDownlinkAudio
   getIceServers: () => Promise<WebRtcIceServer[]> | WebRtcIceServer[]
   loadRuntime?: () => Promise<WebRtcRuntime>
 }
@@ -63,6 +86,7 @@ export interface WebRtcCalleeOptions {
 type WebRtcCall = {
   audioSessions: Set<WebRtcRemoteAudioSession>
   closed: boolean
+  downlinkSession: WebRtcDownlinkAudioSession | null
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
 }
@@ -113,6 +137,10 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       void Promise.resolve(audioSession.close()).catch(() => {})
     }
     call.audioSessions.clear()
+    if (call.downlinkSession) {
+      void Promise.resolve(call.downlinkSession.close()).catch(() => {})
+      call.downlinkSession = null
+    }
     call.peer.close()
     calls.delete(callId)
   }
@@ -121,6 +149,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     const call: WebRtcCall = {
       audioSessions: new Set(),
       closed: false,
+      downlinkSession: null,
       peer,
       timer: setTimeout(() => closeCall(callId), callTimeoutMs),
     }
@@ -137,6 +166,26 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       const [runtime, iceServers] = await Promise.all([loadRuntime(), options.getIceServers()])
       const peer = new runtime.RTCPeerConnection({ iceServers })
       const call = rememberCall(frame.call_id, peer)
+      if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
+        try {
+          const downlinkSession = await options.downlinkAudio.startCall({
+            callId: frame.call_id,
+            workspaceId: frame.workspace_id,
+          })
+          if (downlinkSession) {
+            call.downlinkSession = downlinkSession
+            peer.addTrack(downlinkSession.track)
+          }
+        } catch {
+          closeCall(frame.call_id)
+          context.send({
+            call_id: frame.call_id,
+            kind: 'bye',
+            type: 'webrtc_signal',
+          })
+          return true
+        }
+      }
       peer.onicecandidate = (event) => {
         context.send({
           call_id: frame.call_id,
