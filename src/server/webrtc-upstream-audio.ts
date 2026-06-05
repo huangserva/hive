@@ -11,6 +11,11 @@ import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
+import {
+  createWebRtcUtteranceVad,
+  type WebRtcUtteranceVadConfig,
+  type WebRtcVadUtterance,
+} from './webrtc-vad.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 type WebRtcAudioSinkFrame = {
@@ -44,6 +49,7 @@ interface WebRtcUpstreamAudioSinkOptions {
   logger?: Pick<HiveLogger, 'info' | 'warn'>
   store: WebRtcUpstreamStore
   tempRoot?: string
+  vad?: Partial<WebRtcUtteranceVadConfig>
 }
 
 const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, message: string) => {
@@ -164,18 +170,63 @@ export const createWebRtcUpstreamAudioSink = ({
   logger,
   store,
   tempRoot = tmpdir(),
+  vad,
 }: WebRtcUpstreamAudioSinkOptions): WebRtcRemoteAudioSink => ({
   async start({ callId, track, workspaceId }): Promise<WebRtcRemoteAudioSession> {
     const tempDir = mkdtempSync(join(tempRoot, 'hive-webrtc-upstream-'))
-    const audioPath = join(tempDir, `${callId}.wav`)
     const AudioSink = await loadAudioSink()
     const sink = new AudioSink(track)
-    const frames: Buffer[] = []
+    let chunkCount = 0
     let sampleRate = 48_000
     let bitsPerSample = 16
     let channelCount = 1
     let totalPcmFrames = 0
+    let utteranceIndex = 0
     let closed = false
+    let processingQueue = Promise.resolve()
+    const utteranceVad = createWebRtcUtteranceVad(vad)
+    const processUtterance = (utterance: WebRtcVadUtterance) => {
+      utteranceIndex += 1
+      const currentUtteranceIndex = utteranceIndex
+      processingQueue = processingQueue
+        .then(async () => {
+          const utterancePath = join(tempDir, `${callId}-utterance-${currentUtteranceIndex}.wav`)
+          writeWavFile({
+            bitsPerSample: utterance.bitsPerSample,
+            channelCount: utterance.channelCount,
+            frames: [utterance.pcm],
+            outputPath: utterancePath,
+            sampleRate: utterance.sampleRate,
+          })
+          logDiagnostic(
+            logger,
+            `audioSink utterance ready: call_id=${callId} utterance=${currentUtteranceIndex} bytes=${utterance.pcm.byteLength} sample_rate=${utterance.sampleRate} bits=${utterance.bitsPerSample} channels=${utterance.channelCount}`
+          )
+          try {
+            const provider = createSttProvider()
+            const cli = await provider.detect()
+            if (!cli) return
+            const result = await provider.transcribeAudioFile(utterancePath)
+            if (!result) return
+            await injectWebRtcVoiceTranscript({
+              ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
+              store,
+              text: result.text,
+              workspaceId,
+            })
+            logDiagnostic(
+              logger,
+              `audioSink utterance injected: call_id=${callId} utterance=${currentUtteranceIndex}`
+            )
+          } finally {
+            rmSync(utterancePath, { force: true })
+          }
+        })
+        .catch((error) => {
+          logger?.warn?.('failed to process WebRTC upstream utterance', error)
+        })
+      return processingQueue
+    }
     logDiagnostic(
       logger,
       `audioSink started: call_id=${callId} track_kind=${typeof track === 'object' && track !== null && 'kind' in track ? String((track as { kind?: unknown }).kind) : 'unknown'}`
@@ -189,17 +240,24 @@ export const createWebRtcUpstreamAudioSink = ({
       const pcmFrames =
         data.numberOfFrames ??
         Math.floor(buffer.byteLength / Math.max(1, (bitsPerSample / 8) * channelCount))
-      frames.push(buffer)
+      chunkCount += 1
       totalPcmFrames += pcmFrames
-      if (frames.length === 1) {
+      const utterance = utteranceVad.push({
+        bitsPerSample,
+        channelCount,
+        pcm: buffer,
+        sampleRate,
+      })
+      if (utterance) void processUtterance(utterance)
+      if (chunkCount === 1) {
         logDiagnostic(
           logger,
-          `audioSink first frame: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+          `audioSink first frame: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
         )
-      } else if (frames.length % 50 === 0) {
+      } else if (chunkCount % 50 === 0) {
         logDiagnostic(
           logger,
-          `audioSink frames: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+          `audioSink frames: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
         )
       }
     }
@@ -212,21 +270,11 @@ export const createWebRtcUpstreamAudioSink = ({
           await Promise.resolve(sink.stop?.())
           logDiagnostic(
             logger,
-            `audioSink closing: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+            `audioSink closing: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
           )
-          if (frames.length <= 0) return
-          writeWavFile({ bitsPerSample, channelCount, frames, outputPath: audioPath, sampleRate })
-          const provider = createSttProvider()
-          const cli = await provider.detect()
-          if (!cli) return
-          const result = await provider.transcribeAudioFile(audioPath)
-          if (!result) return
-          await injectWebRtcVoiceTranscript({
-            ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
-            store,
-            text: result.text,
-            workspaceId,
-          })
+          const finalUtterance = utteranceVad.flush({ force: true })
+          if (finalUtterance) void processUtterance(finalUtterance)
+          await processingQueue
         } catch (error) {
           logger?.warn?.('failed to process WebRTC upstream audio', error)
         } finally {
