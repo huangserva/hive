@@ -10,8 +10,10 @@ class FakePeerConnection {
   addedTracks: unknown[] = []
   localDescription: { sdp: string; type: 'answer' } | null = null
   connectionState = 'new'
+  iceConnectionState = 'new'
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null = null
   onconnectionstatechange: (() => void) | null = null
+  oniceconnectionstatechange: (() => void) | null = null
   ontrack: ((event: { receiver?: unknown; streams?: unknown[]; track?: unknown }) => void) | null =
     null
   remoteDescription: unknown = null
@@ -52,6 +54,7 @@ describe('WebRTC callee', () => {
   })
 
   test('answers an offer and emits trickle ICE without using JSON-RPC', async () => {
+    vi.stubEnv('HIVE_WEBRTC_FORCE_RELAY', '0')
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
     const callee = createWebRtcCallee({
@@ -264,18 +267,15 @@ describe('WebRTC callee', () => {
     expect(peers[0]?.addedCandidates).toEqual([])
   })
 
-  test('starts an upstream audio session for remote audio tracks and closes it on bye', async () => {
+  test('defers upstream audio sessions for remote tracks during wrtc phase 1', async () => {
     const peers: FakePeerConnection[] = []
-    const closedSessions: string[] = []
     const startedTracks: unknown[] = []
     const callee = createWebRtcCallee({
       audioSink: {
-        start: ({ callId, track }) => {
+        start: ({ track }) => {
           startedTracks.push(track)
           return {
-            close: () => {
-              closedSessions.push(callId)
-            },
+            close: () => {},
           }
         },
       },
@@ -308,27 +308,25 @@ describe('WebRTC callee', () => {
       { send: () => {} }
     )
 
-    expect(startedTracks).toEqual([audioTrack])
-    expect(closedSessions).toEqual(['call-audio'])
+    expect(startedTracks).toEqual([])
+    expect(peers[0]?.closed).toBe(true)
   })
 
-  test('adds a local downlink audio track for the call and closes it on bye', async () => {
+  test('defers local downlink audio during wrtc phase 1', async () => {
     const peers: FakePeerConnection[] = []
-    const stoppedTracks: string[] = []
+    const startedCalls: string[] = []
     const localTrack = {
       kind: 'audio',
-      stop: () => {
-        stoppedTracks.push('downlink')
-      },
     }
     const callee = createWebRtcCallee({
       downlinkAudio: {
-        startCall: async () => ({
-          close: () => {
-            localTrack.stop()
-          },
-          track: localTrack,
-        }),
+        startCall: async ({ callId }) => {
+          startedCalls.push(callId)
+          return {
+            close: () => {},
+            track: localTrack,
+          }
+        },
       },
       getIceServers: async () => [],
       loadRuntime: async () => ({
@@ -353,17 +351,18 @@ describe('WebRTC callee', () => {
       { send: () => {} }
     )
 
-    expect(peers[0]?.addedTracks).toEqual([localTrack])
+    expect(startedCalls).toEqual([])
+    expect(peers[0]?.addedTracks).toEqual([])
 
     await callee.handleSignal(
       { call_id: 'call-downlink', kind: 'bye', type: 'webrtc_signal' },
       { send: () => {} }
     )
 
-    expect(stoppedTracks).toEqual(['downlink'])
+    expect(peers[0]?.closed).toBe(true)
   })
 
-  test('closes and forgets a peer immediately when downlink start fails', async () => {
+  test('does not let deferred downlink setup failures block offer answering', async () => {
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
     const callee = createWebRtcCallee({
@@ -397,9 +396,14 @@ describe('WebRTC callee', () => {
       )
     ).resolves.toBe(true)
 
-    expect(peers[0]?.closed).toBe(true)
+    expect(peers[0]?.closed).toBe(false)
     expect(sent).toEqual([
-      { call_id: 'call-downlink-start-fails', kind: 'bye', type: 'webrtc_signal' },
+      expect.objectContaining({
+        call_id: 'call-downlink-start-fails',
+        kind: 'answer',
+        sdp: 'answer-sdp',
+        type: 'webrtc_signal',
+      }),
     ])
 
     await callee.handleSignal(
@@ -411,13 +415,12 @@ describe('WebRTC callee', () => {
       },
       { send: (frame) => sent.push(frame) }
     )
-    expect(peers[0]?.addedCandidates).toEqual([])
+    expect(peers[0]?.addedCandidates).toEqual([{ candidate: 'candidate:after-downlink-fail' }])
   })
 
-  test('closes downlink session and peer immediately when adding the local track fails', async () => {
+  test('does not call addTrack while audio is deferred for wrtc phase 1', async () => {
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
-    const closedDownlinkSessions: string[] = []
     const localTrack = { kind: 'audio' }
     class ThrowingAddTrackPeerConnection extends FakePeerConnection {
       addTrack() {
@@ -427,9 +430,7 @@ describe('WebRTC callee', () => {
     const callee = createWebRtcCallee({
       downlinkAudio: {
         startCall: async () => ({
-          close: () => {
-            closedDownlinkSessions.push('closed')
-          },
+          close: () => {},
           track: localTrack,
         }),
       },
@@ -458,9 +459,15 @@ describe('WebRTC callee', () => {
       )
     ).resolves.toBe(true)
 
-    expect(closedDownlinkSessions).toEqual(['closed'])
-    expect(peers[0]?.closed).toBe(true)
-    expect(sent).toEqual([{ call_id: 'call-add-track-fails', kind: 'bye', type: 'webrtc_signal' }])
+    expect(peers[0]?.closed).toBe(false)
+    expect(sent).toEqual([
+      expect.objectContaining({
+        call_id: 'call-add-track-fails',
+        kind: 'answer',
+        sdp: 'answer-sdp',
+        type: 'webrtc_signal',
+      }),
+    ])
   })
 
   test('closes and forgets a peer when addIceCandidate throws', async () => {
@@ -558,5 +565,42 @@ describe('WebRTC callee', () => {
       { send: () => {} }
     )
     expect(peer.addedCandidates).toEqual([])
+  })
+
+  test('clears the unanswered-call timer when ice connection reaches completed', async () => {
+    vi.useFakeTimers()
+    const peers: FakePeerConnection[] = []
+    const callee = createWebRtcCallee({
+      callTimeoutMs: 30_000,
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-ice-completed',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+    const peer = peers[0]
+    expect(peer).toBeDefined()
+    if (!peer) throw new Error('peer connection was not created')
+    peer.connectionState = 'new'
+    peer.iceConnectionState = 'completed'
+    peer.oniceconnectionstatechange?.()
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(peer.closed).toBe(false)
   })
 })

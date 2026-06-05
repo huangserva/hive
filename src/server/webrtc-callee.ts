@@ -19,7 +19,9 @@ type WebRtcPeerConnection = {
   createAnswer(): Promise<{ sdp: string; type: 'answer' }>
   onconnectionstatechange?: (() => void) | null
   onicecandidate: ((event: { candidate: unknown | null }) => void) | null
+  oniceconnectionstatechange?: (() => void) | null
   ontrack?: ((event: WebRtcTrackEvent) => void) | null
+  iceConnectionState?: string
   setLocalDescription(description: { sdp: string; type: 'answer' }): Promise<void> | void
   setRemoteDescription(description: { sdp: string; type: 'offer' }): Promise<void> | void
 }
@@ -130,19 +132,23 @@ const normalizeIceCandidate = (candidate: unknown): WebRtcIceCandidateInit | nul
   return candidate as WebRtcIceCandidateInit
 }
 
-const loadWeriftRuntime = async (): Promise<WebRtcRuntime> => {
-  const moduleName = 'werift'
+const loadWrtcRuntime = async (): Promise<WebRtcRuntime> => {
+  const moduleName = '@roamhq/wrtc'
   const runtime = (await import(moduleName)) as {
     RTCPeerConnection?: WebRtcRuntime['RTCPeerConnection']
+    default?: {
+      RTCPeerConnection?: WebRtcRuntime['RTCPeerConnection']
+    }
   }
-  if (!runtime.RTCPeerConnection) {
-    throw new Error('werift RTCPeerConnection is unavailable')
+  const RTCPeerConnection = runtime.RTCPeerConnection ?? runtime.default?.RTCPeerConnection
+  if (!RTCPeerConnection) {
+    throw new Error('@roamhq/wrtc RTCPeerConnection is unavailable')
   }
-  return { RTCPeerConnection: runtime.RTCPeerConnection }
+  return { RTCPeerConnection }
 }
 
 export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
-  const loadRuntime = options.loadRuntime ?? loadWeriftRuntime
+  const loadRuntime = options.loadRuntime ?? loadWrtcRuntime
   const callTimeoutMs = options.callTimeoutMs ?? DEFAULT_WEBRTC_CALL_TIMEOUT_MS
   const calls = new Map<string, WebRtcCall>()
 
@@ -196,27 +202,8 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       )
       const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers))
       const call = rememberCall(frame.call_id, peer)
-      if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
-        try {
-          const downlinkSession = await options.downlinkAudio.startCall({
-            callId: frame.call_id,
-            workspaceId: frame.workspace_id,
-          })
-          if (downlinkSession) {
-            call.downlinkSession = downlinkSession
-            peer.addTrack(downlinkSession.track)
-            log(`downlink audio track added: call_id=${frame.call_id}`)
-          }
-        } catch (downlinkError) {
-          log(`downlink audio failed: call_id=${frame.call_id}`, downlinkError)
-          closeCall(frame.call_id)
-          context.send({
-            call_id: frame.call_id,
-            kind: 'bye',
-            type: 'webrtc_signal',
-          })
-          return true
-        }
+      if (options.downlinkAudio && frame.workspace_id) {
+        log(`downlink audio deferred for wrtc phase1: call_id=${frame.call_id}`)
       }
       peer.onicecandidate = (event) => {
         const candidate = normalizeIceCandidate(event.candidate)
@@ -234,47 +221,30 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
           type: 'webrtc_signal',
         })
       }
-      peer.onconnectionstatechange = () => {
-        log(`connection state changed: call_id=${frame.call_id} state=${peer.connectionState}`)
-        if (peer.connectionState === 'connected') {
+      const handleConnectionStateChange = () => {
+        const states = [peer.connectionState, peer.iceConnectionState].filter(
+          (state): state is string => typeof state === 'string'
+        )
+        log(
+          `connection state changed: call_id=${frame.call_id} state=${peer.connectionState ?? 'unknown'} ice=${peer.iceConnectionState ?? 'unknown'}`
+        )
+        if (states.some((state) => state === 'connected' || state === 'completed')) {
           clearCallTimer(call)
           return
         }
-        if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
-          log(`call closing: call_id=${frame.call_id} state=${peer.connectionState}`)
+        const state = states.find((candidate) => candidate === 'failed' || candidate === 'closed')
+        if (state === 'failed' || state === 'closed') {
+          log(`call closing: call_id=${frame.call_id} state=${state}`)
           closeCall(frame.call_id)
         }
       }
+      peer.onconnectionstatechange = handleConnectionStateChange
+      peer.oniceconnectionstatechange = handleConnectionStateChange
       peer.ontrack = (event) => {
         const track = event.track
-        log(`remote track received: call_id=${frame.call_id} kind=${track?.kind}`)
-        if (!options.audioSink || track?.kind !== 'audio' || !frame.workspace_id) return
-        const startedSession = options.audioSink.start({
-          callId: frame.call_id,
-          receiver: event.receiver,
-          streams: event.streams,
-          track,
-          workspaceId: frame.workspace_id,
-        })
-        if (startedSession && typeof (startedSession as Promise<unknown>).then !== 'function') {
-          const audioSession = startedSession as WebRtcRemoteAudioSession
-          if (call.closed) {
-            void Promise.resolve(audioSession.close()).catch(() => {})
-          } else {
-            call.audioSessions.add(audioSession)
-          }
-          return
-        }
-        void Promise.resolve(startedSession)
-          .then((audioSession) => {
-            if (!audioSession) return
-            if (call.closed) {
-              void Promise.resolve(audioSession.close()).catch(() => {})
-              return
-            }
-            call.audioSessions.add(audioSession)
-          })
-          .catch(() => {})
+        log(
+          `remote track received but audio sink deferred for wrtc phase1: call_id=${frame.call_id} kind=${track?.kind}`
+        )
       }
       try {
         if (!frame.sdp) throw new Error('WebRTC offer SDP is required')

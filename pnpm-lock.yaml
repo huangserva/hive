@@ -28,6 +28,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@roamhq/wrtc':
+        specifier: ^0.10.0
+        version: 0.10.0
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.2.2(vite@7.3.2(@types/node@24.12.2)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.48.0)(tsx@4.21.0)(yaml@2.9.0))
@@ -1872,6 +1875,34 @@ packages:
       '@types/react':
         optional: true
 
+  '@roamhq/wrtc-darwin-arm64@0.10.0':
+    resolution: {integrity: sha512-vFdi79jWuPHcnUcnuOjTvyKtmY/RI2xRQo9Y6RsIjIlYePN/7LTy00c+Ivrz4prYAPbp0oHscl7PDV64VUqGTQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@roamhq/wrtc-darwin-x64@0.10.0':
+    resolution: {integrity: sha512-H6852g2xYCuaR+/TrthpdMafs4bMfAUEpvRDhsIguzrK7Dz+MKpNI8MkwdqJN8W65J+7w7k+YqXIkTHe7Fz/cg==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@roamhq/wrtc-linux-arm64@0.10.0':
+    resolution: {integrity: sha512-fEuJbNjprxQG6QlFd2iqBW9x028RDSho6izVg7gyt8irdPiXWOxzOxNnYMs/B2fohBTd1wD4Qxfivl07/dCR8A==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@roamhq/wrtc-linux-x64@0.10.0':
+    resolution: {integrity: sha512-H32lK2eFg3sVb/9nkHIX5HIisxFoS82Gpesuea+zqAyRpRzSd5NpFXx28bVy9wQyRrNtj8k0bTUgEzWRzSbYCA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@roamhq/wrtc-win32-x64@0.10.0':
+    resolution: {integrity: sha512-wEVXMvLrBizdLyrd+Zc7zb7zpwUuHUBXwrdIvI69e3i/AA8YsVYI2xo/sxk6GoQ+o8a14ONc4SStDS35TCjg+w==}
+    cpu: [x64]
+    os: [win32]
+
+  '@roamhq/wrtc@0.10.0':
+    resolution: {integrity: sha512-yFqQQ0EV1ZUHaphh3tmjoxPi2wzhW2vjmzoAVNRRLUjXYd2e1nvwi9TKfE2w4WNvNws/hBkouvOt23Xo9FkXkQ==}
+
   '@rollup/rollup-android-arm-eabi@4.60.1':
     resolution: {integrity: sha512-d6FinEBLdIiK+1uACUttJKfgZREXrF0Qc2SmLII7W2AD8FfiZ9Wjd+rD/iRuf5s5dWrr1GgwXCvPqOuDquOowA==}
     cpu: [arm]
@@ -2988,6 +3019,11 @@ packages:
 
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
+
+  domexception@4.0.0:
+    resolution: {integrity: sha512-A2is4PLG+eeSfoTMA95/s4pvAoSo2mKtiM5jlHkAVewmiO8ISFTFKZjH7UAM1Atli/OT/7JHOrJRJiMKUZKYBw==}
+    engines: {node: '>=12'}
+    deprecated: Use your platform's native DOMException instead
 
   domino@2.1.7:
     resolution: {integrity: sha512-3rcXhx0ixJV2nj8J0tljzejTF73A35LVVdnTQu79UAqTBFEgYPMgGtykMuu/BDqaOZphATku1ddRUn/RtqUHYQ==}
@@ -7994,6 +8030,30 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.14
 
+  '@roamhq/wrtc-darwin-arm64@0.10.0':
+    optional: true
+
+  '@roamhq/wrtc-darwin-x64@0.10.0':
+    optional: true
+
+  '@roamhq/wrtc-linux-arm64@0.10.0':
+    optional: true
+
+  '@roamhq/wrtc-linux-x64@0.10.0':
+    optional: true
+
+  '@roamhq/wrtc-win32-x64@0.10.0':
+    optional: true
+
+  '@roamhq/wrtc@0.10.0':
+    optionalDependencies:
+      '@roamhq/wrtc-darwin-arm64': 0.10.0
+      '@roamhq/wrtc-darwin-x64': 0.10.0
+      '@roamhq/wrtc-linux-arm64': 0.10.0
+      '@roamhq/wrtc-linux-x64': 0.10.0
+      '@roamhq/wrtc-win32-x64': 0.10.0
+      domexception: 4.0.0
+
   '@rollup/rollup-android-arm-eabi@4.60.1':
     optional: true
 
@@ -9019,6 +9079,11 @@ snapshots:
   dom-accessibility-api@0.5.16: {}
 
   dom-accessibility-api@0.6.3: {}
+
+  domexception@4.0.0:
+    dependencies:
+      webidl-conversions: 7.0.0
+    optional: true
 
   domino@2.1.7: {}
 
