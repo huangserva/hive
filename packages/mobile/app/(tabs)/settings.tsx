@@ -102,8 +102,11 @@ export default function SettingsTab() {
     selectedWorkspaceId,
     setHost,
     setToken,
+    startWebRtcTestCall,
     state,
+    stopWebRtcTestCall,
     token,
+    webRtcTestCall,
     workspaces,
   } = useMobileRuntime()
   const [draftHost, setDraftHost] = useState(host)
@@ -317,6 +320,21 @@ export default function SettingsTab() {
     setWebRtcProbeBusy(false)
   }, [runWebRtcConnectionProbe, t, webRtcProbeBusy])
 
+  const onStartWebRtcTestCall = useCallback(async () => {
+    if (webRtcTestCall.status === 'connecting' || webRtcTestCall.status === 'connected') return
+    const result = await startWebRtcTestCall()
+    const message = result.ok
+      ? t('settings.webrtcTestCallConnected', { callId: result.callId })
+      : t('settings.webrtcTestCallFailed', { reason: result.reason })
+    setWebRtcProbeResult(message)
+    if (!result.ok) Alert.alert(t('settings.webrtcProbeTitle'), message)
+  }, [startWebRtcTestCall, t, webRtcTestCall.status])
+
+  const onStopWebRtcTestCall = useCallback(() => {
+    stopWebRtcTestCall()
+    setWebRtcProbeResult(t('settings.webrtcTestCallEnded'))
+  }, [stopWebRtcTestCall, t])
+
   const switchConnectionDetail = useCallback(
     async (target: 'lan' | 'relay') => {
       if (switchingConnectionTarget || !token.trim()) return
@@ -364,6 +382,8 @@ export default function SettingsTab() {
   const webRtcProbeEnabled = resolveWebRtcProbeEnabled(
     Constants.expoConfig?.extra as { webRtcProbe?: unknown } | undefined
   )
+  const webRtcTestCallActive =
+    webRtcTestCall.status === 'connecting' || webRtcTestCall.status === 'connected'
 
   return (
     <Screen showConnectionModeBanner={false}>
@@ -765,6 +785,48 @@ export default function SettingsTab() {
               )}
               <Text style={styles.primaryButtonText}>
                 {webRtcProbeBusy ? t('settings.webrtcProbeRunning') : t('settings.webrtcProbeRun')}
+              </Text>
+            </Pressable>
+            {webRtcTestCall.status === 'connected' ? (
+              <Text style={styles.probeResult}>
+                {t('settings.webrtcTestCallRemoteTracks', {
+                  count: webRtcTestCall.remoteAudioTrackCount,
+                })}
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{
+                busy: webRtcTestCall.status === 'connecting',
+              }}
+              onPress={() =>
+                webRtcTestCallActive ? onStopWebRtcTestCall() : void onStartWebRtcTestCall()
+              }
+              style={[
+                styles.primaryButton,
+                webRtcTestCallActive ? styles.dangerButton : styles.secondaryButton,
+              ]}
+            >
+              {webRtcTestCall.status === 'connecting' ? (
+                <ActivityIndicator color={colors.background} size="small" />
+              ) : (
+                <Ionicons
+                  color={webRtcTestCallActive ? colors.background : colors.accent}
+                  name={webRtcTestCallActive ? 'stop-circle-outline' : 'play-circle-outline'}
+                  size={19}
+                />
+              )}
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  webRtcTestCallActive ? null : styles.secondaryButtonText,
+                ]}
+              >
+                {webRtcTestCall.status === 'connecting'
+                  ? t('settings.webrtcTestCallConnecting')
+                  : webRtcTestCall.status === 'connected'
+                    ? t('settings.webrtcTestCallHangUp')
+                    : t('settings.webrtcTestCallRun')}
               </Text>
             </Pressable>
           </View>
@@ -1357,6 +1419,17 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 15,
     fontWeight: '900',
+  },
+  secondaryButton: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderWidth: 1,
+  },
+  secondaryButtonText: {
+    color: colors.accent,
+  },
+  dangerButton: {
+    backgroundColor: colors.error,
   },
   buttonDisabled: {
     opacity: 0.5,

@@ -313,9 +313,114 @@ describe('WebRTC caller', () => {
     })
   })
 
-  test('notifies when remote downlink audio track arrives', async () => {
+  test('closes tracks, peer, signaling, and interlock when a connected call later fails', async () => {
+    const order: string[] = []
     const peers: FakePeerConnection[] = []
-    const received: unknown[] = []
+    const audioTrack = { kind: 'audio', stop: () => order.push('track.stop') }
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    }
+    const closedCalls: string[] = []
+    const caller = createWebRtcCaller({
+      audio: true,
+      loadRuntime: async () => ({
+        mediaDevices: {
+          getUserMedia: async () => stream,
+        },
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+      nextCallId: () => 'call-connected-failed',
+      onConnectionClosed: (event) => closedCalls.push(`${event.callId}:${event.state}`),
+      runAudioSession: async (session) => ({
+        close: () => {
+          order.push('interlock.exit')
+        },
+        result: await session(),
+      }),
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {
+          order.push('unsubscribe')
+        },
+        sendWebRtcSignalFrame: () => {},
+      },
+    })
+
+    const session = await caller.start()
+    const connected = session.waitForConnected()
+    const peer = peers[0]
+    expect(peer).toBeDefined()
+    if (!peer) throw new Error('peer connection was not created')
+    peer.connectionState = 'connected'
+    peer.onconnectionstatechange?.()
+    await connected
+
+    peer.connectionState = 'failed'
+    peer.onconnectionstatechange?.()
+
+    expect(peer.closed).toBe(true)
+    expect(order).toEqual(['unsubscribe', 'track.stop', 'interlock.exit'])
+    expect(closedCalls).toEqual(['call-connected-failed:failed'])
+  })
+
+  test('cleans up microphone, peer, signaling, and interlock when setup fails after getUserMedia', async () => {
+    const order: string[] = []
+    const peers: FakePeerConnection[] = []
+    const audioTrack = { kind: 'audio', stop: () => order.push('track.stop') }
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getTracks: () => [audioTrack],
+    }
+    const caller = createWebRtcCaller({
+      audio: true,
+      loadRuntime: async () => ({
+        mediaDevices: {
+          getUserMedia: async () => stream,
+        },
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+
+          async createOffer(): Promise<{ sdp: string; type: 'offer' }> {
+            throw new Error('offer failed')
+          }
+        },
+      }),
+      nextCallId: () => 'call-setup-failed',
+      runAudioSession: async (session) => ({
+        close: () => {
+          order.push('interlock.exit')
+        },
+        result: await session(),
+      }),
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {
+          order.push('unsubscribe')
+        },
+        sendWebRtcSignalFrame: () => {},
+      },
+    })
+
+    await expect(caller.start()).rejects.toThrow('offer failed')
+
+    expect(peers[0]?.closed).toBe(true)
+    expect(order).toEqual(['unsubscribe', 'track.stop', 'interlock.exit'])
+  })
+
+  test('notifies with remote downlink audio stream and keeps the session open for test calls', async () => {
+    const peers: FakePeerConnection[] = []
+    const received: Array<{ streams?: unknown[]; track?: unknown }> = []
     const caller = createWebRtcCaller({
       loadRuntime: async () => ({
         RTCPeerConnection: class extends FakePeerConnection {
@@ -327,7 +432,7 @@ describe('WebRTC caller', () => {
       }),
       nextCallId: () => 'call-downlink',
       onRemoteTrack: (event) => {
-        received.push(event.track)
+        received.push(event)
       },
       transport: {
         call: async <T>(): Promise<T> =>
@@ -339,8 +444,10 @@ describe('WebRTC caller', () => {
 
     await caller.start()
     const remoteAudioTrack = { kind: 'audio' }
-    peers[0]?.ontrack?.({ streams: [], track: remoteAudioTrack })
+    const remoteStream = { id: 'remote-stream-1' }
+    peers[0]?.ontrack?.({ streams: [remoteStream], track: remoteAudioTrack })
 
-    expect(received).toEqual([remoteAudioTrack])
+    expect(received).toEqual([{ streams: [remoteStream], track: remoteAudioTrack }])
+    expect(peers[0]?.closed).toBe(false)
   })
 })
