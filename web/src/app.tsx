@@ -24,6 +24,7 @@ import { useWorkspaceDelete } from './useWorkspaceDelete.js'
 import { useWorkspaceSelection } from './useWorkspaceSelection.js'
 import { useWorkspaceWorkers } from './useWorkspaceWorkers.js'
 import { useFirstRunWizard } from './wizard/useFirstRunWizard.js'
+import { reconcileWorkerRuntimeStatuses } from './worker/reconcileWorkerRuntimeStatuses.js'
 import { useWorkerActions } from './worker/useWorkerActions.js'
 import { WorkspaceSettings } from './workspace/WorkspaceSettings.js'
 
@@ -61,8 +62,20 @@ const AppInner = () => {
   const wsState = { demoMode, workspaces, activeWorkspaceId, workersByWorkspaceId }
   const eff = useEffectiveWorkspaceState(wsState)
   const activeId = eff.effectiveActiveWorkspace?.id
-  const activeWorkers = activeId ? (eff.effectiveWorkersByWorkspaceId[activeId] ?? []) : []
-  const terms = useOptimisticTerminalRuns(eff.pollWorkspaceId, useTerminalRuns(eff.pollWorkspaceId))
+  const terminalRuns = useTerminalRuns(eff.pollWorkspaceId)
+  const terms = useOptimisticTerminalRuns(eff.pollWorkspaceId, terminalRuns.runs)
+  const activeWorkers = activeId
+    ? terminalRuns.loaded
+      ? reconcileWorkerRuntimeStatuses(
+          eff.effectiveWorkersByWorkspaceId[activeId] ?? [],
+          terms.terminalRuns
+        )
+      : (eff.effectiveWorkersByWorkspaceId[activeId] ?? [])
+    : []
+  const effectiveWorkersByWorkspaceId =
+    activeId && !demoMode
+      ? { ...eff.effectiveWorkersByWorkspaceId, [activeId]: activeWorkers }
+      : eff.effectiveWorkersByWorkspaceId
   const tasksFile = useTasksFile(
     demoMode ? null : (activeWorkspaceId ?? null),
     demoMode ? DEMO_TASKS_MD : undefined
@@ -116,7 +129,7 @@ const AppInner = () => {
             setDashboardOpen(false)
           }}
           onToggleDashboard={() => setDashboardOpen((v) => !v)}
-          workersByWorkspaceId={eff.effectiveWorkersByWorkspaceId}
+          workersByWorkspaceId={effectiveWorkersByWorkspaceId}
           workspaces={eff.effectiveWorkspaces}
         />
       }

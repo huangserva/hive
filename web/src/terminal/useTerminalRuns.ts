@@ -6,25 +6,39 @@ const REFRESH_INTERVAL_MS = 500
 
 export const orchestratorAgentId = (workspaceId: string) => `${workspaceId}:orchestrator`
 
-export const useTerminalRuns = (workspaceId: string | null): TerminalRunSummary[] => {
+export type TerminalRunsState = {
+  loaded: boolean
+  runs: TerminalRunSummary[]
+}
+
+export const useTerminalRuns = (workspaceId: string | null): TerminalRunsState => {
   const [terminalRuns, setTerminalRuns] = useState<TerminalRunSummary[]>([])
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     if (!workspaceId) {
       setTerminalRuns([])
+      setLoaded(false)
       return
     }
     let cancelled = false
     const loadRuns = () => {
       void listTerminalRuns(workspaceId)
         .then((runs) => {
-          if (!cancelled) setTerminalRuns(runs)
+          if (!cancelled) {
+            setTerminalRuns(runs)
+            setLoaded(true)
+          }
         })
         .catch((error: unknown) => {
-          if (!cancelled) setTerminalRuns([])
+          if (!cancelled) {
+            setTerminalRuns([])
+            setLoaded(false)
+          }
           console.error('[hive] swallowed:terminalRuns.list', error)
         })
     }
+    setLoaded(false)
     loadRuns()
     const interval = window.setInterval(loadRuns, REFRESH_INTERVAL_MS)
     return () => {
@@ -33,7 +47,7 @@ export const useTerminalRuns = (workspaceId: string | null): TerminalRunSummary[
     }
   }, [workspaceId])
 
-  return terminalRuns
+  return { loaded, runs: terminalRuns }
 }
 
 export const findOrchestratorRun = (
