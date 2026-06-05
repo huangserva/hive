@@ -14,10 +14,10 @@ const WEBRTC_APP_DEPENDENCY = "implementation project(':react-native-webrtc')"
 
 const normalizeBooleanFlag = (value) => value === true || value === '1' || value === 'true'
 
-const resolveWebRtcNativeRegistrationEnabled = (options = {}) =>
+const resolveWebRtcNativeRegistrationEnabled = (options = {}, env = process.env) =>
   normalizeBooleanFlag(options.registerNativeModule) ||
-  normalizeBooleanFlag(process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER) ||
-  normalizeBooleanFlag(process.env.WEBRTC_NATIVE_REGISTER)
+  normalizeBooleanFlag(env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER) ||
+  normalizeBooleanFlag(env.WEBRTC_NATIVE_REGISTER)
 
 const removeWebRtcPackageFromMainApplication = (contents) =>
   contents
@@ -59,12 +59,31 @@ const addWebRtcProjectToSettingsGradle = (contents) => {
   return nextContents
 }
 
+const removeWebRtcProjectFromSettingsGradle = (contents) =>
+  contents
+    .replace(
+      new RegExp(`\\n?${WEBRTC_PROJECT_INCLUDE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'),
+      ''
+    )
+    .replace(
+      new RegExp(`\\n?${WEBRTC_PROJECT_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'),
+      ''
+    )
+
 const addWebRtcDependencyToAppBuildGradle = (contents) => {
   if (contents.includes(WEBRTC_APP_DEPENDENCY)) return contents
   return contents.replace(/(dependencies\s*\{\n)/, `$1    ${WEBRTC_APP_DEPENDENCY}\n`)
 }
 
+const removeWebRtcDependencyFromAppBuildGradle = (contents) =>
+  contents.replace(
+    new RegExp(`\\n\\s*${WEBRTC_APP_DEPENDENCY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'),
+    ''
+  )
+
 const withWebRtcPackage = (config, options = {}) => {
+  const shouldRegisterNativeModule = resolveWebRtcNativeRegistrationEnabled(options)
+
   config = withMainApplication(config, (config) => {
     config.modResults.contents = addWebRtcPackageToMainApplication(
       config.modResults.contents,
@@ -74,12 +93,16 @@ const withWebRtcPackage = (config, options = {}) => {
   })
 
   config = withSettingsGradle(config, (config) => {
-    config.modResults.contents = addWebRtcProjectToSettingsGradle(config.modResults.contents)
+    config.modResults.contents = shouldRegisterNativeModule
+      ? addWebRtcProjectToSettingsGradle(config.modResults.contents)
+      : removeWebRtcProjectFromSettingsGradle(config.modResults.contents)
     return config
   })
 
   return withAppBuildGradle(config, (config) => {
-    config.modResults.contents = addWebRtcDependencyToAppBuildGradle(config.modResults.contents)
+    config.modResults.contents = shouldRegisterNativeModule
+      ? addWebRtcDependencyToAppBuildGradle(config.modResults.contents)
+      : removeWebRtcDependencyFromAppBuildGradle(config.modResults.contents)
     return config
   })
 }
@@ -88,4 +111,6 @@ module.exports = createRunOncePlugin(withWebRtcPackage, 'with-webrtc-package', '
 module.exports.addWebRtcDependencyToAppBuildGradle = addWebRtcDependencyToAppBuildGradle
 module.exports.addWebRtcPackageToMainApplication = addWebRtcPackageToMainApplication
 module.exports.addWebRtcProjectToSettingsGradle = addWebRtcProjectToSettingsGradle
+module.exports.removeWebRtcDependencyFromAppBuildGradle = removeWebRtcDependencyFromAppBuildGradle
+module.exports.removeWebRtcProjectFromSettingsGradle = removeWebRtcProjectFromSettingsGradle
 module.exports.resolveWebRtcNativeRegistrationEnabled = resolveWebRtcNativeRegistrationEnabled

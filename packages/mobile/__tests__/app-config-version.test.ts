@@ -19,4 +19,22 @@ describe('mobile app config version', () => {
       neuralVadShadow: '1',
     })
   })
+
+  test('excludes WebRTC native autolinking by default', async () => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+
+    const { default: config } = await import('../app.config')
+
+    expect(config.autolinking?.exclude).toContain('react-native-webrtc')
+  })
+
+  test('keeps WebRTC native autolinking available for explicit experiment builds', async () => {
+    vi.stubEnv('WEBRTC_NATIVE_REGISTER', '1')
+    vi.resetModules()
+
+    const { default: config } = await import('../app.config')
+
+    expect(config.autolinking?.exclude ?? []).not.toContain('react-native-webrtc')
+  })
 })

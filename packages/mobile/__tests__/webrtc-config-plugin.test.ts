@@ -4,6 +4,9 @@ const {
   addWebRtcDependencyToAppBuildGradle,
   addWebRtcPackageToMainApplication,
   addWebRtcProjectToSettingsGradle,
+  removeWebRtcDependencyFromAppBuildGradle,
+  removeWebRtcProjectFromSettingsGradle,
+  resolveWebRtcNativeRegistrationEnabled,
 } = require('../plugins/with-webrtc-package')
 
 const mainApplication = `package com.huangserva.hippoteam
@@ -43,11 +46,35 @@ dependencies {
 }
 `
 
+const registeredSettingsGradle = addWebRtcProjectToSettingsGradle(settingsGradle)
+const registeredAppBuildGradle = addWebRtcDependencyToAppBuildGradle(appBuildGradle)
+
 const registeredMainApplication = addWebRtcPackageToMainApplication(mainApplication, {
   registerNativeModule: true,
 })
 
 describe('with-webrtc-package config plugin', () => {
+  test('enables native registration from explicit build env flags only for experiment builds', () => {
+    expect(
+      resolveWebRtcNativeRegistrationEnabled(
+        {},
+        { EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER: undefined, WEBRTC_NATIVE_REGISTER: undefined }
+      )
+    ).toBe(false)
+    expect(
+      resolveWebRtcNativeRegistrationEnabled(
+        {},
+        { EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER: '1', WEBRTC_NATIVE_REGISTER: undefined }
+      )
+    ).toBe(true)
+    expect(
+      resolveWebRtcNativeRegistrationEnabled(
+        {},
+        { EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER: undefined, WEBRTC_NATIVE_REGISTER: 'true' }
+      )
+    ).toBe(true)
+  })
+
   test('does not register WebRTCModulePackage by default so app startup does not initialize WebRTC audio', () => {
     const result = addWebRtcPackageToMainApplication(mainApplication)
 
@@ -91,5 +118,14 @@ describe('with-webrtc-package config plugin', () => {
       "project(':react-native-webrtc').projectDir = new File(rootProject.projectDir, '../../../node_modules/react-native-webrtc/android')"
     )
     expect(buildGradle).toContain("implementation project(':react-native-webrtc')")
+  })
+
+  test('removes Android project include and app dependency when native registration is disabled', () => {
+    const settings = removeWebRtcProjectFromSettingsGradle(registeredSettingsGradle)
+    const buildGradle = removeWebRtcDependencyFromAppBuildGradle(registeredAppBuildGradle)
+
+    expect(settings).not.toContain("include ':react-native-webrtc'")
+    expect(settings).not.toContain('react-native-webrtc/android')
+    expect(buildGradle).not.toContain("implementation project(':react-native-webrtc')")
   })
 })

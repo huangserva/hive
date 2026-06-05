@@ -3,12 +3,20 @@ import { execSync } from 'node:child_process'
 import type { ExpoConfig } from 'expo/config'
 
 type ExpoConfigWithSplash = ExpoConfig & {
+  autolinking?: {
+    exclude?: string[]
+  }
   splash?: {
     backgroundColor: string
     image: string
     resizeMode: 'contain' | 'cover' | 'native'
   }
 }
+
+const normalizeBooleanFlag = (value: unknown) => value === true || value === '1' || value === 'true'
+const webRtcNativeRegistrationEnabled =
+  normalizeBooleanFlag(process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER) ||
+  normalizeBooleanFlag(process.env.WEBRTC_NATIVE_REGISTER)
 
 const getBuildSha = () => {
   try {
@@ -26,6 +34,11 @@ const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
   version: '2.7.5',
+  autolinking: webRtcNativeRegistrationEnabled
+    ? {}
+    : {
+        exclude: ['react-native-webrtc'],
+      },
   orientation: 'portrait',
   icon: './assets/icon.png',
   scheme: 'hippoteam',

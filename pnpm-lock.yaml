@@ -8,6 +8,9 @@ patchedDependencies:
   onnxruntime-react-native@1.24.3:
     hash: 3cb367e975fa5bbce6eb77e6e9293464a2cf7189e8215194be91f84f43562b7a
     path: patches/onnxruntime-react-native@1.24.3.patch
+  react-native-webrtc@124.0.7:
+    hash: ec089228a4265afe735876df11844db39e652521ca5500b315bfe09d7f711f21
+    path: patches/react-native-webrtc@124.0.7.patch
 
 importers:
 
@@ -226,7 +229,7 @@ importers:
         version: 5.8.0(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       react-native-webrtc:
         specifier: 124.0.7
-        version: 124.0.7(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))
+        version: 124.0.7(patch_hash=ec089228a4265afe735876df11844db39e652521ca5500b315bfe09d7f711f21)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))
       upng-js:
         specifier: ^2.1.0
         version: 2.1.0
@@ -10574,7 +10577,7 @@ snapshots:
       react-native: 0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
       warn-once: 0.1.1
 
-  react-native-webrtc@124.0.7(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)):
+  react-native-webrtc@124.0.7(patch_hash=ec089228a4265afe735876df11844db39e652521ca5500b315bfe09d7f711f21)(react-native@0.85.3(@babel/core@7.29.7)(@react-native/metro-config@0.85.3(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)):
     dependencies:
       base64-js: 1.5.1
       debug: 4.3.4

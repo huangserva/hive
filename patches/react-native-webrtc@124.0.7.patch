@@ -1,0 +1,102 @@
+diff --git a/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java b/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+index 996648cb9622abbc8c6871f3bf38799d721a47ed..dbb6342d36c8c3bfbb5cb3a5fd46b5f7cdb5ea67 100644
+--- a/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
++++ b/android/src/main/java/com/oney/WebRTCModule/WebRTCModule.java
+@@ -50,15 +50,24 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+     final Map<String, MediaStream> localStreams;
+ 
+     private final GetUserMediaImpl getUserMediaImpl;
++    private final ReactApplicationContext reactContext;
++    private final WebRTCModuleOptions options;
++    private boolean peerConnectionFactoryInitialized = false;
+ 
+     public WebRTCModule(ReactApplicationContext reactContext) {
+         super(reactContext);
+ 
++        this.reactContext = reactContext;
++        this.options = WebRTCModuleOptions.getInstance();
+         mPeerConnectionObservers = new SparseArray<>();
+         localStreams = new HashMap<>();
++        getUserMediaImpl = new GetUserMediaImpl(this, reactContext);
++    }
+ 
+-        WebRTCModuleOptions options = WebRTCModuleOptions.getInstance();
+-
++    private synchronized void ensurePeerConnectionFactoryInitialized() {
++        if (peerConnectionFactoryInitialized) {
++            return;
++        }
+         AudioDeviceModule adm = options.audioDeviceModule;
+         VideoEncoderFactory encoderFactory = options.videoEncoderFactory;
+         VideoDecoderFactory decoderFactory = options.videoDecoderFactory;
+@@ -109,8 +118,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         mVideoEncoderFactory = encoderFactory;
+         mVideoDecoderFactory = decoderFactory;
+         mAudioDeviceModule = adm;
+-
+-        getUserMediaImpl = new GetUserMediaImpl(this, reactContext);
++        peerConnectionFactoryInitialized = true;
+     }
+ 
+     @NonNull
+@@ -379,6 +387,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         try {
+             return (boolean) ThreadUtils
+                     .submitToExecutor(() -> {
++                        ensurePeerConnectionFactoryInitialized();
+                         PeerConnectionObserver observer = new PeerConnectionObserver(this, id);
+                         PeerConnection peerConnection = mFactory.createPeerConnection(rtcConfiguration, observer);
+                         if (peerConnection == null) {
+@@ -713,6 +722,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+             identifier.putInt("peerConnectionId", id);
+             identifier.putString("transceiverId", senderId);
+             try {
++                ensurePeerConnectionFactoryInitialized();
+                 PeerConnectionObserver pco = mPeerConnectionObservers.get(id);
+                 if (pco == null) {
+                     Log.d(TAG, "transceiverSetDirection() peerConnectionObserver is null");
+@@ -770,12 +780,18 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+ 
+     @ReactMethod
+     public void getDisplayMedia(Promise promise) {
+-        ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getDisplayMedia(promise));
++        ThreadUtils.runOnExecutor(() -> {
++            ensurePeerConnectionFactoryInitialized();
++            getUserMediaImpl.getDisplayMedia(promise);
++        });
+     }
+ 
+     @ReactMethod
+     public void getUserMedia(ReadableMap constraints, Callback successCallback, Callback errorCallback) {
+-        ThreadUtils.runOnExecutor(() -> getUserMediaImpl.getUserMedia(constraints, successCallback, errorCallback));
++        ThreadUtils.runOnExecutor(() -> {
++            ensurePeerConnectionFactoryInitialized();
++            getUserMediaImpl.getUserMedia(constraints, successCallback, errorCallback);
++        });
+     }
+ 
+     @ReactMethod
+@@ -786,6 +802,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+     @ReactMethod
+     public void mediaStreamCreate(String id) {
+         ThreadUtils.runOnExecutor(() -> {
++            ensurePeerConnectionFactoryInitialized();
+             MediaStream mediaStream = mFactory.createLocalMediaStream(id);
+             localStreams.put(id, mediaStream);
+         });
+@@ -1194,6 +1211,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         try {
+             return (WritableMap) ThreadUtils
+                     .submitToExecutor((Callable<Object>) () -> {
++                        ensurePeerConnectionFactoryInitialized();
+                         MediaStreamTrack.MediaType mediaType;
+                         if (kind.equals("audio")) {
+                             mediaType = MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO;
+@@ -1218,6 +1236,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
+         try {
+             return (WritableMap) ThreadUtils
+                     .submitToExecutor((Callable<Object>) () -> {
++                        ensurePeerConnectionFactoryInitialized();
+                         MediaStreamTrack.MediaType mediaType;
+                         if (kind.equals("audio")) {
+                             mediaType = MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO;
