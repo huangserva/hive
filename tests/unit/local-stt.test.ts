@@ -12,11 +12,15 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { createLocalSttProvider } from '../../src/server/local-stt.js'
+import {
+  __resetParaformerRecognizerCacheForTests,
+  createLocalSttProvider,
+} from '../../src/server/local-stt.js'
 
 const tempDirs: string[] = []
 
 afterEach(() => {
+  __resetParaformerRecognizerCacheForTests()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -36,6 +40,16 @@ const writeExecutable = (dir: string, name: string, source: string) => {
 const nodeScript = (body: string) => `#!/usr/bin/env node
 ${body}
 `
+
+const createDeferred = <T>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, reject, resolve }
+}
 
 describe('LocalSttProvider', () => {
   test('returns null when no supported local STT CLI is available', async () => {
@@ -346,6 +360,449 @@ writeFileSync(process.argv.at(-1), 'converted wav bytes')
     })
 
     await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
+  })
+
+  test('reuses the Paraformer recognizer across repeated transcriptions for the same model', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const binDir = setupDir('hive-stt-bin-')
+    const createdStreams: Array<{ freed: boolean }> = []
+    let loadSherpaOnnxCount = 0
+    let recognizerConstructCount = 0
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => {
+        loadSherpaOnnxCount += 1
+        return {
+          OfflineRecognizer: class {
+            constructor() {
+              recognizerConstructCount += 1
+            }
+
+            createStream() {
+              const stream = {
+                acceptWaveFile: () => {},
+                freed: false,
+                free() {
+                  stream.freed = true
+                },
+              }
+              createdStreams.push(stream)
+              return stream
+            }
+
+            decode() {}
+            getResult() {
+              return { text: '让关羽汇报进度' }
+            }
+          },
+        }
+      },
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+
+    expect(loadSherpaOnnxCount).toBe(1)
+    expect(recognizerConstructCount).toBe(1)
+    expect(createdStreams).toHaveLength(2)
+    expect(createdStreams.every((stream) => stream.freed)).toBe(true)
+  })
+
+  test('reuses the Paraformer recognizer across provider instances for request-scoped STT entrypoints', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const binDir = setupDir('hive-stt-bin-')
+    let loadSherpaOnnxCount = 0
+    let recognizerConstructCount = 0
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+    const env = {
+      HIVE_STT_PARAFORMER_MODEL: model,
+      HIVE_STT_PARAFORMER_TOKENS: tokens,
+      PATH: binDir,
+    }
+    const loadSherpaOnnx = async () => {
+      loadSherpaOnnxCount += 1
+      return {
+        OfflineRecognizer: class {
+          constructor() {
+            recognizerConstructCount += 1
+          }
+
+          createStream() {
+            return {
+              acceptWaveFile: () => {},
+              free: () => {},
+            }
+          }
+
+          decode() {}
+          getResult() {
+            return { text: '叫张飞去测试' }
+          }
+        },
+      }
+    }
+
+    const firstProvider = createLocalSttProvider({ env, loadSherpaOnnx, tempRoot })
+    const secondProvider = createLocalSttProvider({ env, loadSherpaOnnx, tempRoot })
+
+    await expect(firstProvider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '叫张飞去测试',
+    })
+    await expect(secondProvider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '叫张飞去测试',
+    })
+
+    expect(loadSherpaOnnxCount).toBe(1)
+    expect(recognizerConstructCount).toBe(1)
+  })
+
+  test('deduplicates concurrent Paraformer recognizer loads per model key across provider instances', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const binDir = setupDir('hive-stt-bin-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const modelA = join(modelDir, 'model-a.onnx')
+    const tokensA = join(modelDir, 'tokens-a.txt')
+    const modelB = join(modelDir, 'model-b.onnx')
+    const tokensB = join(modelDir, 'tokens-b.txt')
+    writeFileSync(audioPath, 'audio bytes')
+    writeFileSync(modelA, 'model a')
+    writeFileSync(tokensA, 'tokens a')
+    writeFileSync(modelB, 'model b')
+    writeFileSync(tokensB, 'tokens b')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const loadCounts = { a: 0, b: 0 }
+    const loadA = createDeferred<{
+      OfflineRecognizer: new () => {
+        createStream: () => { acceptWaveFile: () => void; free: () => void }
+        decode: () => void
+        getResult: () => { text: string }
+      }
+    }>()
+    const loadB = createDeferred<{
+      OfflineRecognizer: new () => {
+        createStream: () => { acceptWaveFile: () => void; free: () => void }
+        decode: () => void
+        getResult: () => { text: string }
+      }
+    }>()
+    const runtimeFor = (text: string) => ({
+      OfflineRecognizer: class {
+        createStream() {
+          return {
+            acceptWaveFile: () => {},
+            free: () => {},
+          }
+        }
+
+        decode() {}
+        getResult() {
+          return { text }
+        }
+      },
+    })
+    const makeProvider = (label: 'a' | 'b') =>
+      createLocalSttProvider({
+        env: {
+          HIVE_STT_PARAFORMER_MODEL: label === 'a' ? modelA : modelB,
+          HIVE_STT_PARAFORMER_TOKENS: label === 'a' ? tokensA : tokensB,
+          PATH: binDir,
+        },
+        loadSherpaOnnx: async () => {
+          loadCounts[label] += 1
+          return label === 'a' ? loadA.promise : loadB.promise
+        },
+        tempRoot,
+      })
+
+    const firstA = makeProvider('a').transcribeAudioFile(audioPath)
+    const firstB = makeProvider('b').transcribeAudioFile(audioPath)
+    const secondA = makeProvider('a').transcribeAudioFile(audioPath)
+    await vi.waitFor(() => {
+      expect(loadCounts).toEqual({ a: 1, b: 1 })
+    })
+
+    loadA.resolve(runtimeFor('让关羽汇报进度'))
+    loadB.resolve(runtimeFor('叫张飞去测试'))
+    await expect(firstA).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+    await expect(secondA).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+    await expect(firstB).resolves.toEqual({
+      provider: 'paraformer',
+      text: '叫张飞去测试',
+    })
+  })
+
+  test('keeps a retired Paraformer recognizer alive until the active transcription releases it', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const binDir = setupDir('hive-stt-bin-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const modelA = join(modelDir, 'model-a.onnx')
+    const tokensA = join(modelDir, 'tokens-a.txt')
+    const modelB = join(modelDir, 'model-b.onnx')
+    const tokensB = join(modelDir, 'tokens-b.txt')
+    writeFileSync(audioPath, 'audio bytes')
+    writeFileSync(modelA, 'model a')
+    writeFileSync(tokensA, 'tokens a')
+    writeFileSync(modelB, 'model b')
+    writeFileSync(tokensB, 'tokens b')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const freeCalls: string[] = []
+    const runtimeFor = (label: 'a' | 'b', text: string) => ({
+      OfflineRecognizer: class {
+        createStream() {
+          return {
+            acceptWaveFile: () => {},
+            free: () => {},
+          }
+        }
+
+        decode() {}
+        free() {
+          freeCalls.push(label)
+        }
+        getResult() {
+          return { text }
+        }
+      },
+    })
+    const makeProvider = (label: 'a' | 'b') =>
+      createLocalSttProvider({
+        env: {
+          HIVE_STT_PARAFORMER_MODEL: label === 'a' ? modelA : modelB,
+          HIVE_STT_PARAFORMER_TOKENS: label === 'a' ? tokensA : tokensB,
+          PATH: binDir,
+        },
+        loadSherpaOnnx: async () =>
+          label === 'a' ? runtimeFor('a', '让关羽汇报进度') : runtimeFor('b', '叫张飞去测试'),
+        tempRoot,
+      })
+
+    const aResult = await makeProvider('a').transcribeAudioFile(audioPath)
+    expect(aResult?.text).toBe('让关羽汇报进度')
+    expect(freeCalls).toEqual([])
+
+    const bResult = await makeProvider('b').transcribeAudioFile(audioPath)
+    expect(bResult?.text).toBe('叫张飞去测试')
+    expect(freeCalls).toEqual(['a'])
+  })
+
+  test('releases a Paraformer recognizer lease even when stream cleanup throws', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const binDir = setupDir('hive-stt-bin-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const modelA = join(modelDir, 'model-a.onnx')
+    const tokensA = join(modelDir, 'tokens-a.txt')
+    const modelB = join(modelDir, 'model-b.onnx')
+    const tokensB = join(modelDir, 'tokens-b.txt')
+    writeFileSync(audioPath, 'audio bytes')
+    writeFileSync(modelA, 'model a')
+    writeFileSync(tokensA, 'tokens a')
+    writeFileSync(modelB, 'model b')
+    writeFileSync(tokensB, 'tokens b')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const freeCalls: string[] = []
+    const runtimeFor = (label: 'a' | 'b', text: string) => ({
+      OfflineRecognizer: class {
+        createStream() {
+          return {
+            acceptWaveFile: () => {},
+            free: () => {
+              if (label === 'a') throw new Error('stream free failed')
+            },
+          }
+        }
+
+        decode() {}
+        free() {
+          freeCalls.push(label)
+        }
+        getResult() {
+          return { text }
+        }
+      },
+    })
+    const makeProvider = (label: 'a' | 'b') =>
+      createLocalSttProvider({
+        env: {
+          HIVE_STT_PARAFORMER_MODEL: label === 'a' ? modelA : modelB,
+          HIVE_STT_PARAFORMER_TOKENS: label === 'a' ? tokensA : tokensB,
+          PATH: binDir,
+        },
+        loadSherpaOnnx: async () =>
+          label === 'a' ? runtimeFor('a', '让关羽汇报进度') : runtimeFor('b', '叫张飞去测试'),
+        tempRoot,
+      })
+
+    await expect(makeProvider('a').transcribeAudioFile(audioPath)).resolves.toBeNull()
+    expect(freeCalls).toEqual([])
+
+    await expect(makeProvider('b').transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '叫张飞去测试',
+    })
+    expect(freeCalls).toEqual(['a'])
+  })
+
+  test('does not free a just-loaded Paraformer recognizer before its waiting transcription acquires it', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const binDir = setupDir('hive-stt-bin-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const modelA = join(modelDir, 'model-a.onnx')
+    const tokensA = join(modelDir, 'tokens-a.txt')
+    const modelB = join(modelDir, 'model-b.onnx')
+    const tokensB = join(modelDir, 'tokens-b.txt')
+    writeFileSync(audioPath, 'audio bytes')
+    writeFileSync(modelA, 'model a')
+    writeFileSync(tokensA, 'tokens a')
+    writeFileSync(modelB, 'model b')
+    writeFileSync(tokensB, 'tokens b')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const loadA = createDeferred<{
+      OfflineRecognizer: new () => {
+        createStream: () => { acceptWaveFile: () => void; free: () => void }
+        decode: () => void
+        free: () => void
+        getResult: () => { text: string }
+      }
+    }>()
+    const loadB = createDeferred<{
+      OfflineRecognizer: new () => {
+        createStream: () => { acceptWaveFile: () => void; free: () => void }
+        decode: () => void
+        free: () => void
+        getResult: () => { text: string }
+      }
+    }>()
+    const runtimeFor = (text: string) => ({
+      OfflineRecognizer: class {
+        private freed = false
+
+        createStream() {
+          if (this.freed) throw new Error('recognizer was freed before acquire')
+          return {
+            acceptWaveFile: () => {},
+            free: () => {},
+          }
+        }
+
+        decode() {}
+        free() {
+          this.freed = true
+        }
+        getResult() {
+          return { text }
+        }
+      },
+    })
+    const makeProvider = (label: 'a' | 'b') =>
+      createLocalSttProvider({
+        env: {
+          HIVE_STT_PARAFORMER_MODEL: label === 'a' ? modelA : modelB,
+          HIVE_STT_PARAFORMER_TOKENS: label === 'a' ? tokensA : tokensB,
+          PATH: binDir,
+        },
+        loadSherpaOnnx: async () => (label === 'a' ? loadA.promise : loadB.promise),
+        tempRoot,
+      })
+
+    const firstA = makeProvider('a').transcribeAudioFile(audioPath)
+    const firstB = makeProvider('b').transcribeAudioFile(audioPath)
+    await Promise.resolve()
+    loadA.resolve(runtimeFor('让关羽汇报进度'))
+    loadB.resolve(runtimeFor('叫张飞去测试'))
+
+    await expect(firstA).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+    await expect(firstB).resolves.toEqual({
+      provider: 'paraformer',
+      text: '叫张飞去测试',
+    })
   })
 
   test('discovers a whisper.cpp model from the default hive model directory', async () => {

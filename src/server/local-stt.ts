@@ -68,6 +68,65 @@ interface SherpaOnnxRuntime {
   readWave?: (filePath: string) => SherpaWaveData | null
 }
 
+interface ParaformerRecognizerCache {
+  activeStreams: number
+  freeWhenIdle: boolean
+  freed: boolean
+  key: string
+  recognizer: SherpaOfflineRecognizer
+  runtime: SherpaOnnxRuntime
+}
+
+interface ParaformerRecognizerLease {
+  recognizer: SherpaOfflineRecognizer
+  release: () => void
+  runtime: SherpaOnnxRuntime
+}
+
+let paraformerRecognizerCache: ParaformerRecognizerCache | null = null
+const paraformerRecognizerLoads = new Map<string, Promise<ParaformerRecognizerCache>>()
+
+const releaseParaformerRecognizer = (cache: ParaformerRecognizerCache) => {
+  cache.activeStreams = Math.max(0, cache.activeStreams - 1)
+  if (cache.freeWhenIdle && cache.activeStreams === 0 && !cache.freed) {
+    cache.freed = true
+    cache.recognizer.free?.()
+  }
+}
+
+const retireParaformerRecognizer = (cache: ParaformerRecognizerCache) => {
+  cache.freeWhenIdle = true
+  if (cache.activeStreams === 0 && !cache.freed) {
+    cache.freed = true
+    cache.recognizer.free?.()
+  }
+}
+
+export const __resetParaformerRecognizerCacheForTests = () => {
+  const caches = new Set<ParaformerRecognizerCache>()
+  if (paraformerRecognizerCache) caches.add(paraformerRecognizerCache)
+  for (const promise of paraformerRecognizerLoads.values()) {
+    promise.then(
+      (cache) => {
+        cache.freeWhenIdle = true
+        if (cache.activeStreams === 0 && !cache.freed) {
+          cache.freed = true
+          cache.recognizer.free?.()
+        }
+      },
+      () => {}
+    )
+  }
+  for (const cache of caches) {
+    if (!cache.freed) {
+      cache.freed = true
+      cache.recognizer.free?.()
+    }
+  }
+  paraformerRecognizerCache = null
+  paraformerRecognizerLoads.clear()
+}
+
 const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_PARAFORMER_MODEL_DIR_NAME = 'paraformer-models'
 const DEFAULT_WHISPER_MODEL = 'base'
@@ -354,6 +413,62 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
     },
   })
 
+  const loadParaformerRecognizer = async (
+    key: string,
+    config: ReturnType<typeof createParaformerConfig>
+  ): Promise<ParaformerRecognizerCache> => {
+    const existingLoad = paraformerRecognizerLoads.get(key)
+    if (existingLoad) return existingLoad
+
+    const promise = (async () => {
+      const runtime = await (options.loadSherpaOnnx ?? defaultLoadSherpaOnnx)()
+      const recognizer =
+        runtime.createOfflineRecognizer?.(config) ??
+        (runtime.OfflineRecognizer ? new runtime.OfflineRecognizer(config) : null)
+      if (!recognizer) {
+        throw new Error('sherpa-onnx offline recognizer is unavailable')
+      }
+
+      return {
+        activeStreams: 0,
+        freeWhenIdle: false,
+        freed: false,
+        key,
+        recognizer,
+        runtime,
+      }
+    })()
+
+    paraformerRecognizerLoads.set(key, promise)
+    try {
+      return await promise
+    } finally {
+      if (paraformerRecognizerLoads.get(key) === promise) paraformerRecognizerLoads.delete(key)
+    }
+  }
+
+  const acquireParaformerRecognizer = async (
+    cli: LocalSttCli
+  ): Promise<ParaformerRecognizerLease> => {
+    const config = createParaformerConfig(cli)
+    const key = JSON.stringify(config)
+    const cache =
+      paraformerRecognizerCache?.key === key && !paraformerRecognizerCache.freed
+        ? paraformerRecognizerCache
+        : await loadParaformerRecognizer(key, config)
+    cache.activeStreams += 1
+    if (paraformerRecognizerCache !== cache) {
+      const previous = paraformerRecognizerCache
+      paraformerRecognizerCache = cache
+      if (previous && previous.key !== key) retireParaformerRecognizer(previous)
+    }
+    return {
+      recognizer: cache.recognizer,
+      release: () => releaseParaformerRecognizer(cache),
+      runtime: cache.runtime,
+    }
+  }
+
   const convertAudioTo16kWav = async (audioPath: string, outputDir: string) => {
     const ffmpeg = findExecutable('ffmpeg', env)
     if (!ffmpeg) {
@@ -373,22 +488,14 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-stt-'))
     try {
       const wavPath = await convertAudioTo16kWav(audioPath, outputDir)
-      const runtime = await (options.loadSherpaOnnx ?? defaultLoadSherpaOnnx)()
-      const recognizer =
-        runtime.createOfflineRecognizer?.(createParaformerConfig(cli)) ??
-        (runtime.OfflineRecognizer
-          ? new runtime.OfflineRecognizer(createParaformerConfig(cli))
-          : null)
-      if (!recognizer) {
-        throw new Error('sherpa-onnx offline recognizer is unavailable')
-      }
-
-      const stream = recognizer.createStream()
+      const recognizerLease = await acquireParaformerRecognizer(cli)
+      let stream: SherpaOfflineStream | null = null
       try {
+        stream = recognizerLease.recognizer.createStream()
         if (stream.acceptWaveFile) {
           stream.acceptWaveFile(wavPath)
         } else {
-          const wave = runtime.readWave?.(wavPath)
+          const wave = recognizerLease.runtime.readWave?.(wavPath)
           if (!wave) throw new Error('sherpa-onnx readWave is unavailable')
           if (!stream.acceptWaveform) {
             throw new Error('sherpa-onnx offline stream cannot accept waveform')
@@ -396,13 +503,16 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
           stream.acceptWaveform(wave.sampleRate, wave.samples)
         }
 
-        recognizer.decode(stream)
-        const result = recognizer.getResult(stream)
+        recognizerLease.recognizer.decode(stream)
+        const result = recognizerLease.recognizer.getResult(stream)
         const text = typeof result === 'string' ? result : result?.text
         return text?.trim() ? text.trim() : null
       } finally {
-        stream.free?.()
-        recognizer.free?.()
+        try {
+          stream?.free?.()
+        } finally {
+          recognizerLease.release()
+        }
       }
     } finally {
       rmSync(outputDir, { force: true, recursive: true })
