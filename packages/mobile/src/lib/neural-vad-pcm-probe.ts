@@ -60,6 +60,9 @@ const readExpoConfigExtra = (): NeuralVadRuntimeExtra => {
 const isEnabledValue = (value: boolean | number | string | undefined) =>
   value === true || value === 1 || value === '1' || value === 'true'
 
+const isDisabledValue = (value: boolean | number | string | undefined) =>
+  value === false || value === 0 || value === '0' || value === 'false'
+
 export const resolveNeuralVadPcmProbeEnabled = (
   env: Record<string, string | undefined>,
   extra: NeuralVadRuntimeExtra = readExpoConfigExtra()
@@ -73,7 +76,7 @@ export const resolveNeuralVadShadowEnabled = (
   extra: NeuralVadRuntimeExtra = readExpoConfigExtra()
 ) => {
   const value = extra.neuralVadShadow ?? env.EXPO_PUBLIC_NEURAL_VAD_SHADOW
-  return isEnabledValue(value)
+  return !isDisabledValue(value)
 }
 
 const countSamples = (buffer: NeuralVadPcmProbeBuffer, encoding: NeuralVadPcmProbeEncoding) =>

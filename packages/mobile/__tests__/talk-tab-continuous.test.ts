@@ -371,11 +371,18 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.queryByText('talk.streamSynthesis.button')).toBeNull()
   })
 
-  test('keeps the neural VAD PCM probe disabled by default', () => {
+  test('starts neural speech detection by default while keeping PCM debug logging disabled', async () => {
     render(React.createElement(TalkTab))
 
-    expect(audioMock.lastStreamOptions).toBeNull()
-    expect(audioMock.stream.start).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    expect(audioMock.lastStreamOptions).toMatchObject({
+      channels: 1,
+      encoding: 'int16',
+      sampleRate: 16_000,
+    })
   })
 
   test('starts a PCM probe stream in continuous mode when explicitly enabled without changing recording', async () => {
@@ -420,6 +427,32 @@ describe('TalkTab continuous mode behavior', () => {
       sampleRate: 16_000,
     })
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+  })
+
+  test('starts capturing from low volume speech when neural voice probability is high by default', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -60 })
+    await emitNeuralVadProbabilities(view, [0.92])
+
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
+  })
+
+  test('does not start capturing from loud non-voice noise when neural probability is low', async () => {
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(view, [0.04])
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -15 })
+
+    expect(screen.getByText('talk.state.listening')).toBeTruthy()
   })
 
   test('uses neural voice probability to end a continuous segment while volume stays noisy', async () => {

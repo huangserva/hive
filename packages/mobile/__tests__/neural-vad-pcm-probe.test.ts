@@ -46,8 +46,8 @@ describe('neural VAD PCM probe', () => {
     ).toBe(false)
   })
 
-  test('keeps Silero shadow mode off unless explicitly enabled', () => {
-    expect(resolveNeuralVadShadowEnabled({})).toBe(false)
+  test('enables Silero shadow mode by default and allows explicit opt-out', () => {
+    expect(resolveNeuralVadShadowEnabled({})).toBe(true)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '0' })).toBe(false)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: '1' })).toBe(true)
     expect(resolveNeuralVadShadowEnabled({ EXPO_PUBLIC_NEURAL_VAD_SHADOW: 'true' })).toBe(true)
