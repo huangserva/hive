@@ -1,3 +1,8 @@
+import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+
 import { isDefaultPromptEcho } from './local-stt.js'
 
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
@@ -15,14 +20,18 @@ export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
 const FAST_VOICE_REPLY_HISTORY_LIMIT = 15
 const FAST_VOICE_REPLY_HISTORY_TEXT_LIMIT = 240
 const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
+const FAST_VOICE_REPLY_PROJECT_CONTEXT_CACHE_MS = 10_000
+const FAST_VOICE_REPLY_RECENT_COMMIT_LIMIT = 3
+
+const execFileAsync = promisify(execFile)
 
 type VoiceFrontMode = 'readonly' | 'strong'
 
 const STRONG_VOICE_FRONT_SYSTEM_PROMPT =
   '你是 HippoTeam 的真对话前台助手,代表团队在语音里跟用户实时对话。用简体中文口语、自然、简短(1-2句,每句尽量短,像打电话那样简短利落)回应。\n' +
-  '你能做:基于给你的"当前状态摘要"和对话历史,直接、实在地回答用户关于项目进度、worker在干什么、orchestrator状态的问题;能闲聊、能澄清、能做简单判断。答得具体,别打官腔,别用"这个需要主管处理"这种空话填时间。\n' +
+  '你能做:基于给你的"当前状态摘要"和对话历史,直接、具体、有判断地回答用户关于项目进度、worker在干什么、orchestrator状态的问题;能闲聊、能澄清、能做简单判断。答得具体,禁止官腔、空话、和稀泥的"可能/也许/建议你自己看看",别用"这个需要主管处理"这种空话填时间。\n' +
   '你不能:① 绝不声称你做了实际没做的事——不说"我已经做完了",不说"我已经派人了",也不说自己在安排、部署、重启；你没有派单、改代码、部署、执行的权限。② 不编造状态摘要里没有的信息(不知道就说"这个我得确认一下")。禁止任何声称自己派工、安排他人执行、攻坚、汇报安排或编排团队行动的话。\n' +
-  '什么时候交给主管(escalate):只有当用户真的要求一个【动作】——派worker/改代码/部署/重启/拍板决策——且需要主管时才escalate。这时说一句自然短话(如"好,这个我转给主管,稍等"或"这个需要主管处理,我先转过去")然后就停,别反复刷废话。能从上下文回答的(进度/状态/简单问题/闲聊)一律自己handled,别动不动上交。\n' +
+  '什么时候交给主管(escalate):只有当用户真的要求一个【动作】——派worker/改代码/部署/重启/拍板决策——且需要主管时才escalate。这时只说一句短促的接管确认(如"懂了,这就交给主管办"或"好,这个我转给主管,稍等")然后就停,绝不再编解释或假装解决。能从上下文回答的(进度/状态/简单问题/闲聊)一律自己handled,别动不动上交。\n' +
   '输出第一行必须是门卫标记:`HIVE_GLM_GATEKEEPER: handled` 或 `HIVE_GLM_GATEKEEPER: escalate`。能自己答全且不需真实动作=handled;需派工/改码/部署/重启/拍板=escalate。第二行起是给用户听的短回复。'
 
 const READONLY_VOICE_FRONT_SYSTEM_PROMPT =
@@ -86,6 +95,15 @@ type FastVoiceReplyStore = {
   listDispatches?(workspaceId: string): DispatchStatusLike[]
   listWorkers?(workspaceId: string): WorkerStatusLike[]
 }
+
+type ProjectContextCache = {
+  expiresAt: number
+  lines: string[]
+  root: string
+}
+
+let projectContextCache: ProjectContextCache | null = null
+let projectContextRefreshRoot: string | null = null
 
 type AnthropicContentBlock = {
   text?: unknown
@@ -169,6 +187,69 @@ const truncateHistoryText = (text: string) =>
 
 const truncateStatusText = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 80)
 
+const truncateProjectContextText = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 180)
+
+const readCurrentPhase = async (root: string) => {
+  const planPath = join(root, '.hive', 'plan.md')
+  const match = (await readFile(planPath, 'utf8')).match(/^current_phase:\s*(.+)$/m)
+  const phase = match?.[1]?.trim()
+  return phase ? truncateProjectContextText(phase) : null
+}
+
+const readRecentCommitSubjects = async (root: string) => {
+  const { stdout } = await execFileAsync('git', ['log', '-3', '--pretty=format:%s'], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 200,
+  })
+  return stdout
+    .split('\n')
+    .map((line) => truncateProjectContextText(line))
+    .filter((line) => line.length > 0)
+    .slice(0, FAST_VOICE_REPLY_RECENT_COMMIT_LIMIT)
+}
+
+const refreshProjectVoiceContext = (root: string) => {
+  if (projectContextRefreshRoot === root) return
+  projectContextRefreshRoot = root
+  void (async () => {
+    const lines: string[] = []
+    try {
+      const phase = await readCurrentPhase(root)
+      if (phase) lines.push(`Current phase: ${phase}`)
+    } catch {
+      // PM context is helpful but must never block voice reply.
+    }
+    try {
+      const commits = await readRecentCommitSubjects(root)
+      if (commits.length > 0) lines.push(`Recent commits: ${commits.join('; ')}`)
+    } catch {
+      // Git context is opportunistic and cached when available.
+    }
+    projectContextCache = {
+      expiresAt: Date.now() + FAST_VOICE_REPLY_PROJECT_CONTEXT_CACHE_MS,
+      lines,
+      root,
+    }
+  })().finally(() => {
+    if (projectContextRefreshRoot === root) projectContextRefreshRoot = null
+  })
+}
+
+const readProjectVoiceContext = () => {
+  const root = process.cwd()
+  const now = Date.now()
+  if (
+    projectContextCache &&
+    projectContextCache.root === root &&
+    projectContextCache.expiresAt > now
+  ) {
+    return projectContextCache.lines
+  }
+  refreshProjectVoiceContext(root)
+  return projectContextCache?.root === root ? projectContextCache.lines : []
+}
+
 const extractHistoryText = (contentJson: unknown) => {
   if (typeof contentJson !== 'string') return null
   try {
@@ -226,8 +307,24 @@ const readFastVoiceReplyStatusContext = ({
   workspaceId: string
 }) => {
   try {
-    if (!store.listWorkers && !store.listDispatches) return ''
+    if (!store.listWorkers && !store.listDispatches) return readProjectVoiceContext().join('\n')
     const workers = store.listWorkers?.(workspaceId) ?? []
+    const openDispatches = (store.listDispatches?.(workspaceId) ?? []).filter(
+      (dispatch) => dispatch.status === 'queued' || dispatch.status === 'submitted'
+    )
+    const dispatchesByWorkerId = new Map<string, string[]>()
+    for (const dispatch of openDispatches) {
+      const targetId =
+        typeof dispatch.toAgentId === 'string'
+          ? dispatch.toAgentId
+          : typeof dispatch.to_agent_id === 'string'
+            ? dispatch.to_agent_id
+            : ''
+      if (!targetId || typeof dispatch.text !== 'string') continue
+      const items = dispatchesByWorkerId.get(targetId) ?? []
+      items.push(truncateStatusText(dispatch.text))
+      dispatchesByWorkerId.set(targetId, items)
+    }
     const workerById = new Map<string, string>()
     const workerSummary = workers
       .map((worker) => {
@@ -242,14 +339,17 @@ const readFastVoiceReplyStatusContext = ({
             : typeof worker.pending_task_count === 'number'
               ? worker.pending_task_count
               : 0
-        return `${worker.name}${role}: ${worker.status}${pending > 0 ? `, pending ${pending}` : ''}`
+        const doing =
+          typeof worker.id === 'string'
+            ? (dispatchesByWorkerId.get(worker.id) ?? []).slice(0, 2)
+            : []
+        return `${worker.name}${role}: ${worker.status}${pending > 0 ? `, pending ${pending}` : ''}${
+          doing.length > 0 ? `, doing: ${doing.join(' | ')}` : ''
+        }`
       })
       .filter((line): line is string => line !== null)
       .slice(0, 12)
 
-    const openDispatches = (store.listDispatches?.(workspaceId) ?? []).filter(
-      (dispatch) => dispatch.status === 'queued' || dispatch.status === 'submitted'
-    )
     const dispatchSummary = openDispatches.slice(0, FAST_VOICE_REPLY_DISPATCH_LIMIT).map((item) => {
       const targetId =
         typeof item.toAgentId === 'string'
@@ -263,7 +363,7 @@ const readFastVoiceReplyStatusContext = ({
       return `${workerName} ${status}${text}`
     })
 
-    const lines = []
+    const lines = [...readProjectVoiceContext()]
     if (workerSummary.length > 0) lines.push(`Workers: ${workerSummary.join('; ')}`)
     if (store.listDispatches) {
       lines.push(

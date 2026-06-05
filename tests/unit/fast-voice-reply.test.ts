@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -14,6 +19,7 @@ import {
 
 describe('fast voice reply', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.unstubAllEnvs()
   })
 
@@ -98,6 +104,9 @@ describe('fast voice reply', () => {
     expect(body.messages[0].content).toContain('真对话前台')
     expect(body.messages[0].content).toContain('状态/简单问题/闲聊')
     expect(body.messages[0].content).toContain('一律自己handled')
+    expect(body.messages[0].content).toContain('直接、具体、有判断')
+    expect(body.messages[0].content).toContain('禁止官腔、空话')
+    expect(body.messages[0].content).toContain('只说一句短促的接管确认')
     expect(body.messages[0].content).toContain('这个我转给主管')
     expect(body.messages[0].content).toContain('不能')
     expect(body.messages[0].content).toContain('不说"我已经做完了"')
@@ -112,6 +121,93 @@ describe('fast voice reply', () => {
     expect(body.messages[1]).toEqual({ content: '刚才手机语音很慢', role: 'user' })
     expect(body.messages[2]).toEqual({ content: '我会先检查 STT 和 TTS。', role: 'assistant' })
     expect(body.messages[3]).toEqual({ content: '让关羽汇报进展', role: 'user' })
+  })
+
+  it('refreshes project phase and commits off the voice request hot path', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'hive-fast-voice-context-'))
+    mkdirSync(join(projectRoot, '.hive'), { recursive: true })
+    writeFileSync(
+      join(projectRoot, '.hive', 'plan.md'),
+      '---\ncurrent_phase: M38 快准狠前台\n---\n'
+    )
+    execFileSync('git', ['init'], { cwd: projectRoot })
+    execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: projectRoot })
+    execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: projectRoot })
+    writeFileSync(join(projectRoot, 'README.md'), 'one\n')
+    execFileSync('git', ['add', 'README.md'], { cwd: projectRoot })
+    execFileSync('git', ['commit', '-m', 'fix voice front context'], { cwd: projectRoot })
+    writeFileSync(join(projectRoot, 'README.md'), 'two\n')
+    execFileSync('git', ['add', 'README.md'], { cwd: projectRoot })
+    execFileSync('git', ['commit', '-m', 'ship concise talkback replies'], { cwd: projectRoot })
+    vi.spyOn(process, 'cwd').mockReturnValue(projectRoot)
+
+    const store = {
+      insertMobileChatMessage: vi.fn(),
+      listDispatches: vi.fn(() => [
+        {
+          id: 'dispatch-1',
+          status: 'submitted',
+          text: '修 WebRTC 通话音频卡顿并验证下行',
+          toAgentId: 'worker-1',
+        },
+      ]),
+      listMobileChatMessages: vi.fn(() => []),
+      listWorkers: vi.fn(() => [
+        {
+          id: 'worker-1',
+          name: '关羽',
+          pendingTaskCount: 1,
+          role: 'coder',
+          status: 'working',
+        },
+      ]),
+    }
+    const provider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n关羽正在修通话卡顿。'),
+    }
+
+    await expect(
+      maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '现在进度怎样',
+        workspaceId: 'ws-1',
+      })
+    ).resolves.toBe('关羽正在修通话卡顿。')
+
+    const firstCall = provider.generate.mock.calls[0]?.[0]
+    expect(firstCall.statusContext).not.toContain('Current phase: M38 快准狠前台')
+    expect(firstCall.statusContext).not.toContain('Recent commits:')
+    expect(firstCall.statusContext).toContain(
+      '关羽(coder): working, pending 1, doing: 修 WebRTC 通话音频卡顿并验证下行'
+    )
+
+    let refreshedContext = ''
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      provider.generate.mockClear()
+      await maybeInsertFastVoiceReply({
+        provider,
+        source: 'voice',
+        store,
+        text: '现在进度怎样',
+        workspaceId: 'ws-1',
+      })
+      const context = provider.generate.mock.calls[0]?.[0]?.statusContext ?? ''
+      if (context.includes('Current phase: M38 快准狠前台')) {
+        refreshedContext = context
+        break
+      }
+    }
+
+    expect(refreshedContext).toContain('Current phase: M38 快准狠前台')
+    expect(refreshedContext).toContain(
+      'Recent commits: ship concise talkback replies; fix voice front context'
+    )
+    expect(refreshedContext).toContain(
+      'Open dispatches: 关羽 submitted 修 WebRTC 通话音频卡顿并验证下行'
+    )
   })
 
   it('defaults the strong voice front to GLM 5.1 and keeps env model override', async () => {
@@ -644,11 +740,12 @@ describe('fast voice reply', () => {
         workspaceId: 'ws-1',
       })
     ).resolves.toBeTruthy()
-    expect(provider.generate).toHaveBeenCalledWith({
-      history: [],
-      statusContext: '',
-      transcript: '查一下上下文',
-    })
+    expect(provider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        history: [],
+        transcript: '查一下上下文',
+      })
+    )
     expect(store.insertMobileChatMessage).toHaveBeenCalled()
   })
 
