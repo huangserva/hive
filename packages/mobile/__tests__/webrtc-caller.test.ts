@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { WebRtcSignalFrame } from '../src/api/webrtc-signal-protocol.js'
-import { createWebRtcCaller } from '../src/lib/webrtc-caller.js'
+import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../src/lib/webrtc-caller.js'
 import { runWebRtcConnectionProbeSession } from '../src/lib/webrtc-connection-probe.js'
 
 class FakePeerConnection {
@@ -111,6 +111,45 @@ describe('WebRTC caller', () => {
       { candidate: 'candidate:remote', sdpMLineIndex: 0, sdpMid: '0' },
     ])
     expect(peers[0]?.closed).toBe(true)
+  })
+
+  test('forces relay-only ICE when caller forceRelay option is enabled', async () => {
+    const peers: FakePeerConnection[] = []
+    const caller = createWebRtcCaller({
+      forceRelay: true,
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+      nextCallId: () => 'call-relay-only',
+      transport: {
+        call: async <T>(): Promise<T> =>
+          ({ iceServers: [{ urls: 'turn:turn.example.test:443' }] }) as T,
+        onWebRtcSignalFrame: () => () => {},
+        sendWebRtcSignalFrame: () => {},
+      },
+    })
+
+    await caller.start()
+
+    expect(peers[0]?.config).toEqual({
+      iceServers: [{ urls: 'turn:turn.example.test:443' }],
+      iceTransportPolicy: 'relay',
+    })
+  })
+
+  test('parses force-relay flag case-insensitively and accepts boolean true', () => {
+    expect(resolveWebRtcForceRelayEnabled({ webRtcForceRelay: 'TRUE' }, {})).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled({ webRtcForceRelay: ' True ' }, {})).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled({ webRtcForceRelay: true }, {})).toBe(true)
+    expect(
+      resolveWebRtcForceRelayEnabled(undefined, { EXPO_PUBLIC_WEBRTC_FORCE_RELAY: 'TRUE' })
+    ).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled(undefined, {})).toBe(false)
   })
 
   test('resolves waitForConnected when the peer connection reaches connected', async () => {

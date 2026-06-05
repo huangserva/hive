@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import { createWebRtcCallee } from '../../src/server/webrtc-callee.js'
+import {
+  createWebRtcCallee,
+  resolveWebRtcForceRelayEnabled,
+} from '../../src/server/webrtc-callee.js'
 import type { WebRtcSignalFrame } from '../../src/server/webrtc-signal-protocol.js'
 
 class FakePeerConnection {
@@ -45,6 +48,7 @@ class FakePeerConnection {
 describe('WebRTC callee', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllEnvs()
   })
 
   test('answers an offer and emits trickle ICE without using JSON-RPC', async () => {
@@ -97,6 +101,45 @@ describe('WebRTC callee', () => {
       kind: 'ice',
       type: 'webrtc_signal',
     })
+  })
+
+  test('forces relay-only ICE when HIVE_WEBRTC_FORCE_RELAY is enabled', async () => {
+    vi.stubEnv('HIVE_WEBRTC_FORCE_RELAY', '1')
+    const peers: FakePeerConnection[] = []
+    const callee = createWebRtcCallee({
+      getIceServers: async () => [{ urls: 'turn:turn.example.test:443' }],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-relay',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+      },
+      { send: () => {} }
+    )
+
+    expect(peers[0]?.config).toEqual({
+      iceServers: [{ urls: 'turn:turn.example.test:443' }],
+      iceTransportPolicy: 'relay',
+    })
+  })
+
+  test('parses force-relay env flag case-insensitively and accepts boolean true', () => {
+    expect(resolveWebRtcForceRelayEnabled({ HIVE_WEBRTC_FORCE_RELAY: 'TRUE' })).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled({ HIVE_WEBRTC_FORCE_RELAY: ' True ' })).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled({ HIVE_WEBRTC_FORCE_RELAY: true })).toBe(true)
+    expect(resolveWebRtcForceRelayEnabled({ HIVE_WEBRTC_FORCE_RELAY: undefined })).toBe(false)
   })
 
   test('adds remote ice candidates and closes calls on bye', async () => {

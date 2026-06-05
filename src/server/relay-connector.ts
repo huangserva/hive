@@ -12,6 +12,16 @@ import {
 } from '../../packages/relay-crypto/src/index.js'
 import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-protocol.js'
 
+import type { HiveLogger } from './logger.js'
+
+const log = (message: string, error?: unknown) => {
+  const ts = new Date().toISOString()
+  const suffix = error
+    ? ` error=${error instanceof Error ? error.message : String(error)}`
+    : ''
+  process.stderr.write(`[relay-connector ${ts}] ${message}${suffix}\n`)
+}
+
 export interface RelayConfig {
   enabled: boolean
   relay_url: string
@@ -349,7 +359,9 @@ export const createRelayConnector = (
 
   const handleWebRtcSignalFrame = async (session: RelayDeviceSession, frame: unknown) => {
     if (!isWebRtcSignalFrame(frame)) return false
+    log(`WebRTC signal received: kind=${frame.kind} call_id=${frame.call_id} device=${session.deviceId}`)
     if (!session.capabilities.includes('send_prompt')) {
+      log(`WebRTC signal rejected: no send_prompt capability, sending bye`)
       sendEncryptedResponse(session, {
         call_id: frame.call_id,
         kind: 'bye',
@@ -362,7 +374,11 @@ export const createRelayConnector = (
       (await options.webrtcSignalHandler(frame, {
         capabilities: session.capabilities,
         deviceId: session.deviceId,
-        send: (outbound) => sendEncryptedResponse(session, outbound),
+        send: (outbound) => {
+          const out = outbound as unknown as Record<string, unknown>
+          log(`WebRTC signal sending: kind=${out.kind} call_id=${out.call_id ?? frame.call_id} candidate=${out.candidate ? 'present' : 'none'}`)
+          return sendEncryptedResponse(session, outbound)
+        },
       }))
     ) {
       return true

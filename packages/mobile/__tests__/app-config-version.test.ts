@@ -4,7 +4,7 @@ describe('mobile app config version', () => {
   test('matches the current release version shown in Settings', async () => {
     const { default: config } = await import('../app.config')
 
-    expect(config.version).toBe('2.7.6')
+    expect(config.version).toBe('2.7.7')
   })
 
   test('injects neural VAD flags into Expo extra from build env', async () => {
@@ -17,6 +17,17 @@ describe('mobile app config version', () => {
     expect(envConfig.extra).toMatchObject({
       neuralVadPcmProbe: 'true',
       neuralVadShadow: '1',
+    })
+  })
+
+  test('injects WebRTC force-relay flag into Expo extra from build env', async () => {
+    vi.stubEnv('EXPO_PUBLIC_WEBRTC_FORCE_RELAY', '1')
+    vi.resetModules()
+
+    const { default: envConfig } = await import('../app.config')
+
+    expect(envConfig.extra).toMatchObject({
+      webRtcForceRelay: '1',
     })
   })
 

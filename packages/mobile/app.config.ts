@@ -33,7 +33,7 @@ const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '2.7.6',
+  version: '2.7.7',
   autolinking: webRtcNativeRegistrationEnabled
     ? {}
     : {
@@ -123,6 +123,7 @@ const config: ExpoConfigWithSplash = {
     webRtcProbe: process.env.EXPO_PUBLIC_WEBRTC_PROBE ?? process.env.WEBRTC_PROBE,
     webRtcNativeRegister:
       process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER ?? process.env.WEBRTC_NATIVE_REGISTER,
+    webRtcForceRelay: process.env.EXPO_PUBLIC_WEBRTC_FORCE_RELAY ?? process.env.WEBRTC_FORCE_RELAY,
     eas: {
       projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
     },

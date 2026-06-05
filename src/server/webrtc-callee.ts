@@ -6,6 +6,11 @@ export interface WebRtcIceServer {
   username?: string
 }
 
+type WebRtcPeerConnectionConfig = {
+  iceServers: WebRtcIceServer[]
+  iceTransportPolicy?: 'relay'
+}
+
 type WebRtcPeerConnection = {
   addIceCandidate(candidate: WebRtcIceCandidateInit): Promise<void> | void
   addTrack?: (track: WebRtcLocalAudioTrack) => unknown
@@ -29,7 +34,7 @@ export interface WebRtcTrackEvent {
 }
 
 export interface WebRtcRuntime {
-  RTCPeerConnection: new (config: { iceServers: WebRtcIceServer[] }) => WebRtcPeerConnection
+  RTCPeerConnection: new (config: WebRtcPeerConnectionConfig) => WebRtcPeerConnection
 }
 
 export interface WebRtcCalleeContext {
@@ -92,6 +97,25 @@ type WebRtcCall = {
 }
 
 const DEFAULT_WEBRTC_CALL_TIMEOUT_MS = 45_000
+
+const parseEnabledFlag = (value: unknown) => {
+  if (value === true) return true
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true'
+}
+
+export const resolveWebRtcForceRelayEnabled = (env: Record<string, unknown> = process.env) =>
+  parseEnabledFlag(env.HIVE_WEBRTC_FORCE_RELAY)
+
+const createPeerConnectionConfig = (iceServers: WebRtcIceServer[]): WebRtcPeerConnectionConfig =>
+  resolveWebRtcForceRelayEnabled() ? { iceServers, iceTransportPolicy: 'relay' } : { iceServers }
+
+const log = (message: string, error?: unknown) => {
+  const ts = new Date().toISOString()
+  const suffix = error ? ` error=${error instanceof Error ? error.message : String(error)}` : ''
+  process.stderr.write(`[webrtc-callee ${ts}] ${message}${suffix}\n`)
+}
 
 const normalizeIceCandidate = (candidate: unknown): WebRtcIceCandidateInit | null => {
   if (!candidate) return null
@@ -162,9 +186,15 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     context: WebRtcCalleeContext
   ): Promise<boolean> => {
     if (frame.kind === 'offer') {
+      log(
+        `offer received: call_id=${frame.call_id} workspace=${frame.workspace_id} sdp_len=${frame.sdp?.length ?? 0}`
+      )
       closeCall(frame.call_id)
       const [runtime, iceServers] = await Promise.all([loadRuntime(), options.getIceServers()])
-      const peer = new runtime.RTCPeerConnection({ iceServers })
+      log(
+        `ICE servers resolved: count=${iceServers.length} urls=${iceServers.map((s) => (typeof s.urls === 'string' ? s.urls : (s.urls as string[]).join(','))).join(' | ')}`
+      )
+      const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers))
       const call = rememberCall(frame.call_id, peer)
       if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
         try {
@@ -175,8 +205,10 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
           if (downlinkSession) {
             call.downlinkSession = downlinkSession
             peer.addTrack(downlinkSession.track)
+            log(`downlink audio track added: call_id=${frame.call_id}`)
           }
-        } catch {
+        } catch (downlinkError) {
+          log(`downlink audio failed: call_id=${frame.call_id}`, downlinkError)
           closeCall(frame.call_id)
           context.send({
             call_id: frame.call_id,
@@ -187,24 +219,35 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         }
       }
       peer.onicecandidate = (event) => {
+        const candidate = normalizeIceCandidate(event.candidate)
+        if (candidate?.candidate) {
+          log(
+            `ICE candidate gathered: call_id=${frame.call_id} candidate=${candidate.candidate.substring(0, 80)}...`
+          )
+        } else {
+          log(`ICE gathering complete (null candidate): call_id=${frame.call_id}`)
+        }
         context.send({
           call_id: frame.call_id,
-          candidate: normalizeIceCandidate(event.candidate),
+          candidate,
           kind: 'ice',
           type: 'webrtc_signal',
         })
       }
       peer.onconnectionstatechange = () => {
+        log(`connection state changed: call_id=${frame.call_id} state=${peer.connectionState}`)
         if (peer.connectionState === 'connected') {
           clearCallTimer(call)
           return
         }
         if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+          log(`call closing: call_id=${frame.call_id} state=${peer.connectionState}`)
           closeCall(frame.call_id)
         }
       }
       peer.ontrack = (event) => {
         const track = event.track
+        log(`remote track received: call_id=${frame.call_id} kind=${track?.kind}`)
         if (!options.audioSink || track?.kind !== 'audio' || !frame.workspace_id) return
         const startedSession = options.audioSink.start({
           callId: frame.call_id,
@@ -238,6 +281,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         await peer.setRemoteDescription({ sdp: frame.sdp, type: 'offer' })
         const answer = await peer.createAnswer()
         await peer.setLocalDescription(answer)
+        log(`answer created and sent: call_id=${frame.call_id} sdp_len=${answer.sdp?.length ?? 0}`)
         context.send({
           call_id: frame.call_id,
           kind: 'answer',
@@ -246,6 +290,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
           type: 'webrtc_signal',
         })
       } catch (error) {
+        log(`offer processing failed: call_id=${frame.call_id}`, error)
         closeCall(frame.call_id)
         throw error
       }
@@ -255,9 +300,13 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     if (frame.kind === 'ice') {
       const call = calls.get(frame.call_id)
       if (call && frame.candidate) {
+        log(
+          `remote ICE candidate received: call_id=${frame.call_id} candidate=${frame.candidate.candidate?.substring(0, 80) ?? 'null'}...`
+        )
         try {
           await call.peer.addIceCandidate(frame.candidate)
         } catch (error) {
+          log(`addIceCandidate failed: call_id=${frame.call_id}`, error)
           closeCall(frame.call_id)
           throw error
         }
@@ -266,6 +315,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     }
 
     if (frame.kind === 'bye') {
+      log(`bye received: call_id=${frame.call_id}`)
       closeCall(frame.call_id)
       return true
     }

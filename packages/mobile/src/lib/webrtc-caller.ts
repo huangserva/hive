@@ -12,6 +12,11 @@ export interface WebRtcIceServer {
   username?: string
 }
 
+type WebRtcPeerConnectionConfig = {
+  iceServers: WebRtcIceServer[]
+  iceTransportPolicy?: 'relay'
+}
+
 type WebRtcTrack = {
   stop?: () => void
 }
@@ -38,11 +43,12 @@ export interface WebRtcRuntime {
   mediaDevices?: {
     getUserMedia?: (constraints: { audio: boolean; video: boolean }) => Promise<WebRtcStream>
   }
-  RTCPeerConnection: new (config: { iceServers: WebRtcIceServer[] }) => WebRtcPeerConnection
+  RTCPeerConnection: new (config: WebRtcPeerConnectionConfig) => WebRtcPeerConnection
 }
 
 export interface WebRtcCallerOptions {
   audio?: boolean
+  forceRelay?: boolean
   loadRuntime?: () => Promise<WebRtcRuntime>
   nextCallId?: () => string
   onRemoteTrack?: (event: { streams?: unknown[]; track?: unknown }) => void
@@ -52,6 +58,32 @@ export interface WebRtcCallerOptions {
   transport: Pick<RelayTransport, 'call' | 'onWebRtcSignalFrame' | 'sendWebRtcSignalFrame'>
   workspaceId?: string
 }
+
+export type WebRtcRuntimeExtra = {
+  webRtcForceRelay?: unknown
+}
+
+const parseEnabledFlag = (value: unknown) => {
+  if (value === true) return true
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true'
+}
+
+export const resolveWebRtcForceRelayEnabled = (
+  extra: WebRtcRuntimeExtra | undefined,
+  env: Record<string, unknown> = process.env
+) => {
+  const value =
+    extra?.webRtcForceRelay ?? env.EXPO_PUBLIC_WEBRTC_FORCE_RELAY ?? env.WEBRTC_FORCE_RELAY
+  return parseEnabledFlag(value)
+}
+
+const createPeerConnectionConfig = (
+  iceServers: WebRtcIceServer[],
+  forceRelay: boolean
+): WebRtcPeerConnectionConfig =>
+  forceRelay ? { iceServers, iceTransportPolicy: 'relay' } : { iceServers }
 
 const normalizeIceCandidate = (candidate: unknown): WebRtcIceCandidateInit | null => {
   if (!candidate) return null
@@ -81,6 +113,7 @@ const loadReactNativeWebRtc = async (): Promise<WebRtcRuntime> => {
 export const createWebRtcCaller = (options: WebRtcCallerOptions) => {
   const loadRuntime = options.loadRuntime ?? loadReactNativeWebRtc
   const nextCallId = options.nextCallId ?? nextWebRtcCallId
+  const forceRelay = options.forceRelay ?? resolveWebRtcForceRelayEnabled(undefined)
   const runAudioSession =
     options.runAudioSession ??
     (async <T>(session: () => Promise<T>) => ({
@@ -102,7 +135,7 @@ export const createWebRtcCaller = (options: WebRtcCallerOptions) => {
       )
       const runtime = await loadRuntime()
       const callId = nextCallId()
-      const peer = new runtime.RTCPeerConnection({ iceServers })
+      const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers, forceRelay))
       if (options.audio) {
         const getUserMedia = runtime.mediaDevices?.getUserMedia
         if (!getUserMedia) {

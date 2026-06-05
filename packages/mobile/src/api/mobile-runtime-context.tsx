@@ -1,3 +1,4 @@
+import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import {
   createContext,
@@ -19,7 +20,7 @@ import {
   type StoredRelayConfig,
 } from '../lib/relay-config-store'
 import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
-import { createWebRtcCaller } from '../lib/webrtc-caller'
+import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../lib/webrtc-caller'
 import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
 import { getExpoPushToken } from '../notifications'
 import {
@@ -1023,6 +1024,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     const result = await runWebRtcConnectionProbeSession(async () => {
       const session = await createWebRtcCaller({
         audio: true,
+        forceRelay: resolveWebRtcForceRelayEnabled(
+          Constants.expoConfig?.extra && typeof Constants.expoConfig.extra === 'object'
+            ? (Constants.expoConfig.extra as { webRtcForceRelay?: unknown })
+            : undefined
+        ),
         transport,
         workspaceId,
       }).start()
