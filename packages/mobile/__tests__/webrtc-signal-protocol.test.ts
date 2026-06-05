@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import {
   createWebRtcSignalFrame,
@@ -7,6 +7,11 @@ import {
 } from '../src/api/webrtc-signal-protocol.js'
 
 describe('WebRTC signal protocol', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
   test('recognizes offer answer ice bye frames and rejects RPC or voice stream frames', () => {
     expect(
       isWebRtcSignalFrame({
@@ -56,5 +61,15 @@ describe('WebRTC signal protocol', () => {
       sent_at_ms: 1_234,
       type: 'webrtc_signal',
     })
+  })
+
+  test('creates call ids with getRandomValues when randomUUID is unavailable on RN', () => {
+    const realGetRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto)
+    vi.stubGlobal('crypto', { getRandomValues: realGetRandomValues })
+
+    expect(() => nextWebRtcCallId(1_700_000_000_000)).not.toThrow()
+    expect(nextWebRtcCallId(1_700_000_000_000)).toMatch(
+      /^webrtc-1700000000000-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
   })
 })

@@ -1,3 +1,5 @@
+import { createUuid as createRobustUuid } from './uuid'
+
 export type WebRtcSignalKind = 'answer' | 'bye' | 'ice' | 'offer'
 
 export interface WebRtcIceCandidateInit {
@@ -82,11 +84,5 @@ export const createWebRtcSignalFrame = (
   return frame
 }
 
-const randomUuid = (): string => {
-  const uuid = globalThis.crypto?.randomUUID?.()
-  if (!uuid) throw new Error('crypto.randomUUID is required for WebRTC call ids')
-  return uuid
-}
-
-export const nextWebRtcCallId = (now = Date.now(), createUuid: () => string = randomUuid) =>
+export const nextWebRtcCallId = (now = Date.now(), createUuid: () => string = createRobustUuid) =>
   `webrtc-${now}-${createUuid()}`

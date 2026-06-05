@@ -1,3 +1,5 @@
+import { createUuid } from './uuid'
+
 export type MobileOutboxOperationKind = 'approval' | 'dispatch' | 'prompt'
 export type MobileOutboxItemStatus = 'failed' | 'queued' | 'sending'
 
@@ -57,24 +59,10 @@ export interface MobileOutboxCounts {
 
 export const MOBILE_OUTBOX_STORAGE_KEY = 'hippoteam.mobileOutbox'
 
-// 进程内单调递增计数，作为最终兜底——保证即使 crypto 完全不可用、同一毫秒连发，id 也绝不碰撞。
-let outboxIdCounter = 0
 // 必须产出**可靠唯一** id（BLOCKING 修复）：id 现在是 outbox 去重键（按 id 去重），id 不唯一会重新制造
 // 「同毫秒两条合法消息撞同 id 被静默误删」——正是去重要解的 bug。优先 crypto.randomUUID；RN 入口只
 // 保证 getRandomValues（不保证 randomUUID），故次选用 getRandomValues 拼 UUIDv4；再不行带单调 counter。
-const randomId = () => {
-  const cryptoObj = globalThis.crypto
-  const uuid = cryptoObj?.randomUUID?.()
-  if (uuid) return uuid
-  if (cryptoObj?.getRandomValues) {
-    const bytes = cryptoObj.getRandomValues(new Uint8Array(16))
-    bytes[6] = (bytes[6] & 0x0f) | 0x40 // version 4
-    bytes[8] = (bytes[8] & 0x3f) | 0x80 // variant
-    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-  }
-  return `outbox-${Date.now()}-${outboxIdCounter++}`
-}
+const randomId = createUuid
 
 const normalizeStatus = (status: unknown): MobileOutboxItemStatus => {
   if (status === 'queued' || status === 'sending' || status === 'failed') return status
