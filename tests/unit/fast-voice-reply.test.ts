@@ -47,7 +47,9 @@ describe('fast voice reply', () => {
     expect(body.model).toBe('claude-haiku-4-5')
     expect(body.max_tokens).toBeLessThanOrEqual(80)
     expect(body.system).toContain('简体中文')
-    expect(body.system).toContain('1-3句短句')
+    expect(body.system).toContain('1-2句')
+    expect(body.system).toContain('每句尽量短')
+    expect(body.system).toContain('简短利落')
     expect(body.messages[0].content).toContain('让关羽汇报进展')
   })
 
@@ -88,9 +90,11 @@ describe('fast voice reply', () => {
     expect(headers.Authorization).toBe('Bearer glm-key')
     const body = JSON.parse(String(request.body))
     expect(body.model).toBe(GLM_FAST_VOICE_REPLY_MODEL)
-    expect(body.max_tokens).toBe(160)
+    expect(body.max_tokens).toBe(120)
     expect(body.messages[0]).toMatchObject({ role: 'system' })
-    expect(body.messages[0].content).toContain('1-3句短句')
+    expect(body.messages[0].content).toContain('1-2句')
+    expect(body.messages[0].content).toContain('每句尽量短')
+    expect(body.messages[0].content).toContain('简短利落')
     expect(body.messages[0].content).toContain('真对话前台')
     expect(body.messages[0].content).toContain('状态/简单问题/闲聊')
     expect(body.messages[0].content).toContain('一律自己handled')
@@ -231,7 +235,7 @@ describe('fast voice reply', () => {
     const [, request] = firstCall as [string, RequestInit]
     const body = JSON.parse(String(request.body))
     expect(body.thinking).toEqual({ type: 'disabled' })
-    expect(body.max_tokens).toBe(160)
+    expect(body.max_tokens).toBe(120)
   })
 
   it('treats empty GLM content caused by reasoning token exhaustion as no reply', async () => {

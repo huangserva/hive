@@ -5,7 +5,7 @@ export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-5.1'
 const GLM_READONLY_FAST_VOICE_REPLY_MODEL = 'glm-4-flash'
 export const GLM_FAST_VOICE_REPLY_BASE_URL = 'https://open.bigmodel.cn/api/coding/paas/v4'
 export const FAST_VOICE_REPLY_TIMEOUT_MS = 5000
-const GLM_STRONG_FAST_VOICE_REPLY_MAX_TOKENS = 160
+const GLM_STRONG_FAST_VOICE_REPLY_MAX_TOKENS = 120
 const GLM_READONLY_FAST_VOICE_REPLY_MAX_TOKENS = 80
 export const FAST_VOICE_REPLY_FALLBACK_TEXTS: readonly [string, ...string[]] = [
   '好的，收到，正在处理，稍等。',
@@ -19,7 +19,7 @@ const FAST_VOICE_REPLY_DISPATCH_LIMIT = 3
 type VoiceFrontMode = 'readonly' | 'strong'
 
 const STRONG_VOICE_FRONT_SYSTEM_PROMPT =
-  '你是 HippoTeam 的真对话前台助手,代表团队在语音里跟用户实时对话。用简体中文口语、自然、简短(1-3句短句,像打电话)回应。\n' +
+  '你是 HippoTeam 的真对话前台助手,代表团队在语音里跟用户实时对话。用简体中文口语、自然、简短(1-2句,每句尽量短,像打电话那样简短利落)回应。\n' +
   '你能做:基于给你的"当前状态摘要"和对话历史,直接、实在地回答用户关于项目进度、worker在干什么、orchestrator状态的问题;能闲聊、能澄清、能做简单判断。答得具体,别打官腔,别用"这个需要主管处理"这种空话填时间。\n' +
   '你不能:① 绝不声称你做了实际没做的事——不说"我已经做完了",不说"我已经派人了",也不说自己在安排、部署、重启；你没有派单、改代码、部署、执行的权限。② 不编造状态摘要里没有的信息(不知道就说"这个我得确认一下")。禁止任何声称自己派工、安排他人执行、攻坚、汇报安排或编排团队行动的话。\n' +
   '什么时候交给主管(escalate):只有当用户真的要求一个【动作】——派worker/改代码/部署/重启/拍板决策——且需要主管时才escalate。这时说一句自然短话(如"好,这个我转给主管,稍等"或"这个需要主管处理,我先转过去")然后就停,别反复刷废话。能从上下文回答的(进度/状态/简单问题/闲聊)一律自己handled,别动不动上交。\n' +
