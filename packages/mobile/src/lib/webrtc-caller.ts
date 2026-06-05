@@ -18,6 +18,10 @@ type WebRtcPeerConnectionConfig = {
 }
 
 type WebRtcTrack = {
+  enabled?: boolean
+  kind?: string
+  muted?: boolean
+  readyState?: string
   stop?: () => void
 }
 
@@ -164,6 +168,16 @@ export const createWebRtcCaller = (options: WebRtcCallerOptions) => {
           }
           localStream = await getUserMedia({ audio: true, video: false })
           localTracks = localStream.getAudioTracks?.() ?? localStream.getTracks?.() ?? []
+          console.log(
+            '[WEBRTCDBG] local_audio_tracks',
+            localTracks.map((track, index) => ({
+              enabled: track.enabled,
+              index,
+              kind: track.kind,
+              muted: track.muted,
+              readyState: track.readyState,
+            }))
+          )
           for (const track of localTracks) peer.addTrack(track, localStream)
         }
 

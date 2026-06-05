@@ -187,7 +187,7 @@ describe('WebRTC caller', () => {
     await expect(connected).resolves.toBeUndefined()
   })
 
-  test('acquires microphone audio inside the WebRTC interlock and adds tracks before creating offer', async () => {
+  test('acquires microphone audio after the WebRTC audio session starts and adds tracks before creating offer', async () => {
     const order: string[] = []
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
@@ -219,10 +219,10 @@ describe('WebRTC caller', () => {
       }),
       nextCallId: () => 'call-audio',
       runAudioSession: async (session) => {
-        order.push('interlock.enter')
+        order.push('audioRoute.start')
         return {
           close: () => {
-            order.push('interlock.exit')
+            order.push('audioRoute.stop')
           },
           result: await session(),
         }
@@ -238,7 +238,7 @@ describe('WebRTC caller', () => {
 
     const session = await caller.start()
 
-    expect(order).toEqual(['interlock.enter', 'getUserMedia:true:false', 'createOffer'])
+    expect(order).toEqual(['audioRoute.start', 'getUserMedia:true:false', 'createOffer'])
     expect(peers[0]?.addedTracks).toEqual([{ stream, track: audioTrack }])
     expect(sent[0]).toMatchObject({
       call_id: 'call-audio',
@@ -249,11 +249,11 @@ describe('WebRTC caller', () => {
 
     session.close()
     expect(order).toEqual([
-      'interlock.enter',
+      'audioRoute.start',
       'getUserMedia:true:false',
       'createOffer',
       'track.stop',
-      'interlock.exit',
+      'audioRoute.stop',
     ])
   })
 

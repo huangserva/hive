@@ -33,7 +33,7 @@ const androidVersionCode = Math.floor(buildTime.getTime() / 60_000)
 const config: ExpoConfigWithSplash = {
   name: 'HippoTeam',
   slug: 'hippoteam',
-  version: '2.8.1',
+  version: '2.8.2',
   autolinking: webRtcNativeRegistrationEnabled
     ? {}
     : {

@@ -1113,7 +1113,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     setError(null)
 
     let session: WebRtcCallerSession | null = null
-    let audioRoute: WebRtcInCallAudioRoute | null = null
     try {
       session = await createWebRtcCaller({
         audio: true,
@@ -1148,6 +1147,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
               : current
           )
         },
+        runAudioSession: async (runSession) => {
+          const audioRoute = await startWebRtcInCallAudioRoute()
+          webRtcTestCallAudioRouteRef.current = audioRoute
+          return {
+            close: () => audioRoute?.stop(),
+            result: await runSession(),
+          }
+        },
         transport,
         workspaceId,
       }).start()
@@ -1158,13 +1165,6 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         session.close()
         return { ok: false, reason: 'WebRTC test call was closed before connecting' }
       }
-      audioRoute = await startWebRtcInCallAudioRoute()
-      if (webRtcTestCallSessionRef.current !== session) {
-        session.close()
-        await audioRoute.stop().catch(() => {})
-        return { ok: false, reason: 'WebRTC test call was closed before routing audio' }
-      }
-      webRtcTestCallAudioRouteRef.current = audioRoute
       setWebRtcTestCall({
         callId: session.callId,
         remoteAudioTrackCount: webRtcRemoteAudioRefsRef.current.length,
@@ -1177,11 +1177,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (session && webRtcTestCallSessionRef.current === session) {
         webRtcTestCallSessionRef.current = null
       }
-      if (audioRoute && webRtcTestCallAudioRouteRef.current === audioRoute) {
-        webRtcTestCallAudioRouteRef.current = null
-      }
+      const failedAudioRoute: WebRtcInCallAudioRoute | null = webRtcTestCallAudioRouteRef.current
+      webRtcTestCallAudioRouteRef.current = null
       session?.close()
-      await audioRoute?.stop().catch(() => {})
+      if (failedAudioRoute) {
+        await (failedAudioRoute as WebRtcInCallAudioRoute).stop().catch(() => {})
+      }
       webRtcRemoteAudioRefsRef.current = []
       setWebRtcTestCall({ reason, status: 'error' })
       setError(reason)
