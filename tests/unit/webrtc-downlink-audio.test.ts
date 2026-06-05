@@ -13,10 +13,16 @@ const createMessage = (text: string): MobileChatMessage => ({
 })
 
 describe('WebRTC downlink audio', () => {
-  test('synthesizes outbound orchestrator replies and writes them to the active downlink track', async () => {
+  test('synthesizes outbound orchestrator replies and pushes 48khz pcm frames to RTCAudioSource', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
-    const writes: Buffer[] = []
     const stopped: string[] = []
+    const pushedFrames: Array<{
+      bitsPerSample: number
+      channelCount: number
+      numberOfFrames: number
+      sampleRate: number
+      samples: Int16Array
+    }> = []
     const synthesizeCalls: Array<{ text: string; voice?: string }> = []
     const downlink = createWebRtcDownlinkAudio({
       createTtsProvider: () => ({
@@ -31,6 +37,18 @@ describe('WebRTC downlink audio', () => {
           }
         },
       }),
+      decodeAudioToPcmFrames: async (audio) => {
+        expect(audio).toEqual(Buffer.from('audio:正式回复 链接'))
+        return [
+          {
+            bitsPerSample: 16,
+            channelCount: 1,
+            numberOfFrames: 480,
+            sampleRate: 48_000,
+            samples: new Int16Array(480),
+          },
+        ]
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -40,12 +58,13 @@ describe('WebRTC downlink audio', () => {
         },
       },
       trackFactory: async () => ({
+        onData: (frame) => {
+          pushedFrames.push(frame)
+        },
         track: {
+          kind: 'audio',
           stop: () => {
             stopped.push('track')
-          },
-          writeAudio: async (audio) => {
-            writes.push(audio)
           },
         },
       }),
@@ -59,7 +78,14 @@ describe('WebRTC downlink audio', () => {
 
     await session.flush()
 
-    expect(writes).toEqual([Buffer.from('audio:正式回复 链接')])
+    expect(pushedFrames).toHaveLength(1)
+    expect(pushedFrames[0]).toEqual({
+      bitsPerSample: 16,
+      channelCount: 1,
+      numberOfFrames: 480,
+      sampleRate: 48_000,
+      samples: new Int16Array(480),
+    })
     expect(synthesizeCalls).toEqual([{ text: '正式回复 链接', voice: 'zh-CN-XiaoxiaoNeural' }])
 
     await session.close()
@@ -69,7 +95,7 @@ describe('WebRTC downlink audio', () => {
 
   test('ignores non-orchestrator and other-workspace messages', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
-    const writes: Buffer[] = []
+    const pushedFrames: Int16Array[] = []
     const downlink = createWebRtcDownlinkAudio({
       createTtsProvider: () => ({
         detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
@@ -80,6 +106,15 @@ describe('WebRTC downlink audio', () => {
           provider: 'edge-tts',
         }),
       }),
+      decodeAudioToPcmFrames: async () => [
+        {
+          bitsPerSample: 16,
+          channelCount: 1,
+          numberOfFrames: 480,
+          sampleRate: 48_000,
+          samples: new Int16Array([1]),
+        },
+      ],
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -87,10 +122,11 @@ describe('WebRTC downlink audio', () => {
         },
       },
       trackFactory: async () => ({
+        onData: (frame) => {
+          pushedFrames.push(frame.samples)
+        },
         track: {
-          writeAudio: async (audio) => {
-            writes.push(audio)
-          },
+          kind: 'audio',
         },
       }),
     })
@@ -108,6 +144,6 @@ describe('WebRTC downlink audio', () => {
 
     await session.flush()
 
-    expect(writes).toEqual([])
+    expect(pushedFrames).toEqual([])
   })
 })

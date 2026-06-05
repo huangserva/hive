@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -6,17 +6,30 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { MobileChatMessageType } from '../../src/server/mobile-chat-store.js'
 import { createWebRtcUpstreamAudioSink } from '../../src/server/webrtc-upstream-audio.js'
 
-class FakeRecorder {
-  static paths: string[] = []
+type FakeAudioSinkData = {
+  bitsPerSample: number
+  channelCount: number
+  numberOfFrames: number
+  sampleRate: number
+  samples: Int16Array
+}
 
-  constructor(readonly input: { path: string; tracks: unknown[] }) {
-    FakeRecorder.paths.push(input.path)
-    const dir = input.path.slice(0, input.path.lastIndexOf('/'))
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(input.path, Buffer.from('webm-audio'))
+class FakeAudioSink {
+  static instances: FakeAudioSink[] = []
+  ondata?: (data: FakeAudioSinkData) => void
+  stopped = false
+
+  constructor(readonly track: unknown) {
+    FakeAudioSink.instances.push(this)
   }
 
-  async stop() {}
+  emit(data: FakeAudioSinkData) {
+    this.ondata?.(data)
+  }
+
+  stop() {
+    this.stopped = true
+  }
 }
 
 const createStore = () => ({
@@ -67,25 +80,27 @@ const createStore = () => ({
 describe('WebRTC upstream audio sink', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
-    FakeRecorder.paths = []
+    FakeAudioSink.instances = []
   })
 
-  test('records remote audio to webm, transcribes it, and injects a voice prompt', async () => {
+  test('captures remote PCM frames with RTCAudioSink, writes wav, and injects a voice prompt', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     const store = createStore()
     const transcribedPaths: string[] = []
+    const transcribedAudio: Buffer[] = []
     const sink = createWebRtcUpstreamAudioSink({
       createSttProvider: () => ({
         detect: async () => ({ command: 'fake-stt', provider: 'paraformer' }),
         transcribeAudioFile: async (audioPath) => {
           transcribedPaths.push(audioPath)
+          transcribedAudio.push(readFileSync(audioPath))
           return { provider: 'paraformer', text: '让关羽汇报进度' }
         },
       }),
       fastVoiceReplyProvider: {
         generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
       },
-      loadMediaRecorder: async () => FakeRecorder,
+      loadAudioSink: async () => FakeAudioSink,
       store,
       tempRoot: tmpdir(),
     })
@@ -97,10 +112,23 @@ describe('WebRTC upstream audio sink', () => {
     })
     expect(session).toBeDefined()
     if (!session) throw new Error('audio session was not created')
+    expect(FakeAudioSink.instances).toHaveLength(1)
+    expect(FakeAudioSink.instances[0]?.track).toEqual({ kind: 'audio' })
+    FakeAudioSink.instances[0]?.emit({
+      bitsPerSample: 16,
+      channelCount: 1,
+      numberOfFrames: 3,
+      sampleRate: 16_000,
+      samples: new Int16Array([100, -100, 200]),
+    })
     await session.close()
 
     expect(transcribedPaths).toHaveLength(1)
-    expect(transcribedPaths[0]?.endsWith('/call-1.webm')).toBe(true)
+    expect(transcribedPaths[0]?.endsWith('/call-1.wav')).toBe(true)
+    const wav = transcribedAudio[0] ?? Buffer.alloc(0)
+    expect(wav.subarray(0, 4).toString('ascii')).toBe('RIFF')
+    expect(wav.subarray(8, 12).toString('ascii')).toBe('WAVE')
+    expect(FakeAudioSink.instances[0]?.stopped).toBe(true)
     expect(store.chat).toContainEqual({
       contentJson: JSON.stringify({ source: 'voice', text: '让关羽汇报进度' }),
       direction: 'inbound',
@@ -115,6 +143,6 @@ describe('WebRTC upstream audio sink', () => {
         workerId: 'workspace-1:orchestrator',
       },
     ])
-    expect(FakeRecorder.paths[0] ? existsSync(FakeRecorder.paths[0]) : true).toBe(false)
+    expect(transcribedPaths[0] ? existsSync(transcribedPaths[0]) : true).toBe(false)
   })
 })

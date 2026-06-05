@@ -175,6 +175,17 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     calls.delete(callId)
   }
 
+  const closeCallWithBye = (callId: string, context: WebRtcCalleeContext) => {
+    const call = calls.get(callId)
+    if (!call || call.closed) return
+    closeCall(callId)
+    context.send({
+      call_id: callId,
+      kind: 'bye',
+      type: 'webrtc_signal',
+    })
+  }
+
   const rememberCall = (callId: string, peer: WebRtcPeerConnection) => {
     const call: WebRtcCall = {
       audioSessions: new Set(),
@@ -202,8 +213,27 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       )
       const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers))
       const call = rememberCall(frame.call_id, peer)
-      if (options.downlinkAudio && frame.workspace_id) {
-        log(`downlink audio deferred for wrtc phase1: call_id=${frame.call_id}`)
+      if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
+        try {
+          const downlinkSession = await options.downlinkAudio.startCall({
+            callId: frame.call_id,
+            workspaceId: frame.workspace_id,
+          })
+          if (downlinkSession) {
+            call.downlinkSession = downlinkSession
+            peer.addTrack(downlinkSession.track)
+            log(`downlink audio track added: call_id=${frame.call_id}`)
+          }
+        } catch (downlinkError) {
+          log(`downlink audio failed: call_id=${frame.call_id}`, downlinkError)
+          closeCall(frame.call_id)
+          context.send({
+            call_id: frame.call_id,
+            kind: 'bye',
+            type: 'webrtc_signal',
+          })
+          return true
+        }
       }
       peer.onicecandidate = (event) => {
         const candidate = normalizeIceCandidate(event.candidate)
@@ -242,9 +272,48 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       peer.oniceconnectionstatechange = handleConnectionStateChange
       peer.ontrack = (event) => {
         const track = event.track
-        log(
-          `remote track received but audio sink deferred for wrtc phase1: call_id=${frame.call_id} kind=${track?.kind}`
-        )
+        log(`remote track received: call_id=${frame.call_id} kind=${track?.kind}`)
+        if (!options.audioSink || track?.kind !== 'audio' || !frame.workspace_id) return
+        let startedSession:
+          | Promise<WebRtcRemoteAudioSession | null | undefined>
+          | WebRtcRemoteAudioSession
+          | null
+          | undefined
+        try {
+          startedSession = options.audioSink.start({
+            callId: frame.call_id,
+            receiver: event.receiver,
+            streams: event.streams,
+            track,
+            workspaceId: frame.workspace_id,
+          })
+        } catch (error) {
+          log(`audio sink start failed: call_id=${frame.call_id}`, error)
+          closeCallWithBye(frame.call_id, context)
+          return
+        }
+        if (startedSession && typeof (startedSession as Promise<unknown>).then !== 'function') {
+          const audioSession = startedSession as WebRtcRemoteAudioSession
+          if (call.closed) {
+            void Promise.resolve(audioSession.close()).catch(() => {})
+          } else {
+            call.audioSessions.add(audioSession)
+          }
+          return
+        }
+        void Promise.resolve(startedSession)
+          .then((audioSession) => {
+            if (!audioSession) return
+            if (call.closed) {
+              void Promise.resolve(audioSession.close()).catch(() => {})
+              return
+            }
+            call.audioSessions.add(audioSession)
+          })
+          .catch((error) => {
+            log(`audio sink start failed: call_id=${frame.call_id}`, error)
+            closeCallWithBye(frame.call_id, context)
+          })
       }
       try {
         if (!frame.sdp) throw new Error('WebRTC offer SDP is required')

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -13,15 +13,20 @@ import type { RuntimeStore } from './runtime-store.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
-type WebRtcMediaRecorder = {
-  onError?: { subscribe?: (listener: (error: Error) => void) => unknown }
-  stop(): Promise<void> | void
+type WebRtcAudioSinkFrame = {
+  bitsPerSample?: number
+  channelCount?: number
+  numberOfFrames?: number
+  sampleRate?: number
+  samples: Buffer | Int16Array | number[]
 }
 
-type WebRtcMediaRecorderCtor = new (input: {
-  path: string
-  tracks: unknown[]
-}) => WebRtcMediaRecorder
+type WebRtcAudioSink = {
+  ondata?: (data: WebRtcAudioSinkFrame) => void
+  stop?: () => Promise<void> | void
+}
+
+type WebRtcAudioSinkCtor = new (track: unknown) => WebRtcAudioSink
 
 type WebRtcUpstreamStore = Pick<
   RuntimeStore,
@@ -35,17 +40,64 @@ type WebRtcUpstreamStore = Pick<
 interface WebRtcUpstreamAudioSinkOptions {
   createSttProvider?: () => LocalSttProvider
   fastVoiceReplyProvider?: FastVoiceReplyProvider
-  loadMediaRecorder?: () => Promise<WebRtcMediaRecorderCtor>
+  loadAudioSink?: () => Promise<WebRtcAudioSinkCtor>
   logger?: Pick<HiveLogger, 'warn'>
   store: WebRtcUpstreamStore
   tempRoot?: string
 }
 
-const loadWeriftMediaRecorder = async (): Promise<WebRtcMediaRecorderCtor> => {
-  const moduleName = 'werift'
-  const runtime = (await import(moduleName)) as { MediaRecorder?: WebRtcMediaRecorderCtor }
-  if (!runtime.MediaRecorder) throw new Error('werift MediaRecorder is unavailable')
-  return runtime.MediaRecorder
+const loadWrtcAudioSink = async (): Promise<WebRtcAudioSinkCtor> => {
+  const moduleName = '@roamhq/wrtc'
+  const runtime = (await import(moduleName)) as {
+    default?: { nonstandard?: { RTCAudioSink?: WebRtcAudioSinkCtor } }
+    nonstandard?: { RTCAudioSink?: WebRtcAudioSinkCtor }
+  }
+  const RTCAudioSink =
+    runtime.nonstandard?.RTCAudioSink ?? runtime.default?.nonstandard?.RTCAudioSink
+  if (!RTCAudioSink) throw new Error('@roamhq/wrtc RTCAudioSink is unavailable')
+  return RTCAudioSink
+}
+
+const samplesToBuffer = (samples: WebRtcAudioSinkFrame['samples']) => {
+  if (Buffer.isBuffer(samples)) return Buffer.from(samples)
+  if (samples instanceof Int16Array) {
+    return Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
+  }
+  const int16 = Int16Array.from(samples)
+  return Buffer.from(int16.buffer)
+}
+
+const writeWavFile = ({
+  bitsPerSample,
+  channelCount,
+  frames,
+  outputPath,
+  sampleRate,
+}: {
+  bitsPerSample: number
+  channelCount: number
+  frames: Buffer[]
+  outputPath: string
+  sampleRate: number
+}) => {
+  const data = Buffer.concat(frames)
+  const byteRate = (sampleRate * channelCount * bitsPerSample) / 8
+  const blockAlign = (channelCount * bitsPerSample) / 8
+  const header = Buffer.alloc(44)
+  header.write('RIFF', 0, 'ascii')
+  header.writeUInt32LE(36 + data.length, 4)
+  header.write('WAVE', 8, 'ascii')
+  header.write('fmt ', 12, 'ascii')
+  header.writeUInt32LE(16, 16)
+  header.writeUInt16LE(1, 20)
+  header.writeUInt16LE(channelCount, 22)
+  header.writeUInt32LE(sampleRate, 24)
+  header.writeUInt32LE(byteRate, 28)
+  header.writeUInt16LE(blockAlign, 32)
+  header.writeUInt16LE(bitsPerSample, 34)
+  header.write('data', 36, 'ascii')
+  header.writeUInt32LE(data.length, 40)
+  writeFileSync(outputPath, Buffer.concat([header, data]))
 }
 
 export const injectWebRtcVoiceTranscript = async ({
@@ -103,26 +155,37 @@ export const injectWebRtcVoiceTranscript = async ({
 export const createWebRtcUpstreamAudioSink = ({
   createSttProvider = () => createLocalSttProvider(),
   fastVoiceReplyProvider,
-  loadMediaRecorder = loadWeriftMediaRecorder,
+  loadAudioSink = loadWrtcAudioSink,
   logger,
   store,
   tempRoot = tmpdir(),
 }: WebRtcUpstreamAudioSinkOptions): WebRtcRemoteAudioSink => ({
   async start({ callId, track, workspaceId }): Promise<WebRtcRemoteAudioSession> {
     const tempDir = mkdtempSync(join(tempRoot, 'hive-webrtc-upstream-'))
-    const audioPath = join(tempDir, `${callId}.webm`)
-    const MediaRecorder = await loadMediaRecorder()
-    const recorder = new MediaRecorder({ path: audioPath, tracks: [track] })
+    const audioPath = join(tempDir, `${callId}.wav`)
+    const AudioSink = await loadAudioSink()
+    const sink = new AudioSink(track)
+    const frames: Buffer[] = []
+    let sampleRate = 48_000
+    let bitsPerSample = 16
+    let channelCount = 1
     let closed = false
+    sink.ondata = (data) => {
+      if (closed) return
+      if (data.bitsPerSample) bitsPerSample = data.bitsPerSample
+      if (data.channelCount) channelCount = data.channelCount
+      if (data.sampleRate) sampleRate = data.sampleRate
+      frames.push(samplesToBuffer(data.samples))
+    }
 
     return {
       async close() {
         if (closed) return
         closed = true
         try {
-          await recorder.stop()
-          const stats = statSync(audioPath)
-          if (stats.size <= 0) return
+          await Promise.resolve(sink.stop?.())
+          if (frames.length <= 0) return
+          writeWavFile({ bitsPerSample, channelCount, frames, outputPath: audioPath, sampleRate })
           const provider = createSttProvider()
           const cli = await provider.detect()
           if (!cli) return
