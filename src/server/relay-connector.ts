@@ -10,6 +10,7 @@ import {
   type HandshakeInitMessage,
   type KeyPair,
 } from '../../packages/relay-crypto/src/index.js'
+import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-protocol.js'
 
 export interface RelayConfig {
   enabled: boolean
@@ -44,7 +45,7 @@ export type RpcHandler = (
   capabilities: string[]
 ) => Promise<unknown>
 
-interface RelayConnectorOptions {
+export interface RelayConnectorOptions {
   authenticateDevice?: (token: string) => { capabilities: string[]; id: string }
   heartbeatIntervalMs?: number
   // 探活超时：在此时长内未从对端收到**任何**帧（含 heartbeat_ack）→ 判连接死（半开 socket）→
@@ -62,6 +63,14 @@ interface RelayConnectorOptions {
       capabilities: string[]
       deviceId: string
       send: (frame: VoiceStreamFrame) => void
+    }
+  ) => Promise<boolean> | boolean
+  webrtcSignalHandler?: (
+    frame: WebRtcSignalFrame,
+    context: {
+      capabilities: string[]
+      deviceId: string
+      send: (frame: WebRtcSignalFrame) => void
     }
   ) => Promise<boolean> | boolean
 }
@@ -338,6 +347,35 @@ export const createRelayConnector = (
     return true
   }
 
+  const handleWebRtcSignalFrame = async (session: RelayDeviceSession, frame: unknown) => {
+    if (!isWebRtcSignalFrame(frame)) return false
+    if (!session.capabilities.includes('send_prompt')) {
+      sendEncryptedResponse(session, {
+        call_id: frame.call_id,
+        kind: 'bye',
+        type: 'webrtc_signal',
+      })
+      return true
+    }
+    if (
+      options.webrtcSignalHandler &&
+      (await options.webrtcSignalHandler(frame, {
+        capabilities: session.capabilities,
+        deviceId: session.deviceId,
+        send: (outbound) => sendEncryptedResponse(session, outbound),
+      }))
+    ) {
+      return true
+    }
+    if (frame.kind === 'bye') return true
+    sendEncryptedResponse(session, {
+      call_id: frame.call_id,
+      kind: 'bye',
+      type: 'webrtc_signal',
+    })
+    return true
+  }
+
   const handleEncryptedRpc = async (payload: string) => {
     for (const session of sessions.values()) {
       // 畸形 base64 会让 decrypt 内部的 atob 抛错（bug ③a）；逐会话捕获后继续尝试下一个会话，
@@ -365,6 +403,7 @@ export const createRelayConnector = (
       }
 
       if (await handleVoiceStreamFrame(session, request)) return
+      if (await handleWebRtcSignalFrame(session, request)) return
 
       const rpcRequest = request as { id?: string; method?: string; params?: unknown }
       const id = rpcRequest.id ?? null

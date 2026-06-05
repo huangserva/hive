@@ -324,6 +324,8 @@ const en = {
   'settings.workspaceActive': 'Active workspace',
   'settings.webrtcProbeHint':
     'Hidden release probe: request microphone access and instantiate RTCPeerConnection.',
+  'settings.webrtcConnectionProbeFailed': 'WebRTC relay connection probe failed: {reason}',
+  'settings.webrtcConnectionProbeOk': 'WebRTC relay connection reached connected: {callId}',
   'settings.webrtcProbeOk': 'WebRTC microphone and peer connection API are reachable.',
   'settings.webrtcProbeRun': 'Run WebRTC Probe',
   'settings.webrtcProbeRunning': 'Running probe...',
@@ -701,6 +703,8 @@ const zh: Record<keyof typeof en, string> = {
   'settings.workspaces': '工作区',
   'settings.workspaceActive': '当前工作区',
   'settings.webrtcProbeHint': '隐藏发布探针：请求麦克风并实例化 RTCPeerConnection。',
+  'settings.webrtcConnectionProbeFailed': 'WebRTC 中继连接探针失败：{reason}',
+  'settings.webrtcConnectionProbeOk': 'WebRTC 中继连接已到 connected：{callId}',
   'settings.webrtcProbeOk': 'WebRTC 麦克风与 PeerConnection API 可达。',
   'settings.webrtcProbeRun': '运行 WebRTC 探针',
   'settings.webrtcProbeRunning': '探针运行中...',

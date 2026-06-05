@@ -18,10 +18,11 @@ import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
 import { loadRelayConfig } from '../server/relay-config.js'
 import { createRelayConnector, type RelayConnectorHandle } from '../server/relay-connector.js'
-import { createRelayRpcHandler } from '../server/relay-rpc-handler.js'
+import { createRelayRpcHandler, resolveWebRtcIceServers } from '../server/relay-rpc-handler.js'
 import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
+import { createWebRtcCallee } from '../server/webrtc-callee.js'
 
 interface RunHiveCommandResult {
   port: number
@@ -218,6 +219,9 @@ export const runHiveCommand = async (
         {
           authenticateDevice: (token) => store.authenticateMobileDevice(token),
           voiceStreamHandler: createVoiceStreamTtsHandler(),
+          webrtcSignalHandler: createWebRtcCallee({
+            getIceServers: async () => resolveWebRtcIceServers(),
+          }).handleSignal,
         }
       )
       logger.info(

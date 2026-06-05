@@ -11,6 +11,7 @@ import {
 import { createRuntimeClient } from '../src/api/client.js'
 import { createRelayTransport, type RelayTransportConfig } from '../src/api/relay-transport.js'
 import { createVoiceStreamFrame } from '../src/api/voice-stream-protocol.js'
+import { createWebRtcSignalFrame } from '../src/api/webrtc-signal-protocol.js'
 
 class FakeRelaySocket {
   static instances: FakeRelaySocket[] = []
@@ -198,6 +199,52 @@ describe('relay transport', () => {
     expect(voiceFrames).toEqual([
       expect.objectContaining({ op: 'ack', seq: 1, stream_id: 'voice-1' }),
     ])
+
+    socket.receive({
+      payload: channel.encrypt(encodeJson({ id: request.id, result: { ok: true } })),
+      type: 'data',
+    })
+    await expect(callPromise).resolves.toEqual({ ok: true })
+  })
+
+  test('sends and routes encrypted webrtc_signal frames without touching RPC or voice_stream listeners', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const webRtcFrames: unknown[] = []
+    const voiceFrames: unknown[] = []
+    transport.onWebRtcSignalFrame((frame) => {
+      webRtcFrames.push(frame)
+    })
+    transport.onVoiceStreamFrame((frame) => voiceFrames.push(frame))
+
+    transport.sendWebRtcSignalFrame(
+      createWebRtcSignalFrame('offer', 'call-1', { sdp: 'offer-sdp', sent_at_ms: 1_000 })
+    )
+    const encryptedOutbound = socket.sent.at(-1) as { payload: string; type: string }
+    const outbound = decodeJson(channel.decrypt(encryptedOutbound.payload) ?? new Uint8Array())
+    expect(outbound).toMatchObject({
+      call_id: 'call-1',
+      kind: 'offer',
+      sdp: 'offer-sdp',
+      sdp_type: 'offer',
+      type: 'webrtc_signal',
+    })
+
+    const callPromise = transport.call<{ ok: boolean }>('runtime.status')
+    const encryptedRequest = socket.sent.at(-1) as { payload: string }
+    const request = decodeJson(channel.decrypt(encryptedRequest.payload) ?? new Uint8Array()) as {
+      id: string
+    }
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(createWebRtcSignalFrame('answer', 'call-1', { sdp: 'answer-sdp' }))
+      ),
+      type: 'data',
+    })
+    expect(webRtcFrames).toEqual([
+      expect.objectContaining({ call_id: 'call-1', kind: 'answer', sdp: 'answer-sdp' }),
+    ])
+    expect(voiceFrames).toEqual([])
 
     socket.receive({
       payload: channel.encrypt(encodeJson({ id: request.id, result: { ok: true } })),
@@ -751,8 +798,10 @@ describe('runtime client relay fallback', () => {
       measureVoiceStreamLatency: vi.fn(),
       onEvent: vi.fn(() => () => {}),
       onStatusChange: vi.fn(() => () => {}),
+      onWebRtcSignalFrame: vi.fn(() => () => {}),
       onVoiceStreamFrame: vi.fn(() => () => {}),
       requestVoiceStreamSynthesis: vi.fn(),
+      sendWebRtcSignalFrame: vi.fn(),
       sendVoiceStreamFrame: vi.fn(),
       status: vi.fn(() => 'ready' as const),
     }

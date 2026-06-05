@@ -96,6 +96,7 @@ export default function SettingsTab() {
     host,
     pairedDevice,
     relayConfig,
+    runWebRtcConnectionProbe,
     runtimeStatus,
     selectWorkspace,
     selectedWorkspaceId,
@@ -304,11 +305,17 @@ export default function SettingsTab() {
     setWebRtcProbeBusy(true)
     setWebRtcProbeResult(null)
     const result = await runWebRtcRuntimeProbe()
-    const message = result.ok ? t('settings.webrtcProbeOk') : result.reason
+    let message = result.ok ? t('settings.webrtcProbeOk') : result.reason
+    if (result.ok) {
+      const connectionResult = await runWebRtcConnectionProbe()
+      message = connectionResult.ok
+        ? `${message}\n${t('settings.webrtcConnectionProbeOk', { callId: connectionResult.callId })}`
+        : `${message}\n${t('settings.webrtcConnectionProbeFailed', { reason: connectionResult.reason })}`
+    }
     setWebRtcProbeResult(message)
     Alert.alert(t('settings.webrtcProbeTitle'), message)
     setWebRtcProbeBusy(false)
-  }, [t, webRtcProbeBusy])
+  }, [runWebRtcConnectionProbe, t, webRtcProbeBusy])
 
   const switchConnectionDetail = useCallback(
     async (target: 'lan' | 'relay') => {

@@ -15,6 +15,7 @@ import {
   createRelayConnector,
   type RelayConfig,
   type RelayConnectorHandle,
+  type RelayConnectorOptions,
 } from '../../src/server/relay-connector.js'
 
 const relayServers: RelayServerHandle[] = []
@@ -118,7 +119,7 @@ const createConnector = (config: RelayConfig) => {
 
 const createConnectorWithVoiceStreamHandler = (
   config: RelayConfig,
-  handler: Parameters<typeof createRelayConnector>[2]['voiceStreamHandler']
+  handler: NonNullable<RelayConnectorOptions['voiceStreamHandler']>
 ) => {
   const calls: Array<{ method: string }> = []
   const connector = createRelayConnector(
@@ -139,6 +140,35 @@ const createConnectorWithVoiceStreamHandler = (
       reconnectBaseDelayMs: 20,
       reconnectMaxDelayMs: 50,
       voiceStreamHandler: handler,
+    }
+  )
+  connectors.push(connector)
+  return { calls, connector }
+}
+
+const createConnectorWithWebRtcSignalHandler = (
+  config: RelayConfig,
+  handler: NonNullable<RelayConnectorOptions['webrtcSignalHandler']>
+) => {
+  const calls: Array<{ method: string }> = []
+  const connector = createRelayConnector(
+    config,
+    async (method) => {
+      calls.push({ method })
+      return { ok: true, method }
+    },
+    {
+      authenticateDevice: (token) => {
+        if (token !== 'device-token') throw new Error('bad token')
+        return {
+          capabilities: ['read_dashboard', 'send_prompt'],
+          id: 'device-1',
+        }
+      },
+      heartbeatIntervalMs: 25,
+      reconnectBaseDelayMs: 20,
+      reconnectMaxDelayMs: 50,
+      webrtcSignalHandler: handler,
     }
   )
   connectors.push(connector)
@@ -236,7 +266,10 @@ describe('relay connector', () => {
     const { calls, connector } = createConnector(configFor(relay))
     await waitFor(() => connector.status().mode === 'connected')
     const device = await connectDevice(relay)
-    const channel = await completeHandshake(device)
+    const channel = await completeHandshakeWithCapabilities(device, [
+      'read_dashboard',
+      'send_prompt',
+    ])
 
     device.send(
       JSON.stringify({
@@ -262,7 +295,7 @@ describe('relay connector', () => {
     })
     expect(calls).toEqual([
       {
-        capabilities: ['read_dashboard'],
+        capabilities: ['read_dashboard', 'send_prompt'],
         deviceId: 'device-1',
         method: 'runtime.status',
         params: { verbose: true },
@@ -275,7 +308,10 @@ describe('relay connector', () => {
     const { calls, connector } = createConnector(configFor(relay))
     await waitFor(() => connector.status().mode === 'connected')
     const device = await connectDevice(relay)
-    const channel = await completeHandshake(device)
+    const channel = await completeHandshakeWithCapabilities(device, [
+      'read_dashboard',
+      'send_prompt',
+    ])
 
     device.send(
       JSON.stringify({
@@ -323,7 +359,7 @@ describe('relay connector', () => {
     })
     expect(calls).toEqual([
       {
-        capabilities: ['read_dashboard'],
+        capabilities: ['read_dashboard', 'send_prompt'],
         deviceId: 'device-1',
         method: 'runtime.status',
         params: { after: 'voice_stream' },
@@ -344,7 +380,7 @@ describe('relay connector', () => {
           op: 'chunk',
           payload: 'aaaa',
           seq: 1,
-          stream_id: frame.stream_id,
+          stream_id: frame.stream_id ?? '',
           type: 'voice_stream',
         })
         context.send({
@@ -354,7 +390,7 @@ describe('relay connector', () => {
           op: 'chunk',
           payload: 'bbbb',
           seq: 2,
-          stream_id: frame.stream_id,
+          stream_id: frame.stream_id ?? '',
           type: 'voice_stream',
         })
         return true
@@ -362,7 +398,10 @@ describe('relay connector', () => {
     )
     await waitFor(() => connector.status().mode === 'connected')
     const device = await connectDevice(relay)
-    const channel = await completeHandshake(device)
+    const channel = await completeHandshakeWithCapabilities(device, [
+      'read_dashboard',
+      'send_prompt',
+    ])
 
     const encryptedPayloads: string[] = []
     const collectData = (data: WebSocket.RawData) => {
@@ -410,6 +449,109 @@ describe('relay connector', () => {
     expect(calls).toEqual([])
   })
 
+  it('rejects read-only webrtc_signal frames before invoking the handler', async () => {
+    const relay = await startRelay()
+    const seen: unknown[] = []
+    const { calls, connector } = createConnectorWithWebRtcSignalHandler(
+      configFor(relay),
+      (frame, context) => {
+        seen.push({ capabilities: context.capabilities, deviceId: context.deviceId, frame })
+        context.send({
+          call_id: frame.call_id,
+          kind: 'answer',
+          sdp: 'answer-sdp',
+          sdp_type: 'answer',
+          type: 'webrtc_signal',
+        })
+        return true
+      }
+    )
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshakeWithCapabilities(device, ['read_dashboard'])
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            call_id: 'call-readonly',
+            kind: 'offer',
+            sdp: 'offer-sdp',
+            sdp_type: 'offer',
+            type: 'webrtc_signal',
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    const response = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array())
+    expect(response).toMatchObject({
+      call_id: 'call-readonly',
+      kind: 'bye',
+      type: 'webrtc_signal',
+    })
+    expect(seen).toEqual([])
+    expect(calls).toEqual([])
+  })
+
+  it('routes encrypted webrtc_signal frames to the handler without dispatching JSON-RPC', async () => {
+    const relay = await startRelay()
+    const seen: unknown[] = []
+    const { calls, connector } = createConnectorWithWebRtcSignalHandler(
+      configFor(relay),
+      (frame, context) => {
+        seen.push({ capabilities: context.capabilities, deviceId: context.deviceId, frame })
+        context.send({
+          call_id: frame.call_id,
+          kind: 'answer',
+          sdp: 'answer-sdp',
+          sdp_type: 'answer',
+          type: 'webrtc_signal',
+        })
+        return true
+      }
+    )
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshakeWithCapabilities(device, [
+      'read_dashboard',
+      'send_prompt',
+    ])
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            call_id: 'call-1',
+            kind: 'offer',
+            sdp: 'offer-sdp',
+            sdp_type: 'offer',
+            type: 'webrtc_signal',
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    const answer = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array())
+    expect(answer).toMatchObject({
+      call_id: 'call-1',
+      kind: 'answer',
+      sdp: 'answer-sdp',
+      sdp_type: 'answer',
+      type: 'webrtc_signal',
+    })
+    expect(seen).toEqual([
+      expect.objectContaining({
+        capabilities: ['read_dashboard', 'send_prompt'],
+        deviceId: 'device-1',
+        frame: expect.objectContaining({ call_id: 'call-1', kind: 'offer', sdp: 'offer-sdp' }),
+      }),
+    ])
+    expect(calls).toEqual([])
+  })
+
   it('passes capabilities to voice_stream handlers so read-only devices can be rejected', async () => {
     const relay = await startRelay()
     const { calls, connector } = createConnectorWithVoiceStreamHandler(
@@ -420,8 +562,8 @@ describe('relay connector', () => {
           context.send({
             error: 'missing_mobile_capability: send_prompt',
             op: 'error',
-            seq: frame.seq,
-            stream_id: frame.stream_id,
+            seq: frame.seq ?? 0,
+            stream_id: frame.stream_id ?? '',
             type: 'voice_stream',
           })
           return true
@@ -433,7 +575,7 @@ describe('relay connector', () => {
           op: 'chunk',
           payload: 'audio',
           seq: 1,
-          stream_id: frame.stream_id,
+          stream_id: frame.stream_id ?? '',
           type: 'voice_stream',
         })
         return true

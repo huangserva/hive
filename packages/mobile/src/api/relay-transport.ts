@@ -18,6 +18,7 @@ import {
   type VoiceStreamLatencyOptions,
   type VoiceStreamLatencyResult,
 } from './voice-stream-protocol'
+import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-protocol'
 
 export interface RelayTransportConfig {
   capabilities: string[]
@@ -62,7 +63,9 @@ export interface RelayTransport {
     text: string,
     options?: { voice?: string }
   ): Promise<VoiceStreamAudioResult>
+  onWebRtcSignalFrame(cb: (frame: WebRtcSignalFrame) => void | Promise<void>): () => void
   sendVoiceStreamFrame(frame: VoiceStreamFrame): void
+  sendWebRtcSignalFrame(frame: WebRtcSignalFrame): void
   status(): RelayTransportStatus
 }
 
@@ -128,6 +131,7 @@ export const createRelayTransport = (
   const diagnosticsListeners = new Set<(event: RelayTransportDiagnosticEvent) => void>()
   const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
+  const webRtcSignalListeners = new Set<(frame: WebRtcSignalFrame) => void | Promise<void>>()
   const voiceStreamListeners = new Set<(frame: VoiceStreamFrame) => void>()
   const pending = new Map<
     string,
@@ -269,6 +273,10 @@ export const createRelayTransport = (
     }
     if (isVoiceStreamFrame(message)) {
       for (const listener of voiceStreamListeners) listener(message)
+      return
+    }
+    if (isWebRtcSignalFrame(message)) {
+      for (const listener of webRtcSignalListeners) listener(message)
       return
     }
     if (!message.id) return
@@ -468,6 +476,15 @@ export const createRelayTransport = (
     })
   }
 
+  const sendWebRtcSignalFrame = (frame: WebRtcSignalFrame) => {
+    if (!channel || state !== 'ready') throw new Error('Relay transport not ready')
+    sendFrame({
+      payload: channel.encrypt(encodeJson(frame)),
+      room: config.room_id,
+      type: 'data',
+    })
+  }
+
   const measureVoiceStreamLatency = (
     options: VoiceStreamLatencyOptions = {}
   ): Promise<VoiceStreamLatencyResult> => {
@@ -652,8 +669,13 @@ export const createRelayTransport = (
       voiceStreamListeners.add(cb)
       return () => voiceStreamListeners.delete(cb)
     },
+    onWebRtcSignalFrame(cb) {
+      webRtcSignalListeners.add(cb)
+      return () => webRtcSignalListeners.delete(cb)
+    },
     requestVoiceStreamSynthesis,
     sendVoiceStreamFrame,
+    sendWebRtcSignalFrame,
     status() {
       return state
     },

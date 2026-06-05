@@ -38,6 +38,7 @@ export type WebRtcRuntimeProbeResult =
 type WebRtcRuntimeProbeOptions = {
   hasNativeWebRtcModule?: () => Promise<boolean> | boolean
   loadWebRtc?: () => Promise<unknown>
+  runAudioSession?: <T>(session: () => Promise<T>) => Promise<T>
 }
 
 const WEBRTC_NATIVE_MODULE_NAME = 'WebRTCModule'
@@ -72,6 +73,7 @@ export const runWebRtcRuntimeProbe = async (
 ): Promise<WebRtcRuntimeProbeResult> => {
   const hasNativeWebRtcModule = options.hasNativeWebRtcModule ?? defaultHasNativeWebRtcModule
   const loadWebRtc = options.loadWebRtc ?? defaultLoadWebRtc
+  const runAudioSession = options.runAudioSession ?? ((session) => session())
   let stream: WebRtcStream | null = null
   let peerConnection: WebRtcPeerConnection | null = null
 
@@ -87,8 +89,16 @@ export const runWebRtcRuntimeProbe = async (
 
     const getUserMedia = runtime.mediaDevices.getUserMedia
     const PeerConnection = runtime.RTCPeerConnection
-    stream = await getUserMedia({ audio: true, video: false })
-    peerConnection = new PeerConnection()
+    const resources = await runAudioSession(async () => {
+      const nextStream = await getUserMedia({ audio: true, video: false })
+      const nextPeerConnection = new PeerConnection()
+      return {
+        peerConnection: nextPeerConnection,
+        stream: nextStream,
+      }
+    })
+    stream = resources.stream
+    peerConnection = resources.peerConnection
     return { ok: true }
   } catch (error) {
     return { ok: false, reason: describeError(error) }

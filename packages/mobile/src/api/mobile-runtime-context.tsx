@@ -19,6 +19,7 @@ import {
   type StoredRelayConfig,
 } from '../lib/relay-config-store'
 import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
+import { createWebRtcCaller } from '../lib/webrtc-caller'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -98,6 +99,9 @@ const OUTBOX_KEY = 'hippoteam.mobileOutbox'
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 type RuntimeClient = ReturnType<typeof createRuntimeClient>
 export type MobileVoiceSynthesisResult = { audio: string; format: string; mime: string }
+export type WebRtcConnectionProbeResult =
+  | { callId: string; ok: true }
+  | { ok: false; reason: string }
 
 interface MobileRuntimeContextValue {
   answerQuestion: (questionId: string, answer: string) => Promise<boolean>
@@ -140,6 +144,7 @@ interface MobileRuntimeContextValue {
   runtimeStatus: RuntimeStatus | null
   clearFailedOutbox: () => Promise<void>
   retryOutbox: () => Promise<void>
+  runWebRtcConnectionProbe: () => Promise<WebRtcConnectionProbeResult>
   selectWorkspace: (workspaceId: string) => Promise<void>
   selectedWorkspaceId: string | null
   sendPromptToOrchestrator: (text: string) => Promise<boolean>
@@ -1004,6 +1009,27 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     []
   )
 
+  const runWebRtcConnectionProbe = useCallback(async (): Promise<WebRtcConnectionProbeResult> => {
+    const transport = observedRelayTransportRef.current
+    if (!transport || transport.status() !== 'ready') {
+      return { ok: false, reason: 'Relay transport is not ready' }
+    }
+    setError(null)
+    try {
+      const session = await createWebRtcCaller({ transport }).start()
+      console.log('[WEBRTCDBG] connection_probe_started', { callId: session.callId })
+      await session.waitForConnected(15_000)
+      console.log('[WEBRTCDBG] connection_probe_connected', { callId: session.callId })
+      session.close()
+      return { callId: session.callId, ok: true }
+    } catch (probeError) {
+      const reason = probeError instanceof Error ? probeError.message : String(probeError)
+      console.warn('[WEBRTCDBG] connection_probe_failed', reason)
+      setError(reason)
+      return { ok: false, reason }
+    }
+  }, [])
+
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (
       text: string,
@@ -1477,6 +1503,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       runtimeStatus,
       clearFailedOutbox,
       retryOutbox,
+      runWebRtcConnectionProbe,
       selectWorkspace,
       selectedWorkspaceId,
       sendPromptToOrchestrator,
@@ -1520,6 +1547,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       clearFailedOutbox,
       reconnecting,
       retryOutbox,
+      runWebRtcConnectionProbe,
       relayConfig,
       refreshDashboard,
       restartWorker,

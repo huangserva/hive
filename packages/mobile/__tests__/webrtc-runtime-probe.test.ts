@@ -26,6 +26,31 @@ describe('WebRTC runtime probe', () => {
     expect(close).toHaveBeenCalled()
   })
 
+  test('runs WebRTC audio acquisition inside the provided interlock', async () => {
+    const order: string[] = []
+    const getUserMedia = vi.fn(async () => {
+      order.push('getUserMedia')
+      return { getTracks: () => [] }
+    })
+
+    const result = await runWebRtcRuntimeProbe({
+      hasNativeWebRtcModule: async () => true,
+      loadWebRtc: async () => ({
+        mediaDevices: { getUserMedia },
+        RTCPeerConnection: vi.fn(() => ({})),
+      }),
+      runAudioSession: async (session) => {
+        order.push('before')
+        const sessionResult = await session()
+        order.push('after')
+        return sessionResult
+      },
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(order).toEqual(['before', 'getUserMedia', 'after'])
+  })
+
   test('returns a structured failure when WebRTC API is unavailable', async () => {
     const result = await runWebRtcRuntimeProbe({
       hasNativeWebRtcModule: async () => true,

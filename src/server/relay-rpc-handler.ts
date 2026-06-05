@@ -75,8 +75,61 @@ type PendingUploadPath = {
 const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
 const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
 const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
+const DEFAULT_WEBRTC_ICE_SERVERS = [
+  { urls: 'stun:openrelay.metered.ca:80' },
+  {
+    credential: 'openrelayproject',
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+  },
+  {
+    credential: 'openrelayproject',
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+  },
+  {
+    credential: 'openrelayproject',
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+  },
+] as const
 
 const isGlmGatekeeperEnabled = () => process.env.HIVE_GLM_GATEKEEPER !== '0'
+
+export interface WebRtcIceServerConfig {
+  credential?: string
+  urls: string | string[]
+  username?: string
+}
+
+interface WebRtcIceConfigEnv {
+  HIVE_WEBRTC_ICE_SERVERS_JSON?: string | undefined
+}
+
+const isWebRtcIceServerConfig = (value: unknown): value is WebRtcIceServerConfig => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const server = value as { credential?: unknown; urls?: unknown; username?: unknown }
+  const urlsValid =
+    typeof server.urls === 'string' ||
+    (Array.isArray(server.urls) && server.urls.every((url) => typeof url === 'string'))
+  return (
+    urlsValid &&
+    (server.username === undefined || typeof server.username === 'string') &&
+    (server.credential === undefined || typeof server.credential === 'string')
+  )
+}
+
+export const resolveWebRtcIceServers = (
+  env: WebRtcIceConfigEnv = process.env as WebRtcIceConfigEnv
+): WebRtcIceServerConfig[] => {
+  const configured = env.HIVE_WEBRTC_ICE_SERVERS_JSON
+  if (!configured) return [...DEFAULT_WEBRTC_ICE_SERVERS]
+  const parsed = JSON.parse(configured) as unknown
+  if (!Array.isArray(parsed) || !parsed.every(isWebRtcIceServerConfig)) {
+    throw new Error('HIVE_WEBRTC_ICE_SERVERS_JSON must be a JSON array of ICE servers')
+  }
+  return parsed
+}
 
 const asParams = (value: unknown): RelayRpcParams =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as RelayRpcParams) : {}
@@ -465,6 +518,11 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       )
       if (!result) return { error: 'synthesis_failed' }
       return { audio: result.audio.toString('base64'), format: result.format, mime: result.mime }
+    }
+
+    if (method === 'voice.webrtc.iceConfig') {
+      requireCapability(deps.store, deviceId, capabilities, 'send_prompt')
+      return { iceServers: resolveWebRtcIceServers() }
     }
 
     throw new Error(`Unknown relay RPC method: ${method}`)
