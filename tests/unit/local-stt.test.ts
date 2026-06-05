@@ -152,6 +152,202 @@ writeFileSync(outputBase + '.txt', 'whisper cpp transcript')
     })
   })
 
+  test('prefers Paraformer when sherpa-onnx model paths are configured', async () => {
+    const binDir = setupDir('hive-stt-bin-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.m4a')
+    const model = join(modelDir, 'model.int8.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
+const args = process.argv.slice(2)
+const input = args[args.indexOf('-i') + 1]
+const output = args.at(-1)
+if (!input.endsWith('voice.m4a')) process.exit(5)
+if (args[args.indexOf('-ar') + 1] !== '16000') process.exit(6)
+if (args[args.indexOf('-ac') + 1] !== '1') process.exit(7)
+if (args[args.indexOf('-c:a') + 1] !== 'pcm_s16le') process.exit(8)
+if (!output || basename(output) !== 'voice.wav') process.exit(9)
+writeFileSync(output, 'converted wav bytes')
+`)
+    )
+    writeExecutable(binDir, 'whisper', nodeScript("throw new Error('whisper should not run')\n"))
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => ({
+        OfflineRecognizer: class {
+          constructor(config: unknown) {
+            expect(config).toMatchObject({
+              modelConfig: {
+                paraformer: {
+                  model,
+                },
+                tokens,
+              },
+            })
+          }
+
+          createStream() {
+            return {
+              acceptWaveFile: (path: string) => {
+                expect(path.endsWith('voice.wav')).toBe(true)
+              },
+            }
+          }
+
+          decode(stream: unknown) {
+            expect(stream).toBeTruthy()
+          }
+
+          getResult() {
+            return { text: '让关羽汇报进度' }
+          }
+        },
+      }),
+      tempRoot,
+    })
+
+    await expect(provider.detect()).resolves.toMatchObject({ provider: 'paraformer' })
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报进度',
+    })
+  })
+
+  test('discovers Paraformer models from the default hive model directory', async () => {
+    const homeDir = setupDir('hive-stt-home-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = join(homeDir, '.config', 'hive', 'paraformer-models')
+    mkdirSync(modelDir, { recursive: true })
+    writeFileSync(join(modelDir, 'model.int8.onnx'), 'model')
+    writeFileSync(join(modelDir, 'tokens.txt'), 'tokens')
+
+    const provider = createLocalSttProvider({
+      env: { HOME: homeDir, PATH: setupDir('hive-stt-bin-') },
+      loadSherpaOnnx: async () => ({
+        OfflineRecognizer: class {
+          createStream() {
+            return { acceptWaveFile: () => {} }
+          }
+          decode() {}
+          getResult() {
+            return { text: 'ok' }
+          }
+        },
+      }),
+      tempRoot,
+    })
+
+    await expect(provider.detect()).resolves.toMatchObject({
+      model: join(modelDir, 'model.int8.onnx'),
+      provider: 'paraformer',
+      tokens: join(modelDir, 'tokens.txt'),
+    })
+  })
+
+  test('falls back to whisper when Paraformer recognition fails', async () => {
+    const binDir = setupDir('hive-stt-bin-')
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.ogg')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const logger = { warn: vi.fn() }
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'whisper',
+      nodeScript(`
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join, parse } from 'node:path'
+const args = process.argv.slice(2)
+const outputDir = args[args.indexOf('--output_dir') + 1]
+const mediaPath = args.at(-1)
+mkdirSync(outputDir, { recursive: true })
+writeFileSync(join(outputDir, parse(mediaPath).name + '.txt'), 'fallback transcript')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => {
+        throw new Error('sherpa unavailable')
+      },
+      logger,
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'whisper',
+      text: 'fallback transcript',
+    })
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('local STT failed provider=paraformer'),
+      expect.any(Error)
+    )
+  })
+
+  test('keeps no-speech sanitization on Paraformer output as defense in depth', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const binDir = setupDir('hive-stt-bin-')
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => ({
+        OfflineRecognizer: class {
+          createStream() {
+            return { acceptWaveFile: () => {} }
+          }
+          decode() {}
+          getResult() {
+            return { text: '团队成员关羽马超赵云钟馗吕布典韦张飞周瑜' }
+          }
+        },
+      }),
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
+  })
+
   test('discovers a whisper.cpp model from the default hive model directory', async () => {
     const binDir = setupDir('hive-stt-bin-')
     const homeDir = setupDir('hive-stt-home-')

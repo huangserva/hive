@@ -17,12 +17,13 @@ import type { HiveLogger } from './logger.js'
 
 const execFileP = promisify(execFile)
 
-export type LocalSttProviderName = 'whisper-cli' | 'whisper'
+export type LocalSttProviderName = 'paraformer' | 'whisper-cli' | 'whisper'
 
 export interface LocalSttCli {
   command: string
   model?: string
   provider: LocalSttProviderName
+  tokens?: string
 }
 
 export interface LocalSttResult {
@@ -38,11 +39,37 @@ export interface LocalSttProvider {
 interface LocalSttProviderOptions {
   env?: NodeJS.ProcessEnv
   logger?: Pick<HiveLogger, 'warn'>
+  loadSherpaOnnx?: () => Promise<SherpaOnnxRuntime>
   tempRoot?: string
   timeoutMs?: number
 }
 
+interface SherpaWaveData {
+  sampleRate: number
+  samples: Float32Array
+}
+
+interface SherpaOfflineStream {
+  acceptWaveFile?: (filePath: string) => void
+  acceptWaveform?: (sampleRate: number, samples: Float32Array) => void
+  free?: () => void
+}
+
+interface SherpaOfflineRecognizer {
+  createStream(): SherpaOfflineStream
+  decode(stream: SherpaOfflineStream): void
+  free?: () => void
+  getResult(stream?: SherpaOfflineStream): { text?: string } | string | null
+}
+
+interface SherpaOnnxRuntime {
+  createOfflineRecognizer?: (config: unknown) => SherpaOfflineRecognizer
+  OfflineRecognizer?: new (config: unknown) => SherpaOfflineRecognizer
+  readWave?: (filePath: string) => SherpaWaveData | null
+}
+
 const DEFAULT_TIMEOUT_MS = 60_000
+const DEFAULT_PARAFORMER_MODEL_DIR_NAME = 'paraformer-models'
 const DEFAULT_WHISPER_MODEL = 'base'
 const DEFAULT_STT_LANGUAGE = 'zh'
 const DEFAULT_STT_PROMPT =
@@ -117,7 +144,49 @@ const findExecutableAny = (names: string[], env: NodeJS.ProcessEnv): string | nu
   return null
 }
 
-const getHomeDir = (env: NodeJS.ProcessEnv) => env.HOME ?? homedir()
+const getHomeDir = (env: NodeJS.ProcessEnv) => env.HOME ?? (env === process.env ? homedir() : null)
+
+const defaultLoadSherpaOnnx = async (): Promise<SherpaOnnxRuntime> => {
+  const moduleName = 'sherpa-onnx'
+  return (await import(moduleName)) as SherpaOnnxRuntime
+}
+
+const resolveParaformerModel = (
+  env: NodeJS.ProcessEnv,
+  logger?: Pick<HiveLogger, 'warn'>
+): { model: string; tokens: string } | null => {
+  const configuredModel = env.HIVE_STT_PARAFORMER_MODEL ?? env.PARAFORMER_MODEL
+  const configuredTokens = env.HIVE_STT_PARAFORMER_TOKENS ?? env.PARAFORMER_TOKENS
+  if (configuredModel && configuredTokens) {
+    const model = resolve(configuredModel)
+    const tokens = resolve(configuredTokens)
+    return existsSync(model) && existsSync(tokens) ? { model, tokens } : null
+  }
+
+  const homeDir = getHomeDir(env)
+  const modelDir = env.HIVE_STT_PARAFORMER_MODEL_DIR
+    ? resolve(env.HIVE_STT_PARAFORMER_MODEL_DIR)
+    : homeDir
+      ? join(homeDir, '.config', 'hive', DEFAULT_PARAFORMER_MODEL_DIR_NAME)
+      : null
+  if (!modelDir) return null
+  if (!existsSync(modelDir)) return null
+
+  let entries: string[]
+  try {
+    entries = readdirSync(modelDir).sort((a, b) => a.localeCompare(b))
+  } catch (error) {
+    logger?.warn(`failed to scan Paraformer model directory: ${modelDir}`, error)
+    return null
+  }
+
+  const tokens = join(modelDir, configuredTokens ? basename(configuredTokens) : 'tokens.txt')
+  const modelFile =
+    entries.find((name) => name.endsWith('.int8.onnx')) ??
+    entries.find((name) => name.endsWith('.onnx'))
+  if (!modelFile || !existsSync(tokens)) return null
+  return { model: join(modelDir, modelFile), tokens }
+}
 
 const resolveWhisperCppModel = (
   env: NodeJS.ProcessEnv,
@@ -128,7 +197,9 @@ const resolveWhisperCppModel = (
     const absolute = resolve(model)
     return existsSync(absolute) ? absolute : null
   }
-  const modelDir = join(getHomeDir(env), '.config', 'hive', 'whisper-models')
+  const homeDir = getHomeDir(env)
+  if (!homeDir) return null
+  const modelDir = join(homeDir, '.config', 'hive', 'whisper-models')
   if (!existsSync(modelDir)) return null
   let modelFiles: string[]
   try {
@@ -238,6 +309,16 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
 
   const detectCandidates = (): LocalSttCli[] => {
     const candidates: LocalSttCli[] = []
+    const paraformerModel = resolveParaformerModel(env, options.logger)
+    if (paraformerModel) {
+      candidates.push({
+        command: 'sherpa-onnx',
+        model: paraformerModel.model,
+        provider: 'paraformer',
+        tokens: paraformerModel.tokens,
+      })
+    }
+
     const whisperCli = findExecutableAny(['whisper-cli', 'whisper-cpp', 'main'], env)
     const whisperCppModel = resolveWhisperCppModel(env, options.logger)
     if (whisperCli && whisperCppModel) {
@@ -256,20 +337,83 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
     return candidates
   }
 
-  const runWhisperCli = async (cli: LocalSttCli, audioPath: string): Promise<string | null> => {
-    if (!cli.model) return null
+  const createParaformerConfig = (cli: LocalSttCli) => ({
+    decodingMethod: env.HIVE_STT_PARAFORMER_DECODING_METHOD ?? 'greedy_search',
+    featConfig: {
+      featureDim: 80,
+      sampleRate: 16000,
+    },
+    modelConfig: {
+      debug: false,
+      numThreads: Number.parseInt(env.HIVE_STT_PARAFORMER_NUM_THREADS ?? '2', 10),
+      paraformer: {
+        model: cli.model,
+      },
+      provider: env.HIVE_STT_PARAFORMER_PROVIDER ?? 'cpu',
+      tokens: cli.tokens,
+    },
+  })
+
+  const convertAudioTo16kWav = async (audioPath: string, outputDir: string) => {
     const ffmpeg = findExecutable('ffmpeg', env)
     if (!ffmpeg) {
-      throw new Error('ffmpeg is required to convert audio for whisper.cpp')
+      throw new Error('ffmpeg is required to convert audio for local STT')
     }
+    const wavPath = join(outputDir, `${parse(audioPath).name}.wav`)
+    await execFileP(
+      ffmpeg,
+      ['-i', audioPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', wavPath],
+      { maxBuffer: 5 * 1024 * 1024, timeout: timeoutMs }
+    )
+    return wavPath
+  }
+
+  const runParaformer = async (cli: LocalSttCli, audioPath: string): Promise<string | null> => {
+    if (!cli.model || !cli.tokens) return null
     const outputDir = mkdtempSync(join(tempRoot, 'hive-local-stt-'))
     try {
-      const wavPath = join(outputDir, `${parse(audioPath).name}.wav`)
-      await execFileP(
-        ffmpeg,
-        ['-i', audioPath, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', '-y', wavPath],
-        { maxBuffer: 5 * 1024 * 1024, timeout: timeoutMs }
-      )
+      const wavPath = await convertAudioTo16kWav(audioPath, outputDir)
+      const runtime = await (options.loadSherpaOnnx ?? defaultLoadSherpaOnnx)()
+      const recognizer =
+        runtime.createOfflineRecognizer?.(createParaformerConfig(cli)) ??
+        (runtime.OfflineRecognizer
+          ? new runtime.OfflineRecognizer(createParaformerConfig(cli))
+          : null)
+      if (!recognizer) {
+        throw new Error('sherpa-onnx offline recognizer is unavailable')
+      }
+
+      const stream = recognizer.createStream()
+      try {
+        if (stream.acceptWaveFile) {
+          stream.acceptWaveFile(wavPath)
+        } else {
+          const wave = runtime.readWave?.(wavPath)
+          if (!wave) throw new Error('sherpa-onnx readWave is unavailable')
+          if (!stream.acceptWaveform) {
+            throw new Error('sherpa-onnx offline stream cannot accept waveform')
+          }
+          stream.acceptWaveform(wave.sampleRate, wave.samples)
+        }
+
+        recognizer.decode(stream)
+        const result = recognizer.getResult(stream)
+        const text = typeof result === 'string' ? result : result?.text
+        return text?.trim() ? text.trim() : null
+      } finally {
+        stream.free?.()
+        recognizer.free?.()
+      }
+    } finally {
+      rmSync(outputDir, { force: true, recursive: true })
+    }
+  }
+
+  const runWhisperCli = async (cli: LocalSttCli, audioPath: string): Promise<string | null> => {
+    if (!cli.model) return null
+    const outputDir = mkdtempSync(join(tempRoot, 'hive-local-stt-'))
+    try {
+      const wavPath = await convertAudioTo16kWav(audioPath, outputDir)
       const outputBase = join(outputDir, parse(wavPath).name)
       const { stdout } = await execFileP(
         cli.command,
@@ -338,9 +482,11 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
       for (const cli of detectCandidates()) {
         try {
           const text =
-            cli.provider === 'whisper-cli'
-              ? await runWhisperCli(cli, audioPath)
-              : await runWhisper(cli, audioPath)
+            cli.provider === 'paraformer'
+              ? await runParaformer(cli, audioPath)
+              : cli.provider === 'whisper-cli'
+                ? await runWhisperCli(cli, audioPath)
+                : await runWhisper(cli, audioPath)
           if (text) {
             if (isNoSpeechTranscript(text)) return null
             return { provider: cli.provider, text }
