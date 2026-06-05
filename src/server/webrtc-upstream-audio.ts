@@ -173,7 +173,7 @@ export const createWebRtcUpstreamAudioSink = ({
   tempRoot = tmpdir(),
   vad,
 }: WebRtcUpstreamAudioSinkOptions): WebRtcRemoteAudioSink => ({
-  async start({ callId, track, workspaceId }): Promise<WebRtcRemoteAudioSession> {
+  async start({ callId, onSpeechStart, track, workspaceId }): Promise<WebRtcRemoteAudioSession> {
     const tempDir = mkdtempSync(join(tempRoot, 'hive-webrtc-upstream-'))
     const AudioSink = await loadAudioSink()
     const sink = new AudioSink(track)
@@ -187,7 +187,10 @@ export const createWebRtcUpstreamAudioSink = ({
     let rmsMin = Number.POSITIVE_INFINITY
     let rmsMax = 0
     let processingQueue = Promise.resolve()
-    const utteranceVad = createWebRtcUtteranceVad(vad)
+    const utteranceVad = createWebRtcUtteranceVad({
+      ...vad,
+      ...(onSpeechStart ? { onSpeechStart } : {}),
+    })
     const processUtterance = (utterance: WebRtcVadUtterance) => {
       utteranceIndex += 1
       const currentUtteranceIndex = utteranceIndex

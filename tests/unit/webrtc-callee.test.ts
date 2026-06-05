@@ -328,6 +328,7 @@ describe('WebRTC callee', () => {
     expect(startedInputs).toEqual([
       {
         callId: 'call-audio',
+        onSpeechStart: expect.any(Function),
         receiver: { id: 'receiver-1' },
         streams: [audioStream],
         track: audioTrack,
@@ -339,6 +340,60 @@ describe('WebRTC callee', () => {
     )
     expect(closedSessions).toEqual(['call-audio'])
     expect(peers[0]?.closed).toBe(true)
+  })
+
+  test('wires upstream speech-start to interrupt the downlink session', async () => {
+    const peers: FakePeerConnection[] = []
+    const interrupts: string[] = []
+    let onSpeechStart: (() => void) | undefined
+    const localTrack = { kind: 'audio' }
+    const callee = createWebRtcCallee({
+      audioSink: {
+        start: (input) => {
+          onSpeechStart = input.onSpeechStart
+          return { close: () => {} }
+        },
+      },
+      downlinkAudio: {
+        startCall: async () => ({
+          close: () => {},
+          interrupt: () => {
+            interrupts.push('interrupt')
+          },
+          track: localTrack,
+        }),
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-barge',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      { send: () => {} }
+    )
+    peers[0]?.ontrack?.({
+      receiver: { id: 'receiver-1' },
+      streams: [],
+      track: { kind: 'audio' },
+    })
+
+    onSpeechStart?.()
+
+    expect(interrupts).toEqual(['interrupt'])
   })
 
   test('closes and sends bye when audio sink start throws synchronously', async () => {

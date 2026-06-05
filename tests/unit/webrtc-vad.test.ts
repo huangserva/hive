@@ -109,6 +109,34 @@ describe('WebRTC utterance VAD', () => {
     expect(utterance?.peakRms).toBeGreaterThan(0.013)
   })
 
+  test('fires speech-start once after short confirmation and again after silence', () => {
+    const speechStarts: number[] = []
+    const vad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      onSpeechStart: () => {
+        speechStarts.push(speechStarts.length + 1)
+      },
+      silenceMs: 30,
+      speechRmsThreshold: 0.006,
+      speechStartConfirmationFrames: 2,
+    })
+
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    expect(speechStarts).toEqual([])
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    expect(speechStarts).toEqual([1])
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    expect(speechStarts).toEqual([1])
+
+    for (let index = 0; index < 3; index += 1) {
+      vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(0), sampleRate: 16_000 })
+    }
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    expect(speechStarts).toEqual([1])
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    expect(speechStarts).toEqual([1, 2])
+  })
+
   test('does not emit short noise bursts as utterances', () => {
     const vad = createWebRtcUtteranceVad({
       minSpeechMs: 30,

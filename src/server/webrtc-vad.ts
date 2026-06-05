@@ -1,6 +1,8 @@
 export interface WebRtcUtteranceVadConfig {
   minSpeechMs: number
+  onSpeechStart?: () => void
   silenceMs: number
+  speechStartConfirmationFrames: number
   speechRmsThreshold: number
 }
 
@@ -23,6 +25,7 @@ export interface WebRtcVadUtterance {
 export const DEFAULT_WEBRTC_UTTERANCE_VAD_CONFIG: WebRtcUtteranceVadConfig = {
   minSpeechMs: 250,
   silenceMs: 900,
+  speechStartConfirmationFrames: 3,
   speechRmsThreshold: 0.006,
 }
 
@@ -59,6 +62,8 @@ export const createWebRtcUtteranceVad = (
   let silenceMs = 0
   let rmsWeightedTotal = 0
   let peakRms = 0
+  let consecutiveSpeechFrames = 0
+  let speechStartFired = false
 
   const reset = () => {
     activeFrames = []
@@ -66,6 +71,8 @@ export const createWebRtcUtteranceVad = (
     silenceMs = 0
     rmsWeightedTotal = 0
     peakRms = 0
+    consecutiveSpeechFrames = 0
+    speechStartFired = false
   }
 
   const emit = (): WebRtcVadUtterance | null => {
@@ -95,6 +102,14 @@ export const createWebRtcUtteranceVad = (
       const isSpeech = rms >= resolved.speechRmsThreshold
 
       if (isSpeech) {
+        consecutiveSpeechFrames += 1
+        if (
+          !speechStartFired &&
+          consecutiveSpeechFrames >= resolved.speechStartConfirmationFrames
+        ) {
+          speechStartFired = true
+          resolved.onSpeechStart?.()
+        }
         if (activeFrames.length <= 0) {
           activeBitsPerSample = frame.bitsPerSample
           activeChannelCount = frame.channelCount
@@ -108,6 +123,7 @@ export const createWebRtcUtteranceVad = (
         return null
       }
 
+      consecutiveSpeechFrames = 0
       if (activeFrames.length <= 0) return null
       silenceMs += durationMs
       if (silenceMs >= resolved.silenceMs) return emit()

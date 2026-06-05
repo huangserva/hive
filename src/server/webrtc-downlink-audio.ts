@@ -197,6 +197,8 @@ export const createWebRtcDownlinkAudio = ({
     )
     let queue = Promise.resolve()
     let closed = false
+    let playbackGeneration = 0
+    let pendingReplyCount = 0
     let pendingFrameTimer: ReturnType<typeof setTimeout> | null = null
     let resolvePendingFrameDelay: (() => void) | null = null
 
@@ -210,8 +212,9 @@ export const createWebRtcDownlinkAudio = ({
       resolve?.()
     }
 
-    const waitForNextFrame = () => {
+    const waitForDelay = (delayMs: number) => {
       if (closed) return Promise.resolve()
+      if (delayMs <= 0) return Promise.resolve()
       return new Promise<void>((resolve) => {
         resolvePendingFrameDelay = () => {
           pendingFrameTimer = null
@@ -221,8 +224,19 @@ export const createWebRtcDownlinkAudio = ({
           pendingFrameTimer = null
           resolvePendingFrameDelay = null
           resolve()
-        }, WEBRTC_DOWNLINK_FRAME_INTERVAL_MS)
+        }, delayMs)
       })
+    }
+
+    const interrupt = () => {
+      if (closed) return
+      const droppedPending = pendingReplyCount
+      playbackGeneration += 1
+      clearPendingFrameDelay()
+      logDiagnostic(
+        logger,
+        `downlink interrupted: call_id=${callId} dropped_pending=${droppedPending}`
+      )
     }
 
     const unsubscribe = store.registerMobileChatListener((messageWorkspaceId, message) => {
@@ -230,15 +244,24 @@ export const createWebRtcDownlinkAudio = ({
       if (message.direction !== 'outbound' || message.message_type !== 'orch_reply') return
       const text = parseReplyText(message)
       if (!text) return
+      const queuedGeneration = playbackGeneration
+      pendingReplyCount += 1
       queue = queue.then(async () => {
+        let countedAsPending = true
+        const markStarted = () => {
+          if (!countedAsPending) return
+          pendingReplyCount = Math.max(0, pendingReplyCount - 1)
+          countedAsPending = false
+        }
         try {
-          if (closed) return
+          markStarted()
+          if (closed || queuedGeneration !== playbackGeneration) return
           const sanitizedText = sanitizeForSpeech(text)
           if (!sanitizedText) return
           const result = await createTtsProvider().synthesize(sanitizedText, {
             voice: WEBRTC_DOWNLINK_TTS_VOICE,
           })
-          if (!result) return
+          if (!result || closed || queuedGeneration !== playbackGeneration) return
           const frames = await (
             decodeAudioToPcmFrames ??
             ((audio, metadata) => decodeAudioToPcm48kFrames({ audio, env, metadata, tempRoot }))
@@ -246,14 +269,23 @@ export const createWebRtcDownlinkAudio = ({
             format: result.format,
             mime: result.mime,
           })
+          if (closed || queuedGeneration !== playbackGeneration) return
           logDiagnostic(
             logger,
             `downlink audio pushing frames: call_id=${callId} message_id=${message.id} frames=${frames.length}`
           )
           let pushed = 0
-          for (let index = 0; index < frames.length && !closed; index += 1) {
+          const baseFrameTs = Date.now()
+          for (
+            let index = 0;
+            index < frames.length && !closed && queuedGeneration === playbackGeneration;
+            index += 1
+          ) {
             const frame = frames[index]
             if (!frame) continue
+            const targetFrameTs = baseFrameTs + index * WEBRTC_DOWNLINK_FRAME_INTERVAL_MS
+            await waitForDelay(targetFrameTs - Date.now())
+            if (closed || queuedGeneration !== playbackGeneration) break
             await trackSession.onData(frame)
             pushed += 1
             if (pushed === 1 || pushed % 50 === 0) {
@@ -262,13 +294,13 @@ export const createWebRtcDownlinkAudio = ({
                 `downlink audio pushed frame: call_id=${callId} message_id=${message.id} pushed=${pushed} sample_rate=${frame.sampleRate} frames=${frame.numberOfFrames} bits=${frame.bitsPerSample} channels=${frame.channelCount}`
               )
             }
-            if (index < frames.length - 1) await waitForNextFrame()
           }
           logDiagnostic(
             logger,
             `downlink audio pushed frames: call_id=${callId} message_id=${message.id} pushed=${pushed}`
           )
         } catch (error) {
+          markStarted()
           logger?.warn?.('failed to send WebRTC downlink audio', error)
         }
       })
@@ -290,6 +322,7 @@ export const createWebRtcDownlinkAudio = ({
       async flush() {
         await queue
       },
+      interrupt,
       track: trackSession.track,
     }
   },

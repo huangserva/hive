@@ -50,6 +50,7 @@ export interface WebRtcLocalAudioTrack {
 
 export interface WebRtcDownlinkAudioSession {
   close(): Promise<void> | void
+  interrupt?: () => void
   track: WebRtcLocalAudioTrack
 }
 
@@ -72,6 +73,7 @@ export interface WebRtcRemoteAudioSink {
   start(input: {
     callId: string
     receiver?: unknown
+    onSpeechStart?: () => void
     streams?: unknown[] | undefined
     track: NonNullable<WebRtcTrackEvent['track']>
     workspaceId: string
@@ -285,6 +287,9 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         try {
           startedSession = options.audioSink.start({
             callId: frame.call_id,
+            onSpeechStart: () => {
+              call.downlinkSession?.interrupt?.()
+            },
             receiver: event.receiver,
             streams: event.streams,
             track,
