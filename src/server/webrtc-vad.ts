@@ -12,8 +12,10 @@ export interface WebRtcPcmVadFrame {
 }
 
 export interface WebRtcVadUtterance {
+  averageRms: number
   bitsPerSample: number
   channelCount: number
+  peakRms: number
   pcm: Buffer
   sampleRate: number
 }
@@ -21,10 +23,10 @@ export interface WebRtcVadUtterance {
 export const DEFAULT_WEBRTC_UTTERANCE_VAD_CONFIG: WebRtcUtteranceVadConfig = {
   minSpeechMs: 250,
   silenceMs: 900,
-  speechRmsThreshold: 0.018,
+  speechRmsThreshold: 0.006,
 }
 
-const calculateInt16Rms = (pcm: Buffer) => {
+export const calculateWebRtcInt16Rms = (pcm: Buffer) => {
   if (pcm.byteLength < 2) return 0
   let sumSquares = 0
   const samples = Math.floor(pcm.byteLength / 2)
@@ -55,11 +57,15 @@ export const createWebRtcUtteranceVad = (
   let activeSampleRate = 48_000
   let speechMs = 0
   let silenceMs = 0
+  let rmsWeightedTotal = 0
+  let peakRms = 0
 
   const reset = () => {
     activeFrames = []
     speechMs = 0
     silenceMs = 0
+    rmsWeightedTotal = 0
+    peakRms = 0
   }
 
   const emit = (): WebRtcVadUtterance | null => {
@@ -69,8 +75,10 @@ export const createWebRtcUtteranceVad = (
       return null
     }
     const utterance = {
+      averageRms: rmsWeightedTotal / speechMs,
       bitsPerSample: activeBitsPerSample,
       channelCount: activeChannelCount,
+      peakRms,
       pcm: Buffer.concat(activeFrames),
       sampleRate: activeSampleRate,
     }
@@ -83,7 +91,8 @@ export const createWebRtcUtteranceVad = (
     push: (frame) => {
       if (frame.bitsPerSample !== 16) return null
       const durationMs = frameDurationMs(frame)
-      const isSpeech = calculateInt16Rms(frame.pcm) >= resolved.speechRmsThreshold
+      const rms = calculateWebRtcInt16Rms(frame.pcm)
+      const isSpeech = rms >= resolved.speechRmsThreshold
 
       if (isSpeech) {
         if (activeFrames.length <= 0) {
@@ -93,6 +102,8 @@ export const createWebRtcUtteranceVad = (
         }
         activeFrames.push(frame.pcm)
         speechMs += durationMs
+        rmsWeightedTotal += rms * durationMs
+        peakRms = Math.max(peakRms, rms)
         silenceMs = 0
         return null
       }

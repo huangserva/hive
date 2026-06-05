@@ -52,6 +52,7 @@ type DecodeAudioToPcmFrames = (
 ) => Promise<WebRtcPcmAudioFrame[]>
 
 const WEBRTC_DOWNLINK_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
+const WEBRTC_DOWNLINK_FRAME_INTERVAL_MS = 10
 
 interface WebRtcDownlinkAudioOptions {
   createTtsProvider?: () => LocalTtsProvider
@@ -196,6 +197,34 @@ export const createWebRtcDownlinkAudio = ({
     )
     let queue = Promise.resolve()
     let closed = false
+    let pendingFrameTimer: ReturnType<typeof setTimeout> | null = null
+    let resolvePendingFrameDelay: (() => void) | null = null
+
+    const clearPendingFrameDelay = () => {
+      if (pendingFrameTimer) {
+        clearTimeout(pendingFrameTimer)
+        pendingFrameTimer = null
+      }
+      const resolve = resolvePendingFrameDelay
+      resolvePendingFrameDelay = null
+      resolve?.()
+    }
+
+    const waitForNextFrame = () => {
+      if (closed) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        resolvePendingFrameDelay = () => {
+          pendingFrameTimer = null
+          resolve()
+        }
+        pendingFrameTimer = setTimeout(() => {
+          pendingFrameTimer = null
+          resolvePendingFrameDelay = null
+          resolve()
+        }, WEBRTC_DOWNLINK_FRAME_INTERVAL_MS)
+      })
+    }
+
     const unsubscribe = store.registerMobileChatListener((messageWorkspaceId, message) => {
       if (closed || messageWorkspaceId !== workspaceId) return
       if (message.direction !== 'outbound' || message.message_type !== 'orch_reply') return
@@ -203,6 +232,7 @@ export const createWebRtcDownlinkAudio = ({
       if (!text) return
       queue = queue.then(async () => {
         try {
+          if (closed) return
           const sanitizedText = sanitizeForSpeech(text)
           if (!sanitizedText) return
           const result = await createTtsProvider().synthesize(sanitizedText, {
@@ -221,7 +251,9 @@ export const createWebRtcDownlinkAudio = ({
             `downlink audio pushing frames: call_id=${callId} message_id=${message.id} frames=${frames.length}`
           )
           let pushed = 0
-          for (const frame of frames) {
+          for (let index = 0; index < frames.length && !closed; index += 1) {
+            const frame = frames[index]
+            if (!frame) continue
             await trackSession.onData(frame)
             pushed += 1
             if (pushed === 1 || pushed % 50 === 0) {
@@ -230,6 +262,7 @@ export const createWebRtcDownlinkAudio = ({
                 `downlink audio pushed frame: call_id=${callId} message_id=${message.id} pushed=${pushed} sample_rate=${frame.sampleRate} frames=${frame.numberOfFrames} bits=${frame.bitsPerSample} channels=${frame.channelCount}`
               )
             }
+            if (index < frames.length - 1) await waitForNextFrame()
           }
           logDiagnostic(
             logger,
@@ -246,6 +279,7 @@ export const createWebRtcDownlinkAudio = ({
         if (closed) return
         closed = true
         unsubscribe()
+        clearPendingFrameDelay()
         try {
           await queue
         } finally {

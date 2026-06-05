@@ -12,6 +12,7 @@ import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
+  calculateWebRtcInt16Rms,
   createWebRtcUtteranceVad,
   type WebRtcUtteranceVadConfig,
   type WebRtcVadUtterance,
@@ -183,6 +184,8 @@ export const createWebRtcUpstreamAudioSink = ({
     let totalPcmFrames = 0
     let utteranceIndex = 0
     let closed = false
+    let rmsMin = Number.POSITIVE_INFINITY
+    let rmsMax = 0
     let processingQueue = Promise.resolve()
     const utteranceVad = createWebRtcUtteranceVad(vad)
     const processUtterance = (utterance: WebRtcVadUtterance) => {
@@ -200,7 +203,7 @@ export const createWebRtcUpstreamAudioSink = ({
           })
           logDiagnostic(
             logger,
-            `audioSink utterance ready: call_id=${callId} utterance=${currentUtteranceIndex} bytes=${utterance.pcm.byteLength} sample_rate=${utterance.sampleRate} bits=${utterance.bitsPerSample} channels=${utterance.channelCount}`
+            `audioSink utterance ready: call_id=${callId} utterance=${currentUtteranceIndex} bytes=${utterance.pcm.byteLength} sample_rate=${utterance.sampleRate} bits=${utterance.bitsPerSample} channels=${utterance.channelCount} rms_avg=${utterance.averageRms.toFixed(5)} rms_peak=${utterance.peakRms.toFixed(5)}`
           )
           try {
             const provider = createSttProvider()
@@ -242,6 +245,9 @@ export const createWebRtcUpstreamAudioSink = ({
         Math.floor(buffer.byteLength / Math.max(1, (bitsPerSample / 8) * channelCount))
       chunkCount += 1
       totalPcmFrames += pcmFrames
+      const currentRms = bitsPerSample === 16 ? calculateWebRtcInt16Rms(buffer) : 0
+      rmsMin = Math.min(rmsMin, currentRms)
+      rmsMax = Math.max(rmsMax, currentRms)
       const utterance = utteranceVad.push({
         bitsPerSample,
         channelCount,
@@ -252,13 +258,15 @@ export const createWebRtcUpstreamAudioSink = ({
       if (chunkCount === 1) {
         logDiagnostic(
           logger,
-          `audioSink first frame: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+          `audioSink first frame: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount} rms_current=${currentRms.toFixed(5)} rms_min=${rmsMin.toFixed(5)} rms_max=${rmsMax.toFixed(5)}`
         )
       } else if (chunkCount % 50 === 0) {
         logDiagnostic(
           logger,
-          `audioSink frames: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+          `audioSink frames: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount} rms_current=${currentRms.toFixed(5)} rms_min=${rmsMin.toFixed(5)} rms_max=${rmsMax.toFixed(5)}`
         )
+        rmsMin = Number.POSITIVE_INFINITY
+        rmsMax = 0
       }
     }
 

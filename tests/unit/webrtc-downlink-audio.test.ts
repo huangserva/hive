@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { MobileChatMessage } from '../../src/server/mobile-chat-store.js'
 import { createWebRtcDownlinkAudio } from '../../src/server/webrtc-downlink-audio.js'
@@ -12,7 +12,15 @@ const createMessage = (text: string): MobileChatMessage => ({
   workspace_id: 'workspace-1',
 })
 
+const flushMicrotasks = async () => {
+  for (let index = 0; index < 5; index += 1) await Promise.resolve()
+}
+
 describe('WebRTC downlink audio', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   test('synthesizes outbound orchestrator replies and pushes 48khz pcm frames to RTCAudioSource', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const stopped: string[] = []
@@ -161,5 +169,121 @@ describe('WebRTC downlink audio', () => {
     await session.flush()
 
     expect(pushedFrames).toEqual([])
+  })
+
+  test('paces PCM frames at the WebRTC 10ms audio cadence instead of bursting them', async () => {
+    vi.useFakeTimers()
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const pushedFrames: number[] = []
+    const createFrame = (value: number) => ({
+      bitsPerSample: 16,
+      channelCount: 1,
+      numberOfFrames: 480,
+      sampleRate: 48_000,
+      samples: new Int16Array([value]),
+    })
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: (frame) => {
+          pushedFrames.push(frame.samples[0] ?? 0)
+        },
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-paced',
+      workspaceId: 'workspace-1',
+    })
+    listener?.('workspace-1', createMessage('hello'))
+    const flush = session.flush()
+
+    await flushMicrotasks()
+    expect(pushedFrames).toEqual([1])
+    await vi.advanceTimersByTimeAsync(9)
+    expect(pushedFrames).toEqual([1])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(pushedFrames).toEqual([1, 2])
+    await vi.advanceTimersByTimeAsync(10)
+    await flush
+    expect(pushedFrames).toEqual([1, 2, 3])
+  })
+
+  test('stops the paced frame timer when the call closes', async () => {
+    vi.useFakeTimers()
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const pushedFrames: number[] = []
+    const stopped: string[] = []
+    const createFrame = (value: number) => ({
+      bitsPerSample: 16,
+      channelCount: 1,
+      numberOfFrames: 480,
+      sampleRate: 48_000,
+      samples: new Int16Array([value]),
+    })
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+      trackFactory: async () => ({
+        onData: (frame) => {
+          pushedFrames.push(frame.samples[0] ?? 0)
+        },
+        track: {
+          kind: 'audio',
+          stop: () => {
+            stopped.push('track')
+          },
+        },
+      }),
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-close',
+      workspaceId: 'workspace-1',
+    })
+    listener?.('workspace-1', createMessage('hello'))
+
+    await flushMicrotasks()
+    expect(pushedFrames).toEqual([1])
+    await session.close()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(pushedFrames).toEqual([1])
+    expect(stopped).toEqual(['track'])
+    expect(listener).toBeNull()
   })
 })

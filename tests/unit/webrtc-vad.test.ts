@@ -6,6 +6,35 @@ const frame = (value: number, samples = 160) =>
   Buffer.from(new Int16Array(samples).fill(value).buffer)
 
 describe('WebRTC utterance VAD', () => {
+  test('captures normal-volume speech below the old loud-only RMS threshold', () => {
+    const vad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      silenceMs: 40,
+    })
+    const utterances: Buffer[] = []
+
+    for (let index = 0; index < 3; index += 1) {
+      const result = vad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frame(220),
+        sampleRate: 16_000,
+      })
+      if (result) utterances.push(result.pcm)
+    }
+    for (let index = 0; index < 4; index += 1) {
+      const result = vad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frame(0),
+        sampleRate: 16_000,
+      })
+      if (result) utterances.push(result.pcm)
+    }
+
+    expect(utterances).toHaveLength(1)
+  })
+
   test('cuts utterances when speech is followed by sustained silence', () => {
     const vad = createWebRtcUtteranceVad({
       minSpeechMs: 20,
@@ -54,6 +83,30 @@ describe('WebRTC utterance VAD', () => {
     expect(utterances).toHaveLength(2)
     expect(utterances[0]?.byteLength).toBe(3 * 160 * 2)
     expect(utterances[1]?.byteLength).toBe(2 * 160 * 2)
+  })
+
+  test('reports utterance average and peak RMS for threshold tuning', () => {
+    const vad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      silenceMs: 40,
+      speechRmsThreshold: 0.005,
+    })
+
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(220), sampleRate: 16_000 })
+    vad.push({ bitsPerSample: 16, channelCount: 1, pcm: frame(440), sampleRate: 16_000 })
+    let utterance = null
+    for (let index = 0; index < 4; index += 1) {
+      utterance = vad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frame(0),
+        sampleRate: 16_000,
+      })
+    }
+
+    expect(utterance?.averageRms).toBeGreaterThan(0.009)
+    expect(utterance?.averageRms).toBeLessThan(0.011)
+    expect(utterance?.peakRms).toBeGreaterThan(0.013)
   })
 
   test('does not emit short noise bursts as utterances', () => {

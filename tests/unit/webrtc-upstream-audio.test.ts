@@ -148,11 +148,15 @@ describe('WebRTC upstream audio sink', () => {
       expect.arrayContaining([
         expect.stringContaining('audioSink started: call_id=call-1'),
         expect.stringContaining(
-          'audioSink first frame: call_id=call-1 chunks=1 pcm_frames=4000 sample_rate=16000 bits=16 channels=1'
+          'audioSink first frame: call_id=call-1 chunks=1 pcm_frames=4000 sample_rate=16000 bits=16 channels=1 rms_current='
         ),
         expect.stringContaining(
           'audioSink closing: call_id=call-1 chunks=1 pcm_frames=4000 sample_rate=16000 bits=16 channels=1'
         ),
+        expect.stringContaining(
+          'audioSink utterance ready: call_id=call-1 utterance=1 bytes=8000 sample_rate=16000 bits=16 channels=1 rms_avg='
+        ),
+        expect.stringContaining('rms_peak='),
       ])
     )
     expect(store.chat).toContainEqual({
