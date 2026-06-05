@@ -22,6 +22,8 @@ import {
 import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../lib/webrtc-caller'
 import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
+import type { WebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
+import { startWebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -261,6 +263,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const outboxFlushInFlightRef = useRef(false)
   const outboxLoadedRef = useRef(false)
   const webRtcTestCallSessionRef = useRef<WebRtcCallerSession | null>(null)
+  const webRtcTestCallAudioRouteRef = useRef<WebRtcInCallAudioRoute | null>(null)
   const webRtcRemoteAudioRefsRef = useRef<unknown[]>([])
   const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
   const relayDiagnosticsUnsubscribeRef = useRef<(() => void) | null>(null)
@@ -716,9 +719,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const disconnect = useCallback(async () => {
+    const audioRoute = webRtcTestCallAudioRouteRef.current
     webRtcTestCallSessionRef.current?.close()
     webRtcTestCallSessionRef.current = null
+    webRtcTestCallAudioRouteRef.current = null
     webRtcRemoteAudioRefsRef.current = []
+    void audioRoute?.stop().catch(() => {})
     setWebRtcTestCall({ status: 'idle' })
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
@@ -1071,9 +1077,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
 
   const stopWebRtcTestCall = useCallback(() => {
     const session = webRtcTestCallSessionRef.current
+    const audioRoute = webRtcTestCallAudioRouteRef.current
     webRtcTestCallSessionRef.current = null
+    webRtcTestCallAudioRouteRef.current = null
     webRtcRemoteAudioRefsRef.current = []
     session?.close()
+    void audioRoute?.stop().catch(() => {})
     setWebRtcTestCall({ status: 'idle' })
     console.log('[WEBRTCDBG] test_call_closed')
   }, [])
@@ -1094,21 +1103,28 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       return { ok: false, reason }
     }
 
+    const previousAudioRoute = webRtcTestCallAudioRouteRef.current
     webRtcTestCallSessionRef.current?.close()
     webRtcTestCallSessionRef.current = null
+    webRtcTestCallAudioRouteRef.current = null
     webRtcRemoteAudioRefsRef.current = []
+    void previousAudioRoute?.stop().catch(() => {})
     setWebRtcTestCall({ status: 'connecting' })
     setError(null)
 
     let session: WebRtcCallerSession | null = null
+    let audioRoute: WebRtcInCallAudioRoute | null = null
     try {
       session = await createWebRtcCaller({
         audio: true,
         forceRelay: resolveWebRtcForceRelayEnabled(getWebRtcRuntimeExtra()),
         onConnectionClosed: ({ callId, state }) => {
           if (webRtcTestCallSessionRef.current?.callId !== callId) return
+          const closedAudioRoute = webRtcTestCallAudioRouteRef.current
           webRtcTestCallSessionRef.current = null
+          webRtcTestCallAudioRouteRef.current = null
           webRtcRemoteAudioRefsRef.current = []
+          void closedAudioRoute?.stop().catch(() => {})
           const reason = `WebRTC connection ${state}`
           setWebRtcTestCall({ reason, status: 'error' })
           setError(reason)
@@ -1142,6 +1158,13 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         session.close()
         return { ok: false, reason: 'WebRTC test call was closed before connecting' }
       }
+      audioRoute = await startWebRtcInCallAudioRoute()
+      if (webRtcTestCallSessionRef.current !== session) {
+        session.close()
+        await audioRoute.stop().catch(() => {})
+        return { ok: false, reason: 'WebRTC test call was closed before routing audio' }
+      }
+      webRtcTestCallAudioRouteRef.current = audioRoute
       setWebRtcTestCall({
         callId: session.callId,
         remoteAudioTrackCount: webRtcRemoteAudioRefsRef.current.length,
@@ -1154,7 +1177,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       if (session && webRtcTestCallSessionRef.current === session) {
         webRtcTestCallSessionRef.current = null
       }
+      if (audioRoute && webRtcTestCallAudioRouteRef.current === audioRoute) {
+        webRtcTestCallAudioRouteRef.current = null
+      }
       session?.close()
+      await audioRoute?.stop().catch(() => {})
       webRtcRemoteAudioRefsRef.current = []
       setWebRtcTestCall({ reason, status: 'error' })
       setError(reason)
@@ -1508,6 +1535,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     () => () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
       webRtcTestCallSessionRef.current?.close()
+      void webRtcTestCallAudioRouteRef.current?.stop().catch(() => {})
+      webRtcTestCallAudioRouteRef.current = null
       relayDiagnosticsUnsubscribeRef.current?.()
       relayEventUnsubscribeRef.current?.()
       relayTransportRegistryRef.current.close()

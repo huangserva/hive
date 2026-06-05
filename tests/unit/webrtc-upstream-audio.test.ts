@@ -86,6 +86,7 @@ describe('WebRTC upstream audio sink', () => {
   test('captures remote PCM frames with RTCAudioSink, writes wav, and injects a voice prompt', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     const store = createStore()
+    const infoLogs: string[] = []
     const transcribedPaths: string[] = []
     const transcribedAudio: Buffer[] = []
     const sink = createWebRtcUpstreamAudioSink({
@@ -101,6 +102,10 @@ describe('WebRTC upstream audio sink', () => {
         generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
       },
       loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
       store,
       tempRoot: tmpdir(),
     })
@@ -129,6 +134,17 @@ describe('WebRTC upstream audio sink', () => {
     expect(wav.subarray(0, 4).toString('ascii')).toBe('RIFF')
     expect(wav.subarray(8, 12).toString('ascii')).toBe('WAVE')
     expect(FakeAudioSink.instances[0]?.stopped).toBe(true)
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('audioSink started: call_id=call-1'),
+        expect.stringContaining(
+          'audioSink first frame: call_id=call-1 chunks=1 pcm_frames=3 sample_rate=16000 bits=16 channels=1'
+        ),
+        expect.stringContaining(
+          'audioSink closing: call_id=call-1 chunks=1 pcm_frames=3 sample_rate=16000 bits=16 channels=1'
+        ),
+      ])
+    )
     expect(store.chat).toContainEqual({
       contentJson: JSON.stringify({ source: 'voice', text: '让关羽汇报进度' }),
       direction: 'inbound',

@@ -57,10 +57,15 @@ interface WebRtcDownlinkAudioOptions {
   createTtsProvider?: () => LocalTtsProvider
   decodeAudioToPcmFrames?: DecodeAudioToPcmFrames
   env?: NodeJS.ProcessEnv
-  logger?: Pick<HiveLogger, 'warn'>
+  logger?: Pick<HiveLogger, 'info' | 'warn'>
   store: WebRtcDownlinkStore
   tempRoot?: string
   trackFactory?: WebRtcTrackFactory
+}
+
+const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, message: string) => {
+  logger?.info?.(message)
+  process.stderr.write(`[webrtc-downlink-audio ${new Date().toISOString()}] ${message}\n`)
 }
 
 type WrtcAudioSource = {
@@ -183,8 +188,12 @@ export const createWebRtcDownlinkAudio = ({
     }
   >
 } => ({
-  async startCall({ workspaceId }) {
+  async startCall({ callId, workspaceId }) {
     const trackSession = await trackFactory()
+    logDiagnostic(
+      logger,
+      `audioSource created: call_id=${callId} track_kind=${trackSession.track.kind ?? 'unknown'}`
+    )
     let queue = Promise.resolve()
     let closed = false
     const unsubscribe = store.registerMobileChatListener((messageWorkspaceId, message) => {
@@ -207,9 +216,25 @@ export const createWebRtcDownlinkAudio = ({
             format: result.format,
             mime: result.mime,
           })
+          logDiagnostic(
+            logger,
+            `downlink audio pushing frames: call_id=${callId} message_id=${message.id} frames=${frames.length}`
+          )
+          let pushed = 0
           for (const frame of frames) {
             await trackSession.onData(frame)
+            pushed += 1
+            if (pushed === 1 || pushed % 50 === 0) {
+              logDiagnostic(
+                logger,
+                `downlink audio pushed frame: call_id=${callId} message_id=${message.id} pushed=${pushed} sample_rate=${frame.sampleRate} frames=${frame.numberOfFrames} bits=${frame.bitsPerSample} channels=${frame.channelCount}`
+              )
+            }
           }
+          logDiagnostic(
+            logger,
+            `downlink audio pushed frames: call_id=${callId} message_id=${message.id} pushed=${pushed}`
+          )
         } catch (error) {
           logger?.warn?.('failed to send WebRTC downlink audio', error)
         }

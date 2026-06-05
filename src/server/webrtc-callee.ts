@@ -272,7 +272,10 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       peer.oniceconnectionstatechange = handleConnectionStateChange
       peer.ontrack = (event) => {
         const track = event.track
-        log(`remote track received: call_id=${frame.call_id} kind=${track?.kind}`)
+        const streamCount = event.streams?.length ?? 0
+        log(
+          `remote track received: call_id=${frame.call_id} kind=${track?.kind} receiver=${event.receiver ? 'yes' : 'no'} streams=${streamCount}`
+        )
         if (!options.audioSink || track?.kind !== 'audio' || !frame.workspace_id) return
         let startedSession:
           | Promise<WebRtcRemoteAudioSession | null | undefined>
@@ -294,6 +297,9 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         }
         if (startedSession && typeof (startedSession as Promise<unknown>).then !== 'function') {
           const audioSession = startedSession as WebRtcRemoteAudioSession
+          log(
+            `audio sink started: call_id=${frame.call_id} track_kind=${track.kind} receiver=${event.receiver ? 'yes' : 'no'} streams=${streamCount}`
+          )
           if (call.closed) {
             void Promise.resolve(audioSession.close()).catch(() => {})
           } else {
@@ -304,6 +310,9 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         void Promise.resolve(startedSession)
           .then((audioSession) => {
             if (!audioSession) return
+            log(
+              `audio sink started: call_id=${frame.call_id} track_kind=${track.kind} receiver=${event.receiver ? 'yes' : 'no'} streams=${streamCount}`
+            )
             if (call.closed) {
               void Promise.resolve(audioSession.close()).catch(() => {})
               return

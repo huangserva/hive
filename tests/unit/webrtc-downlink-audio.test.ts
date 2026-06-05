@@ -16,6 +16,7 @@ describe('WebRTC downlink audio', () => {
   test('synthesizes outbound orchestrator replies and pushes 48khz pcm frames to RTCAudioSource', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const stopped: string[] = []
+    const infoLogs: string[] = []
     const pushedFrames: Array<{
       bitsPerSample: number
       channelCount: number
@@ -49,6 +50,10 @@ describe('WebRTC downlink audio', () => {
           },
         ]
       },
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -79,6 +84,17 @@ describe('WebRTC downlink audio', () => {
     await session.flush()
 
     expect(pushedFrames).toHaveLength(1)
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('audioSource created: call_id=call-1'),
+        expect.stringContaining(
+          'downlink audio pushing frames: call_id=call-1 message_id=message-1 frames=1'
+        ),
+        expect.stringContaining(
+          'downlink audio pushed frames: call_id=call-1 message_id=message-1 pushed=1'
+        ),
+      ])
+    )
     expect(pushedFrames[0]).toEqual({
       bitsPerSample: 16,
       channelCount: 1,

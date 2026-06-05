@@ -41,9 +41,14 @@ interface WebRtcUpstreamAudioSinkOptions {
   createSttProvider?: () => LocalSttProvider
   fastVoiceReplyProvider?: FastVoiceReplyProvider
   loadAudioSink?: () => Promise<WebRtcAudioSinkCtor>
-  logger?: Pick<HiveLogger, 'warn'>
+  logger?: Pick<HiveLogger, 'info' | 'warn'>
   store: WebRtcUpstreamStore
   tempRoot?: string
+}
+
+const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, message: string) => {
+  logger?.info?.(message)
+  process.stderr.write(`[webrtc-upstream-audio ${new Date().toISOString()}] ${message}\n`)
 }
 
 const loadWrtcAudioSink = async (): Promise<WebRtcAudioSinkCtor> => {
@@ -169,13 +174,34 @@ export const createWebRtcUpstreamAudioSink = ({
     let sampleRate = 48_000
     let bitsPerSample = 16
     let channelCount = 1
+    let totalPcmFrames = 0
     let closed = false
+    logDiagnostic(
+      logger,
+      `audioSink started: call_id=${callId} track_kind=${typeof track === 'object' && track !== null && 'kind' in track ? String((track as { kind?: unknown }).kind) : 'unknown'}`
+    )
     sink.ondata = (data) => {
       if (closed) return
       if (data.bitsPerSample) bitsPerSample = data.bitsPerSample
       if (data.channelCount) channelCount = data.channelCount
       if (data.sampleRate) sampleRate = data.sampleRate
-      frames.push(samplesToBuffer(data.samples))
+      const buffer = samplesToBuffer(data.samples)
+      const pcmFrames =
+        data.numberOfFrames ??
+        Math.floor(buffer.byteLength / Math.max(1, (bitsPerSample / 8) * channelCount))
+      frames.push(buffer)
+      totalPcmFrames += pcmFrames
+      if (frames.length === 1) {
+        logDiagnostic(
+          logger,
+          `audioSink first frame: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+        )
+      } else if (frames.length % 50 === 0) {
+        logDiagnostic(
+          logger,
+          `audioSink frames: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+        )
+      }
     }
 
     return {
@@ -184,6 +210,10 @@ export const createWebRtcUpstreamAudioSink = ({
         closed = true
         try {
           await Promise.resolve(sink.stop?.())
+          logDiagnostic(
+            logger,
+            `audioSink closing: call_id=${callId} chunks=${frames.length} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
+          )
           if (frames.length <= 0) return
           writeWavFile({ bitsPerSample, channelCount, frames, outputPath: audioPath, sampleRate })
           const provider = createSttProvider()

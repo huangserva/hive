@@ -270,11 +270,19 @@ describe('WebRTC callee', () => {
   test('starts an upstream audio session for remote audio tracks and closes it on bye', async () => {
     const peers: FakePeerConnection[] = []
     const closedSessions: string[] = []
-    const startedTracks: unknown[] = []
+    const startedInputs: unknown[] = []
+    const stderr: string[] = []
+    const writeSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk))
+        return true
+      })
     const callee = createWebRtcCallee({
       audioSink: {
-        start: ({ callId, track }) => {
-          startedTracks.push(track)
+        start: (input) => {
+          startedInputs.push(input)
+          const { callId } = input
           return {
             close: () => {
               closedSessions.push(callId)
@@ -305,13 +313,30 @@ describe('WebRTC callee', () => {
       { send: () => {} }
     )
     const audioTrack = { kind: 'audio' }
-    peers[0]?.ontrack?.({ receiver: { id: 'receiver-1' }, streams: [], track: audioTrack })
+    const audioStream = { id: 'stream-1' }
+    peers[0]?.ontrack?.({
+      receiver: { id: 'receiver-1' },
+      streams: [audioStream],
+      track: audioTrack,
+    })
     await callee.handleSignal(
       { call_id: 'call-audio', kind: 'bye', type: 'webrtc_signal' },
       { send: () => {} }
     )
 
-    expect(startedTracks).toEqual([audioTrack])
+    writeSpy.mockRestore()
+    expect(startedInputs).toEqual([
+      {
+        callId: 'call-audio',
+        receiver: { id: 'receiver-1' },
+        streams: [audioStream],
+        track: audioTrack,
+        workspaceId: 'workspace-1',
+      },
+    ])
+    expect(stderr.join('')).toContain(
+      'audio sink started: call_id=call-audio track_kind=audio receiver=yes streams=1'
+    )
     expect(closedSessions).toEqual(['call-audio'])
     expect(peers[0]?.closed).toBe(true)
   })
