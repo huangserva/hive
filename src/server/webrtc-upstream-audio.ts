@@ -10,6 +10,11 @@ import {
 import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
+import {
+  createStreamingRecognitionSession,
+  type StreamingRecognitionOptions,
+  type StreamingRecognitionSession,
+} from './streaming-stt-online.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
   calculateWebRtcInt16Rms,
@@ -45,6 +50,10 @@ type WebRtcUpstreamStore = Pick<
 
 interface WebRtcUpstreamAudioSinkOptions {
   createSttProvider?: () => LocalSttProvider
+  createStreamingRecognitionSession?: (
+    callId: string,
+    options: StreamingRecognitionOptions
+  ) => Promise<StreamingRecognitionSession | null>
   fastVoiceReplyProvider?: FastVoiceReplyProvider
   loadAudioSink?: () => Promise<WebRtcAudioSinkCtor>
   logger?: Pick<HiveLogger, 'info' | 'warn'>
@@ -53,9 +62,20 @@ interface WebRtcUpstreamAudioSinkOptions {
   vad?: Partial<WebRtcUtteranceVadConfig>
 }
 
+const MAX_SESSION_CONTEXT_SEGMENTS = 10
+const MAX_SESSION_CONTEXT_CHARS = 2000
+
 const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, message: string) => {
   logger?.info?.(message)
   process.stderr.write(`[webrtc-upstream-audio ${new Date().toISOString()}] ${message}\n`)
+}
+
+const limitSessionContext = (sessionContext: string[]) => {
+  const recentContext = sessionContext.slice(-MAX_SESSION_CONTEXT_SEGMENTS)
+  const joined = recentContext.join('\n')
+  return joined.length > MAX_SESSION_CONTEXT_CHARS
+    ? joined.slice(joined.length - MAX_SESSION_CONTEXT_CHARS)
+    : joined
 }
 
 const loadWrtcAudioSink = async (): Promise<WebRtcAudioSinkCtor> => {
@@ -114,11 +134,13 @@ const writeWavFile = ({
 
 export const injectWebRtcVoiceTranscript = async ({
   fastVoiceReplyProvider,
+  sessionContext,
   store,
   text,
   workspaceId,
 }: {
   fastVoiceReplyProvider?: FastVoiceReplyProvider
+  sessionContext?: string[]
   store: WebRtcUpstreamStore
   text: string
   workspaceId: string
@@ -129,7 +151,10 @@ export const injectWebRtcVoiceTranscript = async ({
   const activeRun = store.getActiveRunByAgentId(workspaceId, orchId)
   if (!activeRun) throw new Error('Orchestrator is not running')
 
-  const formatted = `[来自手机 Mobile App]\n---\n${trimmed}`
+  const formatted =
+    sessionContext && sessionContext.length > 0
+      ? `[对话上下文（本次通话之前说的）]\n${limitSessionContext(sessionContext)}\n\n[来自手机 Mobile App]\n---\n${trimmed}`
+      : `[来自手机 Mobile App]\n---\n${trimmed}`
   const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
     ...(fastVoiceReplyProvider ? { provider: fastVoiceReplyProvider } : {}),
     source: 'voice',
@@ -166,6 +191,7 @@ export const injectWebRtcVoiceTranscript = async ({
 
 export const createWebRtcUpstreamAudioSink = ({
   createSttProvider = () => createLocalSttProvider(),
+  createStreamingRecognitionSession: createStreamingSession = createStreamingRecognitionSession,
   fastVoiceReplyProvider,
   loadAudioSink = loadWrtcAudioSink,
   logger,
@@ -187,6 +213,31 @@ export const createWebRtcUpstreamAudioSink = ({
     let rmsMin = Number.POSITIVE_INFINITY
     let rmsMax = 0
     let processingQueue = Promise.resolve()
+    const sessionTranscript: string[] = []
+    const streamingSession = await createStreamingSession(callId, {
+      onError: (error) => logger?.warn?.('streaming WebRTC STT error', error),
+      onFinal: async (text) => {
+        const priorContext = sessionTranscript.slice()
+        sessionTranscript.push(text)
+        logDiagnostic(
+          logger,
+          `audioSink streaming final: call_id=${callId} segments=${sessionTranscript.length} text_len=${text.trim().length}`
+        )
+        await injectWebRtcVoiceTranscript({
+          ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
+          sessionContext: priorContext,
+          store,
+          text,
+          workspaceId,
+        })
+      },
+      onPartial: (text) => {
+        logDiagnostic(
+          logger,
+          `audioSink streaming partial: call_id=${callId} text_len=${text.length}`
+        )
+      },
+    })
     const utteranceVad = createWebRtcUtteranceVad({
       ...vad,
       ...(onSpeechStart ? { onSpeechStart } : {}),
@@ -251,13 +302,17 @@ export const createWebRtcUpstreamAudioSink = ({
       const currentRms = bitsPerSample === 16 ? calculateWebRtcInt16Rms(buffer) : 0
       rmsMin = Math.min(rmsMin, currentRms)
       rmsMax = Math.max(rmsMax, currentRms)
-      const utterance = utteranceVad.push({
-        bitsPerSample,
-        channelCount,
-        pcm: buffer,
-        sampleRate,
-      })
-      if (utterance) void processUtterance(utterance)
+      if (streamingSession) {
+        streamingSession.pushFrame(buffer, sampleRate, bitsPerSample)
+      } else {
+        const utterance = utteranceVad.push({
+          bitsPerSample,
+          channelCount,
+          pcm: buffer,
+          sampleRate,
+        })
+        if (utterance) void processUtterance(utterance)
+      }
       if (chunkCount === 1) {
         logDiagnostic(
           logger,
@@ -283,8 +338,16 @@ export const createWebRtcUpstreamAudioSink = ({
             logger,
             `audioSink closing: call_id=${callId} chunks=${chunkCount} pcm_frames=${totalPcmFrames} sample_rate=${sampleRate} bits=${bitsPerSample} channels=${channelCount}`
           )
-          const finalUtterance = utteranceVad.flush({ force: true })
-          if (finalUtterance) void processUtterance(finalUtterance)
+          if (streamingSession) {
+            try {
+              await streamingSession.flush()
+            } finally {
+              streamingSession.close()
+            }
+          } else {
+            const finalUtterance = utteranceVad.flush({ force: true })
+            if (finalUtterance) void processUtterance(finalUtterance)
+          }
           await processingQueue
         } catch (error) {
           logger?.warn?.('failed to process WebRTC upstream audio', error)

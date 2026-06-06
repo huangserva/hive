@@ -4,14 +4,17 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { MobileChatMessageType } from '../../src/server/mobile-chat-store.js'
-import { createWebRtcUpstreamAudioSink } from '../../src/server/webrtc-upstream-audio.js'
+import {
+  createWebRtcUpstreamAudioSink,
+  injectWebRtcVoiceTranscript,
+} from '../../src/server/webrtc-upstream-audio.js'
 
 type FakeAudioSinkData = {
-  bitsPerSample: number
-  channelCount: number
-  numberOfFrames: number
-  sampleRate: number
-  samples: Int16Array
+  bitsPerSample?: number
+  channelCount?: number
+  numberOfFrames?: number
+  sampleRate?: number
+  samples: Buffer | Int16Array | number[]
 }
 
 class FakeAudioSink {
@@ -100,6 +103,7 @@ describe('WebRTC upstream audio sink', () => {
     const transcribedPaths: string[] = []
     const transcribedAudio: Buffer[] = []
     const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async () => null,
       createSttProvider: () => ({
         detect: async () => ({ command: 'fake-stt', provider: 'paraformer' }),
         transcribeAudioFile: async (audioPath) => {
@@ -183,6 +187,7 @@ describe('WebRTC upstream audio sink', () => {
     const transcribedAudio: Buffer[] = []
     const transcribedPaths: string[] = []
     const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async () => null,
       createSttProvider: () => ({
         detect: async () => ({ command: 'fake-stt', provider: 'paraformer' }),
         transcribeAudioFile: async (audioPath) => {
@@ -213,6 +218,7 @@ describe('WebRTC upstream audio sink', () => {
       track: { kind: 'audio' },
       workspaceId: 'workspace-1',
     })
+    if (!session) throw new Error('audio session was not created')
     const audioSink = FakeAudioSink.instances[0]
     for (let index = 0; index < 3; index += 1) emitFrame(audioSink, 5000)
     for (let index = 0; index < 4; index += 1) emitFrame(audioSink, 0)
@@ -240,6 +246,7 @@ describe('WebRTC upstream audio sink', () => {
     const store = createStore()
     const transcribedPaths: string[] = []
     const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async () => null,
       createSttProvider: () => ({
         detect: async () => ({ command: 'fake-stt', provider: 'paraformer' }),
         transcribeAudioFile: async (audioPath) => {
@@ -269,11 +276,184 @@ describe('WebRTC upstream audio sink', () => {
       track: { kind: 'audio' },
       workspaceId: 'workspace-1',
     })
+    if (!session) throw new Error('audio session was not created')
     emitFrame(FakeAudioSink.instances[0], 5000)
 
     await session.close()
 
     expect(transcribedPaths).toEqual([])
     expect(store.inputs).toEqual([])
+  })
+
+  test('uses streaming STT when available and skips the batch VAD/WAV path', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createStore()
+    let batchDetectCount = 0
+    const pushedFrames: Array<{ bitsPerSample: number; pcmBuffer: Buffer; sampleRate: number }> = []
+    let closedStreaming = false
+    const sink = createWebRtcUpstreamAudioSink({
+      createSttProvider: () => ({
+        detect: async () => {
+          batchDetectCount += 1
+          return { command: 'fake-stt', provider: 'paraformer' }
+        },
+        transcribeAudioFile: async () => ({ provider: 'paraformer', text: 'batch' }),
+      }),
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {
+          closedStreaming = true
+        },
+        flush: async () => {
+          await options.onFinal('第二句')
+        },
+        pushFrame: (pcmBuffer, sampleRate, bitsPerSample) => {
+          pushedFrames.push({ bitsPerSample, pcmBuffer, sampleRate })
+        },
+      }),
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+      vad: {
+        minSpeechMs: 20,
+        silenceMs: 40,
+        speechRmsThreshold: 0.02,
+      },
+    })
+
+    const session = await sink.start({
+      callId: 'call-streaming',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    emitFrame(FakeAudioSink.instances[0], 5000)
+    await session.close()
+
+    expect(pushedFrames).toHaveLength(1)
+    expect(batchDetectCount).toBe(0)
+    expect(closedStreaming).toBe(true)
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n第二句',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+  })
+
+  test('closes the streaming STT session even when flush rejects', async () => {
+    const store = createStore()
+    let closedStreaming = false
+    const warnings: unknown[] = []
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async () => ({
+        close: () => {
+          closedStreaming = true
+        },
+        flush: async () => {
+          throw new Error('flush failed')
+        },
+        pushFrame: () => {},
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: (...args) => warnings.push(args),
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-flush-fails',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await session.close()
+
+    expect(closedStreaming).toBe(true)
+    expect(warnings).toHaveLength(1)
+  })
+
+  test('formats WebRTC voice prompts with rolling session context when provided', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      sessionContext: ['第一句', '第二句'],
+      store,
+      text: '第三句',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[对话上下文（本次通话之前说的）]\n第一句\n第二句\n\n[来自手机 Mobile App]\n---\n第三句',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(store.chat).toContainEqual({
+      contentJson: JSON.stringify({ source: 'voice', text: '第三句' }),
+      direction: 'inbound',
+      messageType: 'user_text',
+      workspaceId: 'workspace-1',
+    })
+  })
+
+  test('limits rolling session context to the latest ten segments', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      sessionContext: Array.from({ length: 12 }, (_, index) => `第${index + 1}句`),
+      store,
+      text: '当前句',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs[0]?.text).not.toContain('第1句')
+    expect(store.inputs[0]?.text).not.toContain('第2句')
+    expect(store.inputs[0]?.text).toContain('第3句')
+    expect(store.inputs[0]?.text).toContain('第12句')
+  })
+
+  test('limits rolling session context to at most 2000 characters', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      sessionContext: ['旧'.repeat(1500), '新'.repeat(1200)],
+      store,
+      text: '当前句',
+      workspaceId: 'workspace-1',
+    })
+
+    const contextBlock =
+      store.inputs[0]?.text
+        .split('\n\n[来自手机 Mobile App]')[0]
+        ?.replace('[对话上下文（本次通话之前说的）]\n', '') ?? ''
+    expect(contextBlock.length).toBeLessThanOrEqual(2000)
+    expect(contextBlock).toContain('新'.repeat(100))
   })
 })
