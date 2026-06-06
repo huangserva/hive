@@ -476,10 +476,18 @@ last_review: 2026-06-04
 > **决议**：`.hive/decisions/2026-06-06-speculative-voice-front-pm-handoff.md`（user 拍板"做成决议"）。承接 M39，把"停顿触发回复"升级为"语义意图触发 + 投机提前算 + 客户端择时播"，达到极快对话体感。
 > 四支柱：① 前台 GLM 一身三职（判意图完整 / 投机生成+latest-wins取代 / 完整意图交 PM 绝不碎片）② 客户端播放闸（turn-taking 下放 app，攥着回复等用户让出话权才播最新代际）③ 通路分离+来源打死标签（对讲 vs 通话 vs 普通语音）④ 自我进化评价机制（idea-7 语音化，越用越准）。
 > 成本天然有界：只 GLM 投机（便宜快），PM(opus) 只在完整意图上跑一次、永不吃碎片。
-> **分工（多 worker 并行）**：
-> - 🔬 第一波：赵云 端到端技术方案设计 spike（GLM 投机引擎+代际取消+服务端↔app 播放闸协议+来源标签+PM完整意图契约，出 reports+research）；关羽 来源通路分离实现（通话/对讲/语音打死标签，相对独立可先落地）。
-> - 设计落地+user 拍 → 第二波并行实现：关羽(server GLM投机引擎) / 马超(mobile 客户端播放闸) / 钟馗审 / 典韦·张飞测。
-> - 自我进化评价机制(④)作为后续阶段，先不进第一波。
+> **✅ 设计 spike 已落地+PM vet 通过（赵云 dispatch a3147d4f）**：`reports/2026-06-06-m40-speculative-voice-design.html` + research 同名。核心：新增 server `VoiceIntentSession` 消费 M39 partial→限频调 GLM 出结构化 verdict(completeness/action/confidence/intent_generation/distilled_intent/reply_text)；latest-wins+AbortController 取代；relay frame `webrtc_voice_intent`(op candidate/replace/cancel/ready/handoff) 先行、data channel 后置；PM 只收 `complete && escalate && confidence>=0.75` 每 turn 一次、incomplete 绝不 recordUserInput；`source:'voice_call_webrtc'`。
+> **5 阶段实现路线（autonomous 推进中，2026-06-06 深夜 user 睡后 PM 自主驱动）**：
+> - ✅ 来源通路分离 `037b898`（webrtc_call/talk_continuous/voice 三标签，钟馗 0block）
+> - ✅ Phase 1 核心模块 `9b69557` voice-intent-front.ts（GLM 结构化 verdict+latest-wins+abort+PM闸+安全默认，钟馗首轮3 blocking→返工→复审0block，12测，flag HIVE_VOICE_INTENT_FRONT 默认关）
+> - ✅ Phase 1 shadow 集成 `fc69475`（接进 webrtc-upstream 纯 shadow、flag 默认关零行为变更、close 泄漏修复、25 测；钟馗 2 轮 blocking schema安全+close泄漏→闭环）。**Phase 1 全部完成**=来源分离+意图引擎核心+shadow 遥测就绪。
+> - **⏸️ 待 user（真机+决策）**：开 flag `HIVE_VOICE_INTENT_FRONT`=1 + 重启 4010 + 真机打电话 → 看日志 `voiceIntent shadow verdict` / `endpoint_compare`，对比"GLM 意图完整度判断 vs M39 端点 final"，**验 GLM 判完整可靠不**。可靠才进 Phase 2（让意图引擎真驱动回复=行为变更）。
+> - Phase 2：server latest-wins 候选状态机真接管回复 + GLM/TTS abort 纪律（**行为变更，必须 shadow 数据验过 + 真机**）
+> - Phase 2：server latest-wins 候选状态机 + GLM/TTS abort 纪律
+> - Phase 3：播放闸帧协议 + app hold/latest generation（mobile）
+> - Phase 4：PM complete-distill handoff 闸（绝不喂碎片）
+> - Phase 5：relay frame → WebRTC data channel 降 RTT
+> **分工**：关羽=来源通路分离(`6eeb753c`,进行中,touches webrtc-upstream→Phase1集成要等它)；赵云=Phase1 核心 voice-intent-front.ts 模块(新文件无冲突)。钟馗串行复审，user 醒后真机验+拍后续。自我进化(④)后续阶段。
 
 ### M39 · 流式 ASR + rolling session transcript · 核心打通+生产崩溃已修真机验通 2026-06-06（`5970988` + 崩溃修复 `4ffbb00`）
 > **🚨 生产事故+修复（2026-06-06 深夜）**：user 下载流式 paraformer 模型(`~/.config/hive/streaming-paraformer/`)激活 M39 路径后，每通 WebRTC 通话第一帧崩 daemon → 手机"webrtc/中继连不上"。根因=`streaming-stt-online.ts` decode 漏 `isReady` 闸 → sherpa-onnx native `features.cc GetFrames` → C++ `exit(-1)` 杀进程（JS catch 不住）。修复 `4ffbb00`（关羽 codex/钟馗 codex 0block）：`while(isReady) decode` drain + flush inputFinished + 流式出错通话级回退 VAD（不哑），17 测。**真机验通**：call `webrtc-1780761642531` streaming partial `8→12→17→19` 边说边出字 + final 注入 + 零崩溃。教训=native addon 可 `exit()` 杀进程不可 JS catch；流式 sherpa 必须 isReady 门控；"测试绿生产死"（旧 mock 无 isReady）；诊断曾被 relay 服务器带偏，daemon crash-loop 与 relay 中断症状相同要先查 daemon liveness。**剩余**：native 彻底隔离需子进程化（跟踪项）；rolling transcript 上下文回灌效果 + 下行念回顺滑待持续真机调。
