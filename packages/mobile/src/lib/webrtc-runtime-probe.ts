@@ -115,5 +115,10 @@ export const resolveWebRtcProbeEnabled = (
   env: Record<string, string | undefined> = process.env
 ) => {
   const value = extra?.webRtcProbe ?? env.EXPO_PUBLIC_WEBRTC_PROBE ?? env.WEBRTC_PROBE
-  return value === '1' || value === 'true'
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    return normalized !== '0' && normalized !== 'false'
+  }
+  if (typeof value === 'boolean') return value
+  return true
 }

@@ -1,8 +1,14 @@
 import { describe, expect, test, vi } from 'vitest'
 
-import { runWebRtcRuntimeProbe } from '../src/lib/webrtc-runtime-probe'
+import { resolveWebRtcProbeEnabled, runWebRtcRuntimeProbe } from '../src/lib/webrtc-runtime-probe'
 
 describe('WebRTC runtime probe', () => {
+  test('shows the WebRTC probe entry by default while keeping an explicit off switch', () => {
+    expect(resolveWebRtcProbeEnabled(undefined, {})).toBe(true)
+    expect(resolveWebRtcProbeEnabled({ webRtcProbe: '0' }, {})).toBe(false)
+    expect(resolveWebRtcProbeEnabled(undefined, { EXPO_PUBLIC_WEBRTC_PROBE: 'false' })).toBe(false)
+  })
+
   test('opens microphone, creates peer connection, then releases resources', async () => {
     const stop = vi.fn()
     const close = vi.fn()

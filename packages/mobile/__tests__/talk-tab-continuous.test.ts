@@ -439,6 +439,23 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.getByText(/talk\.mode\.continuous/)).toBeTruthy()
   })
 
+  test('uploads push-to-talk recordings even when VAD did not mark real speech', async () => {
+    render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.pushToTalk'))
+    const orb = screen.getByTestId('talk-orb')
+    fireEvent.mouseDown(orb)
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    fireEvent.mouseUp(orb)
+
+    await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith(
+      'turn on diagnostics',
+      { source: 'voice' }
+    )
+    expect(screen.queryByText('talk.state.error')).toBeNull()
+  })
+
   test('does not request microphone permission again when it is already granted', async () => {
     render(React.createElement(TalkTab))
 

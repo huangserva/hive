@@ -875,7 +875,10 @@ export default function TalkTab() {
   )
 
   const processRecordedSegment = useCallback(
-    async (nextStateOnError: 'error' | 'listening' = 'error') => {
+    async (
+      nextStateOnError: 'error' | 'listening' = 'error',
+      options: { skipWhenNoRealSpeech?: boolean } = {}
+    ) => {
       if (processingSegmentRef.current) return
       const recorderForSegment = recorderRef.current
       processingSegmentRef.current = true
@@ -890,7 +893,11 @@ export default function TalkTab() {
           playsInSilentMode: true,
         })
         latestAudioModeDebugRef.current = 'playback'
-        if (nextStateOnError === 'listening' && !vadStateRef.current.hadRealSpeech) {
+        if (
+          nextStateOnError === 'listening' &&
+          options.skipWhenNoRealSpeech &&
+          !vadStateRef.current.hadRealSpeech
+        ) {
           resetReplyQueueForPrompt()
           dispatchTalkEvent({ type: 'reset' })
           if (continuousEnabledRef.current) dispatchTalkEvent({ type: 'continuousStart' })
@@ -1040,7 +1047,7 @@ export default function TalkTab() {
       if (result.event === 'speechEnd' && talkStateRef.current === 'capturing') {
         resetReplyQueueForPrompt()
         dispatchTalkEvent({ type: 'silenceDetected' })
-        void processRecordedSegment('listening')
+        void processRecordedSegment('listening', { skipWhenNoRealSpeech: true })
       }
     },
     [
@@ -1202,7 +1209,7 @@ export default function TalkTab() {
     if (result.event === 'speechEnd') {
       resetReplyQueueForPrompt()
       dispatchTalkEvent({ type: 'silenceDetected' })
-      void processRecordedSegment('listening')
+      void processRecordedSegment('listening', { skipWhenNoRealSpeech: true })
     }
   }, [
     dispatchTalkEvent,
