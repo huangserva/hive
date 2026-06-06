@@ -190,6 +190,30 @@ describe('filterPendingOptimisticMessages', () => {
     expect(pending[0]?.id).toBe('opt-new')
   })
 
+  test('clock skew: server echo timestamped up to 3s BEFORE the optimistic is still consumed (phone clock ahead of Mac)', () => {
+    // 手机时钟比 Mac 快 500ms → optimistic.created_at = t+500, server.created_at = t。
+    // 原来严格 <= 判断失败 → 两份气泡；加 3s 容差后正确消费。
+    const content_json = JSON.stringify({ text: 'clock skew test' })
+    const pending = filterPendingOptimisticMessages({
+      chatMessages: [
+        chatMessage({
+          content_json,
+          created_at: Date.parse('2026-05-31T10:00:00.000Z'), // Mac 时间（早 500ms）
+          id: 'srv-echo',
+        }),
+      ],
+      optimisticMessages: [
+        optimisticMessage({
+          clientNonce: 'nonce-clk',
+          content_json,
+          created_at: Date.parse('2026-05-31T10:00:00.500Z'), // 手机时间（晚 500ms）
+          id: 'opt-clk',
+        }),
+      ],
+    })
+    expect(pending).toEqual([])
+  })
+
   test('regression #23: the fresh echo (created after the send) does consume it; stale history still does not', () => {
     const content_json = JSON.stringify({ text: 'gm' })
     const pending = filterPendingOptimisticMessages({

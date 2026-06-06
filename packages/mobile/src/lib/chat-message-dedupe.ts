@@ -73,15 +73,20 @@ export const filterPendingOptimisticMessages = <T extends OptimisticChatMessage>
   // 一对一消费，且关键约束：一条 server echo 只能消费「在它之前创建」的 optimistic。
   // 这样历史里早就存在的同文案消息（created_at 早于本次 optimistic）绝不会把刚发的连发
   // 消息提前吃掉——合法连发得以保留，只被它创建之后到达的那条新鲜 echo 消费（M28 #23 HIGH 回归）。
+  //
+  // CLOCK_SKEW_TOLERANCE_MS：手机时钟可能比 Mac 快数百毫秒（NTP 漂移），导致 optimistic.created_at >
+  // server.created_at，原来的严格 <= 判断失败 → 两份消息。容差 3s 覆盖合理的手机-服务器时钟差，
+  // 仅在「同文案 3 秒内连发」时才可能误消费（极端边缘，接受）。
+  const CLOCK_SKEW_TOLERANCE_MS = 3_000
   const matchedOptimisticIds = new Set<string>()
   const sortedServerMessages = [...chatMessages].sort(compareMessageOrder)
   for (const serverMessage of sortedServerMessages) {
     const bucket = optimisticByKey.get(stableMessageKey(serverMessage))
     if (!bucket || bucket.length === 0) continue
     const candidate = bucket[0]
-    // 桶按创建时间升序：若最早的 optimistic 都晚于这条 server 消息，则它（及其后所有）都不是
+    // 桶按创建时间升序：若最早的 optimistic 都晚于这条 server 消息（超出容差），则它（及其后所有）都不是
     // 这条 server 消息的回声 —— 跳过，留给后续更新的 echo。
-    if (candidate && candidate.created_at <= serverMessage.created_at) {
+    if (candidate && candidate.created_at <= serverMessage.created_at + CLOCK_SKEW_TOLERANCE_MS) {
       bucket.shift()
       matchedOptimisticIds.add(candidate.id)
     }
