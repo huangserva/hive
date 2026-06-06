@@ -169,6 +169,19 @@ vi.mock('react-native-reanimated', () => {
   }
 })
 
+vi.mock('react-native-svg', () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('div', null, children)
+  const leaf = () => null
+  return {
+    Circle: leaf,
+    Defs: passthrough,
+    default: passthrough,
+    RadialGradient: passthrough,
+    Stop: leaf,
+  }
+})
+
 vi.mock('react-native', () => {
   const View = ({ children }: { children?: React.ReactNode }) =>
     React.createElement('div', null, children)
@@ -183,6 +196,7 @@ vi.mock('react-native', () => {
     onPress,
     onPressIn,
     onPressOut,
+    testID,
   }: {
     children?: React.ReactNode
     disabled?: boolean
@@ -192,10 +206,12 @@ vi.mock('react-native', () => {
     onPress?: () => void
     onPressIn?: () => void
     onPressOut?: () => void
+    testID?: string
   }) =>
     React.createElement(
       'button',
       {
+        'data-testid': testID,
         disabled,
         onClick: onPress ?? onClick,
         onMouseDown: onPressIn ?? onMouseDown,
@@ -374,15 +390,15 @@ describe('TalkTab continuous mode behavior', () => {
     await finishCurrentPhrase(view)
 
     await waitFor(() => expect(screen.getByText('stt failed')).toBeTruthy())
-    const exitButtons = screen.getAllByText('talk.exitIntercom')
-    expect(exitButtons.length).toBeGreaterThan(0)
+    // Redesign has no exit button: the orb itself exits from the error state.
+    expect(screen.getByText('talk.state.error')).toBeTruthy()
     expect(audioMock.recorder.stop).toHaveBeenCalled()
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(exitButtons[0])
+    fireEvent.click(screen.getByTestId('talk-orb'))
+    await waitFor(() => expect(screen.getByText('talk.state.idle')).toBeTruthy())
     expect(screen.getByText('talk.mode.continuous')).toBeTruthy()
-    expect(screen.getByText('talk.button.hold')).toBeTruthy()
   })
 
   test('does not render internal voice stream test controls in the production talk UI', () => {
@@ -610,12 +626,13 @@ describe('TalkTab continuous mode behavior', () => {
   test('defaults to continuous mode and starts listening from the central orb', async () => {
     render(React.createElement(TalkTab))
 
-    // Driving default (user-ratified 2026-06-06): the orb shows the continuous
-    // start affordance, not push-to-talk hold.
-    expect(screen.getByText('talk.continuous.start')).toBeTruthy()
+    // Driving default (user-ratified 2026-06-06): lands idle in continuous mode;
+    // the orb is the control (no push-to-talk hold label).
+    expect(screen.getByText('talk.state.idle')).toBeTruthy()
+    expect(screen.getByTestId('talk-orb')).toBeTruthy()
     expect(screen.queryByText('talk.button.hold')).toBeNull()
 
-    fireEvent.click(screen.getByText('talk.continuous.start'))
+    fireEvent.click(screen.getByTestId('talk-orb'))
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
   })
 
@@ -628,7 +645,7 @@ describe('TalkTab continuous mode behavior', () => {
     render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.pushToTalk'))
-    fireEvent.mouseDown(await screen.findByText('talk.button.hold'))
+    fireEvent.mouseDown(screen.getByTestId('talk-orb'))
 
     await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalledTimes(1))
     expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalled()
@@ -1231,7 +1248,7 @@ describe('TalkTab continuous mode behavior', () => {
       })
     )
 
-    fireEvent.click(screen.getByText('talk.stopPlayback'))
+    fireEvent.click(screen.getByTestId('talk-orb'))
     await act(async () => {
       synthesized.resolve({ audio: 'stale-audio', format: 'wav', mime: 'audio/wav' })
       await synthesized.promise
@@ -1282,9 +1299,9 @@ describe('TalkTab continuous mode behavior', () => {
     const view = render(React.createElement(TalkTab))
 
     fireEvent.click(screen.getByText('talk.mode.pushToTalk'))
-    fireEvent.mouseDown(await screen.findByText('talk.button.hold'))
+    fireEvent.mouseDown(screen.getByTestId('talk-orb'))
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
-    fireEvent.mouseUp(screen.getByText('talk.button.release'))
+    fireEvent.mouseUp(screen.getByTestId('talk-orb'))
     await waitFor(() => expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalled())
     runtime.chatMessages = [
       {
@@ -1308,7 +1325,7 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.getByText('talk.state.speaking')).toBeTruthy()
     audioMock.player.pause.mockClear()
 
-    fireEvent.click(screen.getByText('talk.stopPlayback'))
+    fireEvent.click(screen.getByTestId('talk-orb'))
     await flush()
     view.rerender(React.createElement(TalkTab))
     await flush()

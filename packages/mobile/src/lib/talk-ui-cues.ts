@@ -22,7 +22,7 @@ export type TalkStateVisual = {
 export const TALK_STATE_VISUALS: Record<TalkDrivingVisualKind, TalkStateVisual> = {
   error: {
     accent: '#FF6B6B',
-    icon: 'alert-circle-outline',
+    icon: 'warning-outline',
     kind: 'error',
     panel: 'rgba(255, 107, 107, 0.16)',
     soft: '#ffb0b0',
@@ -36,14 +36,14 @@ export const TALK_STATE_VISUALS: Record<TalkDrivingVisualKind, TalkStateVisual> 
   },
   listening: {
     accent: '#46E6A9',
-    icon: 'radio-outline',
+    icon: 'mic-outline',
     kind: 'listening',
     panel: 'rgba(70, 230, 169, 0.16)',
     soft: '#7cffcb',
   },
   processing: {
     accent: '#FFD166',
-    icon: 'sync-outline',
+    icon: 'ellipsis-horizontal',
     kind: 'processing',
     panel: 'rgba(255, 209, 102, 0.16)',
     soft: '#ffe08a',

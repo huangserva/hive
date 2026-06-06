@@ -141,6 +141,19 @@ vi.mock('react-native-reanimated', () => {
   }
 })
 
+vi.mock('react-native-svg', () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('div', null, children)
+  const leaf = () => null
+  return {
+    Circle: leaf,
+    Defs: passthrough,
+    default: passthrough,
+    RadialGradient: passthrough,
+    Stop: leaf,
+  }
+})
+
 vi.mock('expo-file-system', () => ({
   EncodingType: { Base64: 'base64' },
   readAsStringAsync: vi.fn(() => {
@@ -167,15 +180,17 @@ vi.mock('react-native', () => {
     disabled,
     onClick,
     onPress,
+    testID,
   }: {
     children?: React.ReactNode
     disabled?: boolean
     onClick?: () => void
     onPress?: () => void
+    testID?: string
   }) =>
     React.createElement(
       'button',
-      { disabled, onClick: onPress ?? onClick, type: 'button' },
+      { 'data-testid': testID, disabled, onClick: onPress ?? onClick, type: 'button' },
       children
     )
   return {
@@ -363,7 +378,7 @@ describe('TalkTab cue runtime hardening', () => {
 
     fireEvent.click(screen.getByText('talk.mode.continuous'))
     await act(async () => {})
-    fireEvent.click(screen.getByText('talk.continuous.stop'))
+    fireEvent.click(screen.getByTestId('talk-orb'))
     await act(async () => {
       await vi.runOnlyPendingTimersAsync()
     })

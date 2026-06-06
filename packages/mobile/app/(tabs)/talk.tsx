@@ -16,7 +16,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import * as Haptics from 'expo-haptics'
 import type { ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Animated, {
   cancelAnimation,
   Easing,
@@ -26,6 +26,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated'
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg'
 
 import {
   type MobileVoiceSynthesisResult,
@@ -216,27 +217,44 @@ const hexToRgba = (hex: string, alpha: number) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-// One expanding "breathing" ring. Pure transform/opacity animation on the UI
-// thread (reanimated) so it stays smooth on-device without touching JS per frame.
-function PulseRing({ color, delay, size }: { color: string; delay: number; size: number }) {
+// One soft expanding ring. Faithful to the 2026-06-05 redesign `.pulse` /
+// `.sonar` keyframes (scale + fade), run on the reanimated UI thread for smooth
+// on-device motion. Decoration only.
+function PulseRing({
+  color,
+  delay,
+  duration,
+  size,
+  toScale,
+}: {
+  color: string
+  delay: number
+  duration: number
+  size: number
+  toScale: number
+}) {
   const progress = useSharedValue(0)
   useEffect(() => {
-    progress.value = withDelay(delay, withRepeat(withTiming(1, { duration: 2100 }), -1, false))
+    progress.value = withDelay(delay, withRepeat(withTiming(1, { duration }), -1, false))
     return () => cancelAnimation(progress)
-  }, [delay, progress])
+  }, [delay, duration, progress])
   const animatedStyle = useAnimatedStyle(() => ({
-    opacity: 0.5 * (1 - progress.value),
-    transform: [{ scale: 0.92 + progress.value * 0.55 }],
+    opacity: 0.55 * (1 - progress.value),
+    transform: [{ scale: 0.92 + progress.value * (toScale - 0.92) }],
   }))
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.orbRing, { borderColor: color, height: size, width: size }, animatedStyle]}
+      style={[
+        styles.orbRing,
+        { borderColor: color, borderRadius: size / 2, height: size, width: size },
+        animatedStyle,
+      ]}
     />
   )
 }
 
-// Rotating arc shown while processing.
+// Rotating arc shown while processing (redesign `.spin`).
 function SpinArc({ color, size }: { color: string; size: number }) {
   const rotation = useSharedValue(0)
   useEffect(() => {
@@ -255,39 +273,82 @@ function SpinArc({ color, size }: { color: string; size: number }) {
       pointerEvents="none"
       style={[
         styles.orbSpin,
-        { borderRightColor: color, borderTopColor: color, height: size, width: size },
+        {
+          borderRadius: size / 2,
+          borderRightColor: hexToRgba(color, 0.48),
+          borderTopColor: hexToRgba(color, 0.95),
+          height: size,
+          width: size,
+        },
         animatedStyle,
       ]}
     />
   )
 }
 
-// One bar of the live waveform / equalizer (listening + speaking).
-function WaveBar({ color, delay, duration }: { color: string; delay: number; duration: number }) {
-  const level = useSharedValue(0)
-  useEffect(() => {
-    level.value = withDelay(delay, withRepeat(withTiming(1, { duration }), -1, true))
-    return () => cancelAnimation(level)
-  }, [delay, duration, level])
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scaleY: 0.28 + level.value * 0.72 }],
-  }))
-  return <Animated.View style={[styles.waveBar, { backgroundColor: color }, animatedStyle]} />
+// Pixel-faithful glowing sphere via react-native-svg RadialGradient — a 1:1
+// translation of the 2026-06-05 redesign `.orb` CSS:
+//   background: radial-gradient(circle at 35% 28%, #fff .9, #fff .28 16%,
+//               state .35 42%, state .08 72%);  border: 1px state .38;
+//   box-shadow: 0 0 48px state .28;  orb::before: inset 16 ring state .28.
+// The outer glow is its own radial fade (state .28 → transparent). Decoration
+// only — drawn behind the glyph, never touches the touch / logic layer.
+function OrbSphere({ accent, size }: { accent: string; size: number }) {
+  const canvas = Math.round(size * 1.5)
+  const c = canvas / 2
+  const sphereR = size / 2
+  const id = accent.replace('#', '')
+  return (
+    <Svg
+      height={canvas}
+      pointerEvents="none"
+      style={{ left: (size - canvas) / 2, position: 'absolute', top: (size - canvas) / 2 }}
+      width={canvas}
+    >
+      <Defs>
+        <RadialGradient cx="50%" cy="50%" id={`glow-${id}`} r="50%">
+          <Stop offset="0" stopColor={accent} stopOpacity={0.28} />
+          <Stop offset="0.55" stopColor={accent} stopOpacity={0.12} />
+          <Stop offset="1" stopColor={accent} stopOpacity={0} />
+        </RadialGradient>
+        <RadialGradient cx="35%" cy="28%" id={`sphere-${id}`} r="78%">
+          <Stop offset="0" stopColor="#ffffff" stopOpacity={0.9} />
+          <Stop offset="0.16" stopColor="#ffffff" stopOpacity={0.28} />
+          <Stop offset="0.42" stopColor={accent} stopOpacity={0.35} />
+          <Stop offset="0.72" stopColor={accent} stopOpacity={0.08} />
+          <Stop offset="1" stopColor={accent} stopOpacity={0.08} />
+        </RadialGradient>
+      </Defs>
+      {/* outer soft halo (box-shadow 0 0 48px state .28) */}
+      <Circle cx={c} cy={c} fill={`url(#glow-${id})`} r={sphereR + 24} />
+      {/* sphere body: radial white highlight → state colour */}
+      <Circle
+        cx={c}
+        cy={c}
+        fill={`url(#sphere-${id})`}
+        r={sphereR}
+        stroke={accent}
+        strokeOpacity={0.38}
+        strokeWidth={1}
+      />
+      {/* static inner concentric ring (orb::before inset 16) */}
+      <Circle
+        cx={c}
+        cy={c}
+        fill="none"
+        r={sphereR - 16}
+        stroke={accent}
+        strokeOpacity={0.28}
+        strokeWidth={1}
+      />
+    </Svg>
+  )
 }
 
-const WAVE_BARS = [
-  { delay: 0, duration: 720 },
-  { delay: 120, duration: 900 },
-  { delay: 240, duration: 640 },
-  { delay: 80, duration: 820 },
-  { delay: 320, duration: 700 },
-  { delay: 160, duration: 880 },
-  { delay: 40, duration: 760 },
-]
-
-// Premium animated orb: state-colored halo + per-state motion (breathing rings /
-// spinning arc / sonar) + live waveform + a center glyph. Decoration only — it
-// renders inside the existing Pressable and never affects the touch/logic layer.
+// Animated orb: pixel-faithful SVG glowing sphere (OrbSphere) + per-state soft
+// motion (breathing pulse / sonar / spin, all from the redesign spec) + center
+// glyph. Decoration only; renders inside the existing Pressable and never touches
+// the touch / logic layer.
 function TalkOrb({
   accent,
   immersive,
@@ -299,26 +360,52 @@ function TalkOrb({
   kind: TalkStateVisual['kind']
   children: ReactNode
 }) {
-  const orbSize = immersive ? 208 : 168
-  const showWave = kind === 'listening' || kind === 'speaking'
+  const orbSize = immersive ? 212 : 176
   return (
     <View style={[styles.orb, { height: orbSize, width: orbSize }]}>
-      <View
-        pointerEvents="none"
-        style={[styles.orbHalo, { backgroundColor: hexToRgba(accent, 0.18) }]}
-      />
+      <OrbSphere accent={accent} size={orbSize} />
       {kind === 'listening' ? (
         <>
-          <PulseRing color={hexToRgba(accent, 0.55)} delay={0} size={orbSize} />
-          <PulseRing color={hexToRgba(accent, 0.45)} delay={700} size={orbSize} />
-          <PulseRing color={hexToRgba(accent, 0.35)} delay={1400} size={orbSize} />
+          <PulseRing
+            color={hexToRgba(accent, 0.5)}
+            delay={0}
+            duration={2100}
+            size={orbSize}
+            toScale={1.45}
+          />
+          <PulseRing
+            color={hexToRgba(accent, 0.4)}
+            delay={700}
+            duration={2100}
+            size={orbSize}
+            toScale={1.45}
+          />
+          <PulseRing
+            color={hexToRgba(accent, 0.3)}
+            delay={1400}
+            duration={2100}
+            size={orbSize}
+            toScale={1.45}
+          />
         </>
       ) : null}
-      {kind === 'processing' ? <SpinArc color={accent} size={orbSize - 12} /> : null}
+      {kind === 'processing' ? <SpinArc color={accent} size={orbSize + 8} /> : null}
       {kind === 'speaking' ? (
         <>
-          <PulseRing color={hexToRgba(accent, 0.5)} delay={0} size={orbSize} />
-          <PulseRing color={hexToRgba(accent, 0.32)} delay={850} size={orbSize} />
+          <PulseRing
+            color={hexToRgba(accent, 0.52)}
+            delay={0}
+            duration={1700}
+            size={orbSize}
+            toScale={1.62}
+          />
+          <PulseRing
+            color={hexToRgba(accent, 0.36)}
+            delay={820}
+            duration={1700}
+            size={orbSize}
+            toScale={1.62}
+          />
         </>
       ) : null}
       <View
@@ -327,19 +414,23 @@ function TalkOrb({
       >
         {children}
       </View>
-      {showWave ? (
-        <View pointerEvents="none" style={styles.waveRow}>
-          {WAVE_BARS.map((bar, index) => (
-            <WaveBar
-              color={accent}
-              delay={bar.delay}
-              duration={bar.duration}
-              // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length static decorative bar list
-              key={index}
-            />
-          ))}
-        </View>
-      ) : null}
+    </View>
+  )
+}
+
+// Activity / level dots shown directly under the orb (redesign hero), a static
+// graduated row — kept calm (no mechanical motion) per the redesign's soft style.
+const DOT_OPACITIES = [0.3, 0.5, 0.72, 1, 0.72, 0.5, 0.3]
+function DotsRow({ color }: { color: string }) {
+  return (
+    <View pointerEvents="none" style={styles.dotsRow}>
+      {DOT_OPACITIES.map((opacity, index) => (
+        <View
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length static decorative dot row
+          key={index}
+          style={[styles.dot, { backgroundColor: color, opacity }]}
+        />
+      ))}
     </View>
   )
 }
@@ -460,7 +551,9 @@ export default function TalkTab() {
   const [talkState, setTalkState] = useState<TalkbackState>('idle')
   // User-ratified default (2026-06-06): driving hands-free defaults to continuous.
   const [inputMode, setInputMode] = useState<TalkInputMode>('continuous')
-  const [transcript, setTranscript] = useState('')
+  // Transcript is surfaced in the chat tab, not in the immersive talk view (per
+  // the redesign). We still capture it so chat history stays complete.
+  const [, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [continuousRunnerTick, setContinuousRunnerTick] = useState(0)
   const [talkbackQueueTick, setTalkbackQueueTick] = useState(0)
@@ -1250,35 +1343,94 @@ export default function TalkTab() {
         talkState === 'waiting_for_orchestrator' ||
         talkState === 'processing'))
   const statusLabel = t(`talk.state.${talkState}`)
-  // The mode switch only renders while idle (non-immersive), where continuous is
-  // never actually running, so the orb/segment start it; once running (immersive)
-  // the orb becomes the stop control.
-  const continuousButtonLabel = immersive ? t('talk.continuous.stop') : t('talk.continuous.start')
+  const headline = t(`talk.headline.${visual.kind}`)
+  const modeLabel = continuousSelected ? t('talk.mode.continuous') : t('talk.mode.pushToTalk')
+  const topMeta = `${modeLabel} · ${connected ? t('talk.meta.ready') : t('talk.meta.offline')}`
+  const bottomSubtitle = !connected
+    ? t('talk.connectFirst')
+    : continuousSelected
+      ? t('talk.continuous.hint')
+      : t('talk.subtitle')
+  const showActivityDots = visual.kind === 'listening' || visual.kind === 'speaking'
 
   return (
     <Screen>
       <View style={[styles.container, immersive && styles.containerImmersive]}>
-        {immersive ? (
-          <View style={styles.immersiveActions}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={exitTalkMode}
-              style={({ pressed }) => [styles.exitButton, pressed && styles.talkButtonPressed]}
-            >
-              <Ionicons color={colors.text} name="close-circle-outline" size={20} />
-              <Text style={styles.exitButtonText}>{t('talk.exitIntercom')}</Text>
-            </Pressable>
+        {/* top: compact status pill row (state pill · mode/ready) */}
+        <View style={styles.topRow}>
+          <View
+            style={[
+              styles.pill,
+              { backgroundColor: visual.panel, borderColor: hexToRgba(visual.accent, 0.4) },
+            ]}
+          >
+            <View style={[styles.pillDot, { backgroundColor: visual.accent }]} />
+            <Text numberOfLines={1} style={[styles.pillLabel, { color: visual.soft }]}>
+              {statusLabel}
+            </Text>
           </View>
-        ) : null}
+          <Text numberOfLines={1} style={styles.topMeta}>
+            {topMeta}
+          </Text>
+        </View>
 
-        {!immersive ? (
-          <>
-            <View style={styles.header}>
-              <Text style={styles.kicker}>{t('talk.kicker')}</Text>
-              <Text style={styles.title}>{t('talk.title')}</Text>
-              <Text style={styles.subtitle}>{t('talk.subtitle')}</Text>
-            </View>
+        {/* center: the orb IS the control (tap = start / stop / interrupt / exit) + activity dots */}
+        <View style={styles.center}>
+          <Pressable
+            accessibilityLabel={
+              speaking ? t('talk.stopPlayback') : t('talk.button.accessibilityLabel')
+            }
+            accessibilityRole="button"
+            disabled={
+              errored ? false : speaking ? !connected : pushToTalkSelected ? disabled : !connected
+            }
+            onPress={
+              errored
+                ? exitTalkMode
+                : speaking
+                  ? stopTalkbackPlayback
+                  : pushToTalkSelected
+                    ? undefined
+                    : talkState === 'idle'
+                      ? () => void startContinuousMode()
+                      : () => void stopContinuousMode()
+            }
+            onPressIn={
+              pushToTalkSelected && !speaking && !errored ? () => void startRecording() : undefined
+            }
+            onPressOut={
+              pushToTalkSelected && !speaking && !errored ? () => void stopRecording() : undefined
+            }
+            style={({ pressed }) => [
+              styles.talkButton,
+              immersive && styles.talkButtonImmersive,
+              (speaking ? !connected : pushToTalkSelected ? disabled : !connected) &&
+                styles.talkButtonDisabled,
+              pressed && styles.talkButtonPressed,
+            ]}
+            testID="talk-orb"
+          >
+            <TalkOrb accent={visual.accent} immersive={immersive} kind={visual.kind}>
+              <Ionicons
+                color="#05070a"
+                name={visual.icon as keyof typeof Ionicons.glyphMap}
+                size={immersive ? 38 : 34}
+              />
+            </TalkOrb>
+          </Pressable>
+          {showActivityDots ? <DotsRow color={visual.accent} /> : null}
+        </View>
 
+        {/* bottom: big state headline + subtitle (+ mode switch while idle) */}
+        <View style={styles.bottom}>
+          {error ? (
+            <Text numberOfLines={2} style={styles.errorLowKey}>
+              {error}
+            </Text>
+          ) : null}
+          <Text style={[styles.headline, { color: visual.soft }]}>{headline}</Text>
+          <Text style={styles.headlineSub}>{bottomSubtitle}</Text>
+          {!immersive ? (
             <View style={styles.modeSwitch}>
               <Pressable
                 accessibilityRole="button"
@@ -1305,7 +1457,7 @@ export default function TalkTab() {
               >
                 <Ionicons
                   color={continuousSelected ? colors.text : colors.textSoft}
-                  name="radio-outline"
+                  name="mic-outline"
                   size={18}
                 />
                 <Text
@@ -1315,95 +1467,8 @@ export default function TalkTab() {
                 </Text>
               </Pressable>
             </View>
-          </>
-        ) : null}
-
-        <View
-          style={[
-            styles.statusPanel,
-            { backgroundColor: visual.panel, borderColor: visual.accent },
-            immersive && styles.statusPanelImmersive,
-          ]}
-        >
-          <View style={[styles.statusDot, { backgroundColor: visual.accent }]} />
-          <Text style={[styles.statusLabel, { color: visual.soft }]}>{statusLabel}</Text>
-          {continuousSelected ? (
-            <Text style={styles.statusHint}>
-              {t('talk.vad.hint', {
-                silenceMs: DEFAULT_VAD_CONFIG.silenceDurationMs,
-                threshold: DEFAULT_VAD_CONFIG.silenceThresholdDb,
-              })}
-            </Text>
           ) : null}
-          {!connected ? <Text style={styles.statusHint}>{t('talk.connectFirst')}</Text> : null}
-          {transcript ? <Text style={styles.transcript}>{transcript}</Text> : null}
-          {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
-
-        <Pressable
-          accessibilityLabel={
-            speaking ? t('talk.stopPlayback') : t('talk.button.accessibilityLabel')
-          }
-          accessibilityRole="button"
-          disabled={
-            errored ? false : speaking ? !connected : pushToTalkSelected ? disabled : !connected
-          }
-          onPress={
-            errored
-              ? exitTalkMode
-              : speaking
-                ? stopTalkbackPlayback
-                : pushToTalkSelected
-                  ? undefined
-                  : talkState === 'idle'
-                    ? () => void startContinuousMode()
-                    : () => void stopContinuousMode()
-          }
-          onPressIn={
-            pushToTalkSelected && !speaking && !errored ? () => void startRecording() : undefined
-          }
-          onPressOut={
-            pushToTalkSelected && !speaking && !errored ? () => void stopRecording() : undefined
-          }
-          style={({ pressed }) => [
-            styles.talkButton,
-            {
-              backgroundColor: hexToRgba(visual.accent, 0.1),
-              borderColor: hexToRgba(visual.accent, 0.4),
-            },
-            immersive && styles.talkButtonImmersive,
-            (speaking ? !connected : pushToTalkSelected ? disabled : !connected) &&
-              styles.talkButtonDisabled,
-            pressed && styles.talkButtonPressed,
-          ]}
-        >
-          <TalkOrb accent={visual.accent} immersive={immersive} kind={visual.kind}>
-            {speaking ? (
-              <Ionicons color="#05070a" name="stop" size={34} />
-            ) : talkState === 'sending' ||
-              talkState === 'waiting_for_orchestrator' ||
-              talkState === 'processing' ? (
-              <ActivityIndicator color="#05070a" />
-            ) : (
-              <Ionicons
-                color="#05070a"
-                name={visual.icon as keyof typeof Ionicons.glyphMap}
-                size={34}
-              />
-            )}
-          </TalkOrb>
-          <Text style={styles.buttonText}>
-            {speaking
-              ? t('talk.stopPlayback')
-              : errored
-                ? t('talk.exitIntercom')
-                : pushToTalkSelected
-                  ? talkState === 'recording'
-                    ? t('talk.button.release')
-                    : t('talk.button.hold')
-                  : continuousButtonLabel}
-          </Text>
-        </Pressable>
       </View>
       {neuralVadPcmProbeEnabled || neuralVadShadowEnabled ? (
         <NeuralVadPcmProbe
@@ -1418,58 +1483,93 @@ export default function TalkTab() {
 }
 
 const styles = StyleSheet.create({
-  buttonText: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '800',
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
   container: {
-    backgroundColor: colors.background,
+    backgroundColor: '#05070a',
     flex: 1,
     justifyContent: 'space-between',
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
   },
   containerImmersive: {
     backgroundColor: '#05070a',
-    justifyContent: 'center',
-    paddingVertical: spacing.lg,
   },
-  error: {
-    color: colors.error,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: spacing.sm,
-  },
-  exitButton: {
+  // top compact status pill row
+  topRow: {
     alignItems: 'center',
-    alignSelf: 'center',
-    borderColor: colors.border,
-    borderRadius: radius.sm,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    justifyContent: 'space-between',
+    minHeight: 34,
+  },
+  pill: {
+    alignItems: 'center',
+    borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: spacing.xs,
-    minHeight: 44,
-    paddingHorizontal: spacing.md,
+    gap: 7,
+    maxWidth: '62%',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
   },
-  exitButtonText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '900',
+  pillDot: {
+    borderRadius: 4,
+    height: 8,
+    width: 8,
   },
-  header: {
-    gap: spacing.xs,
-  },
-  immersiveActions: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  kicker: {
-    color: colors.accent,
+  pillLabel: {
     fontSize: 12,
     fontWeight: '800',
-    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  topMeta: {
+    color: colors.muted,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  // center: orb + activity dots
+  center: {
+    alignItems: 'center',
+    flex: 1,
+    gap: spacing.md,
+    justifyContent: 'center',
+  },
+  dotsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dot: {
+    borderRadius: 3,
+    height: 6,
+    width: 6,
+  },
+  // bottom: big state headline + subtitle + (idle) mode switch
+  bottom: {
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  headline: {
+    fontSize: 30,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  headlineSub: {
+    color: colors.muted,
+    fontSize: 13.5,
+    lineHeight: 19,
+    maxWidth: 280,
+    textAlign: 'center',
+  },
+  errorLowKey: {
+    color: colors.error,
+    fontSize: 12.5,
+    lineHeight: 17,
+    maxWidth: 280,
+    opacity: 0.85,
+    textAlign: 'center',
   },
   modeButton: {
     alignItems: 'center',
@@ -1498,47 +1598,15 @@ const styles = StyleSheet.create({
   modeSwitch: {
     flexDirection: 'row',
     gap: spacing.sm,
-  },
-  statusDot: {
-    backgroundColor: colors.accent,
-    borderRadius: 5,
-    height: 10,
-    width: 10,
-  },
-  statusHint: {
-    color: colors.warning,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  statusLabel: {
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  statusPanel: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    gap: spacing.xs,
-    padding: spacing.md,
-  },
-  statusPanelImmersive: {
-    marginBottom: spacing.lg,
-    padding: spacing.lg,
-  },
-  subtitle: {
-    color: colors.textSoft,
-    fontSize: 15,
-    lineHeight: 22,
+    marginTop: spacing.sm,
+    width: '100%',
   },
   talkButton: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: colors.accent,
-    borderColor: colors.border,
+    backgroundColor: 'transparent',
     borderRadius: 104,
-    borderWidth: 1,
+    borderWidth: 0,
     height: 208,
     justifyContent: 'center',
     width: 208,
@@ -1554,17 +1622,6 @@ const styles = StyleSheet.create({
   talkButtonPressed: {
     transform: [{ scale: 0.98 }],
   },
-  title: {
-    color: colors.text,
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  transcript: {
-    color: colors.textSoft,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: spacing.xs,
-  },
   orb: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1574,43 +1631,19 @@ const styles = StyleSheet.create({
     borderRadius: 38,
     height: 76,
     justifyContent: 'center',
-    shadowOffset: { height: 8, width: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 18,
+    shadowOffset: { height: 15, width: 0 },
+    shadowOpacity: 0.36,
+    shadowRadius: 20,
     width: 76,
     zIndex: 2,
   },
-  orbHalo: {
-    borderRadius: 999,
-    bottom: 6,
-    left: 6,
-    position: 'absolute',
-    right: 6,
-    top: 6,
-  },
   orbRing: {
-    borderRadius: 999,
     borderWidth: 2,
     position: 'absolute',
   },
   orbSpin: {
     borderColor: 'transparent',
-    borderRadius: 999,
     borderWidth: 4,
-    position: 'absolute',
-  },
-  waveBar: {
-    borderRadius: 999,
-    height: 34,
-    width: 5,
-  },
-  waveRow: {
-    alignItems: 'center',
-    bottom: 14,
-    flexDirection: 'row',
-    gap: 5,
-    height: 34,
-    justifyContent: 'center',
     position: 'absolute',
   },
 })
