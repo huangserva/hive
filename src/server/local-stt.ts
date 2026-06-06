@@ -38,7 +38,7 @@ export interface LocalSttProvider {
 
 interface LocalSttProviderOptions {
   env?: NodeJS.ProcessEnv
-  logger?: Pick<HiveLogger, 'warn'>
+  logger?: Pick<HiveLogger, 'warn'> & Partial<Pick<HiveLogger, 'info'>>
   loadSherpaOnnx?: () => Promise<SherpaOnnxRuntime>
   tempRoot?: string
   timeoutMs?: number
@@ -169,6 +169,12 @@ const SILENT_AUDIO_HALLUCINATION_PHRASES = [
   '网络中文普通话语音指令',
   '网站中文普通话语音指令',
   '中文普通话语音指令',
+] as const
+const CONSERVATIVE_GIBBERISH_TEXT_FRAGMENTS = [
+  '有没有奶',
+  '还个要',
+  '我是十那个',
+  '推荐你去牛奶',
 ] as const
 
 const isExecutable = (filePath: string) => {
@@ -356,10 +362,65 @@ export const isDefaultPromptEcho = (text: string) => {
   return tokenCoverage >= PROMPT_ECHO_TOKEN_OVERLAP_RATIO && nonPromptCharacters.length === 0
 }
 
-const isNoSpeechTranscript = (text: string) =>
-  isEmptyOrPunctuationOnlyTranscript(text) ||
-  isSilentAudioHallucination(text) ||
-  isDefaultPromptEcho(text)
+type TranscriptQualityDecision =
+  | {
+      action: 'allow'
+      metrics: Record<string, unknown>
+      reason: 'text_quality_ok'
+    }
+  | {
+      action: 'drop'
+      metrics: Record<string, unknown>
+      reason:
+        | 'conservative_gibberish_text'
+        | 'empty_or_punctuation'
+        | 'known_silent_audio_hallucination'
+        | 'prompt_echo'
+    }
+
+const findConservativeGibberishFragments = (text: string) => {
+  const normalized = normalizeTranscriptForPromptEcho(text)
+  return CONSERVATIVE_GIBBERISH_TEXT_FRAGMENTS.filter((fragment) => normalized.includes(fragment))
+}
+
+const isConservativeGibberishTranscript = (text: string) =>
+  findConservativeGibberishFragments(text).length >= 2
+
+const assessTranscriptQuality = (text: string): TranscriptQualityDecision => {
+  const normalized = normalizeTranscriptForPromptEcho(text)
+  const gibberishFragments = findConservativeGibberishFragments(text)
+  const baseMetrics = {
+    chars: normalized.length,
+    confidence_available: false,
+    gibberish_fragments: gibberishFragments,
+  }
+
+  if (isEmptyOrPunctuationOnlyTranscript(text)) {
+    return { action: 'drop', metrics: baseMetrics, reason: 'empty_or_punctuation' }
+  }
+  if (isSilentAudioHallucination(text)) {
+    return { action: 'drop', metrics: baseMetrics, reason: 'known_silent_audio_hallucination' }
+  }
+  if (isDefaultPromptEcho(text)) {
+    return { action: 'drop', metrics: baseMetrics, reason: 'prompt_echo' }
+  }
+  if (isConservativeGibberishTranscript(text)) {
+    return { action: 'drop', metrics: baseMetrics, reason: 'conservative_gibberish_text' }
+  }
+  return { action: 'allow', metrics: baseMetrics, reason: 'text_quality_ok' }
+}
+
+const logTranscriptQualityDecision = (
+  logger: LocalSttProviderOptions['logger'],
+  provider: LocalSttProviderName,
+  text: string,
+  decision: TranscriptQualityDecision
+) => {
+  const compactText = text.replace(/\s+/g, ' ').trim().slice(0, 160)
+  const message = `local STT transcript quality provider=${provider} decision=${decision.action} reason=${decision.reason} text=${JSON.stringify(compactText)} metrics=${JSON.stringify(decision.metrics)}`
+  const log = logger?.info ?? logger?.warn
+  log?.(message)
+}
 
 export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): LocalSttProvider => {
   const env = options.env ?? process.env
@@ -598,7 +659,9 @@ export const createLocalSttProvider = (options: LocalSttProviderOptions = {}): L
                 ? await runWhisperCli(cli, audioPath)
                 : await runWhisper(cli, audioPath)
           if (text) {
-            if (isNoSpeechTranscript(text)) return null
+            const decision = assessTranscriptQuality(text)
+            logTranscriptQualityDecision(options.logger, cli.provider, text, decision)
+            if (decision.action === 'drop') return null
             return { provider: cli.provider, text }
           }
         } catch (error) {

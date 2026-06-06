@@ -362,6 +362,105 @@ writeFileSync(process.argv.at(-1), 'converted wav bytes')
     await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
   })
 
+  test('drops conservative Paraformer gibberish before returning a transcript', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const binDir = setupDir('hive-stt-bin-')
+    const logger = { info: vi.fn(), warn: vi.fn() }
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        NODE_ENV: 'test',
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => ({
+        OfflineRecognizer: class {
+          createStream() {
+            return { acceptWaveFile: () => {} }
+          }
+          decode() {}
+          getResult() {
+            return { text: '你有没有奶还个要的哎我是十那个推荐你去牛奶' }
+          }
+        },
+      }),
+      logger,
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toBeNull()
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('decision=drop reason=conservative_gibberish_text')
+    )
+  })
+
+  test('allows ordinary Paraformer Chinese transcript while logging the quality decision', async () => {
+    const tempRoot = setupDir('hive-stt-tmp-')
+    const modelDir = setupDir('hive-stt-paraformer-')
+    const audioPath = join(tempRoot, 'voice.wav')
+    const model = join(modelDir, 'model.onnx')
+    const tokens = join(modelDir, 'tokens.txt')
+    const binDir = setupDir('hive-stt-bin-')
+    const logger = { info: vi.fn(), warn: vi.fn() }
+    writeFileSync(model, 'paraformer model')
+    writeFileSync(tokens, 'tokens')
+    writeFileSync(audioPath, 'audio bytes')
+    writeExecutable(
+      binDir,
+      'ffmpeg',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+writeFileSync(process.argv.at(-1), 'converted wav bytes')
+`)
+    )
+
+    const provider = createLocalSttProvider({
+      env: {
+        HIVE_STT_PARAFORMER_MODEL: model,
+        HIVE_STT_PARAFORMER_TOKENS: tokens,
+        NODE_ENV: 'test',
+        PATH: binDir,
+      },
+      loadSherpaOnnx: async () => ({
+        OfflineRecognizer: class {
+          createStream() {
+            return { acceptWaveFile: () => {} }
+          }
+          decode() {}
+          getResult() {
+            return { text: '让关羽汇报一下 WebRTC 通话进度' }
+          }
+        },
+      }),
+      logger,
+      tempRoot,
+    })
+
+    await expect(provider.transcribeAudioFile(audioPath)).resolves.toEqual({
+      provider: 'paraformer',
+      text: '让关羽汇报一下 WebRTC 通话进度',
+    })
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('decision=allow reason=text_quality_ok')
+    )
+  })
+
   test('reuses the Paraformer recognizer across repeated transcriptions for the same model', async () => {
     const tempRoot = setupDir('hive-stt-tmp-')
     const modelDir = setupDir('hive-stt-paraformer-')
