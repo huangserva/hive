@@ -105,7 +105,12 @@ vi.mock('expo-audio', () => ({
       web: {},
     },
   },
-  requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
+  getRecordingPermissionsAsync: vi
+    .fn()
+    .mockResolvedValue({ canAskAgain: true, expires: 'never', granted: true, status: 'granted' }),
+  requestRecordingPermissionsAsync: vi
+    .fn()
+    .mockResolvedValue({ canAskAgain: true, expires: 'never', granted: true, status: 'granted' }),
   setAudioModeAsync: audioMock.setAudioModeAsync,
   useAudioPlayer: vi.fn((_source: unknown, options?: { updateInterval?: number }) =>
     options?.updateInterval === 100 ? audioMock.player : audioMock.cuePlayer

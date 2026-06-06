@@ -108,7 +108,12 @@ vi.mock('expo-audio', () => ({
       web: {},
     },
   },
-  requestRecordingPermissionsAsync: vi.fn().mockResolvedValue({ granted: true }),
+  getRecordingPermissionsAsync: vi
+    .fn()
+    .mockResolvedValue({ canAskAgain: true, expires: 'never', granted: true, status: 'granted' }),
+  requestRecordingPermissionsAsync: vi
+    .fn()
+    .mockResolvedValue({ canAskAgain: true, expires: 'never', granted: true, status: 'granted' }),
   setAudioModeAsync: audioMock.setAudioModeAsync,
   useAudioPlayer: vi.fn((_source: unknown, options?: { updateInterval?: number }) =>
     options?.updateInterval === 100 ? audioMock.player : audioMock.cuePlayer
@@ -262,7 +267,24 @@ vi.mock('../src/api/mobile-runtime-context', () => ({
   useMobileRuntime: () => runtime,
 }))
 
+import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from 'expo-audio'
 import TalkTab from '../app/(tabs)/talk'
+
+const getRecordingPermissionsAsyncMock = vi.mocked(getRecordingPermissionsAsync)
+const requestRecordingPermissionsAsyncMock = vi.mocked(requestRecordingPermissionsAsync)
+type RecordingPermissionResponse = Awaited<ReturnType<typeof getRecordingPermissionsAsync>>
+const grantedRecordingPermission = {
+  canAskAgain: true,
+  expires: 'never',
+  granted: true,
+  status: 'granted',
+} as unknown as RecordingPermissionResponse
+const deniedRecordingPermission = {
+  canAskAgain: false,
+  expires: 'never',
+  granted: false,
+  status: 'denied',
+} as unknown as RecordingPermissionResponse
 
 const flush = () => act(async () => {})
 
@@ -349,9 +371,24 @@ describe('TalkTab continuous mode behavior', () => {
       isLoaded: false,
     })
     audioMock.recorder.getStatus.mockClear()
-    audioMock.recorder.prepareToRecordAsync.mockClear()
-    audioMock.recorder.record.mockClear()
-    audioMock.recorder.stop.mockClear()
+    audioMock.recorder.prepareToRecordAsync.mockReset()
+    audioMock.recorder.prepareToRecordAsync.mockImplementation(async () => {
+      if (audioMock.recorderStatus.canRecord) {
+        throw new Error('AudioRecorder has already been prepared')
+      }
+      audioMock.recorderStatus.canRecord = true
+      audioMock.recorderStatus.url = 'file://recording.m4a'
+    })
+    audioMock.recorder.record.mockReset()
+    audioMock.recorder.record.mockImplementation(() => {
+      audioMock.recorderStatus.isRecording = true
+    })
+    audioMock.recorder.stop.mockReset()
+    audioMock.recorder.stop.mockImplementation(async () => {
+      audioMock.recorderStatus.isRecording = false
+      audioMock.recorderStatus.canRecord = false
+      audioMock.recorderStatus.url = 'file://recording.m4a'
+    })
     audioMock.stream.start.mockClear()
     audioMock.stream.stop.mockClear()
     audioMock.player.pause.mockClear()
@@ -363,6 +400,10 @@ describe('TalkTab continuous mode behavior', () => {
     audioMock.cuePlayer.remove.mockClear()
     audioMock.cuePlayer.replace.mockClear()
     audioMock.setAudioModeAsync.mockClear()
+    getRecordingPermissionsAsyncMock.mockReset()
+    getRecordingPermissionsAsyncMock.mockResolvedValue(grantedRecordingPermission)
+    requestRecordingPermissionsAsyncMock.mockReset()
+    requestRecordingPermissionsAsyncMock.mockResolvedValue(grantedRecordingPermission)
     sileroMock.score.mockClear()
     sileroMock.score.mockResolvedValue(null)
     sileroMock.scores = []
@@ -381,7 +422,7 @@ describe('TalkTab continuous mode behavior', () => {
     runtime.transcribeVoice = vi.fn().mockResolvedValue('turn on diagnostics')
   })
 
-  test('stops continuous recording after a failed segment and exposes an exit action', async () => {
+  test('recovers continuous mode after a non-fatal segment failure without entering error', async () => {
     runtime.transcribeVoice = vi.fn().mockRejectedValue(new Error('stt failed'))
     const view = render(React.createElement(TalkTab))
     fireEvent.click(screen.getByText('talk.mode.continuous'))
@@ -389,16 +430,60 @@ describe('TalkTab continuous mode behavior', () => {
 
     await finishCurrentPhrase(view)
 
-    await waitFor(() => expect(screen.getByText('stt failed')).toBeTruthy())
-    // Redesign has no exit button: the orb itself exits from the error state.
-    expect(screen.getByText('talk.state.error')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('talk.state.listening')).toBeTruthy())
+    expect(screen.queryByText('stt failed')).toBeNull()
+    expect(screen.queryByText('talk.state.error')).toBeNull()
     expect(audioMock.recorder.stop).toHaveBeenCalled()
-    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
-    expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
+    expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
+    expect(audioMock.recorder.record).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/talk\.mode\.continuous/)).toBeTruthy()
+  })
 
-    fireEvent.click(screen.getByTestId('talk-orb'))
-    await waitFor(() => expect(screen.getByText('talk.state.idle')).toBeTruthy())
-    expect(screen.getByText('talk.mode.continuous')).toBeTruthy()
+  test('does not request microphone permission again when it is already granted', async () => {
+    render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+
+    expect(getRecordingPermissionsAsyncMock).toHaveBeenCalledTimes(1)
+    expect(requestRecordingPermissionsAsyncMock).not.toHaveBeenCalled()
+  })
+
+  test('stops retrying continuous recorder startup after repeated non-fatal failures', async () => {
+    const startError = new Error('native prepare failed')
+    audioMock.recorder.prepareToRecordAsync
+      .mockRejectedValueOnce(startError)
+      .mockRejectedValueOnce(startError)
+      .mockRejectedValueOnce(startError)
+
+    vi.useFakeTimers()
+    try {
+      render(React.createElement(TalkTab))
+      fireEvent.click(screen.getByText('talk.mode.continuous'))
+
+      await act(async () => {})
+      expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
+      expect(screen.getByText('talk.state.listening')).toBeTruthy()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(3)
+      expect(screen.getByText('talk.state.error')).toBeTruthy()
+      expect(screen.getByText('native prepare failed')).toBeTruthy()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('does not render internal voice stream test controls in the production talk UI', () => {
@@ -648,6 +733,9 @@ describe('TalkTab continuous mode behavior', () => {
     fireEvent.click(screen.getByTestId('talk-exit'))
     await waitFor(() => expect(screen.getByText('talk.state.idle')).toBeTruthy())
     expect(audioMock.recorder.stop).toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('talk-orb'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(2))
   })
 
   test('push-to-talk records from an already prepared recorder without preparing again', async () => {
@@ -679,7 +767,7 @@ describe('TalkTab continuous mode behavior', () => {
     expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalled()
   })
 
-  test('does not prepare a new continuous segment when stopping the previous one fails', async () => {
+  test('recovers to listening when stopping a continuous segment fails', async () => {
     audioMock.recorder.stop.mockImplementationOnce(async () => {
       throw new Error('native stop failed')
     })
@@ -690,7 +778,8 @@ describe('TalkTab continuous mode behavior', () => {
     await finishCurrentPhrase(view)
     await flush()
 
-    expect(screen.getByText('native stop failed')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('talk.state.listening')).toBeTruthy())
+    expect(screen.queryByText('native stop failed')).toBeNull()
     expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1)
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
   })
@@ -804,6 +893,34 @@ describe('TalkTab continuous mode behavior', () => {
     await act(async () => {})
     expect(audioMock.recorder.record).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+
+  test('continues playback when barge-in recorder startup fails', async () => {
+    getRecordingPermissionsAsyncMock
+      .mockResolvedValueOnce(grantedRecordingPermission)
+      .mockResolvedValueOnce(deniedRecordingPermission)
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'reply still plays' }),
+        created_at: 2,
+        id: 'soft-barge-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
+    expect(screen.queryByText('talk.state.error')).toBeNull()
+    expect(audioMock.setAudioModeAsync).toHaveBeenCalledWith({
+      allowsRecording: false,
+      playsInSilentMode: true,
+    })
   })
 
   test('uses Xiaoxiao voice for GLM fast replies and Yunxi voice for orchestrator replies', async () => {

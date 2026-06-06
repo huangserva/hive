@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons'
 import {
   type AudioRecorder,
   type AudioStreamBuffer,
+  getRecordingPermissionsAsync,
   type RecorderState,
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -83,8 +84,16 @@ import {
 import { colors, radius, spacing } from '../../src/theme'
 
 type TalkInputMode = 'push_to_talk' | 'continuous'
+type RecordingPermissionDebug = {
+  canAskAgain?: boolean
+  granted?: boolean
+  status?: string
+}
+type TalkError = Error & { fatalTalkError?: boolean }
 
 const TALKBACK_REPLY_IDLE_TIMEOUT_MS = 3500
+const MAX_CONTINUOUS_RECORDER_START_SOFT_FAILURES = 2
+const CONTINUOUS_RECORDER_START_RETRY_DELAY_MS = 1000
 const BARGE_IN_VAD_CONFIG = {
   ...DEFAULT_VAD_CONFIG,
   confirmedSpeechMarginDb: 25,
@@ -187,6 +196,20 @@ const TALK_CUE_AUDIO_URIS: Record<TalkAudioCue, string> = {
   listen: buildToneCueUri(720, 1040, 180),
   network: buildToneCueUri(360, 540, 160),
   process: buildToneCueUri(440, 260, 180),
+}
+
+const createTalkError = (message: string, options: { fatal?: boolean } = {}) => {
+  const error = new Error(message) as TalkError
+  if (options.fatal) error.fatalTalkError = true
+  return error
+}
+
+const isFatalTalkError = (error: unknown) =>
+  error instanceof Error && (error as TalkError).fatalTalkError === true
+
+const summarizePermission = (permission?: RecordingPermissionDebug) => {
+  if (!permission) return 'none'
+  return `granted=${permission.granted ? '1' : '0'} canAskAgain=${permission.canAskAgain ? '1' : '0'} status=${permission.status ?? 'unknown'}`
 }
 
 const playHapticCue = async (cue: TalkHapticCue) => {
@@ -584,6 +607,8 @@ export default function TalkTab() {
   const inputModeRef = useRef<TalkInputMode>('continuous')
   const continuousEnabledRef = useRef(false)
   const processingSegmentRef = useRef(false)
+  const continuousRecorderStartFailureCountRef = useRef(0)
+  const continuousRecorderRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
   const neuralVadStateRef = useRef<NeuralVoiceVadState>(createInitialNeuralVoiceVadState())
   const neuralVoiceSegmentQualityRef = useRef<NeuralVoiceSegmentQualityState>(
@@ -595,6 +620,11 @@ export default function TalkTab() {
   const bargeInSpeechStartSampleCountRef = useRef(0)
   const recorderRef = useRef<AudioRecorder>(recorder)
   const recordingActiveRef = useRef(false)
+  const latestAudioModeDebugRef = useRef<'idle' | 'playback' | 'recording'>('idle')
+  const latestPermissionDebugRef = useRef<{
+    get?: RecordingPermissionDebug
+    request?: RecordingPermissionDebug
+  }>({})
   const activePlaybackReplyIdRef = useRef<string | null>(null)
   const chatMessagesRef = useRef(chatMessages)
   const lastSpokenReplyIdRef = useRef<string | null>(null)
@@ -627,6 +657,23 @@ export default function TalkTab() {
       setError(null)
     }
   }, [])
+
+  const logTalkErrorDebug = useCallback(
+    (
+      phase: 'playback' | 'process_segment' | 'start_recorder',
+      error: unknown,
+      extra: Record<string, string | number | boolean | null | undefined> = {}
+    ) => {
+      const fields = Object.entries(extra)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(' ')
+      console.log(
+        `[TALKERRDBG] phase=${phase} talk=${talkStateRef.current} input=${inputModeRef.current} recording_active=${recordingActiveRef.current ? '1' : '0'} processing=${processingSegmentRef.current ? '1' : '0'} audio_mode=${latestAudioModeDebugRef.current} permission_get="${summarizePermission(latestPermissionDebugRef.current.get)}" permission_request="${summarizePermission(latestPermissionDebugRef.current.request)}" fatal=${isFatalTalkError(error) ? '1' : '0'} error="${error instanceof Error ? error.message : String(error)}"${fields ? ` ${fields}` : ''}`
+      )
+    },
+    []
+  )
 
   const playTalkCue = useCallback(
     (cue: TalkCue | null) => {
@@ -666,6 +713,13 @@ export default function TalkTab() {
   const clearReplyRoundFinishTimer = useCallback(() => {
     if (replyRoundFinishTimerRef.current) clearTimeout(replyRoundFinishTimerRef.current)
     replyRoundFinishTimerRef.current = null
+  }, [])
+
+  const clearContinuousRecorderRetryTimer = useCallback(() => {
+    if (continuousRecorderRetryTimerRef.current) {
+      clearTimeout(continuousRecorderRetryTimerRef.current)
+    }
+    continuousRecorderRetryTimerRef.current = null
   }, [])
 
   const resetReplyQueueForPrompt = useCallback(() => {
@@ -739,25 +793,39 @@ export default function TalkTab() {
     return () => {
       replyQueueGenerationRef.current += 1
       clearReplyRoundFinishTimer()
+      clearContinuousRecorderRetryTimer()
       if (recordingActiveRef.current) void recorder.stop().catch(() => {})
       player.pause()
       cuePlayer.pause()
       player.remove()
       cuePlayer.remove()
     }
-  }, [clearReplyRoundFinishTimer, cuePlayer, player, recorder])
+  }, [clearContinuousRecorderRetryTimer, clearReplyRoundFinishTimer, cuePlayer, player, recorder])
 
   const startRecorderSegment = useCallback(
     async (targetRecorder: AudioRecorder = recorderRef.current) => {
-      const permission = await requestRecordingPermissionsAsync()
+      latestPermissionDebugRef.current = {}
+      let permission = await getRecordingPermissionsAsync()
+      latestPermissionDebugRef.current.get = permission
+      console.log(
+        `[TALKERRDBG] phase=start_recorder step=permission_get ${summarizePermission(permission)}`
+      )
+      if (!permission.granted && permission.canAskAgain) {
+        permission = await requestRecordingPermissionsAsync()
+        latestPermissionDebugRef.current.request = permission
+        console.log(
+          `[TALKERRDBG] phase=start_recorder step=permission_request ${summarizePermission(permission)}`
+        )
+      }
       if (!permission.granted) {
-        throw new Error(t('talk.error.microphoneDenied'))
+        throw createTalkError(t('talk.error.microphoneDenied'), { fatal: true })
       }
       player.pause()
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
       })
+      latestAudioModeDebugRef.current = 'recording'
       let status = targetRecorder.getStatus()
       if (status.isRecording) {
         if (recordingActiveRef.current) return
@@ -791,6 +859,7 @@ export default function TalkTab() {
           allowsRecording: false,
           playsInSilentMode: true,
         })
+        latestAudioModeDebugRef.current = 'playback'
         if (nextStateOnError === 'listening' && !vadStateRef.current.hadRealSpeech) {
           resetReplyQueueForPrompt()
           dispatchTalkEvent({ type: 'reset' })
@@ -829,6 +898,13 @@ export default function TalkTab() {
         }
         dispatchTalkEvent({ type: 'promptQueued' })
       } catch (sendError) {
+        logTalkErrorDebug('process_segment', sendError, { next_state: nextStateOnError })
+        if (nextStateOnError === 'listening' && !isFatalTalkError(sendError)) {
+          resetReplyQueueForPrompt()
+          dispatchTalkEvent({ type: 'reset' })
+          if (continuousEnabledRef.current) dispatchTalkEvent({ type: 'continuousStart' })
+          return
+        }
         dispatchTalkEvent({
           message: sendError instanceof Error ? sendError.message : String(sendError),
           type: 'failed',
@@ -847,6 +923,7 @@ export default function TalkTab() {
     [
       dispatchTalkEvent,
       finalizePendingTalkbackBaseline,
+      logTalkErrorDebug,
       resetReplyQueueForPrompt,
       sendPromptToOrchestratorWithOutcome,
       t,
@@ -966,16 +1043,53 @@ export default function TalkTab() {
       vadStateRef.current = createInitialVoiceVadState()
       resetNeuralVadDecision()
       await startRecorderSegment()
+      continuousRecorderStartFailureCountRef.current = 0
+      clearContinuousRecorderRetryTimer()
     } catch (recordError) {
-      continuousEnabledRef.current = false
-      setInputMode('push_to_talk')
+      logTalkErrorDebug('start_recorder', recordError, { step: 'continuous_start' })
       recordingActiveRef.current = false
+      if (!isFatalTalkError(recordError)) {
+        continuousRecorderStartFailureCountRef.current += 1
+        if (
+          continuousRecorderStartFailureCountRef.current >
+          MAX_CONTINUOUS_RECORDER_START_SOFT_FAILURES
+        ) {
+          clearContinuousRecorderRetryTimer()
+          continuousEnabledRef.current = false
+          dispatchTalkEvent({
+            message: recordError instanceof Error ? recordError.message : String(recordError),
+            type: 'failed',
+          })
+          return
+        }
+        if (!continuousRecorderRetryTimerRef.current) {
+          continuousRecorderRetryTimerRef.current = setTimeout(() => {
+            continuousRecorderRetryTimerRef.current = null
+            if (continuousEnabledRef.current && !recordingActiveRef.current) {
+              setContinuousRunnerTick((current) => current + 1)
+            }
+          }, CONTINUOUS_RECORDER_START_RETRY_DELAY_MS)
+        }
+        dispatchTalkEvent({ type: 'reset' })
+        if (continuousEnabledRef.current) {
+          dispatchTalkEvent({ type: 'continuousStart' })
+        }
+        return
+      }
+      continuousEnabledRef.current = false
+      clearContinuousRecorderRetryTimer()
       dispatchTalkEvent({
         message: recordError instanceof Error ? recordError.message : String(recordError),
         type: 'failed',
       })
     }
-  }, [dispatchTalkEvent, resetNeuralVadDecision, startRecorderSegment])
+  }, [
+    clearContinuousRecorderRetryTimer,
+    dispatchTalkEvent,
+    logTalkErrorDebug,
+    resetNeuralVadDecision,
+    startRecorderSegment,
+  ])
 
   useEffect(() => {
     if (
@@ -1072,12 +1186,13 @@ export default function TalkTab() {
       await startRecorderSegment()
     } catch (recordError) {
       recordingActiveRef.current = false
+      logTalkErrorDebug('start_recorder', recordError, { step: 'push_to_talk_start' })
       dispatchTalkEvent({
         message: recordError instanceof Error ? recordError.message : String(recordError),
         type: 'failed',
       })
     }
-  }, [dispatchTalkEvent, enableTalkbackPlayback, startRecorderSegment])
+  }, [dispatchTalkEvent, enableTalkbackPlayback, logTalkErrorDebug, startRecorderSegment])
 
   const stopRecording = useCallback(async () => {
     if (!recordingActiveRef.current || talkStateRef.current !== 'recording') return
@@ -1091,35 +1206,49 @@ export default function TalkTab() {
     setTranscript('')
     setError(null)
     enableTalkbackPlayback()
+    continuousRecorderStartFailureCountRef.current = 0
+    clearContinuousRecorderRetryTimer()
     continuousEnabledRef.current = true
     dispatchTalkEvent({ type: 'continuousStart' })
-  }, [connected, dispatchTalkEvent, enableTalkbackPlayback])
+  }, [clearContinuousRecorderRetryTimer, connected, dispatchTalkEvent, enableTalkbackPlayback])
 
-  const stopContinuousMode = useCallback(async () => {
-    const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
-    if (interruptedReplyId) spokenReplyIdsRef.current.add(interruptedReplyId)
-    continuousEnabledRef.current = false
-    processingSegmentRef.current = false
-    resetReplyQueueForPrompt()
-    resetNeuralVadDecision()
-    bargeInSpeechStartSampleCountRef.current = 0
-    vadStateRef.current = createInitialVoiceVadState()
-    setInputMode('push_to_talk')
-    dispatchTalkEvent({ type: 'continuousStop' })
-    if (recordingActiveRef.current) {
-      recordingActiveRef.current = false
-      await recorderRef.current.stop().catch(() => {})
-    }
-    activePlaybackReplyIdRef.current = null
-    player.pause()
-    await setAudioModeAsync({
-      allowsRecording: false,
-      playsInSilentMode: true,
-    }).catch(() => {})
-  }, [dispatchTalkEvent, player, resetNeuralVadDecision, resetReplyQueueForPrompt])
+  const stopContinuousMode = useCallback(
+    async (options: { preserveMode?: boolean } = {}) => {
+      const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
+      if (interruptedReplyId) spokenReplyIdsRef.current.add(interruptedReplyId)
+      continuousEnabledRef.current = false
+      processingSegmentRef.current = false
+      continuousRecorderStartFailureCountRef.current = 0
+      clearContinuousRecorderRetryTimer()
+      resetReplyQueueForPrompt()
+      resetNeuralVadDecision()
+      bargeInSpeechStartSampleCountRef.current = 0
+      vadStateRef.current = createInitialVoiceVadState()
+      if (!options.preserveMode) setInputMode('push_to_talk')
+      dispatchTalkEvent({ type: 'continuousStop' })
+      if (recordingActiveRef.current) {
+        recordingActiveRef.current = false
+        await recorderRef.current.stop().catch(() => {})
+      }
+      activePlaybackReplyIdRef.current = null
+      player.pause()
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => {})
+      latestAudioModeDebugRef.current = 'idle'
+    },
+    [
+      clearContinuousRecorderRetryTimer,
+      dispatchTalkEvent,
+      player,
+      resetNeuralVadDecision,
+      resetReplyQueueForPrompt,
+    ]
+  )
 
   const exitTalkMode = useCallback(() => {
-    void stopContinuousMode()
+    void stopContinuousMode({ preserveMode: true })
   }, [stopContinuousMode])
 
   const stopTalkbackPlayback = useCallback(() => {
@@ -1150,7 +1279,8 @@ export default function TalkTab() {
       !continuousEnabledRef.current ||
       talkState !== 'listening' ||
       recordingActiveRef.current ||
-      processingSegmentRef.current
+      processingSegmentRef.current ||
+      continuousRecorderRetryTimerRef.current
     ) {
       return
     }
@@ -1221,12 +1351,31 @@ export default function TalkTab() {
         if (keepRecordingForBargeIn) {
           vadStateRef.current = createInitialVoiceVadState()
           resetNeuralVadDecision()
-          await startRecorderSegment()
+          try {
+            await startRecorderSegment()
+          } catch (bargeInRecorderError) {
+            recordingActiveRef.current = false
+            logTalkErrorDebug('start_recorder', bargeInRecorderError, {
+              soft: true,
+              step: 'barge_in_playback_start',
+            })
+            await setAudioModeAsync({
+              allowsRecording: false,
+              playsInSilentMode: true,
+            }).catch((audioModeError: unknown) => {
+              logTalkErrorDebug('playback', audioModeError, {
+                soft: true,
+                step: 'barge_in_fallback_audio_mode',
+              })
+            })
+            latestAudioModeDebugRef.current = 'playback'
+          }
         } else {
           await setAudioModeAsync({
             allowsRecording: false,
             playsInSilentMode: true,
           })
+          latestAudioModeDebugRef.current = 'playback'
         }
         if (!playbackStillCurrent()) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
@@ -1241,6 +1390,17 @@ export default function TalkTab() {
         }
         inFlightReplyIdRef.current = null
         activePlaybackReplyIdRef.current = null
+        logTalkErrorDebug('playback', playError, { reply_id: reply.id })
+        if (!isFatalTalkError(playError)) {
+          spokenReplyIdsRef.current.add(reply.id)
+          const continueListening =
+            inputModeRef.current === 'continuous' && continuousEnabledRef.current
+          dispatchTalkEvent({ continueListening, type: 'playbackFinished' })
+          if (continueListening && !recordingActiveRef.current && !processingSegmentRef.current) {
+            setContinuousRunnerTick((current) => current + 1)
+          }
+          return
+        }
         dispatchTalkEvent({
           message: playError instanceof Error ? playError.message : String(playError),
           type: 'failed',
@@ -1254,6 +1414,7 @@ export default function TalkTab() {
     isTalkbackPlaybackAllowed,
     player,
     isBargeInListeningAllowed,
+    logTalkErrorDebug,
     startRecorderSegment,
     synthesizeVoice,
     synthesizeVoiceStream,
