@@ -70,7 +70,9 @@ export default function RootLayout() {
               <NotificationBridge />
               <OfflineBanner />
               <StatusBar style="light" />
-              <Stack screenOptions={{ headerShown: false }} />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="call" options={{ presentation: 'fullScreenModal' }} />
+              </Stack>
             </MobileRuntimeProvider>
           </ErrorBoundary>
         </LanguageProvider>

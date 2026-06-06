@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 // @ts-expect-error This test must share the root React instance used by @testing-library/react.
 vi.mock('react', async () => await import('../../../node_modules/react/index.js'))
 vi.mock('expo-constants', () => ({ default: { expoConfig: { extra: {} } } }))
+vi.mock('expo-router', () => ({ useRouter: () => ({ back: vi.fn(), push: vi.fn() }) }))
 
 type RecordingStatus = {
   canRecord: boolean

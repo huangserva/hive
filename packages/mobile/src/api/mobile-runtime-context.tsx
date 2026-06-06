@@ -112,9 +112,11 @@ export type WebRtcTestCallState =
   | { callId: string; remoteAudioTrackCount: number; status: 'connected' }
   | { reason: string; status: 'error' }
 
+type WebRtcAudioSender = { track?: { enabled?: boolean; kind?: string } | null } | null
 type WebRtcCallerSession = {
   callId: string
   close: () => void
+  peerConnection?: unknown
   waitForConnected: (timeoutMs?: number) => Promise<void>
 }
 
@@ -169,6 +171,7 @@ interface MobileRuntimeContextValue {
   ) => Promise<ChatSendOutcome>
   setHost: (host: string) => void
   setToken: (token: string) => void
+  setWebRtcCallMuted: (muted: boolean) => boolean
   startWebRtcTestCall: () => Promise<WebRtcConnectionProbeResult>
   state: MobileRuntimeState
   stopWebRtcTestCall: () => void
@@ -1087,6 +1090,27 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     console.log('[WEBRTCDBG] test_call_closed')
   }, [])
 
+  // Mute / unmute the local uplink by toggling the audio sender track's `enabled`
+  // flag (canonical WebRTC mute — keeps the call up, sends silence). Returns
+  // whether an audio track was found to apply it to. Call-page only; the talk
+  // page does not use this.
+  const setWebRtcCallMuted = useCallback((muted: boolean): boolean => {
+    const peerConnection = webRtcTestCallSessionRef.current?.peerConnection as
+      | { getSenders?: () => WebRtcAudioSender[] }
+      | undefined
+    const senders = peerConnection?.getSenders?.() ?? []
+    let applied = false
+    for (const sender of senders) {
+      const track = sender?.track
+      if (track && track.kind === 'audio') {
+        track.enabled = !muted
+        applied = true
+      }
+    }
+    console.log('[WEBRTCDBG] test_call_mute', { applied, muted })
+    return applied
+  }, [])
+
   const startWebRtcTestCall = useCallback(async (): Promise<WebRtcConnectionProbeResult> => {
     const transport = observedRelayTransportRef.current
     if (!transport || transport.status() !== 'ready') {
@@ -1683,6 +1707,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       sendPromptToOrchestratorWithOutcome,
       setHost,
       setToken,
+      setWebRtcCallMuted,
       startWebRtcTestCall,
       state: demoMode ? 'connected' : state,
       stopWebRtcTestCall,
@@ -1732,6 +1757,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       selectedWorkspaceId,
       sendPromptToOrchestrator,
       sendPromptToOrchestratorWithOutcome,
+      setWebRtcCallMuted,
       startWebRtcTestCall,
       state,
       stopWebRtcTestCall,
