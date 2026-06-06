@@ -5,10 +5,12 @@ import {
   assessNeuralVoiceSegmentQuality,
   createInitialNeuralVoiceSegmentQualityState,
   createInitialNeuralVoiceVadState,
+  DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG,
   DEFAULT_NEURAL_VOICE_VAD_CONFIG,
   type NeuralVoiceVadEvent,
   type NeuralVoiceVadState,
   recordNeuralVoiceSegmentQualitySample,
+  shouldTriggerBargeInVolumeOverride,
   shouldUseVolumeVadFallback,
 } from '../src/lib/neural-voice-vad'
 
@@ -184,6 +186,45 @@ describe('neural voice VAD decision logic', () => {
         nowMs: 1_000,
       })
     ).toBe(true)
+  })
+
+  test('keeps neural-recent volume override quiet for echo-level playback audio', () => {
+    expect(
+      shouldTriggerBargeInVolumeOverride({
+        baselineDb: -50,
+        meteringDb: -50,
+      }).shouldOverride
+    ).toBe(false)
+    expect(
+      shouldTriggerBargeInVolumeOverride({
+        baselineDb: -50,
+        meteringDb: -35,
+      }).shouldOverride
+    ).toBe(false)
+  })
+
+  test('allows loud user interjection to override neural-recent suppression', () => {
+    const decision = shouldTriggerBargeInVolumeOverride({
+      baselineDb: -50,
+      meteringDb: -2,
+    })
+
+    expect(decision.shouldOverride).toBe(true)
+    expect(decision.absolute).toBe(true)
+  })
+
+  test('allows relative volume override thresholds to be tuned', () => {
+    const decision = shouldTriggerBargeInVolumeOverride({
+      baselineDb: -34,
+      config: {
+        ...DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG,
+        relativeThresholdDb: 10,
+      },
+      meteringDb: -22,
+    })
+
+    expect(decision.shouldOverride).toBe(true)
+    expect(decision.relative).toBe(true)
   })
 
   test('drops low quality neural voice segments before STT upload', () => {

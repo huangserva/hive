@@ -15,8 +15,26 @@ export const DEFAULT_NEURAL_VOICE_SEGMENT_QUALITY_CONFIG = {
   minHighProbabilityRatio: 0.2,
 } as const
 
+export const DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG = {
+  absoluteThresholdDb: -12,
+  minRelativeBaselineDb: -45,
+  relativeThresholdDb: 22,
+} as const
+
 export type NeuralVoiceVadConfig = {
   [Key in keyof typeof DEFAULT_NEURAL_VOICE_VAD_CONFIG]: number
+}
+
+export type BargeInVolumeOverrideConfig = {
+  [Key in keyof typeof DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG]: number
+}
+
+export type BargeInVolumeOverrideDecision = {
+  absolute: boolean
+  baselineDb: number | null
+  deltaDb: number | null
+  relative: boolean
+  shouldOverride: boolean
 }
 
 export type NeuralVoiceVadMode = 'continuous' | 'barge_in'
@@ -166,6 +184,40 @@ export const shouldUseVolumeVadFallback = ({
   !neuralEnabled ||
   latestNeuralSampleAtMs === null ||
   nowMs - latestNeuralSampleAtMs > config.neuralFreshnessMs
+
+export const shouldTriggerBargeInVolumeOverride = ({
+  baselineDb,
+  config = DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG,
+  meteringDb,
+}: {
+  baselineDb: number | null
+  config?: BargeInVolumeOverrideConfig
+  meteringDb: number | null
+}): BargeInVolumeOverrideDecision => {
+  if (meteringDb === null || !Number.isFinite(meteringDb)) {
+    return {
+      absolute: false,
+      baselineDb,
+      deltaDb: null,
+      relative: false,
+      shouldOverride: false,
+    }
+  }
+
+  const absolute = meteringDb >= config.absoluteThresholdDb
+  const canUseRelative =
+    baselineDb !== null && Number.isFinite(baselineDb) && baselineDb >= config.minRelativeBaselineDb
+  const deltaDb = canUseRelative ? meteringDb - baselineDb : null
+  const relative = deltaDb !== null && deltaDb >= config.relativeThresholdDb
+
+  return {
+    absolute,
+    baselineDb,
+    deltaDb,
+    relative,
+    shouldOverride: absolute || relative,
+  }
+}
 
 export const recordNeuralVoiceSegmentQualitySample = (
   state: NeuralVoiceSegmentQualityState,

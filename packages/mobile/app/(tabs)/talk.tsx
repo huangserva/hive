@@ -50,9 +50,11 @@ import {
   buildNeuralVoiceVadDebugLine,
   createInitialNeuralVoiceSegmentQualityState,
   createInitialNeuralVoiceVadState,
+  DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG,
   type NeuralVoiceSegmentQualityState,
   type NeuralVoiceVadState,
   recordNeuralVoiceSegmentQualitySample,
+  shouldTriggerBargeInVolumeOverride,
   shouldUseVolumeVadFallback,
 } from '../../src/lib/neural-voice-vad'
 import {
@@ -102,6 +104,7 @@ const BARGE_IN_VAD_CONFIG = {
 }
 const BARGE_IN_SPEECH_START_SAMPLE_COUNT = 3
 const BARGE_IN_METERING_FRESHNESS_MS = 500
+const BARGE_IN_VOLUME_OVERRIDE_CONFIG = DEFAULT_BARGE_IN_VOLUME_OVERRIDE_CONFIG
 const NEURAL_VAD_DEAD_PCM_RMS_THRESHOLD = 0.0001
 const TALK_HAPTICS_ENABLED = process.env.EXPO_PUBLIC_TALK_HAPTICS_ENABLED !== '0'
 const TALK_AUDIO_CUES_ENABLED = process.env.EXPO_PUBLIC_TALK_AUDIO_CUES_ENABLED !== '0'
@@ -117,6 +120,15 @@ const isVoiceSynthesisResult = (value: unknown): value is MobileVoiceSynthesisRe
   value !== null &&
   typeof (value as MobileVoiceSynthesisResult).audio === 'string' &&
   typeof (value as MobileVoiceSynthesisResult).mime === 'string'
+
+const formatBargeInDb = (value: number | null) =>
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : 'null'
+
+const updateBargeInEchoBaselineDb = (current: number | null, metering: number | null) => {
+  if (metering === null || !Number.isFinite(metering)) return current
+  if (current === null || !Number.isFinite(current)) return metering
+  return Math.max(current, metering)
+}
 
 const latestOrchestratorReplyId = (
   messages: Array<{ created_at: number; id: string; message_type: string }>
@@ -617,6 +629,7 @@ export default function TalkTab() {
   const latestUsableNeuralSampleAtMsRef = useRef<number | null>(null)
   const latestMeteringRef = useRef<number | null>(null)
   const latestMeteringAtMsRef = useRef<number | null>(null)
+  const bargeInEchoBaselineDbRef = useRef<number | null>(null)
   const bargeInSpeechStartSampleCountRef = useRef(0)
   const recorderRef = useRef<AudioRecorder>(recorder)
   const recordingActiveRef = useRef(false)
@@ -725,6 +738,7 @@ export default function TalkTab() {
   const resetReplyQueueForPrompt = useCallback(() => {
     replyQueueGenerationRef.current += 1
     bargeInSpeechStartSampleCountRef.current = 0
+    bargeInEchoBaselineDbRef.current = null
     clearReplyRoundFinishTimer()
     activePlaybackReplyIdRef.current = null
     inFlightReplyIdRef.current = null
@@ -756,6 +770,22 @@ export default function TalkTab() {
       inputModeRef.current === 'continuous' &&
       continuousEnabledRef.current,
     []
+  )
+
+  const interruptActivePlaybackForBargeIn = useCallback(
+    (replyId: string) => {
+      spokenReplyIdsRef.current.add(replyId)
+      replyQueueGenerationRef.current += 1
+      clearReplyRoundFinishTimer()
+      activePlaybackReplyIdRef.current = null
+      inFlightReplyIdRef.current = null
+      lastPlaybackFinishedAtMsRef.current = null
+      bargeInSpeechStartSampleCountRef.current = 0
+      bargeInEchoBaselineDbRef.current = null
+      player.pause()
+      dispatchTalkEvent({ type: 'voiceDetected' })
+    },
+    [clearReplyRoundFinishTimer, dispatchTalkEvent, player]
   )
 
   const resetNeuralVadDecision = useCallback(() => {
@@ -1000,14 +1030,7 @@ export default function TalkTab() {
             )
             return
           }
-          spokenReplyIdsRef.current.add(activePlaybackReplyId)
-          replyQueueGenerationRef.current += 1
-          clearReplyRoundFinishTimer()
-          activePlaybackReplyIdRef.current = null
-          inFlightReplyIdRef.current = null
-          lastPlaybackFinishedAtMsRef.current = null
-          player.pause()
-          dispatchTalkEvent({ type: 'voiceDetected' })
+          interruptActivePlaybackForBargeIn(activePlaybackReplyId)
           return
         }
         if (talkStateRef.current === 'listening') dispatchTalkEvent({ type: 'voiceDetected' })
@@ -1021,11 +1044,10 @@ export default function TalkTab() {
       }
     },
     [
-      clearReplyRoundFinishTimer,
       dispatchTalkEvent,
+      interruptActivePlaybackForBargeIn,
       isBargeInListeningAllowed,
       isNeuralBargeInMeteringAllowed,
-      player,
       processRecordedSegment,
       resetReplyQueueForPrompt,
     ]
@@ -1109,8 +1131,31 @@ export default function TalkTab() {
         nowMs: Date.now(),
       })
     ) {
+      const activePlaybackReplyId = activePlaybackReplyIdRef.current
+      const isBargeInCandidate =
+        isBargeInListeningAllowed() &&
+        talkStateRef.current === 'speaking' &&
+        activePlaybackReplyId !== null
+      if (isBargeInCandidate) {
+        const decision = shouldTriggerBargeInVolumeOverride({
+          baselineDb: bargeInEchoBaselineDbRef.current,
+          config: BARGE_IN_VOLUME_OVERRIDE_CONFIG,
+          meteringDb: metering,
+        })
+        console.log(
+          `[BARGEDBG] mode=volume-neural-override m=${formatBargeInDb(metering)} baseline=${formatBargeInDb(decision.baselineDb)} delta=${formatBargeInDb(decision.deltaDb)} absolute=${decision.absolute ? '1' : '0'} relative=${decision.relative ? '1' : '0'} override=${decision.shouldOverride ? '1' : '0'} reason=neural_recent`
+        )
+        if (decision.shouldOverride) {
+          interruptActivePlaybackForBargeIn(activePlaybackReplyId)
+          return
+        }
+        bargeInEchoBaselineDbRef.current = updateBargeInEchoBaselineDb(
+          bargeInEchoBaselineDbRef.current,
+          metering
+        )
+      }
       console.log(
-        `[BARGEDBG] mode=volume-suppressed m=${typeof metering === 'number' ? metering.toFixed(1) : metering} reason=neural_recent`
+        `[BARGEDBG] mode=volume-suppressed m=${typeof metering === 'number' ? metering.toFixed(1) : metering} baseline=${formatBargeInDb(bargeInEchoBaselineDbRef.current)} reason=neural_recent`
       )
       return
     }
@@ -1146,14 +1191,7 @@ export default function TalkTab() {
           return
         }
         bargeInSpeechStartSampleCountRef.current = 0
-        spokenReplyIdsRef.current.add(activePlaybackReplyId)
-        replyQueueGenerationRef.current += 1
-        clearReplyRoundFinishTimer()
-        activePlaybackReplyIdRef.current = null
-        inFlightReplyIdRef.current = null
-        lastPlaybackFinishedAtMsRef.current = null
-        player.pause()
-        dispatchTalkEvent({ type: 'voiceDetected' })
+        interruptActivePlaybackForBargeIn(activePlaybackReplyId)
         return
       }
       bargeInSpeechStartSampleCountRef.current = 0
@@ -1168,11 +1206,10 @@ export default function TalkTab() {
     }
   }, [
     dispatchTalkEvent,
-    clearReplyRoundFinishTimer,
     isBargeInListeningAllowed,
+    interruptActivePlaybackForBargeIn,
     neuralVadShadowEnabled,
     processRecordedSegment,
-    player,
     recorderState.durationMillis,
     recorderState.metering,
     resetReplyQueueForPrompt,
@@ -1380,6 +1417,7 @@ export default function TalkTab() {
         if (!playbackStillCurrent()) return
         player.replace({ uri: `data:${synthesized.mime};base64,${synthesized.audio}` })
         activePlaybackReplyIdRef.current = reply.id
+        bargeInEchoBaselineDbRef.current = null
         player.play()
       } catch (playError) {
         if (
@@ -1433,6 +1471,7 @@ export default function TalkTab() {
     }
     const replyId = activePlaybackReplyIdRef.current
     activePlaybackReplyIdRef.current = null
+    bargeInEchoBaselineDbRef.current = null
     player.pause()
     lastSpokenReplyIdRef.current = replyId
     spokenReplyIdsRef.current.add(replyId)

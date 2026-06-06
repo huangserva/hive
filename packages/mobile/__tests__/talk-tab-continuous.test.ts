@@ -1088,6 +1088,68 @@ describe('TalkTab continuous mode behavior', () => {
     expect(screen.getByText('talk.state.speaking')).toBeTruthy()
   })
 
+  test('does not use neural-recent volume override for echo-level playback audio', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'echo remains playing' }),
+        created_at: 2,
+        id: 'neural-echo-safe-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('talk.state.speaking')).toBeTruthy())
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: undefined })
+    await emitNeuralVadProbabilities(view, [0.99, 0.99, 0.99, 0.99])
+    await setRecorderStatus(view, { durationMillis: 100, isRecording: true, metering: -50 })
+    await setRecorderStatus(view, { durationMillis: 200, isRecording: true, metering: -35 })
+    await flush()
+
+    expect(audioMock.player.pause).not.toHaveBeenCalled()
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(screen.getByText('talk.state.speaking')).toBeTruthy()
+  })
+
+  test('uses strong volume override to barge in while neural samples suppress fallback', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await finishCurrentPhrase(view)
+    runtime.chatMessages = [
+      {
+        content_json: JSON.stringify({ text: 'override interruptible reply' }),
+        created_at: 2,
+        id: 'neural-volume-override-reply',
+        message_type: 'orch_reply',
+      },
+    ]
+    view.rerender(React.createElement(TalkTab))
+    await waitFor(() => expect(audioMock.player.play).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('talk.state.speaking')).toBeTruthy())
+    audioMock.player.pause.mockClear()
+    runtime.transcribeVoice.mockClear()
+
+    await setRecorderStatus(view, { durationMillis: 0, isRecording: true, metering: undefined })
+    await emitNeuralVadProbabilities(view, [0.99, 0.99, 0.99, 0.99])
+    await setRecorderStatus(view, { durationMillis: 100, isRecording: true, metering: -2 })
+
+    await waitFor(() => expect(audioMock.player.pause).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('talk.state.capturing')).toBeTruthy()
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+  })
+
   test('pauses playback for neural barge-in only after metering passes the echo gate', async () => {
     vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
     const view = render(React.createElement(TalkTab))
