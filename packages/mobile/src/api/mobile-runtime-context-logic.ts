@@ -1,4 +1,4 @@
-import type { MobileConnectionMode } from './client'
+import type { ChatMessage, MobileConnectionMode } from './client'
 import type { MobileRuntimeState } from './mobile-runtime-context'
 
 export type ConnectionPreference = 'auto' | 'lan' | 'relay'
@@ -102,6 +102,7 @@ export interface DashboardSocketHandlerCallbacks {
   currentWorkspaceId: () => string | null
   isClosing: () => boolean
   isConnected: () => boolean
+  onChatMessage: (message: ChatMessage) => void
   onDashboard: (payload: unknown) => void
   onParseError: (message: string) => void
   onDisconnected: () => void
@@ -124,6 +125,8 @@ export const createDashboardSocketHandlers = (cb: DashboardSocketHandlerCallback
           message.payload
         ) {
           cb.onDashboard(message.payload)
+        } else if (message.kind === 'mobile-chat-message' && message.payload) {
+          cb.onChatMessage(message.payload as ChatMessage)
         }
       } catch (error) {
         cb.onParseError(error instanceof Error ? error.message : String(error))

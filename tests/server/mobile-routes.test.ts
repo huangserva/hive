@@ -14,6 +14,7 @@ const originalPath = process.env.PATH
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
   process.env.PATH = originalPath
   delete process.env.HIVE_EDGE_TTS_ARGS_PATH
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
@@ -1057,6 +1058,7 @@ fs.writeFileSync(outputPath, 'audio')
   test('GLM gatekeeper handled voice prompt records but does not inject orchestrator over LAN', async () => {
     await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n当前暂无未完成派单。', async () => {
       vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+      vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
       const workspacePath = createWorkspaceFixture()
       const server = await startTestServer()
       try {
@@ -1117,6 +1119,7 @@ fs.writeFileSync(outputPath, 'audio')
       'HIVE_GLM_GATEKEEPER: escalate\n好，我让 orchestrator 去办。',
       async () => {
         vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+        vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
         const workspacePath = createWorkspaceFixture()
         const server = await startTestServer()
         try {
@@ -1180,6 +1183,7 @@ fs.writeFileSync(outputPath, 'audio')
   test('GLM gatekeeper drops team-name prompt echo noise over LAN without GLM or orchestrator', async () => {
     await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n我在。', async () => {
       vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+      vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
       const workspacePath = createWorkspaceFixture()
       const server = await startTestServer()
       try {
@@ -1230,6 +1234,7 @@ fs.writeFileSync(outputPath, 'audio')
   test('GLM gatekeeper forwards handled prompts over LAN when fast reply insert fails', async () => {
     await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n当前暂无未完成派单。', async () => {
       vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+      vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
       const workspacePath = createWorkspaceFixture()
       const server = await startTestServer()
       try {
@@ -1284,6 +1289,7 @@ fs.writeFileSync(outputPath, 'audio')
   test('GLM gatekeeper flag off forwards handled voice prompts over LAN', async () => {
     await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n当前暂无未完成派单。', async () => {
       vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+      vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
       const workspacePath = createWorkspaceFixture()
       const server = await startTestServer()
       try {

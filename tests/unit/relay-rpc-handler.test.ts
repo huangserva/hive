@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
+import { __resetVoiceUnderstandingBuffersForTests } from '../../src/server/voice-understanding-buffer.js'
 
 const localTtsMock = vi.hoisted(() => ({
   detect: vi.fn(),
@@ -19,6 +20,8 @@ const tempDirs: string[] = []
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
+  __resetVoiceUnderstandingBuffersForTests()
   localTtsMock.detect.mockReset()
   localTtsMock.synthesize.mockReset()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
@@ -667,6 +670,7 @@ describe('relay RPC handler', () => {
   })
 
   it('adds a fast voice reply while still injecting voice prompts to orchestrator', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
     })
@@ -709,7 +713,54 @@ describe('relay RPC handler', () => {
     )
   })
 
+  it('merges relay voice prompt fragments before invoking the fast voice layer', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n收到，转给主管。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '让关羽查一下', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+    await vi.advanceTimersByTimeAsync(500)
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: 'WebRTC 为什么断续', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    await vi.advanceTimersByTimeAsync(1199)
+    expect(fastVoiceReplyProvider.generate).not.toHaveBeenCalled()
+    expect(store.recordUserInput).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(fastVoiceReplyProvider.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ transcript: '让关羽查一下\nWebRTC 为什么断续' })
+    )
+    const injected = store.recordUserInput.mock.calls[0]?.[2] as string
+    expect(injected).toContain('[来自手机 Mobile App]\n---\n让关羽查一下\nWebRTC 为什么断续')
+  })
+
   it('skips orchestrator injection only when GLM gatekeeper explicitly handles a voice prompt', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -758,6 +809,7 @@ describe('relay RPC handler', () => {
   })
 
   it('forwards handled voice prompts when the fast reply cannot be recorded', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -800,6 +852,7 @@ describe('relay RPC handler', () => {
   })
 
   it('still injects operation-like voice prompts when GLM gatekeeper escalates', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -843,6 +896,7 @@ describe('relay RPC handler', () => {
   })
 
   it('drops team-name prompt echo noise before GLM or orchestrator over relay', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -871,6 +925,7 @@ describe('relay RPC handler', () => {
   })
 
   it('defaults to orchestrator injection when GLM gatekeeper fails or returns an unclear marker', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const unclearStore = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -924,6 +979,7 @@ describe('relay RPC handler', () => {
   })
 
   it('injects all prompts when the GLM gatekeeper feature flag is disabled', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),

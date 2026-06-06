@@ -1583,6 +1583,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       currentWorkspaceId: () => selectedWorkspaceIdRef.current,
       isClosing: () => closing,
       isConnected: () => stateRef.current === 'connected',
+      onChatMessage: (message) => mergeChatMessages([message]),
       onDashboard: (payload) => setDashboard(payload as MobileDashboard),
       onParseError: (message) => setError(message),
       onDisconnected: () => {
@@ -1598,7 +1599,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       closing = true
       socket.close()
     }
-  }, [client, connectionMode, scheduleReconnect, selectedWorkspaceId, state, token])
+  }, [
+    client,
+    connectionMode,
+    mergeChatMessages,
+    scheduleReconnect,
+    selectedWorkspaceId,
+    state,
+    token,
+  ])
 
   useEffect(() => {
     if (reconnecting || state !== 'connected' || !selectedWorkspaceId) return

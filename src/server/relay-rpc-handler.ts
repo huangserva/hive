@@ -25,6 +25,10 @@ import {
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { sanitizeForSpeech } from './speech-text-sanitizer.js'
+import {
+  enqueueVoiceUnderstandingInput,
+  resolveVoiceUnderstandingWindowMs,
+} from './voice-understanding-buffer.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 export type RelayRpcHandler = (
@@ -340,6 +344,18 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
+      if (source === 'voice' && uploadPaths.length === 0) {
+        await enqueueVoiceUnderstandingInput({
+          ...(deps.fastVoiceReplyProvider
+            ? { fastVoiceReplyProvider: deps.fastVoiceReplyProvider }
+            : {}),
+          store: deps.store,
+          text,
+          windowMs: resolveVoiceUnderstandingWindowMs(),
+          workspaceId,
+        })
+        return { ok: true, workspace_id: workspaceId }
+      }
       const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
         ...(deps.fastVoiceReplyProvider ? { provider: deps.fastVoiceReplyProvider } : {}),
         source,

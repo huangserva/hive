@@ -275,6 +275,7 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
   // 切走后旧 socket 的事件不得 onDisconnected(setError/setState/scheduleReconnect) 或 onDashboard 污染当前。
   describe('createDashboardSocketHandlers workspace guard', () => {
     const build = (currentWorkspaceId: () => string | null, connected = true, closing = false) => {
+      const onChatMessage = vi.fn()
       const onDashboard = vi.fn()
       const onParseError = vi.fn()
       const onDisconnected = vi.fn()
@@ -283,11 +284,12 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
         currentWorkspaceId,
         isClosing: () => closing,
         isConnected: () => connected,
+        onChatMessage,
         onDashboard,
         onParseError,
         onDisconnected,
       })
-      return { handlers, onDashboard, onParseError, onDisconnected }
+      return { handlers, onChatMessage, onDashboard, onParseError, onDisconnected }
     }
 
     test('acts on events while the socket workspace is still current', () => {
@@ -301,14 +303,36 @@ describe('mobile runtime context reconnect and outbox decisions', () => {
       expect(onDisconnected).toHaveBeenCalledTimes(2)
     })
 
+    test('merges LAN mobile chat messages pushed over the dashboard socket', () => {
+      const { handlers, onChatMessage } = build(() => 'A')
+      const message = {
+        content_json: JSON.stringify({ text: '异步 flush 回复' }),
+        created_at: 123,
+        direction: 'outbound',
+        id: 'reply-1',
+        message_type: 'orch_reply',
+        workspace_id: 'A',
+      }
+
+      handlers.handleMessage(JSON.stringify({ kind: 'mobile-chat-message', payload: message }))
+
+      expect(onChatMessage).toHaveBeenCalledWith(message)
+    })
+
     test('ignores message/error/close from a socket whose workspace is no longer current', () => {
       // 切到 B：socketWorkspaceId='A' 已 stale。
-      const { handlers, onDashboard, onParseError, onDisconnected } = build(() => 'B')
+      const { handlers, onChatMessage, onDashboard, onParseError, onDisconnected } = build(
+        () => 'B'
+      )
       handlers.handleMessage(
         JSON.stringify({ kind: 'mobile-dashboard-update', payload: { ok: true } })
       )
+      handlers.handleMessage(
+        JSON.stringify({ kind: 'mobile-chat-message', payload: { id: 'reply-1' } })
+      )
       handlers.handleError()
       handlers.handleClose()
+      expect(onChatMessage).not.toHaveBeenCalled()
       expect(onDashboard).not.toHaveBeenCalled()
       expect(onParseError).not.toHaveBeenCalled()
       expect(onDisconnected).not.toHaveBeenCalled() // 不 setError/setState/scheduleReconnect

@@ -40,6 +40,10 @@ import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import {
+  enqueueVoiceUnderstandingInput,
+  resolveVoiceUnderstandingWindowMs,
+} from './voice-understanding-buffer.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 type PendingUploadPath = {
@@ -742,7 +746,7 @@ export const mobileRoutes: RouteDefinition[] = [
   route(
     'POST',
     '/api/mobile/workspaces/:workspaceId/prompt',
-    async ({ params, request, response, store }) => {
+    async ({ logger, params, request, response, store }) => {
       const device = requireMobileCapability(request, store, 'send_prompt')
       const workspaceId = getRequiredParam(
         response,
@@ -765,6 +769,17 @@ export const mobileRoutes: RouteDefinition[] = [
       const formatted = pathHints
         ? `[来自手机 Mobile App]\n---\n${text}\n\n${pathHints}`
         : `[来自手机 Mobile App]\n---\n${text}`
+      if (source === 'voice' && uploadPaths.length === 0) {
+        await enqueueVoiceUnderstandingInput({
+          logger,
+          store,
+          text,
+          windowMs: resolveVoiceUnderstandingWindowMs(),
+          workspaceId,
+        })
+        sendJson(response, 200, { ok: true, workspace_id: workspaceId })
+        return
+      }
       const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
         source,
         store,
