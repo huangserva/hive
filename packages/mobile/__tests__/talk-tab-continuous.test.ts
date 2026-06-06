@@ -636,6 +636,20 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
   })
 
+  test('quick-exit badge is always present and stops + returns to idle from listening', async () => {
+    render(React.createElement(TalkTab))
+    // Always-on corner exit, visible even at idle.
+    expect(screen.getByTestId('talk-exit')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByText('talk.state.listening')).toBeTruthy())
+
+    fireEvent.click(screen.getByTestId('talk-exit'))
+    await waitFor(() => expect(screen.getByText('talk.state.idle')).toBeTruthy())
+    expect(audioMock.recorder.stop).toHaveBeenCalled()
+  })
+
   test('push-to-talk records from an already prepared recorder without preparing again', async () => {
     Object.assign(audioMock.recorderStatus, {
       canRecord: true,

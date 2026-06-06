@@ -1369,9 +1369,23 @@ export default function TalkTab() {
               {statusLabel}
             </Text>
           </View>
-          <Text numberOfLines={1} style={styles.topMeta}>
-            {topMeta}
-          </Text>
+          <View style={styles.topRight}>
+            <Text numberOfLines={1} style={styles.topMeta}>
+              {topMeta}
+            </Text>
+            {/* Always-on quick exit / panic stop (redesign omitted it; user-required).
+                Reuses exitTalkMode → stops any recording + playback and returns to idle. */}
+            <Pressable
+              accessibilityLabel={t('talk.exitIntercom')}
+              accessibilityRole="button"
+              hitSlop={10}
+              onPress={exitTalkMode}
+              style={({ pressed }) => [styles.exitBadge, pressed && styles.exitBadgePressed]}
+              testID="talk-exit"
+            >
+              <Ionicons color={colors.textSoft} name="close" size={16} />
+            </Pressable>
+          </View>
         </View>
 
         {/* center: the orb IS the control (tap = start / stop / interrupt / exit) + activity dots */}
@@ -1521,12 +1535,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.4,
   },
+  topRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 1,
+    gap: spacing.sm,
+    justifyContent: 'flex-end',
+  },
   topMeta: {
     color: colors.muted,
     flexShrink: 1,
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'right',
+  },
+  exitBadge: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 15,
+    borderWidth: 1,
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  exitBadgePressed: {
+    opacity: 0.6,
   },
   // center: orb + activity dots
   center: {
