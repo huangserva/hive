@@ -1,7 +1,7 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: M36/M37 实时语音对讲（连续对讲/晓晓念回/双音色/开口打断/GLM门卫/神经VAD）
+current_phase: M38/M39 实时语音深化（M38 快准狠前台已 shipped `22d4224` 真机验通；M39 流式ASR+rolling transcript 已 commit `5970988` + 生产崩溃修复 `4ffbb00` 真机验通——下载流式模型激活路径后曾因漏 isReady 闸触发 sherpa native exit(-1) 崩 daemon，修后 call `webrtc-1780761642531` 日志铁证 streaming partial 边说边出字+final 注入+零崩溃。剩余：rolling transcript 上下文回灌 + 下行念回顺滑度待持续真机调）
 status: active
 last_review: 2026-06-04
 ---
@@ -40,8 +40,23 @@ last_review: 2026-06-04
 >   - ✅ **开口打断调优 SHIPPED `e4ad00b`(2.6.10,DMIT+飞书投递,user 出门路上装)**：user 真机发现 barge-in 两敏感问题:①我念回回声把自己打断(BARGEDBG 回声 -24~-27 够到触发线 floor+22)②鞭炮瞬响误触发。调 BARGE_IN_VAD:speechMargin 22→25(线≈-21,回声够不到、人声-16~-20能过)+ 连续3样本(~500ms)才触发(防单尖峰)。钟馗审 0blocking(含"真插话打不断"反向风险已验)。
 >   - ✅ **M37 神经人声 VAD — Phase2 Shadow 真机验证【成功+区分力强】(2.6.15, 赵云)**：on-device Silero VAD ONNX,分阶段 Probe→Shadow→Gate→Replace。**Phase1** `f67197c`:16kHz PCM 通道。**Phase2 集成** `77bf39e` + flag 修 `4dc9267`(EXPO_PUBLIC 改 app.config extra)。**真机崩溃 firefight(6/04)→焊死**:shadow 包真机崩,`-b crash` 定位=Metro asyncRequire 加载 onnxruntime 时顶层 `NativeModules.Onnxruntime.install()` 同步抛(native 未注册)、mqt_v_native 当 FATAL 上报、**绕过 await try/catch**(catch-after 无效)→改**探测式 catch-before** `ee51023`(import 前查 NativeModules.Onnxruntime,缺失绝不 import,2.6.14 真机零崩)。**治本注册** `6464c01`(2.6.15):Expo config plugin `plugins/with-onnxruntime-package.js` prebuild 注入 `OnnxruntimePackage()` 到 MainApplication.kt(autolinking 对该库缺 android package→PackageList 不含;手改 gitignored android/ 不持久故走 plugin;钟馗顺 ExpoReactHostFactory→DefaultReactHost 源码坐实 New Arch 消费手动 packageList)。**真机验证(2.6.15 USB)**:[SILERODBG] **voice_prob 1565 帧真打分、零崩溃**,且**区分力强**:静音 2481 帧→prob≈0.00(frame1 rms0→0.002)、人声 314 帧→prob≈1.00。**模型真的在分辨人声 vs 非人声**。教训存记忆 reference_voice_vad_glm_gotchas。**🟢下一步 Phase3**:用 voice_prob gate barge-in(高分=人声才允许打断,鞭炮/噪声低分不打断)→user 要的"放鞭炮不打断"真正落地(已问 user 是否接)。**❗边界**:神经VAD解决噪声误触发,解决不了"念回回声自触发"(回声是合成人声,模型也判高分)→回声仍靠 BARGE_IN 抬阈值(2.6.10)配合。
 >   - 🟡 **idea-9 GLM 门卫化 已 SHIPPED `a62fbd5`(待4010重启激活)**：user 核心诉求(GLM多扛少推、别双回复)。GLM 标 HIVE_GLM_GATEKEEPER handled/escalate,纯状态问题 handled→不注入 orch;带操作→escalate 转交。钟馗死磕"绝不丢消息"+抓到黑洞 blocking(handled+insert失败)已闭环+复审 0blocking(insert失败/超时/异常/无marker/media 全降级 escalate;flag=0 回退;never-throw)。**待 user 回家重启 4010 激活;激活后 user 问简单状态应只收 GLM 一条(非 GLM+orch 双条)**。flag HIVE_GLM_GATEKEEPER=0 可关。
-> **接力 orch**:**神经VAD 三阶段全打通+真机验"好行"✅**(2.6.16 `849a440`):Phase2 Silero 真打分区分人声(静音0.00/人声1.00)→崩溃 firefight 焊死(探测式`ee51023`+config plugin 注册`6464c01`)→Phase3 voice_prob 接管判停(<0.7 持续900ms)+barge-in(≥0.7+新鲜metering过回声门),钟馗两轮审。user 实时来回测:判停跟手、打断成功、回声不误触发,验收"好行"。阈值 DEFAULT_NEURAL_VOICE_VAD_CONFIG(0.7/900ms/500ms)真机可再调,看[VADDBG]/[BARGEDBG]。⚠️mobile/.env 开着 NEURAL_VAD_SHADOW(神经真生效);出"关 shadow"包须删 flag。
-> **🔴下次4010重启激活=idea-9 v2 两agent协调接力(`b9e613b`,服务端改)**:user 否决"单声音",要"接力模式别废话"。GLM 简短先答→escalate 时把 GLM 原话+协调指令注入 orch(只补未答/不重复/可"无需补充")+团队名噪声 drop。钟馗 0 blocking(命脉绝不丢消息逐路径验,102 tests)。**重启后真机验3条**:①纯团队名噪声 drop(不再 GLM 空转念名)②真指令"关羽张飞重启"仍 forward 不误杀③escalate 时 GLM+我接力【不重复、简洁】。non-blocking:flag=0 不关 drop;GLM 无 marker 文本仍先播。
+> **接力 orch(2026-06-05 状态)**:神经VAD三阶段+idea-9v2接力+判停1600ms+神经speechStart 全真机验过"好行"。USB真机验是proper流程(adb装+logcat对照,从裸发翻车纠正)。
+> **★★沟通风格铁律(已存记忆 [[feedback_pm_voice_reply_style]])**:给user的mobile-reply会被TTS念出来。【短、说人话、绝不带URL/符号(✅→/emoji)/代码/长文件名】(会被逐字念=user两次暴怒)。系统级TTS净化已上(`8d0a01a`)双保险。
+> **服务端念回TTS净化+GLM禁越权(`8d0a01a`)已激活**(本session重启)。
+> **🔴下次4010重启激活=Paraformer STT(`53e9e18`)+worker重启不丢任务(`cc52a87`)**:user拍Q18"换!换!"。sherpa-onnx@1.13.2 ParaformerSttProvider主+whisper兜底,模型~/.config/hive/paraformer-models/(int8 78MB),ffmpeg转16k喂sherpa,任一异常fallback whisper绝不丢转写,净化层保留。钟馗0blocking,本机sanity识别对~1.6s。**重启后★真机A/B验**:user正常说话→中文转写是否准很多+团队名幻听是否归零(user最痛点治本)。看日志确认命中provider=paraformer。模型不够准可env指大模型。
+> **待user(在2.7.x真机测)**:①装2.7.6(VAD零流死锁修复`73a77ef`,USB掉了走DMIT下载;治"说话检测不到")②看对讲页新设计图`reports/2026-06-05-talk-ui-redesign.html`拍板(user嫌现UI丑,要design-first;批了再实现)③FunASR调研Q18拍板(中文比whisper准2-4×,治转写乱,推荐换Paraformer+sherpa-onnx)。
+> **🎉WebRTC真通话全闭环结构完整(user授权自主"彻底实现",2026-06-05)**:命门解(默认不注册`cc65370`+lazy-init patch ADM延到首用)→Phase0c连接层`3a9aea5`(daemon werift callee+信令走relay+免费TURN,send_prompt权限闸+45s超时清理)→0c-2a上行`ac2be40`(麦克风→WebRTC→daemon webm→STT,互斥壳真闭环覆盖session,失败必close)→0c-2b下行`ebd82ed`(orch_reply→净化→晓晓TTS→Opus RTP→手机播放)。**完整闭环:user说→WebRTC→STT(Paraformer)→orch→TTS→WebRTC→听,全走一条连接**。钟馗多轮审(连续抓read-only绕权限/peer泄漏/假闭环互斥/downlink初始化泄漏 全闭环)。全flag-gated默认2.7.x零回归。**待出WEBRTC_NATIVE_REGISTER=1+WEBRTC_PROBE=1实验包真机验**:连接connected/双向音频/沪4G↔Mac经TURN的RTT;真recorder互斥需真call UI接(诚实标);werift RTP payload/codec可能要按真机日志调。default公共TURN(OpenRelay/Metered),prod用user注册metered.ca免费档(env HIVE_WEBRTC_ICE_SERVERS_JSON)。马超信令设计+ADR draft已记。idea-11(实时流后GLM是否还需)待议。
+> **✅ worker状态bug已修(`cc52a87`,典韦诊断+关羽修+钟馗0blocking,待重启激活)**:HIGH=markAgentStarted重启时清零pendingTaskCount→丢排队dispatch孤儿,删清零行修。**待后续**:user报的"假idle"是另一个【前端WS缓存问题】(reconnect snapshot没覆盖stale状态),典韦标了`research/2026-06-05-worker-status-bug-diagnosis.md`,待单独修。
+> **📦 2.7.7最新包已USB装user机**(VAD零流修复+所有语音修复,webrtc休眠默认零回归)。WebRTC实验包(WEBRTC_NATIVE_REGISTER=1)待user想测真打电话时出。
+> **★沟通铁律重申**:回user一律短/人话/不带URL符号代码(念回TTS净化`8d0a01a`已激活兜底,但自己也守)。
+> **今日血教训**:UI裸发未真机验→三连坑;回退包我没退webrtc仍坏还打包票"肯定对"→骂"放屁";2.7.6我说"已装"其实USB掉没装→自己核实纠正。**绝不裸发/不打无把握包票/build≠能用/claim前核实**。存 [[reference_voice_vad_glm_gotchas]]。
+> **【2026-06-05 深夜·WebRTC真机验证 + 一批修复(接力session)】**:user重启4010激活Paraformer+worker修后继续。本session commit:① `e924dd6`假idle修复(前端reconcileWorkerRuntimeStatuses用terminal runs真实信号覆盖stale缓存,钟馗0block)② `aabddc0`WebRTC call_id UUID兜底(新建src/api/uuid.ts三级兜底,治RN无crypto.randomUUID崩中继探针)③ `760ec6a`Paraformer recognizer**模块级**缓存(治卡顿/念回不出声病根:不再每句重载78MB模型,每句省0.7-1.6s;钟馗**4轮**审闭环:实例级失效→B1 use-after-free竞态→B2 in-flight单槽锁→finally泄漏,全修)。
+> **★WebRTC真机里程碑(关键进展)**:出了WEBRTC_NATIVE_REGISTER=1+WEBRTC_PROBE=1实验包(注意:build-local.sh不跑prebuild→必须先`npx expo prebuild`重生android带webrtc native,libjingle_peerconnection_so.so验在APK;JAVA_HOME=/opt/homebrew/opt/openjdk@17)USB直装user华为(2.7.7)。**真机验证结果**:① WebRTC native在华为(无GMS)上【麦克风+RTCPeerConnection可达】(最大未知数过了!)② 录音存活(user在webrtc包上按住说话成功录+转写=lazy-init补丁真机生效,2.7.3抢音频灾难没发生)③ **中继连接探针失败="WebRTC connection timed out"**。
+> **🟢WebRTC真打电话=突破+已交付2.8.0,待user真机验声音(2026-06-05深夜,接手这里)**。全程诊断+决策详见 `research/2026-06-05-webrtc-ice-relay-interop-diagnosis.md`。**已做+验证**:① 国内TURN(阿里云上海coturn 106.14.227.192,记忆 [[reference_webrtc_turn_server]],治公共openrelay中国不可达)部署+turnutils验证完美+安全组UDP通。② 卡点诊断:原werift(daemon纯JS)双中继ICE握手谈不拢(coturn铁证sp=0),relay-only实验也没救(`26dad23`)。③ **★换库治本**:daemon webrtc-callee werift→@roamhq/wrtc(libwebrtc)。**第一步连接(`69abe73`)真机验state=connected 0.6秒(werift卡死处一过)**;第二步音频(`a36466e`,上行RTCAudioSink→STT/下行RTCAudioSource←TTS+失败cleanup);手机端hold-open测试通话入口+泄漏修(`ac1024c`)。钟馗多轮审全0block。④ **2.8.0实验包(arm64 94MB,版本两源都bump`b0de928`,WEBRTC_NATIVE_REGISTER+PROBE+FORCE_RELAY)已scp DMIT+飞书发user**(链接https://dmit.servasyy.com/dl/hippoteam-2.8.0-webrtccall-*.apk)。**当前状态(2026-06-05深夜,接手这里)**:WebRTC连接彻底verified(多通test call connected+held走国内TURN)。曾"音频0帧没声"→**我自主诊断定位**(Node wrtc↔wrtc经国内TURN双向1200帧✅,证明服务器侧wrtc音频100%没问题)→**病根=手机Android音频模式没设**(react-native-webrtc的JavaAudioDeviceModule要MODE_IN_COMMUNICATION才采mic+路由扬声器,同时解释上行0帧+下行没声)。**修=react-native-incall-manager(`921b01a`,connected后InCallManager.start+setForceSpeakerphoneOn,全路径stop,钟馗2轮审0block)+服务端音频诊断日志**。**2.8.1音频修复包(arm64 94MB)已scp DMIT+飞书发user**(链接hippoteam-2.8.1-audiofix-*.apk)。**当前真相(2026-06-05深夜,我纠正过早的误判)=硬骨头全通了,差实时对话流程**:连接/国内TURN/mic采集(VOICE_COMMUNICATION,USB logcat证实)/音频传输/**上行STT全通了**。曾误判"音频没通"因为:① 手机Clash代理拦TURN(USB logcat查出`dial 106.14.227.192:3478 i/o timeout`),user关Clash后通;② **webrtc-upstream-audio是"挂断时整段批量转写"(a36466e),不是实时**→user说话当时不出来、挂断才一大段冒出(延迟),且`injectWebRtcVoiceTranscript`写DB跟普通voice`{source:'voice'}`一样无法区分,我和GLM都误把WebRTC转写当普通语音/误判没通。**铁证:call b2bec061(held 3min)关闭后16秒DB出现长转写=上行真通**。**实时对话流程=已实现(`b71e461`,关羽实现钟馗多轮审0block,存档点checkpoint-pre-webrtc-streaming-20260605可回滚)**:新建webrtc-vad.ts服务器端能量VAD(RMS>=0.018/250ms最小/900ms静音判停)切句→webrtc-upstream每句立刻Paraformer STT→inject→orch回复→downlink念回,通话期间(非close batch),每句wav用完即删+内存不涨+短噪声不注入。**不碰连续对讲**(独立路径)。**纯服务端改动,不用出包**。**当前=user重启4010加载→真机验边说边回**。post-restart接手:user开始测试通话+边说边停(VAD按900ms静音切句)→查DB是否【通话期间就出现转写】(不是挂断才出=实时成功)+user通话里【听到回复】=真打电话彻底SHIPPED。VAD阈值(RMS0.018/900ms)真机可能要调(查daemon`/tmp/hive-dev.log`"audioSink utterance ready/injected")。v1未做barge-in。详见 `research/2026-06-05-webrtc-ice-relay-interop-diagnosis.md`(末尾"上行其实通了"段)。**纪律:别学GLM过度声称,但也别像我一样过早判死(WebRTC转写延迟+跟普通voice同format,一切对照call close时间戳+daemon日志坐实)**。**出包坑**:arm64-only用`-PreactNativeArchitectures=arm64-v8a`(否则287MB全架构);--clean prebuild删local.properties(写回sdk.dir=/opt/homebrew/share/android-commandlinetools);gradle卡merged_native_libs锁`./gradlew --stop`+rm中间目录;JAVA_HOME=/opt/homebrew/opt/openjdk@17;DMIT投递root@64.186.227.39:/var/www/dl/+飞书chat oc_0d5e...(记忆 [[reference_local_build_apk_delivery]])。
+> **【2026-06-05 最深夜·调优+barge-in+M38架构转折(接力session)】**:user重启4010加载调优(`db6764b` VAD0.006+下行10ms)真机测,日志铁证**上行=完美**(6秒切2句漏话治好,转写准"就是"/"我有在说话"实时出现),**下行=不糊了但断断续续**。**★user怒吼点醒真正命门**:受不了的不是音质,是①没法打断(barge-in缺)②GLM对每句刷废话"需要主管处理"轰炸耳朵。我优先级搞错(只磨音质)。本轮:① 关羽修下行断续根因(setTimeout≥10ms累积实测11ms/帧→手机playout underrun,改漂移补偿排程baseTs+N×10ms,5单测fake-timer证不累积)② 关羽实现barge-in开口即停(上行VAD onset 3帧确认→下行interrupt() playbackGeneration停推+queuedGeneration丢旧排队reply,跨vad/upstream/callee/downlink 4文件,29单测)。**钟馗审中(a34e516a)**,0block后commit,user重启4010真机验【能打断+句句接住+声音清楚】(barge-in是device-sensitive必真机验,残留:无AEC回声可能误触发,待真机RMS核)。**★★M38架构转折(user拍板根治)**:user问"都给GLM答吗?PM慢最后也慢,怎么真沟通不一边倒废话?"→核实`fast-voice-reply.ts`=GLM(flash)只读前台+不确定就escalate甩PM(opus慢)。**user选根治方向**:强前台对话agent(扛70-80%+barge-in+真要动手才说一次)+PM异步移出实时环路(后台干活结果回灌前台念出来)。ADR draft `decisions/draft-2026-06-05-realtime-voice-front-agent-pm-async.md`(分3阶段,Phase1先升前台),3个sub-decision(前台模型haiku-4-5推荐/扩权上下文/Phase1先行)挂Q19待user拍。教训存 [[feedback_streaming_call_bargein_is_core]](流式通话命门=barge-in+turn-taking不只音频流)。详见 `research/...webrtc-ice-relay-interop-diagnosis.md`末3节。
+> **✅运维约束已解(2026-06-05最深夜)**:之前"暂时别派codex"(codex审查员暂不可用)→本session关羽/钟馗(均codex)派单均成功完工,codex已恢复,约束作废。
+> **WebRTC全量真通话**:daemon callee/上下行结构早完整(`3a9aea5/ac2be40/ebd82ed`),但call UI没接进对讲页(只有设置里的probe)→TURN通后下一步=接一键通话UI。真机已验:华为mic+RTCPeerConnection可达+录音存活+UUID修复(`aabddc0`)。
+> **WebRTC全量真通话**:daemon callee/上下行结构早完整(`3a9aea5/ac2be40/ebd82ed`),但call UI没接进对讲页(只有设置里的probe)→TURN通后下一步=接一键通话UI。
 > **idea-10 流式架构(RTSP/WebRTC 杀延迟)**user 提,记 inbox,待立项调研(关联 line 55 流式 ADR)。文章核查待 user A/B。**别让 user 打字(他恨),让语音真好用**。
 > 2. **核心仍未全解**:GLM 快嘴先应声(~1s),但**真任务的最终结果仍是 orch 28-30s**(快嘴只先应声/答简单问)。要真·全程快,下一步=快嘴层承担更多直接对话、只把真重活甩 orch 后台。**双向打断、连续对讲改流式**也待建(user 明确要这俩)。
 > 3. **对 user**:少废话、别发半成品。本夜 user 两次关键纠偏(提 GLM、拦收费地址),听 user 的。M36 全貌见 ADR。
@@ -456,6 +471,35 @@ last_review: 2026-06-04
 > - **开口打断 barge-in `49371e6`→`ae98794`→`e4ad00b`(2.6.6~2.6.10)**：Android `voice_communication` 音源自带硬件 AEC，念回时可插话打断。多轮血泪：AGC 压平连累判停切断→误把好功能默认关(user 怒)→纠正(打断+不切断并存)→回声自触发/鞭炮误触发调阈值(speechMargin 22→25+连续3样本)。**残留**:回声边际偏薄+只认"响"不认"人声"→催生 M37 神经 VAD。
 > - **clear-failed + Cockpit ActionBar 可折叠 `25bd9df`**：outbox 失败消息可清除 + 看板待办面板可收起（user 反馈占空间）。
 > - 真机验证通过（连续对讲点完即说不丢首句/静默不投垃圾/双音色/打断）。BARGEDBG 调试日志保留。
+
+### M40 · 实时通话理解层（投机式前台 + 客户端播放闸 + 完整意图交 PM）· 立项 2026-06-06（ADR 已采纳）
+> **决议**：`.hive/decisions/2026-06-06-speculative-voice-front-pm-handoff.md`（user 拍板"做成决议"）。承接 M39，把"停顿触发回复"升级为"语义意图触发 + 投机提前算 + 客户端择时播"，达到极快对话体感。
+> 四支柱：① 前台 GLM 一身三职（判意图完整 / 投机生成+latest-wins取代 / 完整意图交 PM 绝不碎片）② 客户端播放闸（turn-taking 下放 app，攥着回复等用户让出话权才播最新代际）③ 通路分离+来源打死标签（对讲 vs 通话 vs 普通语音）④ 自我进化评价机制（idea-7 语音化，越用越准）。
+> 成本天然有界：只 GLM 投机（便宜快），PM(opus) 只在完整意图上跑一次、永不吃碎片。
+> **分工（多 worker 并行）**：
+> - 🔬 第一波：赵云 端到端技术方案设计 spike（GLM 投机引擎+代际取消+服务端↔app 播放闸协议+来源标签+PM完整意图契约，出 reports+research）；关羽 来源通路分离实现（通话/对讲/语音打死标签，相对独立可先落地）。
+> - 设计落地+user 拍 → 第二波并行实现：关羽(server GLM投机引擎) / 马超(mobile 客户端播放闸) / 钟馗审 / 典韦·张飞测。
+> - 自我进化评价机制(④)作为后续阶段，先不进第一波。
+
+### M39 · 流式 ASR + rolling session transcript · 核心打通+生产崩溃已修真机验通 2026-06-06（`5970988` + 崩溃修复 `4ffbb00`）
+> **🚨 生产事故+修复（2026-06-06 深夜）**：user 下载流式 paraformer 模型(`~/.config/hive/streaming-paraformer/`)激活 M39 路径后，每通 WebRTC 通话第一帧崩 daemon → 手机"webrtc/中继连不上"。根因=`streaming-stt-online.ts` decode 漏 `isReady` 闸 → sherpa-onnx native `features.cc GetFrames` → C++ `exit(-1)` 杀进程（JS catch 不住）。修复 `4ffbb00`（关羽 codex/钟馗 codex 0block）：`while(isReady) decode` drain + flush inputFinished + 流式出错通话级回退 VAD（不哑），17 测。**真机验通**：call `webrtc-1780761642531` streaming partial `8→12→17→19` 边说边出字 + final 注入 + 零崩溃。教训=native addon 可 `exit()` 杀进程不可 JS catch；流式 sherpa 必须 isReady 门控；"测试绿生产死"（旧 mock 无 isReady）；诊断曾被 relay 服务器带偏，daemon crash-loop 与 relay 中断症状相同要先查 daemon liveness。**剩余**：native 彻底隔离需子进程化（跟踪项）；rolling transcript 上下文回灌效果 + 下行念回顺滑待持续真机调。
+> **起源**：user 真机通话中指出：说 20 秒不停顿 = 20 秒白白浪费，VAD 等静音才处理是根本错误。同时提出 rolling transcript 避免重复处理已识别内容。
+> - 🔬 **关羽实施中（dispatch a0fa85da）**：
+>   - 新 `src/server/streaming-stt-online.ts`：sherpa-onnx `createOnlineRecognizer` 流式识别，模型自动检测 `~/.config/hive/streaming-paraformer/`
+>   - 修改 `webrtc-upstream-audio.ts`：有流式模型时绕过 VAD+批处理，直接流式识别；endpoint 触发即注入，不等说完
+>   - rolling session transcript：per-call 积累，注入时带上下文
+>   - 无流式模型时静默回退原 VAD 路径
+> - 🔬 **豆包验证方向**：user 指出豆包已实现实时语音+视频理解，证明此路可行
+> - 待：关羽 report 后钟馗审 + 下载流式 paraformer 模型真机验
+
+### M38 · 快准狠前台（实时通话对话体验根治）· shipped 2026-06-06 `22d4224`
+> **user 核心要求**：实时通话前台要"快准狠"，不要绕弯，一句话干净交接 PM。
+> - ✅ **快准狠前台 `22d4224`**（关羽实现，钟馗 3 轮审 0block）：
+>   - 准=前台喂当前阶段 plan phase+最近 3 commit+worker 在做啥，答得具体
+>   - 准狠=提示词直接/具体/有判断，禁官腔空话和稀泥
+>   - 狠=escalate 只一句短接管不抢话不假装解决，PM 给真答案
+>   - 快=项目上下文读取全异步（钟馗抓出 execFileSync 同步冻结事件循环→改 fs.promises+promisify，热路径零同步 IO）
+> - ✅ **真机验通**：user 测 "快准狠前台真对话成了"，回复全是项目认知+直接利落
 
 ### M37 · 语音对讲治本（GLM 门卫 + STT 守卫 + 神经人声 VAD）· in_progress 2026-06-03~04
 > M36 暴露的根本问题的治本线，user 拍板。
