@@ -1234,7 +1234,7 @@ export default function TalkTab() {
   const stopRecording = useCallback(async () => {
     if (!recordingActiveRef.current || talkStateRef.current !== 'recording') return
     dispatchTalkEvent({ type: 'recordStop' })
-    await processRecordedSegment()
+    await processRecordedSegment('listening')
   }, [dispatchTalkEvent, processRecordedSegment])
 
   const startContinuousMode = useCallback(async () => {
