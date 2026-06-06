@@ -16,6 +16,12 @@ import {
   type StreamingRecognitionSession,
 } from './streaming-stt-online.js'
 import { VOICE_INPUT_SOURCE } from './voice-input-source-tags.js'
+import {
+  createGlmVoiceIntentVerdictProvider,
+  createVoiceIntentSession,
+  isVoiceIntentFrontEnabled,
+  type VoiceIntentSessionUpdate,
+} from './voice-intent-front.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
   calculateWebRtcInt16Rms,
@@ -49,12 +55,29 @@ type WebRtcUpstreamStore = Pick<
   | 'recordUserInput'
 >
 
+type VoiceIntentShadowSession = {
+  close(): void
+  evaluate(input: {
+    context?: string
+    isFinal?: boolean
+    partialSeq: number
+    transcript: string
+  }): Promise<VoiceIntentSessionUpdate>
+}
+
+type CreateVoiceIntentShadowSession = (options: {
+  callId: string
+  provider: ReturnType<typeof createGlmVoiceIntentVerdictProvider>
+  turnId: string
+}) => VoiceIntentShadowSession
+
 interface WebRtcUpstreamAudioSinkOptions {
   createSttProvider?: () => LocalSttProvider
   createStreamingRecognitionSession?: (
     callId: string,
     options: StreamingRecognitionOptions
   ) => Promise<StreamingRecognitionSession | null>
+  createVoiceIntentSession?: CreateVoiceIntentShadowSession
   fastVoiceReplyProvider?: FastVoiceReplyProvider
   loadAudioSink?: () => Promise<WebRtcAudioSinkCtor>
   logger?: Pick<HiveLogger, 'info' | 'warn'>
@@ -70,6 +93,8 @@ const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, me
   logger?.info?.(message)
   process.stderr.write(`[webrtc-upstream-audio ${new Date().toISOString()}] ${message}\n`)
 }
+
+const summarizeVoiceIntent = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 80)
 
 const limitSessionContext = (sessionContext: string[]) => {
   const recentContext = sessionContext.slice(-MAX_SESSION_CONTEXT_SEGMENTS)
@@ -193,6 +218,7 @@ export const injectWebRtcVoiceTranscript = async ({
 export const createWebRtcUpstreamAudioSink = ({
   createSttProvider = () => createLocalSttProvider(),
   createStreamingRecognitionSession: createStreamingSession = createStreamingRecognitionSession,
+  createVoiceIntentSession: createIntentSession = createVoiceIntentSession,
   fastVoiceReplyProvider,
   loadAudioSink = loadWrtcAudioSink,
   logger,
@@ -215,15 +241,68 @@ export const createWebRtcUpstreamAudioSink = ({
     let rmsMax = 0
     let processingQueue = Promise.resolve()
     const sessionTranscript: string[] = []
+    let voiceIntentPartialSeq = 0
+    let latestVoiceIntentUpdate: VoiceIntentSessionUpdate | null = null
+    const voiceIntentSession = isVoiceIntentFrontEnabled()
+      ? createIntentSession({
+          callId,
+          provider: createGlmVoiceIntentVerdictProvider(),
+          turnId: callId,
+        })
+      : null
+    const evaluateVoiceIntentShadow = async (
+      text: string,
+      isFinal: boolean,
+      contextSegments = sessionTranscript
+    ) => {
+      if (!voiceIntentSession) return null
+      voiceIntentPartialSeq += 1
+      try {
+        const context = limitSessionContext(contextSegments)
+        const update = await voiceIntentSession.evaluate({
+          context,
+          isFinal,
+          partialSeq: voiceIntentPartialSeq,
+          transcript: text,
+        })
+        if (update.status === 'accepted') {
+          latestVoiceIntentUpdate = update
+          logDiagnostic(
+            logger,
+            `voiceIntent shadow verdict: call_id=${callId} partial_seq=${voiceIntentPartialSeq} completeness=${update.verdict.completeness} action=${update.verdict.action} confidence=${update.verdict.confidence.toFixed(2)} would_handoff=${Boolean(update.handoff)} distilled_intent=${summarizeVoiceIntent(update.verdict.distilled_intent)}`
+          )
+        } else if (update.status !== 'throttled') {
+          logDiagnostic(
+            logger,
+            `voiceIntent shadow skipped: call_id=${callId} partial_seq=${voiceIntentPartialSeq} status=${update.status}`
+          )
+        }
+        return update
+      } catch (error) {
+        logger?.warn?.('voice intent shadow evaluation failed', error)
+        return null
+      }
+    }
+    const logVoiceIntentEndpointComparison = () => {
+      if (!voiceIntentSession) return
+      const verdict =
+        latestVoiceIntentUpdate?.status === 'accepted' ? latestVoiceIntentUpdate.verdict : null
+      logDiagnostic(
+        logger,
+        `voiceIntent shadow endpoint_compare: call_id=${callId} partial_seq=${voiceIntentPartialSeq} endpoint=final latest_completeness=${verdict?.completeness ?? 'none'} latest_action=${verdict?.action ?? 'none'} latest_confidence=${verdict ? verdict.confidence.toFixed(2) : 'none'}`
+      )
+    }
     let streamingSession = await createStreamingSession(callId, {
       onError: (error) => logger?.warn?.('streaming WebRTC STT error', error),
       onFinal: async (text) => {
         const priorContext = sessionTranscript.slice()
-        sessionTranscript.push(text)
         logDiagnostic(
           logger,
-          `audioSink streaming final: call_id=${callId} segments=${sessionTranscript.length} text_len=${text.trim().length}`
+          `audioSink streaming final: call_id=${callId} segments=${priorContext.length + 1} text_len=${text.trim().length}`
         )
+        await evaluateVoiceIntentShadow(text, true, priorContext)
+        logVoiceIntentEndpointComparison()
+        sessionTranscript.push(text)
         await injectWebRtcVoiceTranscript({
           ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
           sessionContext: priorContext,
@@ -232,11 +311,12 @@ export const createWebRtcUpstreamAudioSink = ({
           workspaceId,
         })
       },
-      onPartial: (text) => {
+      onPartial: async (text) => {
         logDiagnostic(
           logger,
           `audioSink streaming partial: call_id=${callId} text_len=${text.length}`
         )
+        await evaluateVoiceIntentShadow(text, false)
       },
     })
     const utteranceVad = createWebRtcUtteranceVad({
@@ -363,6 +443,7 @@ export const createWebRtcUpstreamAudioSink = ({
         } catch (error) {
           logger?.warn?.('failed to process WebRTC upstream audio', error)
         } finally {
+          voiceIntentSession?.close()
           rmSync(tempDir, { force: true, recursive: true })
         }
       },

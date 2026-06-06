@@ -349,6 +349,299 @@ describe('WebRTC upstream audio sink', () => {
     ])
   })
 
+  test('does not create a voice intent shadow session when the feature flag is disabled', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    const store = createStore()
+    const createVoiceIntentSession = vi.fn()
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {
+            await options.onFinal('让关羽汇报进度')
+          },
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession,
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-shadow-off',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+    await capturedOptions.onPartial('让关羽')
+    await session.close()
+
+    expect(createVoiceIntentSession).not.toHaveBeenCalled()
+    expect(store.inputs).toHaveLength(1)
+    expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\n让关羽汇报进度')
+  })
+
+  test('feeds streaming partial and final text into the voice intent shadow session and only logs verdicts', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const infoLogs: string[] = []
+    const evaluate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        candidate: {
+          action: 'handled',
+          completeness: 'likely_complete',
+          confidence: 0.61,
+          distilledIntent: '查询关羽进度',
+          intentGeneration: 1,
+          replyText: '我看一下。',
+          shouldSpeculateTts: true,
+          transcript: '让关羽',
+        },
+        status: 'accepted',
+        verdict: {
+          action: 'handled',
+          completeness: 'likely_complete',
+          confidence: 0.61,
+          distilled_intent: '查询关羽进度',
+          intent_generation: 1,
+          reason: 'glm_verdict',
+          reply_text: '我看一下。',
+          should_speculate_tts: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        candidate: {
+          action: 'escalate',
+          completeness: 'complete',
+          confidence: 0.86,
+          distilledIntent: '让关羽汇报进度',
+          intentGeneration: 2,
+          replyText: '好，这个交给主管。',
+          shouldSpeculateTts: true,
+          transcript: '让关羽汇报进度',
+        },
+        handoff: {
+          confidence: 0.86,
+          distilledIntent: '让关羽汇报进度',
+          intentGeneration: 2,
+          transcript: '让关羽汇报进度',
+          turnId: 'call-shadow-on',
+        },
+        status: 'accepted',
+        verdict: {
+          action: 'escalate',
+          completeness: 'complete',
+          confidence: 0.86,
+          distilled_intent: '让关羽汇报进度',
+          intent_generation: 2,
+          reason: 'glm_verdict',
+          reply_text: '好，这个交给主管。',
+          should_speculate_tts: true,
+        },
+      })
+    const closeIntentSession = vi.fn()
+    const createVoiceIntentSession = vi.fn(() => ({
+      close: closeIntentSession,
+      evaluate,
+    }))
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {
+            await options.onFinal('让关羽汇报进度')
+          },
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession,
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-shadow-on',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+    await capturedOptions.onPartial('让关羽')
+    await session.close()
+
+    expect(createVoiceIntentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callId: 'call-shadow-on',
+        turnId: 'call-shadow-on',
+      })
+    )
+    expect(evaluate).toHaveBeenCalledWith({
+      context: '',
+      isFinal: false,
+      partialSeq: 1,
+      transcript: '让关羽',
+    })
+    expect(evaluate).toHaveBeenCalledWith({
+      context: '',
+      isFinal: true,
+      partialSeq: 2,
+      transcript: '让关羽汇报进度',
+    })
+    expect(store.inputs).toHaveLength(1)
+    expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\n让关羽汇报进度')
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=1 completeness=likely_complete action=handled confidence=0.61 would_handoff=false distilled_intent=查询关羽进度'
+        ),
+        expect.stringContaining(
+          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=2 completeness=complete action=escalate confidence=0.86 would_handoff=true distilled_intent=让关羽汇报进度'
+        ),
+        expect.stringContaining(
+          'voiceIntent shadow endpoint_compare: call_id=call-shadow-on partial_seq=2 endpoint=final latest_completeness=complete latest_action=escalate latest_confidence=0.86'
+        ),
+      ])
+    )
+    expect(closeIntentSession).toHaveBeenCalledTimes(1)
+  })
+
+  test('swallows voice intent shadow failures and keeps the streaming final injection path working', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const warnings: unknown[] = []
+    const createVoiceIntentSession = vi.fn(() => ({
+      close: vi.fn(),
+      evaluate: vi.fn().mockRejectedValue(new Error('shadow failed')),
+    }))
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('让关羽汇报进度')
+        },
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession,
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: (...args) => warnings.push(args),
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-shadow-fail',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await expect(session.close()).resolves.toBeUndefined()
+
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n让关羽汇报进度',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(warnings).toEqual(
+      expect.arrayContaining([expect.arrayContaining(['voice intent shadow evaluation failed'])])
+    )
+  })
+
+  test('closes the voice intent shadow session when audio sink stop rejects', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const warnings: unknown[] = []
+    const closeIntentSession = vi.fn()
+    class RejectingAudioSink extends FakeAudioSink {
+      override stop() {
+        this.stopped = true
+        throw new Error('audio sink stop failed')
+      }
+    }
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async () => ({
+        close: () => {},
+        flush: async () => {},
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession: vi.fn(() => ({
+        close: closeIntentSession,
+        evaluate: vi.fn(),
+      })),
+      loadAudioSink: async () => RejectingAudioSink,
+      logger: {
+        info: () => {},
+        warn: (...args) => warnings.push(args),
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-shadow-stop-rejects',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await expect(session.close()).resolves.toBeUndefined()
+
+    expect(closeIntentSession).toHaveBeenCalledTimes(1)
+    expect(warnings).toEqual(
+      expect.arrayContaining([expect.arrayContaining(['failed to process WebRTC upstream audio'])])
+    )
+  })
+
   test('closes the streaming STT session even when flush rejects', async () => {
     const store = createStore()
     let closedStreaming = false
