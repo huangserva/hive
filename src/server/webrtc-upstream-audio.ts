@@ -332,6 +332,14 @@ export const createWebRtcUpstreamAudioSink = ({
       })
       if (utterance) void processUtterance(utterance)
     }
+    const pushToBargeInOnsetVad = (buffer: Buffer) => {
+      utteranceVad.push({
+        bitsPerSample,
+        channelCount,
+        pcm: buffer,
+        sampleRate,
+      })
+    }
     const processUtterance = (utterance: WebRtcVadUtterance) => {
       utteranceIndex += 1
       const currentUtteranceIndex = utteranceIndex
@@ -395,6 +403,7 @@ export const createWebRtcUpstreamAudioSink = ({
       if (streamingSession) {
         try {
           streamingSession.pushFrame(buffer, sampleRate, bitsPerSample)
+          pushToBargeInOnsetVad(buffer)
         } catch (error) {
           logger?.warn?.('streaming WebRTC STT failed; falling back to batch VAD', error)
           streamingSession.close()

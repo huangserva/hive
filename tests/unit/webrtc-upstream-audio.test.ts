@@ -349,6 +349,73 @@ describe('WebRTC upstream audio sink', () => {
     ])
   })
 
+  test('keeps barge-in onset detection alive while streaming STT handles transcription', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    const store = createStore()
+    const onSpeechStart = vi.fn()
+    let batchDetectCount = 0
+    const pushedFrames: Array<{ bitsPerSample: number; pcmBuffer: Buffer; sampleRate: number }> = []
+    const sink = createWebRtcUpstreamAudioSink({
+      createSttProvider: () => ({
+        detect: async () => {
+          batchDetectCount += 1
+          return { command: 'fake-stt', provider: 'paraformer' }
+        },
+        transcribeAudioFile: async () => ({ provider: 'paraformer', text: 'batch' }),
+      }),
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('流式最终文本')
+        },
+        pushFrame: (pcmBuffer, sampleRate, bitsPerSample) => {
+          pushedFrames.push({ bitsPerSample, pcmBuffer, sampleRate })
+        },
+      }),
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+      vad: {
+        minSpeechMs: 20,
+        silenceMs: 40,
+        speechRmsThreshold: 0.02,
+        speechStartConfirmationFrames: 3,
+      },
+    })
+
+    const session = await sink.start({
+      callId: 'call-streaming-barge-in',
+      onSpeechStart,
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    const audioSink = FakeAudioSink.instances[0]
+    for (let index = 0; index < 3; index += 1) emitFrame(audioSink, 5000)
+    for (let index = 0; index < 2; index += 1) emitFrame(audioSink, 5000)
+    await session.close()
+
+    expect(onSpeechStart).toHaveBeenCalledTimes(1)
+    expect(pushedFrames).toHaveLength(5)
+    expect(batchDetectCount).toBe(0)
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n流式最终文本',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+  })
+
   test('does not create a voice intent shadow session when the feature flag is disabled', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
