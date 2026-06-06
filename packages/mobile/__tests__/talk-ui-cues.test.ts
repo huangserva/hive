@@ -20,12 +20,12 @@ describe('talk UI driving cues', () => {
     expect(getTalkStateVisual('error').kind).toBe('error')
   })
 
-  test('uses the approved five state hues from the mobile design tokens', () => {
-    expect(TALK_STATE_VISUALS.idle.accent).toBe('#8B949E')
-    expect(TALK_STATE_VISUALS.listening.accent).toBe('#3FB950')
-    expect(TALK_STATE_VISUALS.processing.accent).toBe('#D29922')
-    expect(TALK_STATE_VISUALS.speaking.accent).toBe('#58A6FF')
-    expect(TALK_STATE_VISUALS.error.accent).toBe('#F85149')
+  test('uses the premium 2026-06-05 redesign five state hues', () => {
+    expect(TALK_STATE_VISUALS.idle.accent).toBe('#B5BDC8')
+    expect(TALK_STATE_VISUALS.listening.accent).toBe('#46E6A9')
+    expect(TALK_STATE_VISUALS.processing.accent).toBe('#FFD166')
+    expect(TALK_STATE_VISUALS.speaking.accent).toBe('#74B8FF')
+    expect(TALK_STATE_VISUALS.error.accent).toBe('#FF6B6B')
   })
 
   test('resolves haptic and audio cues without playing audio when entering recording states', () => {
@@ -35,7 +35,7 @@ describe('talk UI driving cues', () => {
     })
     expect(resolveTalkStateCue('capturing', 'processing')).toEqual({
       audio: 'process',
-      haptic: null,
+      haptic: 'medium',
     })
     expect(resolveTalkStateCue('processing', 'speaking')).toEqual({
       audio: null,

@@ -120,11 +120,26 @@ vi.mock('expo-audio', () => ({
 }))
 
 vi.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
   NotificationFeedbackType: { Warning: 'warning' },
   impactAsync: hapticsMock.impactAsync,
   notificationAsync: hapticsMock.notificationAsync,
 }))
+
+vi.mock('react-native-reanimated', () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('div', null, children)
+  return {
+    cancelAnimation: () => {},
+    default: { View: passthrough },
+    Easing: { linear: () => {} },
+    useAnimatedStyle: () => ({}),
+    useSharedValue: (value: number) => ({ value }),
+    withDelay: (_delay: number, value: unknown) => value,
+    withRepeat: (value: unknown) => value,
+    withTiming: (value: unknown) => value,
+  }
+})
 
 vi.mock('expo-file-system', () => ({
   EncodingType: { Base64: 'base64' },
@@ -225,9 +240,13 @@ describe('TalkTab cue runtime hardening', () => {
     audioMock.cuePlayer.remove.mockReset()
   })
 
-  afterEach(() => {
-    cleanup()
+  afterEach(async () => {
+    // The double-haptic cue schedules a real setTimeout(120ms) for its second
+    // impact. Drain it inside this test's boundary so it cannot leak into the
+    // next test's impact count (beforeEach resets the mock right after).
     vi.useRealTimers()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    cleanup()
     vi.unstubAllEnvs()
   })
 

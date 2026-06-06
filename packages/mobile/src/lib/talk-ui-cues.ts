@@ -2,7 +2,7 @@ import type { TalkbackState } from './push-to-talk'
 
 export type TalkDrivingVisualKind = 'error' | 'idle' | 'listening' | 'processing' | 'speaking'
 export type TalkAudioCue = 'error' | 'exit' | 'listen' | 'network' | 'process'
-export type TalkHapticCue = 'double' | 'light' | 'warning'
+export type TalkHapticCue = 'double' | 'light' | 'medium' | 'warning'
 
 export type TalkCue = {
   audio: TalkAudioCue | null
@@ -17,41 +17,43 @@ export type TalkStateVisual = {
   soft: string
 }
 
+// Premium driving palette (talk-ui-redesign 2026-06-05): brighter, higher-chroma
+// state hues that read at a glance in sunlight while keeping the five-state model.
 export const TALK_STATE_VISUALS: Record<TalkDrivingVisualKind, TalkStateVisual> = {
   error: {
-    accent: '#F85149',
+    accent: '#FF6B6B',
     icon: 'alert-circle-outline',
     kind: 'error',
-    panel: 'rgba(248, 81, 73, 0.18)',
-    soft: '#ff9b96',
+    panel: 'rgba(255, 107, 107, 0.16)',
+    soft: '#ffb0b0',
   },
   idle: {
-    accent: '#8B949E',
+    accent: '#B5BDC8',
     icon: 'mic-outline',
     kind: 'idle',
-    panel: 'rgba(139, 148, 158, 0.16)',
-    soft: '#cfd6df',
+    panel: 'rgba(181, 189, 200, 0.16)',
+    soft: '#d7dde4',
   },
   listening: {
-    accent: '#3FB950',
+    accent: '#46E6A9',
     icon: 'radio-outline',
     kind: 'listening',
-    panel: 'rgba(63, 185, 80, 0.18)',
-    soft: '#8ff0a4',
+    panel: 'rgba(70, 230, 169, 0.16)',
+    soft: '#7cffcb',
   },
   processing: {
-    accent: '#D29922',
+    accent: '#FFD166',
     icon: 'sync-outline',
     kind: 'processing',
-    panel: 'rgba(210, 153, 34, 0.18)',
-    soft: '#ffd36a',
+    panel: 'rgba(255, 209, 102, 0.16)',
+    soft: '#ffe08a',
   },
   speaking: {
-    accent: '#58A6FF',
+    accent: '#74B8FF',
     icon: 'volume-high-outline',
     kind: 'speaking',
-    panel: 'rgba(88, 166, 255, 0.18)',
-    soft: '#9dccff',
+    panel: 'rgba(116, 184, 255, 0.16)',
+    soft: '#a9d2ff',
   },
 }
 
@@ -80,7 +82,7 @@ export const resolveTalkStateCue = (
   if (previous === next) return null
   if (next === 'error') return { audio: 'error', haptic: 'warning' }
   if (next === 'speaking') return { audio: null, haptic: 'light' }
-  if (next === 'processing') return { audio: 'process', haptic: null }
+  if (next === 'processing') return { audio: 'process', haptic: 'medium' }
   if (previous === 'speaking' && next === 'listening') return { audio: null, haptic: 'light' }
   if (next === 'listening') return { audio: null, haptic: 'light' }
   if (previous === 'listening' && next === 'idle') return { audio: 'exit', haptic: 'double' }

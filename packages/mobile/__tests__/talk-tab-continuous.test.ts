@@ -126,7 +126,7 @@ vi.mock('expo-audio', () => ({
 }))
 
 vi.mock('expo-haptics', () => ({
-  ImpactFeedbackStyle: { Light: 'light' },
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium' },
   NotificationFeedbackType: { Warning: 'warning' },
   impactAsync: vi.fn().mockResolvedValue(undefined),
   notificationAsync: vi.fn().mockResolvedValue(undefined),
@@ -153,6 +153,21 @@ vi.mock('expo-file-system/legacy', () => ({
 vi.mock('@expo/vector-icons', () => ({
   Ionicons: ({ name }: { name: string }) => React.createElement('span', { 'data-icon': name }),
 }))
+
+vi.mock('react-native-reanimated', () => {
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement('div', null, children)
+  return {
+    cancelAnimation: () => {},
+    default: { View: passthrough },
+    Easing: { linear: () => {} },
+    useAnimatedStyle: () => ({}),
+    useSharedValue: (value: number) => ({ value }),
+    withDelay: (_delay: number, value: unknown) => value,
+    withRepeat: (value: unknown) => value,
+    withTiming: (value: unknown) => value,
+  }
+})
 
 vi.mock('react-native', () => {
   const View = ({ children }: { children?: React.ReactNode }) =>
@@ -592,6 +607,18 @@ describe('TalkTab continuous mode behavior', () => {
     })
   })
 
+  test('defaults to continuous mode and starts listening from the central orb', async () => {
+    render(React.createElement(TalkTab))
+
+    // Driving default (user-ratified 2026-06-06): the orb shows the continuous
+    // start affordance, not push-to-talk hold.
+    expect(screen.getByText('talk.continuous.start')).toBeTruthy()
+    expect(screen.queryByText('talk.button.hold')).toBeNull()
+
+    fireEvent.click(screen.getByText('talk.continuous.start'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+  })
+
   test('push-to-talk records from an already prepared recorder without preparing again', async () => {
     Object.assign(audioMock.recorderStatus, {
       canRecord: true,
@@ -600,7 +627,8 @@ describe('TalkTab continuous mode behavior', () => {
     })
     render(React.createElement(TalkTab))
 
-    fireEvent.mouseDown(screen.getByText('talk.button.hold'))
+    fireEvent.click(screen.getByText('talk.mode.pushToTalk'))
+    fireEvent.mouseDown(await screen.findByText('talk.button.hold'))
 
     await waitFor(() => expect(audioMock.recorder.record).toHaveBeenCalledTimes(1))
     expect(audioMock.recorder.prepareToRecordAsync).not.toHaveBeenCalled()
@@ -1253,7 +1281,8 @@ describe('TalkTab continuous mode behavior', () => {
   test('stops active talkback playback without replaying the same reply', async () => {
     const view = render(React.createElement(TalkTab))
 
-    fireEvent.mouseDown(screen.getByText('talk.button.hold'))
+    fireEvent.click(screen.getByText('talk.mode.pushToTalk'))
+    fireEvent.mouseDown(await screen.findByText('talk.button.hold'))
     await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
     fireEvent.mouseUp(screen.getByText('talk.button.release'))
     await waitFor(() => expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalled())
