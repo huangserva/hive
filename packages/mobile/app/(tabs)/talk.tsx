@@ -34,9 +34,13 @@ import {
 } from '../../src/lib/neural-vad-pcm-probe'
 import {
   applyNeuralVoiceVadProbabilitySample,
+  assessNeuralVoiceSegmentQuality,
   buildNeuralVoiceVadDebugLine,
+  createInitialNeuralVoiceSegmentQualityState,
   createInitialNeuralVoiceVadState,
+  type NeuralVoiceSegmentQualityState,
   type NeuralVoiceVadState,
+  recordNeuralVoiceSegmentQualitySample,
   shouldUseVolumeVadFallback,
 } from '../../src/lib/neural-voice-vad'
 import {
@@ -336,6 +340,9 @@ export default function TalkTab() {
   const processingSegmentRef = useRef(false)
   const vadStateRef = useRef<VoiceVadState>(createInitialVoiceVadState())
   const neuralVadStateRef = useRef<NeuralVoiceVadState>(createInitialNeuralVoiceVadState())
+  const neuralVoiceSegmentQualityRef = useRef<NeuralVoiceSegmentQualityState>(
+    createInitialNeuralVoiceSegmentQualityState()
+  )
   const latestUsableNeuralSampleAtMsRef = useRef<number | null>(null)
   const latestMeteringRef = useRef<number | null>(null)
   const latestMeteringAtMsRef = useRef<number | null>(null)
@@ -453,6 +460,7 @@ export default function TalkTab() {
 
   const resetNeuralVadDecision = useCallback(() => {
     neuralVadStateRef.current = createInitialNeuralVoiceVadState()
+    neuralVoiceSegmentQualityRef.current = createInitialNeuralVoiceSegmentQualityState()
     latestUsableNeuralSampleAtMsRef.current = null
   }, [])
 
@@ -543,6 +551,19 @@ export default function TalkTab() {
           if (continuousEnabledRef.current) dispatchTalkEvent({ type: 'continuousStart' })
           return
         }
+        const qualityDecision = assessNeuralVoiceSegmentQuality(
+          neuralVoiceSegmentQualityRef.current
+        )
+        console.log(
+          `[VADQDBG] decision=${qualityDecision.shouldUpload ? 'upload' : 'drop'} reason=${qualityDecision.reason} avg=${qualityDecision.metrics.averageProbability.toFixed(3)} high_ratio=${qualityDecision.metrics.highProbabilityRatio.toFixed(3)} high_ms=${qualityDecision.metrics.highProbabilityDurationMs.toFixed(0)} active_ms=${qualityDecision.metrics.activeSpeechDurationMs.toFixed(0)} tail_ms=${qualityDecision.metrics.silenceTailDurationMs.toFixed(0)} total_ms=${qualityDecision.metrics.totalDurationMs.toFixed(0)} rms=${qualityDecision.metrics.averageRms.toFixed(3)} active_samples=${qualityDecision.metrics.activeSpeechSampleCount} tail_samples=${qualityDecision.metrics.silenceTailSampleCount} samples=${qualityDecision.metrics.sampleCount}`
+        )
+        neuralVoiceSegmentQualityRef.current = createInitialNeuralVoiceSegmentQualityState()
+        if (!qualityDecision.shouldUpload) {
+          resetReplyQueueForPrompt()
+          dispatchTalkEvent({ type: 'reset' })
+          if (continuousEnabledRef.current) dispatchTalkEvent({ type: 'continuousStart' })
+          return
+        }
         const uri = recorderForSegment.uri ?? recorderForSegment.getStatus().url
         if (!uri) throw new Error(t('talk.error.recordingMissing'))
         const audioBase64 = await FileSystem.readAsStringAsync(uri, {
@@ -614,6 +635,23 @@ export default function TalkTab() {
         undefined,
         mode
       )
+      const shouldRecordSegmentQuality =
+        mode === 'continuous' &&
+        (neuralVadStateRef.current.phase === 'capturing' || result.event === 'speechStart')
+      if (shouldRecordSegmentQuality) {
+        const previousState = neuralVadStateRef.current
+        if (result.event === 'speechStart' && previousState.phase !== 'capturing') {
+          neuralVoiceSegmentQualityRef.current = createInitialNeuralVoiceSegmentQualityState()
+        }
+        neuralVoiceSegmentQualityRef.current = recordNeuralVoiceSegmentQualitySample(
+          neuralVoiceSegmentQualityRef.current,
+          {
+            durationMs: score.durationMs,
+            probability: score.probability,
+            rms: score.rms,
+          }
+        )
+      }
       neuralVadStateRef.current = result.state
       if (result.state.hadRealSpeech) {
         vadStateRef.current = { ...vadStateRef.current, hadRealSpeech: true }

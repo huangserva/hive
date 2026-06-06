@@ -2,10 +2,13 @@ import { describe, expect, test } from 'vitest'
 
 import {
   applyNeuralVoiceVadProbabilitySample,
+  assessNeuralVoiceSegmentQuality,
+  createInitialNeuralVoiceSegmentQualityState,
   createInitialNeuralVoiceVadState,
   DEFAULT_NEURAL_VOICE_VAD_CONFIG,
   type NeuralVoiceVadEvent,
   type NeuralVoiceVadState,
+  recordNeuralVoiceSegmentQualitySample,
   shouldUseVolumeVadFallback,
 } from '../src/lib/neural-voice-vad'
 
@@ -181,5 +184,99 @@ describe('neural voice VAD decision logic', () => {
         nowMs: 1_000,
       })
     ).toBe(true)
+  })
+
+  test('drops low quality neural voice segments before STT upload', () => {
+    let quality = createInitialNeuralVoiceSegmentQualityState()
+    for (let index = 0; index < 44; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: index === 0 || index >= 41 ? 0.76 : 0.18,
+        rms: 0.03,
+      })
+    }
+
+    const decision = assessNeuralVoiceSegmentQuality(quality)
+
+    expect(decision.shouldUpload).toBe(false)
+    expect(decision.reason).toBe('low_high_probability_ratio')
+    expect(decision.metrics.highProbabilityDurationMs).toBe(128)
+  })
+
+  test('keeps conservative normal voice segments uploadable', () => {
+    let quality = createInitialNeuralVoiceSegmentQualityState()
+    for (let index = 0; index < 38; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: index < 25 ? 0.86 : 0.52,
+        rms: 0.08,
+      })
+    }
+
+    const decision = assessNeuralVoiceSegmentQuality(quality)
+
+    expect(decision.shouldUpload).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.metrics.averageProbability).toBeGreaterThan(0.7)
+    expect(decision.metrics.highProbabilityRatio).toBeGreaterThan(0.5)
+  })
+
+  test('keeps uncertain but plausible speech segments uploadable to avoid false drops', () => {
+    let quality = createInitialNeuralVoiceSegmentQualityState()
+    for (let index = 0; index < 52; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: index === 0 || index === 51 ? 0.92 : 0.45,
+        rms: 0.06,
+      })
+    }
+
+    const decision = assessNeuralVoiceSegmentQuality(quality)
+
+    expect(decision.shouldUpload).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.metrics.highProbabilityRatio).toBeLessThan(0.1)
+  })
+
+  test('keeps short real speech uploadable despite the low-probability speech-end tail', () => {
+    let quality = createInitialNeuralVoiceSegmentQualityState()
+    for (let index = 0; index < 6; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: 0.88,
+        rms: 0.09,
+      })
+    }
+    for (let index = 0; index < 51; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: 0.04,
+        rms: 0.01,
+      })
+    }
+
+    const decision = assessNeuralVoiceSegmentQuality(quality)
+
+    expect(decision.shouldUpload).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.metrics.activeSpeechDurationMs).toBe(192)
+    expect(decision.metrics.silenceTailDurationMs).toBe(1_632)
+  })
+
+  test('does not drop when only average probability is low but strong voice evidence exists', () => {
+    let quality = createInitialNeuralVoiceSegmentQualityState()
+    for (let index = 0; index < 50; index += 1) {
+      quality = recordNeuralVoiceSegmentQualitySample(quality, {
+        durationMs: 32,
+        probability: index < 5 || index >= 45 ? 0.82 : 0.22,
+        rms: index < 5 || index >= 45 ? 0.08 : 0.04,
+      })
+    }
+
+    const decision = assessNeuralVoiceSegmentQuality(quality)
+
+    expect(decision.shouldUpload).toBe(true)
+    expect(decision.reason).toBe('ok')
+    expect(decision.metrics.averageProbability).toBeLessThan(0.35)
   })
 })

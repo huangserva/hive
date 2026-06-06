@@ -475,7 +475,7 @@ describe('TalkTab continuous mode behavior', () => {
     await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
   })
 
-  test('uses neural voice probability to end a continuous segment while volume stays noisy', async () => {
+  test('uploads short real speech even when the speech-end tail is low probability', async () => {
     vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
     const view = render(React.createElement(TalkTab))
 
@@ -514,6 +514,58 @@ describe('TalkTab continuous mode behavior', () => {
     await emitNeuralVadProbabilities(
       view,
       Array.from({ length: 51 }, () => 0.45)
+    )
+
+    await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))
+    expect(runtime.sendPromptToOrchestratorWithOutcome).toHaveBeenCalledWith(
+      'turn on diagnostics',
+      { source: 'voice' }
+    )
+  })
+
+  test('drops low quality neural voice segments before STT upload', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(view, [0.76])
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
+
+    await setRecorderStatus(view, { durationMillis: 300, isRecording: true, metering: -18 })
+    await emitNeuralVadProbabilities(view, [
+      ...Array.from({ length: 40 }, () => 0.18),
+      0.76,
+      0.76,
+      0.76,
+      ...Array.from({ length: 51 }, () => 0.18),
+    ])
+
+    await waitFor(() => expect(audioMock.recorder.stop).toHaveBeenCalled())
+    expect(runtime.transcribeVoice).not.toHaveBeenCalled()
+    expect(runtime.sendPromptToOrchestratorWithOutcome).not.toHaveBeenCalled()
+  })
+
+  test('uploads normal quality neural voice segments after quality gating', async () => {
+    vi.stubEnv('EXPO_PUBLIC_NEURAL_VAD_SHADOW', '1')
+    const view = render(React.createElement(TalkTab))
+
+    fireEvent.click(screen.getByText('talk.mode.continuous'))
+    await waitFor(() => expect(audioMock.recorder.prepareToRecordAsync).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(audioMock.stream.start).toHaveBeenCalledTimes(1))
+
+    await emitNeuralVadProbabilities(
+      view,
+      Array.from({ length: 25 }, () => 0.86)
+    )
+    await waitFor(() => expect(screen.getByText('talk.state.capturing')).toBeTruthy())
+
+    await setRecorderStatus(view, { durationMillis: 1000, isRecording: true, metering: -18 })
+    await emitNeuralVadProbabilities(
+      view,
+      Array.from({ length: 51 }, () => 0.52)
     )
 
     await waitFor(() => expect(runtime.transcribeVoice).toHaveBeenCalledWith('audio-base64', 'm4a'))

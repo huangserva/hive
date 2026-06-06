@@ -8,6 +8,13 @@ export const DEFAULT_NEURAL_VOICE_VAD_CONFIG = {
   speechStartProbability: 0.7,
 } as const
 
+export const DEFAULT_NEURAL_VOICE_SEGMENT_QUALITY_CONFIG = {
+  highProbability: 0.7,
+  minAverageProbability: 0.35,
+  minHighProbabilityDurationMs: 160,
+  minHighProbabilityRatio: 0.2,
+} as const
+
 export type NeuralVoiceVadConfig = {
   [Key in keyof typeof DEFAULT_NEURAL_VOICE_VAD_CONFIG]: number
 }
@@ -24,12 +31,57 @@ export type NeuralVoiceVadState = {
   phase: 'listening' | 'capturing'
 }
 
+export type NeuralVoiceSegmentQualityState = {
+  highProbabilityDurationMs: number
+  sampleCount: number
+  trailingLowProbabilityDurationMs: number
+  trailingLowProbabilitySampleCount: number
+  trailingLowProbabilityTotalProbability: number
+  trailingLowProbabilityTotalRms: number
+  totalDurationMs: number
+  totalProbability: number
+  totalRms: number
+}
+
+export type NeuralVoiceSegmentQualityMetrics = {
+  activeSpeechDurationMs: number
+  activeSpeechSampleCount: number
+  averageProbability: number
+  averageRms: number
+  highProbabilityDurationMs: number
+  highProbabilityRatio: number
+  silenceTailDurationMs: number
+  silenceTailSampleCount: number
+  sampleCount: number
+  totalDurationMs: number
+}
+
+export type NeuralVoiceSegmentQualityDropReason = 'low_high_probability_ratio'
+
+export type NeuralVoiceSegmentQualityDecision = {
+  metrics: NeuralVoiceSegmentQualityMetrics
+  reason: NeuralVoiceSegmentQualityDropReason | 'insufficient_neural_samples' | 'ok'
+  shouldUpload: boolean
+}
+
 export const createInitialNeuralVoiceVadState = (): NeuralVoiceVadState => ({
   hadRealSpeech: false,
   highVoiceProbabilityMs: 0,
   lastSampleAtMs: null,
   lowVoiceProbabilityMs: 0,
   phase: 'listening',
+})
+
+export const createInitialNeuralVoiceSegmentQualityState = (): NeuralVoiceSegmentQualityState => ({
+  highProbabilityDurationMs: 0,
+  sampleCount: 0,
+  trailingLowProbabilityDurationMs: 0,
+  trailingLowProbabilitySampleCount: 0,
+  trailingLowProbabilityTotalProbability: 0,
+  trailingLowProbabilityTotalRms: 0,
+  totalDurationMs: 0,
+  totalProbability: 0,
+  totalRms: 0,
 })
 
 const resolveSampleDurationMs = (
@@ -114,6 +166,91 @@ export const shouldUseVolumeVadFallback = ({
   !neuralEnabled ||
   latestNeuralSampleAtMs === null ||
   nowMs - latestNeuralSampleAtMs > config.neuralFreshnessMs
+
+export const recordNeuralVoiceSegmentQualitySample = (
+  state: NeuralVoiceSegmentQualityState,
+  sample: { durationMs: number; probability: number; rms: number },
+  config = DEFAULT_NEURAL_VOICE_SEGMENT_QUALITY_CONFIG
+): NeuralVoiceSegmentQualityState => {
+  if (!Number.isFinite(sample.probability) || !Number.isFinite(sample.durationMs)) return state
+  const durationMs = Math.max(0, sample.durationMs)
+  const probability = Math.max(0, Math.min(1, sample.probability))
+  const rms = Number.isFinite(sample.rms) ? Math.max(0, sample.rms) : 0
+  const isHighProbability = probability >= config.highProbability
+  return {
+    highProbabilityDurationMs:
+      state.highProbabilityDurationMs + (isHighProbability ? durationMs : 0),
+    sampleCount: state.sampleCount + 1,
+    trailingLowProbabilityDurationMs: isHighProbability
+      ? 0
+      : state.trailingLowProbabilityDurationMs + durationMs,
+    trailingLowProbabilitySampleCount: isHighProbability
+      ? 0
+      : state.trailingLowProbabilitySampleCount + 1,
+    trailingLowProbabilityTotalProbability: isHighProbability
+      ? 0
+      : state.trailingLowProbabilityTotalProbability + probability,
+    trailingLowProbabilityTotalRms: isHighProbability
+      ? 0
+      : state.trailingLowProbabilityTotalRms + rms,
+    totalDurationMs: state.totalDurationMs + durationMs,
+    totalProbability: state.totalProbability + probability,
+    totalRms: state.totalRms + rms,
+  }
+}
+
+export const getNeuralVoiceSegmentQualityMetrics = (
+  state: NeuralVoiceSegmentQualityState
+): NeuralVoiceSegmentQualityMetrics => {
+  const activeSpeechSampleCount = Math.max(
+    0,
+    state.sampleCount - state.trailingLowProbabilitySampleCount
+  )
+  const activeSpeechDurationMs = Math.max(
+    0,
+    state.totalDurationMs - state.trailingLowProbabilityDurationMs
+  )
+  const activeTotalProbability = Math.max(
+    0,
+    state.totalProbability - state.trailingLowProbabilityTotalProbability
+  )
+  const activeTotalRms = Math.max(0, state.totalRms - state.trailingLowProbabilityTotalRms)
+  const averageProbability =
+    activeSpeechSampleCount > 0 ? activeTotalProbability / activeSpeechSampleCount : 0
+  const averageRms = activeSpeechSampleCount > 0 ? activeTotalRms / activeSpeechSampleCount : 0
+  const highProbabilityRatio =
+    activeSpeechDurationMs > 0 ? state.highProbabilityDurationMs / activeSpeechDurationMs : 0
+  return {
+    activeSpeechDurationMs,
+    activeSpeechSampleCount,
+    averageProbability,
+    averageRms,
+    highProbabilityDurationMs: state.highProbabilityDurationMs,
+    highProbabilityRatio,
+    silenceTailDurationMs: state.trailingLowProbabilityDurationMs,
+    silenceTailSampleCount: state.trailingLowProbabilitySampleCount,
+    sampleCount: state.sampleCount,
+    totalDurationMs: state.totalDurationMs,
+  }
+}
+
+export const assessNeuralVoiceSegmentQuality = (
+  state: NeuralVoiceSegmentQualityState,
+  config = DEFAULT_NEURAL_VOICE_SEGMENT_QUALITY_CONFIG
+): NeuralVoiceSegmentQualityDecision => {
+  const metrics = getNeuralVoiceSegmentQualityMetrics(state)
+  if (metrics.sampleCount === 0 || metrics.totalDurationMs === 0) {
+    return { metrics, reason: 'insufficient_neural_samples', shouldUpload: true }
+  }
+  if (
+    metrics.averageProbability < config.minAverageProbability &&
+    metrics.highProbabilityRatio < config.minHighProbabilityRatio &&
+    metrics.highProbabilityDurationMs < config.minHighProbabilityDurationMs
+  ) {
+    return { metrics, reason: 'low_high_probability_ratio', shouldUpload: false }
+  }
+  return { metrics, reason: 'ok', shouldUpload: true }
+}
 
 export const buildNeuralVoiceVadDebugLine = ({
   event,
