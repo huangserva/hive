@@ -15,6 +15,7 @@ import {
   type StreamingRecognitionOptions,
   type StreamingRecognitionSession,
 } from './streaming-stt-online.js'
+import { VOICE_INPUT_SOURCE } from './voice-input-source-tags.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
   calculateWebRtcInt16Rms,
@@ -168,7 +169,7 @@ export const injectWebRtcVoiceTranscript = async ({
     workspaceId,
     'inbound',
     'user_text',
-    JSON.stringify({ source: 'voice', text: trimmed })
+    JSON.stringify({ source: VOICE_INPUT_SOURCE.webRtcCall, text: trimmed })
   )
 
   const gatekeeperHandled =

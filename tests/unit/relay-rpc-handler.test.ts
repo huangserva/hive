@@ -703,7 +703,7 @@ describe('relay RPC handler', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: '让关羽汇报' })
+      JSON.stringify({ source: 'talk_continuous', text: '让关羽汇报' })
     )
     expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
       'ws-1',
@@ -716,6 +716,7 @@ describe('relay RPC handler', () => {
   it('merges relay voice prompt fragments before invoking the fast voice layer', async () => {
     vi.useFakeTimers()
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '1200')
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
     })
@@ -793,7 +794,7 @@ describe('relay RPC handler', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: '关羽现在在干嘛' })
+      JSON.stringify({ source: 'talk_continuous', text: '关羽现在在干嘛' })
     )
     expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
       'ws-1',

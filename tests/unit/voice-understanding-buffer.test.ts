@@ -60,7 +60,7 @@ describe('voice understanding buffer', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: '让关羽查一下\nWebRTC 为什么断续' })
+      JSON.stringify({ source: 'talk_continuous', text: '让关羽查一下\nWebRTC 为什么断续' })
     )
     const injected = store.recordUserInput.mock.calls[0]?.[2] as string
     expect(injected).toContain('[来自手机 Mobile App]\n---\n让关羽查一下\nWebRTC 为什么断续')
@@ -147,7 +147,7 @@ describe('voice understanding buffer', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: '我刚才说的别丢' })
+      JSON.stringify({ source: 'talk_continuous', text: '我刚才说的别丢' })
     )
     expect(store.recordUserInput).toHaveBeenCalledWith(
       'ws-1',
@@ -212,7 +212,7 @@ describe('voice understanding buffer', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: 'record 失败也要能看见' })
+      JSON.stringify({ source: 'talk_continuous', text: 'record 失败也要能看见' })
     )
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('record user input failed'),

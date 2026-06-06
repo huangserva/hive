@@ -164,7 +164,7 @@ describe('WebRTC upstream audio sink', () => {
       ])
     )
     expect(store.chat).toContainEqual({
-      contentJson: JSON.stringify({ source: 'voice', text: '让关羽汇报进度' }),
+      contentJson: JSON.stringify({ source: 'webrtc_call', text: '让关羽汇报进度' }),
       direction: 'inbound',
       messageType: 'user_text',
       workspaceId: 'workspace-1',
@@ -469,7 +469,7 @@ describe('WebRTC upstream audio sink', () => {
       },
     ])
     expect(store.chat).toContainEqual({
-      contentJson: JSON.stringify({ source: 'voice', text: '第三句' }),
+      contentJson: JSON.stringify({ source: 'webrtc_call', text: '第三句' }),
       direction: 'inbound',
       messageType: 'user_text',
       workspaceId: 'workspace-1',

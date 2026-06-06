@@ -4,6 +4,7 @@ import {
   maybeInsertFastVoiceReplyWithGatekeeper,
 } from './fast-voice-reply.js'
 import type { HiveLogger } from './logger.js'
+import { VOICE_INPUT_SOURCE } from './voice-input-source-tags.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 export const DEFAULT_VOICE_UNDERSTANDING_WINDOW_MS = 1200
@@ -99,7 +100,7 @@ const persistInboundChatMessage = (
       workspaceId,
       'inbound',
       'user_text',
-      JSON.stringify({ source: 'voice', text: combinedText })
+      JSON.stringify({ source: VOICE_INPUT_SOURCE.talkContinuous, text: combinedText })
     )
     return true
   } catch (error) {
