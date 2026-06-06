@@ -214,7 +214,7 @@ export const createWebRtcUpstreamAudioSink = ({
     let rmsMax = 0
     let processingQueue = Promise.resolve()
     const sessionTranscript: string[] = []
-    const streamingSession = await createStreamingSession(callId, {
+    let streamingSession = await createStreamingSession(callId, {
       onError: (error) => logger?.warn?.('streaming WebRTC STT error', error),
       onFinal: async (text) => {
         const priorContext = sessionTranscript.slice()
@@ -242,6 +242,15 @@ export const createWebRtcUpstreamAudioSink = ({
       ...vad,
       ...(onSpeechStart ? { onSpeechStart } : {}),
     })
+    const pushToBatchVad = (buffer: Buffer) => {
+      const utterance = utteranceVad.push({
+        bitsPerSample,
+        channelCount,
+        pcm: buffer,
+        sampleRate,
+      })
+      if (utterance) void processUtterance(utterance)
+    }
     const processUtterance = (utterance: WebRtcVadUtterance) => {
       utteranceIndex += 1
       const currentUtteranceIndex = utteranceIndex
@@ -303,15 +312,16 @@ export const createWebRtcUpstreamAudioSink = ({
       rmsMin = Math.min(rmsMin, currentRms)
       rmsMax = Math.max(rmsMax, currentRms)
       if (streamingSession) {
-        streamingSession.pushFrame(buffer, sampleRate, bitsPerSample)
+        try {
+          streamingSession.pushFrame(buffer, sampleRate, bitsPerSample)
+        } catch (error) {
+          logger?.warn?.('streaming WebRTC STT failed; falling back to batch VAD', error)
+          streamingSession.close()
+          streamingSession = null
+          pushToBatchVad(buffer)
+        }
       } else {
-        const utterance = utteranceVad.push({
-          bitsPerSample,
-          channelCount,
-          pcm: buffer,
-          sampleRate,
-        })
-        if (utterance) void processUtterance(utterance)
+        pushToBatchVad(buffer)
       }
       if (chunkCount === 1) {
         logDiagnostic(

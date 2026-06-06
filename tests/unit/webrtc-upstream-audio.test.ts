@@ -385,6 +385,67 @@ describe('WebRTC upstream audio sink', () => {
     expect(warnings).toHaveLength(1)
   })
 
+  test('falls back to batch VAD when streaming pushFrame fails during a call', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const store = createStore()
+    const warnings: unknown[] = []
+    const transcribedPaths: string[] = []
+    const sink = createWebRtcUpstreamAudioSink({
+      createSttProvider: () => ({
+        detect: async () => ({ command: 'fake-stt', provider: 'paraformer' }),
+        transcribeAudioFile: async (audioPath) => {
+          transcribedPaths.push(audioPath)
+          return { provider: 'paraformer', text: 'fallback transcript' }
+        },
+      }),
+      createStreamingRecognitionSession: async () => ({
+        close: () => {},
+        flush: async () => {},
+        pushFrame: () => {
+          throw new Error('streaming native failure')
+        },
+      }),
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: (...args) => warnings.push(args),
+      },
+      store,
+      tempRoot: tmpdir(),
+      vad: {
+        minSpeechMs: 20,
+        silenceMs: 40,
+        speechRmsThreshold: 0.02,
+      },
+    })
+
+    const session = await sink.start({
+      callId: 'call-streaming-fallback',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    const audioSink = FakeAudioSink.instances[0]
+
+    expect(() => emitFrame(audioSink, 5000)).not.toThrow()
+    for (let index = 0; index < 3; index += 1) emitFrame(audioSink, 5000)
+    for (let index = 0; index < 4; index += 1) emitFrame(audioSink, 0)
+
+    await vi.waitFor(() => expect(store.inputs).toHaveLength(1), { timeout: 1000 })
+    await session.close()
+
+    expect(warnings).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining(['streaming WebRTC STT failed; falling back to batch VAD']),
+      ])
+    )
+    expect(transcribedPaths).toHaveLength(1)
+    expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\nfallback transcript')
+  })
+
   test('formats WebRTC voice prompts with rolling session context when provided', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     const store = createStore()

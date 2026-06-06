@@ -83,6 +83,7 @@ describe('streaming STT online recognizer', () => {
       decode: vi.fn(),
       getResult: vi.fn(() => ({ text: '你好世界' })),
       isEndpoint: vi.fn(() => true),
+      isReady: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
       reset: vi.fn((currentStream: unknown) => resets.push(currentStream)),
     }
 
@@ -126,6 +127,7 @@ describe('streaming STT online recognizer', () => {
       decode: vi.fn(),
       getResult: vi.fn(() => ({ text: '还没断句' })),
       isEndpoint: vi.fn(() => false),
+      isReady: vi.fn().mockReturnValueOnce(true).mockReturnValue(false),
       reset: vi.fn(),
     }
     const session = await createStreamingRecognitionSession(
@@ -155,6 +157,84 @@ describe('streaming STT online recognizer', () => {
     rmSync(home, { force: true, recursive: true })
   })
 
+  test('does not decode pushed frames until the online recognizer is ready', async () => {
+    const { home } = makeHomeWithModel()
+    const errors: unknown[] = []
+    const recognizer = {
+      createStream: () => ({
+        acceptWaveform: vi.fn(),
+      }),
+      decode: vi.fn(() => {
+        throw new Error('decode must not run before isReady')
+      }),
+      getResult: vi.fn(() => ({ text: '' })),
+      isEndpoint: vi.fn(() => false),
+      isReady: vi.fn(() => false),
+      reset: vi.fn(),
+    }
+    const session = await createStreamingRecognitionSession(
+      'call-not-ready',
+      {
+        onError: (error) => errors.push(error),
+        onFinal: async () => {},
+      },
+      {
+        env: makeEnv(home),
+        loadSherpaOnnx: async () => ({
+          createOnlineRecognizer: () => recognizer,
+        }),
+      }
+    )
+
+    session?.pushFrame(Buffer.from(Int16Array.from([10, 20, 30]).buffer), 16_000, 16)
+
+    expect(recognizer.isReady).toHaveBeenCalled()
+    expect(recognizer.decode).not.toHaveBeenCalled()
+    expect(errors).toEqual([])
+
+    rmSync(home, { force: true, recursive: true })
+  })
+
+  test('flush marks input finished, drains ready frames, and emits the remaining result', async () => {
+    const { home } = makeHomeWithModel()
+    const finals: string[] = []
+    const stream = {
+      acceptWaveform: vi.fn(),
+      inputFinished: vi.fn(),
+    }
+    const recognizer = {
+      createStream: () => stream,
+      decode: vi.fn(),
+      getResult: vi.fn(() => ({ text: '最后一句' })),
+      isEndpoint: vi.fn(() => false),
+      isReady: vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(true).mockReturnValue(false),
+      reset: vi.fn(),
+    }
+    const session = await createStreamingRecognitionSession(
+      'call-flush-drain',
+      {
+        onFinal: async (text) => {
+          finals.push(text)
+        },
+      },
+      {
+        env: makeEnv(home),
+        loadSherpaOnnx: async () => ({
+          createOnlineRecognizer: () => recognizer,
+        }),
+      }
+    )
+
+    await session?.flush()
+
+    expect(stream.inputFinished).toHaveBeenCalledTimes(1)
+    expect(recognizer.decode).toHaveBeenCalledTimes(2)
+    expect(finals).toEqual(['最后一句'])
+    expect(recognizer.reset).toHaveBeenCalledTimes(1)
+
+    rmSync(home, { force: true, recursive: true })
+  })
+
   test('retires a replaced recognizer and frees it after its active session closes', async () => {
     const first = makeHomeWithModel()
     const second = makeHomeWithModel()
@@ -167,6 +247,7 @@ describe('streaming STT online recognizer', () => {
       free,
       getResult: vi.fn(() => ({ text: '' })),
       isEndpoint: vi.fn(() => false),
+      isReady: vi.fn(() => false),
       reset: vi.fn(),
     })
     const recognizers = [makeRecognizer(firstFree), makeRecognizer(secondFree)]

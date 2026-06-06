@@ -11,6 +11,7 @@ export type StreamingParaformerModel = {
 type OnlineRecognizerStream = {
   acceptWaveform?: (sampleRate: number, samples: Float32Array) => void
   free?: () => void
+  inputFinished?: () => void
 }
 
 type OnlineRecognizer = {
@@ -19,6 +20,7 @@ type OnlineRecognizer = {
   free?: () => void
   getResult(stream: OnlineRecognizerStream): { text?: string } | string | null
   isEndpoint(stream: OnlineRecognizerStream): boolean
+  isReady(stream: OnlineRecognizerStream): boolean
   reset(stream: OnlineRecognizerStream): void
 }
 
@@ -232,6 +234,12 @@ export const createStreamingRecognitionSession = async (
     lastPartialText = ''
   }
 
+  const drainReadyFrames = () => {
+    while (recognizer.isReady(stream)) {
+      recognizer.decode(stream)
+    }
+  }
+
   return {
     close() {
       if (closed) return
@@ -241,6 +249,8 @@ export const createStreamingRecognitionSession = async (
     },
     async flush() {
       if (closed) return
+      stream.inputFinished?.()
+      drainReadyFrames()
       const text = extractResultText(recognizer.getResult(stream))
       emitFinal(text)
       if (text) resetStream()
@@ -252,7 +262,7 @@ export const createStreamingRecognitionSession = async (
         const samples = resampleInt16PcmTo16kFloat32(pcmBuffer, sampleRate, bitsPerSample)
         if (samples.length === 0) return
         stream.acceptWaveform?.(16_000, samples)
-        recognizer.decode(stream)
+        drainReadyFrames()
         const text = extractResultText(recognizer.getResult(stream))
         if (text && text !== lastPartialText) {
           lastPartialText = text
@@ -264,6 +274,7 @@ export const createStreamingRecognitionSession = async (
         }
       } catch (error) {
         options.onError?.({ callId, error })
+        throw error
       }
     },
   }
