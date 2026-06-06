@@ -3,6 +3,69 @@ import { describe, expect, test } from 'vitest'
 import { createVoiceStreamTtsHandler } from '../../src/server/relay-voice-stream-tts.js'
 
 describe('relay voice stream TTS handler', () => {
+  test('defers stream TTS to WebRTC downlink when the same device has an active call', async () => {
+    let detectCount = 0
+    let synthesizeCount = 0
+    const sent: unknown[] = []
+    const handler = createVoiceStreamTtsHandler({
+      createTtsProvider: () => ({
+        async detect() {
+          detectCount += 1
+          return { command: 'say', provider: 'say' }
+        },
+        async synthesize() {
+          synthesizeCount += 1
+          return {
+            audio: Buffer.from('audio'),
+            format: 'm4a',
+            mime: 'audio/mp4',
+            provider: 'say',
+          }
+        },
+      }),
+      hasActiveWebRtcCall: (deviceId) => deviceId === 'device-1',
+    })
+
+    const handled = await handler(
+      { op: 'open', seq: 0, stream_id: 'voice-audio', text: '你好', type: 'voice_stream' },
+      { capabilities: ['send_prompt'], deviceId: 'device-1', send: (frame) => sent.push(frame) }
+    )
+
+    expect(handled).toBe(false)
+    expect(detectCount).toBe(0)
+    expect(synthesizeCount).toBe(0)
+    expect(sent).toEqual([])
+  })
+
+  test('keeps synthesizing stream TTS when the device has no active WebRTC call', async () => {
+    const sent: unknown[] = []
+    const handler = createVoiceStreamTtsHandler({
+      chunkSize: 4,
+      createTtsProvider: () => ({
+        async detect() {
+          return { command: 'say', provider: 'say' }
+        },
+        async synthesize() {
+          return {
+            audio: Buffer.from('audio'),
+            format: 'm4a',
+            mime: 'audio/mp4',
+            provider: 'say',
+          }
+        },
+      }),
+      hasActiveWebRtcCall: () => false,
+    })
+
+    const handled = await handler(
+      { op: 'open', seq: 0, stream_id: 'voice-audio', text: '你好', type: 'voice_stream' },
+      { capabilities: ['send_prompt'], deviceId: 'device-1', send: (frame) => sent.push(frame) }
+    )
+
+    expect(handled).toBe(true)
+    expect(sent).toContainEqual(expect.objectContaining({ op: 'chunk', stream_id: 'voice-audio' }))
+  })
+
   test('synthesizes open text and sends ordered audio chunks with done on the final frame', async () => {
     const sent: unknown[] = []
     const handler = createVoiceStreamTtsHandler({

@@ -4,6 +4,16 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-06 WebRTC 通话流式 ASR + early-response — user 实测口述
+
+- **idea-10 流式 STT + 边收边算架构**：user 在 WebRTC 通话实测中指出，当前"等静音→攒完→STT→AI→TTS"链路导致 5-6s 延迟，根本原因是客户端攒完再传。user 正确方向：
+  - 服务端实时收 10ms PCM 帧 → 流式 ASR 边收边出局部文字 → 理解语义后**立即**触发 AI
+  - 不等用户停顿，检测到"意图完整"即响应（intent-complete 而非 silence-boundary）
+  - AI streaming 回复 + streaming TTS 同步推下行 → 端到端延迟可降到 ~1-2s
+  - 技术路径：streaming Whisper（whisper.cpp server-sent events）或 cloud streaming ASR（Google/Azure），配合 LLM streaming + edge-tts streaming
+  - **当前差距**：audioSink 在 webrtc-upstream-audio.ts 等 VAD 静音后整段 inject；改成流式需重构 STT 接入层
+  - promote 条件：当前 WebRTC 通话体验稳定后（M38 收尾）进入 backlog 评估
+
 ### 2026-06-03 GLM↔orchestrator 双 agent 连续协作环 — user 语音口述（M36 衍生）
 
 - **idea-9 双 agent 分工协作环**：user 在 M36 连续对讲实测中口述（两次描述方向一致）。当前两套机制：①GLM 快嘴（知情前台,只读,~2-3s）②orchestrator（OFH,管 worker 的重活执行者,~28s）。user 设想让二者**显式协作成连续闭环**：
@@ -73,3 +83,10 @@
   - ⚠️技术选型待调研:user 提 RTSP,但 RTSP 偏单向直播;双向交互语音业界通常 **WebRTC**(延迟更低 + 自带 AEC 回音消除,正好治回声自打断)。需正经调研出报告:RTSP vs WebRTC vs 流式STT+TTS 管线,各自延迟/复杂度/与现有 relay 架构契合度。**调研类硬规则**:出 reports/*.html + research/*.md。
   - 关联:plan.md line 55 已挂的"批处理 vs 流式"大决策(ADR Phase 2);神经 VAD 三阶段已打通后,这是语音体验的下一座大山。
   - 状态:**已立项(2026-06-04 user 拍板"可以考虑做了"+"我同意 webrtc 方案")→方向定 WebRTC**。调研 spike 已派赵云(reports/*.html+research/*.md;3 条 dispatch=同一调研累积细化:广→收窄WebRTC→指 ADR 前置)。承接 `2026-06-02-m36-streaming-voice.md` 既有发现(P2P需TURN、US relay延迟最大头、快嘴层已解orch延迟)。**待调研报告→user 拍落地计划**。ADR 已更新 6-04 WebRTC 段。
+
+- **idea-11 实时流建立后 GLM 快嘴层是否还需存在**（2026-06-05 user 提,明确"以后专门讨论"）
+  - user 原话:"如果实时流(WebRTC)已经建立了之后,GLM 它是不是还一定百分之百需要存在,我们都要去讨论和考虑这个问题。"
+  - 背景:GLM 快嘴层(idea-9)是为解决 orchestrator 批处理回复 28-30s 太慢、提供 1-2s 秒回应声而生(见 ADR 2026-06-02-m36-streaming-voice §50)。
+  - 假设:WebRTC 实时低延迟 + 流式 LLM token 输出后,orchestrator 本身可能就能足够快地直接对话,GLM 快嘴层的"垫场"价值可能下降→是否还需要二层(GLM+orch)?还是 orch 流式直答即可?
+  - 关联:idea-9/idea-9 v2(GLM 门卫+接力)、idea-10(WebRTC 实时流)。**待 WebRTC 实时落地后再评估**;user 要专门讨论。
+  - 注:同期 user 还指出 GLM 越权 claim 派单/行动的 bug(已派关羽修 GLM prompt,GLM 只许答+对称传递不许声称派单)。

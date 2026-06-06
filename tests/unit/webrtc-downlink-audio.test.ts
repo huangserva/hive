@@ -145,6 +145,109 @@ describe('WebRTC downlink audio', () => {
     expect(listener).toBeNull()
   })
 
+  test('applies default soft-clipped gain to PCM samples before pushing downlink audio', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const pushedSamples: Int16Array[] = []
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      decodeAudioToPcmFrames: async () => [
+        {
+          bitsPerSample: 16,
+          channelCount: 1,
+          numberOfFrames: 480,
+          sampleRate: 48_000,
+          samples: new Int16Array([-12_000, -1_000, 0, 1_000, 12_000]),
+        },
+      ],
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: (frame) => {
+          pushedSamples.push(frame.samples)
+        },
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await startTestCall(downlink, {
+      callId: 'call-gain',
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createMessage('hello'))
+
+    await session.flush()
+
+    expect(pushedSamples).toHaveLength(1)
+    expect(Array.from(pushedSamples[0] ?? [])).toEqual([-32_767, -3_000, 0, 3_000, 32_767])
+  })
+
+  test('uses HIVE_WEBRTC_DOWNLINK_GAIN to tune downlink PCM gain without recompiling', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const pushedSamples: Int16Array[] = []
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      decodeAudioToPcmFrames: async () => [
+        {
+          bitsPerSample: 16,
+          channelCount: 1,
+          numberOfFrames: 480,
+          sampleRate: 48_000,
+          samples: new Int16Array([-20_000, 1_500, 20_000]),
+        },
+      ],
+      env: {
+        HIVE_WEBRTC_DOWNLINK_GAIN: '2',
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: (frame) => {
+          pushedSamples.push(frame.samples)
+        },
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await startTestCall(downlink, {
+      callId: 'call-env-gain',
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createMessage('hello'))
+
+    await session.flush()
+
+    expect(pushedSamples).toHaveLength(1)
+    expect(Array.from(pushedSamples[0] ?? [])).toEqual([-32_767, 3_000, 32_767])
+  })
+
   test('ignores non-orchestrator and other-workspace messages', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const pushedFrames: Int16Array[] = []
@@ -221,6 +324,9 @@ describe('WebRTC downlink audio', () => {
         }),
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
+      env: {
+        HIVE_WEBRTC_DOWNLINK_GAIN: '1',
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -278,6 +384,9 @@ describe('WebRTC downlink audio', () => {
         }),
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
+      env: {
+        HIVE_WEBRTC_DOWNLINK_GAIN: '1',
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -338,6 +447,9 @@ describe('WebRTC downlink audio', () => {
         }),
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
+      env: {
+        HIVE_WEBRTC_DOWNLINK_GAIN: '1',
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -400,6 +512,9 @@ describe('WebRTC downlink audio', () => {
         if (text.endsWith('first')) return [createFrame(1), createFrame(2), createFrame(3)]
         if (text.endsWith('queued-old')) return [createFrame(9)]
         return [createFrame(4), createFrame(5)]
+      },
+      env: {
+        HIVE_WEBRTC_DOWNLINK_GAIN: '1',
       },
       logger: {
         info: (message) => infoLogs.push(message),

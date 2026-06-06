@@ -40,6 +40,7 @@ export interface WebRtcRuntime {
 }
 
 export interface WebRtcCalleeContext {
+  deviceId?: string
   send(frame: WebRtcSignalFrame): void
 }
 
@@ -95,6 +96,7 @@ export interface WebRtcCalleeOptions {
 type WebRtcCall = {
   audioSessions: Set<WebRtcRemoteAudioSession>
   closed: boolean
+  deviceId: string | null
   downlinkSession: WebRtcDownlinkAudioSession | null
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
@@ -188,16 +190,24 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     })
   }
 
-  const rememberCall = (callId: string, peer: WebRtcPeerConnection) => {
+  const rememberCall = (callId: string, peer: WebRtcPeerConnection, deviceId: string | null) => {
     const call: WebRtcCall = {
       audioSessions: new Set(),
       closed: false,
+      deviceId,
       downlinkSession: null,
       peer,
       timer: setTimeout(() => closeCall(callId), callTimeoutMs),
     }
     calls.set(callId, call)
     return call
+  }
+
+  const hasActiveCall = (deviceId: string) => {
+    for (const call of calls.values()) {
+      if (!call.closed && call.deviceId === deviceId) return true
+    }
+    return false
   }
 
   const handleSignal = async (
@@ -214,7 +224,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         `ICE servers resolved: count=${iceServers.length} urls=${iceServers.map((s) => (typeof s.urls === 'string' ? s.urls : (s.urls as string[]).join(','))).join(' | ')}`
       )
       const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers))
-      const call = rememberCall(frame.call_id, peer)
+      const call = rememberCall(frame.call_id, peer, context.deviceId ?? null)
       if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
         try {
           const downlinkSession = await options.downlinkAudio.startCall({
@@ -376,5 +386,5 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     return true
   }
 
-  return { handleSignal }
+  return { handleSignal, hasActiveCall }
 }

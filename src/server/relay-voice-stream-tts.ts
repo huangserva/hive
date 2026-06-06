@@ -5,6 +5,7 @@ import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 interface VoiceStreamTtsHandlerOptions {
   chunkSize?: number
   createTtsProvider?: () => LocalTtsProvider
+  hasActiveWebRtcCall?: (deviceId: string) => boolean
 }
 
 export type VoiceStreamSendContext = {
@@ -29,6 +30,7 @@ const splitBase64 = (base64: string, chunkSize: number) => {
 export const createVoiceStreamTtsHandler = (options: VoiceStreamTtsHandlerOptions = {}) => {
   const chunkSize = options.chunkSize ?? DEFAULT_AUDIO_CHUNK_CHARS
   const createTtsProvider = options.createTtsProvider ?? createLocalTtsProvider
+  const hasActiveWebRtcCall = options.hasActiveWebRtcCall
 
   return async (frame: VoiceStreamFrame, context: VoiceStreamSendContext) => {
     if (frame.op !== 'open' || typeof frame.text !== 'string' || !frame.text.trim()) {
@@ -37,6 +39,7 @@ export const createVoiceStreamTtsHandler = (options: VoiceStreamTtsHandlerOption
     const streamId = frame.stream_id
     const openSeq = frame.seq
     if (typeof streamId !== 'string' || typeof openSeq !== 'number') return false
+    if (hasActiveWebRtcCall?.(context.deviceId)) return false
     if (!context.capabilities.includes('send_prompt')) {
       context.send({
         error: 'missing_mobile_capability: send_prompt',

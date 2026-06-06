@@ -53,6 +53,8 @@ type DecodeAudioToPcmFrames = (
 
 const WEBRTC_DOWNLINK_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
 const WEBRTC_DOWNLINK_FRAME_INTERVAL_MS = 10
+const DEFAULT_WEBRTC_DOWNLINK_GAIN = 3.0
+const INT16_SOFT_LIMIT = 32_767
 
 interface WebRtcDownlinkAudioOptions {
   createTtsProvider?: () => LocalTtsProvider
@@ -129,6 +131,24 @@ const createWrtcAudioTrack = async (): Promise<WebRtcDownlinkTrackSession> => {
 const bufferToInt16Array = (buffer: Buffer) =>
   new Int16Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.byteLength / 2))
 
+const resolveDownlinkGain = (env: NodeJS.ProcessEnv) => {
+  const parsed = Number.parseFloat(env.HIVE_WEBRTC_DOWNLINK_GAIN ?? '')
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBRTC_DOWNLINK_GAIN
+}
+
+const applyPcmGain = (frame: WebRtcPcmAudioFrame, gainFactor: number): WebRtcPcmAudioFrame => {
+  if (gainFactor === 1) return frame
+  const samples = new Int16Array(frame.samples.length)
+  for (let index = 0; index < frame.samples.length; index += 1) {
+    const amplified = Math.round((frame.samples[index] ?? 0) * gainFactor)
+    samples[index] = Math.max(-INT16_SOFT_LIMIT, Math.min(INT16_SOFT_LIMIT, amplified))
+  }
+  return {
+    ...frame,
+    samples,
+  }
+}
+
 const decodeAudioToPcm48kFrames = async ({
   audio,
   env,
@@ -190,6 +210,9 @@ export const createWebRtcDownlinkAudio = ({
   >
 } => ({
   async startCall({ callId, workspaceId }) {
+    // WebRTC mobile playback is quieter than normal talkback; tune this with
+    // HIVE_WEBRTC_DOWNLINK_GAIN without rebuilding, keeping Int16 samples clipped.
+    const downlinkGain = resolveDownlinkGain(env)
     const trackSession = await trackFactory()
     logDiagnostic(
       logger,
@@ -286,7 +309,7 @@ export const createWebRtcDownlinkAudio = ({
             const targetFrameTs = baseFrameTs + index * WEBRTC_DOWNLINK_FRAME_INTERVAL_MS
             await waitForDelay(targetFrameTs - Date.now())
             if (closed || queuedGeneration !== playbackGeneration) break
-            await trackSession.onData(frame)
+            await trackSession.onData(applyPcmGain(frame, downlinkGain))
             pushed += 1
             if (pushed === 1 || pushed % 50 === 0) {
               logDiagnostic(

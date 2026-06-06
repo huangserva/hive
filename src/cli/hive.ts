@@ -215,17 +215,20 @@ export const runHiveCommand = async (
   try {
     const relayConfig = await loadRelayConfig({ dataDir })
     if (relayConfig.enabled) {
+      const webRtcCallee = createWebRtcCallee({
+        audioSink: createWebRtcUpstreamAudioSink({ logger, store }),
+        downlinkAudio: createWebRtcDownlinkAudio({ logger, store }),
+        getIceServers: async () => resolveWebRtcIceServers(),
+      })
       relayConnector = createRelayConnector(
         relayConfig,
         createRelayRpcHandler({ runtimeInfo: { dataDir, port }, store }),
         {
           authenticateDevice: (token) => store.authenticateMobileDevice(token),
-          voiceStreamHandler: createVoiceStreamTtsHandler(),
-          webrtcSignalHandler: createWebRtcCallee({
-            audioSink: createWebRtcUpstreamAudioSink({ logger, store }),
-            downlinkAudio: createWebRtcDownlinkAudio({ logger, store }),
-            getIceServers: async () => resolveWebRtcIceServers(),
-          }).handleSignal,
+          voiceStreamHandler: createVoiceStreamTtsHandler({
+            hasActiveWebRtcCall: (deviceId) => webRtcCallee.hasActiveCall(deviceId),
+          }),
+          webrtcSignalHandler: webRtcCallee.handleSignal,
         }
       )
       logger.info(

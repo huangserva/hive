@@ -189,6 +189,44 @@ describe('WebRTC callee', () => {
     expect(peers[0]?.closed).toBe(true)
   })
 
+  test('reports active calls by relay device id and clears them when the call closes', async () => {
+    const peers: FakePeerConnection[] = []
+    const callee = createWebRtcCallee({
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    expect(callee.hasActiveCall('device-1')).toBe(false)
+    await callee.handleSignal(
+      {
+        call_id: 'call-device',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+      },
+      { deviceId: 'device-1', send: () => {} }
+    )
+
+    expect(callee.hasActiveCall('device-1')).toBe(true)
+    expect(callee.hasActiveCall('device-2')).toBe(false)
+
+    await callee.handleSignal(
+      { call_id: 'call-device', kind: 'bye', type: 'webrtc_signal' },
+      { deviceId: 'device-1', send: () => {} }
+    )
+
+    expect(peers[0]?.closed).toBe(true)
+    expect(callee.hasActiveCall('device-1')).toBe(false)
+  })
+
   test('closes unanswered calls after the configured timeout', async () => {
     vi.useFakeTimers()
     const peers: FakePeerConnection[] = []
