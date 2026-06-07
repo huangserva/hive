@@ -107,7 +107,12 @@ export const claimPendingWebRtcVoiceLatencyTurn = (workspaceId: string) => {
   return turnId ? (turnsById.get(turnId) ?? null) : null
 }
 
-export const buildVoiceLatencyBreakdownLog = (turn: WebRtcVoiceLatencyTurn) => {
+export const buildVoiceLatencyBreakdownLog = (
+  turn: WebRtcVoiceLatencyTurn,
+  options: { finalDownlinkField?: string; includeTtsToFirstFrame?: boolean } = {}
+) => {
+  const finalDownlinkField = options.finalDownlinkField ?? 'final_to_downlink_ms'
+  const includeTtsToFirstFrame = options.includeTtsToFirstFrame ?? true
   const finalToFastReplyMs = duration(turn.finalAt, turn.fastReplyEnterAt)
   const glmMs = duration(turn.glmRequestAt, turn.glmResponseAt)
   const gatekeeperMs = duration(turn.fastReplyEnterAt, turn.gatekeeperAt)
@@ -125,8 +130,10 @@ export const buildVoiceLatencyBreakdownLog = (turn: WebRtcVoiceLatencyTurn) => {
     `escalated=${turn.escalated === true}`,
     `gatekeeper_ms=${formatDuration(gatekeeperMs)}`,
     `tts_ms=${formatDuration(ttsMs)}`,
-    `tts_to_first_frame_ms=${formatDuration(ttsToFirstFrameMs)}`,
-    `final_to_downlink_ms=${formatDuration(finalToDownlinkMs)}`,
+    ...(includeTtsToFirstFrame
+      ? [`tts_to_first_frame_ms=${formatDuration(ttsToFirstFrameMs)}`]
+      : []),
+    `${finalDownlinkField}=${formatDuration(finalToDownlinkMs)}`,
     `total_ms=${formatDuration(finalToDownlinkMs)}`,
   ].join(' ')
 }
