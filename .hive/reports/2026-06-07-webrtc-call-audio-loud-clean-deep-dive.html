@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebRTC 通话音量小 / media 路由发劈深挖</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f6f7f9;
+        color: #1f2937;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        line-height: 1.65;
+      }
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 18px 56px;
+      }
+      h1,
+      h2,
+      h3 {
+        color: #111827;
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 8px;
+      }
+      h2 {
+        border-top: 1px solid #d8dee8;
+        font-size: 22px;
+        margin-top: 32px;
+        padding-top: 22px;
+      }
+      h3 {
+        font-size: 18px;
+        margin-top: 22px;
+      }
+      code {
+        background: #eef2f7;
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      table {
+        border-collapse: collapse;
+        margin: 14px 0;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #d8dee8;
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #edf2f7;
+      }
+      .summary {
+        background: #ffffff;
+        border: 1px solid #d8dee8;
+        border-left: 5px solid #2563eb;
+        border-radius: 8px;
+        padding: 16px 18px;
+      }
+      .risk {
+        background: #fff7ed;
+        border-left-color: #f97316;
+      }
+      .ok {
+        background: #f0fdf4;
+        border-left-color: #16a34a;
+      }
+      .muted {
+        color: #64748b;
+        font-size: 14px;
+      }
+      ul {
+        padding-left: 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="muted">2026-06-07 · 调研任务 · 不改产品代码</p>
+      <h1>WebRTC 通话音量小 / media 路由发劈深挖</h1>
+      <div class="summary">
+        <strong>结论：</strong>日常对讲念回之所以“响且清”，不是因为同一套 WebRTC
+        下行调得好，而是因为它走的是 <code>expo-audio</code> 的文件播放路径：服务端先生成
+        MP3/M4A，App 以 data URI 交给媒体播放器播放，并在播放前把
+        <code>allowsRecording:false</code>。WebRTC 通话下行则是
+        <code>react-native-webrtc</code> 远端 audio track，经 WebRTC
+        <code>JavaAudioDeviceModule</code> / Android 实时通话音频设备播放。两者不是同一个
+        Android 音频流，也不是同一个解码 / 缓冲 / 音量控制栈。
+      </div>
+
+      <h2>1. 对讲念回的“响亮干净配方”</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>环节</th>
+            <th>代码证据</th>
+            <th>含义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>播放器</td>
+            <td><code>packages/mobile/app/(tabs)/talk.tsx:394</code> 使用 <code>useAudioPlayer(null)</code></td>
+            <td>念回是 App 侧媒体播放器播放，不是 WebRTC remote track。</td>
+          </tr>
+          <tr>
+            <td>录音源</td>
+            <td><code>talk.tsx:380-388</code> 录音可设 <code>audioSource:"voice_communication"</code></td>
+            <td>录音链路可走 Android voice communication 输入，但念回播放不是 WebRTC ADM。</td>
+          </tr>
+          <tr>
+            <td>播放前模式</td>
+            <td><code>talk.tsx:672-675</code>、<code>1199-1202</code> 设置 <code>allowsRecording:false</code> / <code>playsInSilentMode:true</code></td>
+            <td>普通念回播放时释放录音会话，更接近媒体播放路线。Expo 文档说明 <code>setAudioModeAsync</code> 控制全局音频行为，<code>playsInSilentMode</code> 允许静音模式播放。</td>
+          </tr>
+          <tr>
+            <td>音频载体</td>
+            <td><code>talk.tsx:1206-1209</code>：<code>player.replace({ uri: "data:${mime};base64,..." })</code> 后 <code>player.play()</code></td>
+            <td>服务端完整合成后给 App 一个可播放文件，播放器有正常缓冲和媒体链路增益。</td>
+          </tr>
+          <tr>
+            <td>TTS 输出</td>
+            <td><code>src/server/local-tts.ts:59-60</code> 晓晓默认，<code>DEFAULT_EDGE_VOLUME="+40%"</code>；<code>124-141</code> 输出 MP3</td>
+            <td>对讲和 WebRTC 都复用 edge-tts，但对讲最终由媒体播放器解码播文件。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        外部文档也支持这个判断：Expo Audio 官方文档把 <code>useAudioPlayer</code> 定位为原生音频播放 API，
+        并说明 <code>setAudioModeAsync</code> 用来配置全局音频行为 / 路由 / 中断模式；
+        <code>AudioMode.shouldRouteThroughEarpiece</code> 默认 false，即播放默认不走听筒。
+      </p>
+
+      <h2>2. WebRTC 通话为什么小</h2>
+      <p>
+        当前默认通话路径会进入 <code>react-native-incall-manager</code>：
+        <code>packages/mobile/src/lib/webrtc-incall-manager.ts:47-63</code> 调
+        <code>manager.start({ auto:false, media:"audio" })</code> 和
+        <code>setForceSpeakerphoneOn(true)</code>。其 Android 源码把
+        <code>defaultAudioMode</code> 设为 <code>AudioManager.MODE_IN_COMMUNICATION</code>，start 时
+        <code>audioManager.setMode(defaultAudioMode)</code>，并以
+        <code>AudioManager.STREAM_VOICE_CALL</code> 请求音频焦点。
+      </p>
+      <p>
+        这和用户体感吻合：Android 的通信 / 通话音频模式通常走“通话音量”，而媒体播放器走“媒体音量”。
+        100ms 的 RN 音频模式文档也把 <code>MODE_IN_COMMUNICATION</code> 对应 in-call volume，
+        <code>MODE_NORMAL</code> 对应 media volume。也就是说，小声不是单纯 TTS 太小，而是 WebRTC
+        下行被放进了实时通话音频路线。
+      </p>
+
+      <h2>3. media 路由为什么会“发劈 / 有杂音”</h2>
+      <div class="summary risk">
+        <strong>最可能的组合根因：</strong><code>media</code> 路由确实避开了 InCallManager 的低音量路线，
+        但 WebRTC 远端 track 仍由 <code>JavaAudioDeviceModule</code> 播实时 PCM，不会变成
+        <code>expo-audio</code> 的媒体文件播放器；同时服务端已有 <code>edge-tts +40%</code> 与
+        <code>HIVE_WEBRTC_DOWNLINK_GAIN=3.0</code> 两层增益。原来在小声通话流里不明显的峰值削波，
+        在 media 路由变响后会更容易被听成“发劈”。
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>候选原因</th>
+            <th>证据 / 判断</th>
+            <th>可信度</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>服务端 PCM 增益削波</td>
+            <td>
+              <code>webrtc-downlink-audio.ts:56</code> 默认下行 gain = 3.0；
+              <code>139-145</code> 对 Int16 乘 gain 后 clamp 到 32767；
+              <code>local-tts.ts:60, 133-135</code> edge-tts 还默认加 <code>+40%</code>。
+              这两层叠加会提高 RMS，也会提高 peak / clipping 风险。
+            </td>
+            <td>高。尤其 media 路由把输出变响后，削波更容易暴露。</td>
+          </tr>
+          <tr>
+            <td>media 路由下 WebRTC ADM 仍不是媒体播放器</td>
+            <td>
+              <code>react-native-webrtc</code> Android 源码在 WebRTCModule 初始化时创建
+              <code>JavaAudioDeviceModule</code>；官方/派生文档说明该 ADM 用
+              <code>AudioRecord</code> 输入和 <code>AudioTrack</code> 输出。
+              跳过 InCallManager 只是不设置 communication mode，不会把 remote track 交给
+              Expo/Media3。
+            </td>
+            <td>高。解释“比 incall 响但不如对讲清”。</td>
+          </tr>
+          <tr>
+            <td>getUserMedia AGC 导致下行发劈</td>
+            <td>
+              <code>webrtc-caller.ts:106-110</code> 开启 <code>autoGainControl</code>、
+              <code>echoCancellation</code>、<code>noiseSuppression</code>，但这是本地上行约束。
+              它可能影响回声 / 上行噪声，不太可能直接让远端 TTS 下行失真。
+            </td>
+            <td>中低。可作为回声问题排查项，不是下行 TTS 发劈主因。</td>
+          </tr>
+          <tr>
+            <td>2.8.10 media flag 根本没生效</td>
+            <td>
+              代码层支持是完整的：<code>app.config.ts:127</code> 写入
+              <code>extra.webRtcAudioRoute</code>；runtime 从 <code>Constants.expoConfig.extra</code>
+              读取；<code>webrtc-incall-manager.ts:51-55</code> 在 media 时打印
+              <code>[WEBRTCDBG] test_call_audio_route_media</code> 并跳过 InCallManager。
+              若真机听感从“小”变“发劈”，反而说明很可能已生效。
+            </td>
+            <td>中。需要用日志一锤定音。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>4. media flag 是否生效：判定方法</h2>
+      <p>当前最直接的判定不是靠主观听感，而是看日志和构建 extra：</p>
+      <ul>
+        <li>构建时：<code>EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE=media</code> 或 <code>WEBRTC_AUDIO_ROUTE=media</code> 必须进入 <code>app.config.ts</code> 的 <code>extra.webRtcAudioRoute</code>。</li>
+        <li>运行时：<code>mobile-runtime-context.tsx:238-241</code> 从 <code>Constants.expoConfig.extra</code> 取值；<code>resolveWebRtcAudioRoute</code> 只接受小写 <code>media</code>，<code>MEDIA</code> 会回落 incall。</li>
+        <li>真机日志：看到 <code>[WEBRTCDBG] test_call_audio_route_media</code> 才能证明这次通话跳过了 InCallManager。若只看到 <code>test_call_started/connected</code>，没看到该行，就不能认定 media 生效。</li>
+      </ul>
+      <p>
+        建议下一包只补一行无行为日志：在 start call 时打印
+        <code>webRtcAudioRouteExtra</code> 和最终 <code>resolvedAudioRoute</code>。这比继续猜“flag 是否烤进包”可靠。
+      </p>
+
+      <h2>5. 能否把对讲那条响亮路线搬到 WebRTC？</h2>
+      <h3>不能直接搬：两条管线本质不同</h3>
+      <p>
+        对讲念回播放的是完整音频文件；WebRTC 通话播放的是 remote audio track。react-native-webrtc
+        的 <code>_setVolume</code> 只是 WebRTC <code>AudioTrack.setVolume(0..10)</code> 的 gain，
+        WebRTC 官方 Android <code>AudioTrack</code> API 也只暴露“给底层 MediaSource 设置 volume gain”，
+        不负责把输出改成 Expo/Media3 文件播放路线。当前 RN WebRTC JS 层也没有“把远端 track 强制绑定到
+        Android STREAM_MUSIC + Media3 解码器”的稳定接口。
+      </p>
+      <h3>可行迁移方案：混合下行</h3>
+      <p>
+        真正能复用“对讲响亮干净配方”的方案，是<strong>保留 WebRTC 上行</strong>用于实时麦克风 / 流式 STT，
+        但<strong>把 AI 下行 TTS 改回现有 voice_stream / talkback 文件播放</strong>：daemon 仍生成 TTS，
+        不再通过 WebRTC remote audio track 播，而是经既有 relay voice_stream 发给 App，再用
+        <code>expo-audio</code> 的 <code>player.replace(data URI)</code> 播。这样可以直接吃到同一条响亮干净路线。
+      </p>
+      <p>
+        代价是它不再是“全双工媒体都在 WebRTC track 内”的纯方案；barge-in / 回声仍需要复用现有 VAD
+        与回声门控。但从用户目标看，先让 AI 声音响且清，比坚持 WebRTC 下行纯度更重要。
+      </p>
+
+      <h2>6. 推荐下一步</h2>
+      <ol>
+        <li>
+          <strong>先补诊断日志，不再盲出实验包：</strong>服务端每次下行 TTS 打
+          <code>edge_volume</code>、<code>downlink_gain</code>、gain 前后 RMS、peak、clipped sample ratio；
+          App 打 <code>extra.webRtcAudioRoute</code>、最终 route、是否看到
+          <code>test_call_audio_route_media</code>、<code>_setVolume</code> applied/unsupported。
+        </li>
+        <li>
+          <strong>用日志复验 media 发劈：</strong>如果 <code>clip_ratio &gt; 0</code>，先把
+          <code>HIVE_WEBRTC_DOWNLINK_GAIN</code> 降到 1.0-1.5，并确认 4010 已重启使
+          <code>HIVE_TTS_EDGE_VOLUME</code> 生效；不要同时叠多层增益。
+        </li>
+        <li>
+          <strong>若 media 仍不干净，走混合下行：</strong>WebRTC 只保留上行和连接，AI TTS 下行回到
+          voice_stream + expo-audio 文件播放。预计这是最接近“对讲同款响亮清晰”的低风险路径。
+        </li>
+        <li>
+          <strong>不建议短期做 native ADM fork：</strong>除非必须维持纯 WebRTC 下行，否则 patch
+          react-native-webrtc/JavaAudioDeviceModule 的 AudioTrack usage/audio attributes 是设备敏感 native 活，
+          风险高于混合下行。
+        </li>
+      </ol>
+
+      <h2>7. 参考资料</h2>
+      <ul>
+        <li>Expo Audio 官方文档：<a href="https://docs.expo.dev/versions/latest/sdk/audio/">https://docs.expo.dev/versions/latest/sdk/audio/</a></li>
+        <li>WebRTC JavaAudioDeviceModule API：<a href="https://getstream.github.io/webrtc-android/stream-webrtc-android/org.webrtc.audio/-java-audio-device-module/index.html">JavaAudioDeviceModule</a></li>
+        <li>100ms RN Audio Mode 文档：<a href="https://www.100ms.live/docs/react-native/v2/how-to-guides/configure-your-device/speaker/audio-mode-change">Audio Mode Change</a></li>
+        <li>WebRTC Android AudioTrack.setVolume 源码：<a href="https://webrtc.googlesource.com/src/+/refs/heads/main/sdk/android/api/org/webrtc/AudioTrack.java">AudioTrack.java</a></li>
+        <li>本地源码：<code>packages/mobile/app/(tabs)/talk.tsx</code>、<code>packages/mobile/src/lib/webrtc-incall-manager.ts</code>、<code>packages/mobile/src/lib/webrtc-caller.ts</code>、<code>src/server/webrtc-downlink-audio.ts</code>、<code>src/server/local-tts.ts</code></li>
+      </ul>
+    </main>
+  </body>
+</html>
