@@ -29,6 +29,7 @@ import {
   type WebRtcUtteranceVadConfig,
   type WebRtcVadUtterance,
 } from './webrtc-vad.js'
+import { startWebRtcVoiceLatencyTurn } from './webrtc-voice-latency.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 type WebRtcAudioSinkFrame = {
@@ -160,12 +161,14 @@ const writeWavFile = ({
 
 export const injectWebRtcVoiceTranscript = async ({
   fastVoiceReplyProvider,
+  latencyTurnId,
   sessionContext,
   store,
   text,
   workspaceId,
 }: {
   fastVoiceReplyProvider?: FastVoiceReplyProvider
+  latencyTurnId?: string
   sessionContext?: string[]
   store: WebRtcUpstreamStore
   text: string
@@ -183,6 +186,7 @@ export const injectWebRtcVoiceTranscript = async ({
       : `[来自手机 Mobile App]\n---\n${trimmed}`
   const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
     ...(fastVoiceReplyProvider ? { provider: fastVoiceReplyProvider } : {}),
+    ...(latencyTurnId ? { latencyTurnId } : {}),
     source: 'voice',
     store,
     text: trimmed,
@@ -296,15 +300,22 @@ export const createWebRtcUpstreamAudioSink = ({
       onError: (error) => logger?.warn?.('streaming WebRTC STT error', error),
       onFinal: async (text) => {
         const priorContext = sessionTranscript.slice()
+        const segment = priorContext.length + 1
+        const latencyTurn = startWebRtcVoiceLatencyTurn({
+          callId,
+          segment,
+          workspaceId,
+        })
         logDiagnostic(
           logger,
-          `audioSink streaming final: call_id=${callId} segments=${priorContext.length + 1} text_len=${text.trim().length}`
+          `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
         )
         await evaluateVoiceIntentShadow(text, true, priorContext)
         logVoiceIntentEndpointComparison()
         sessionTranscript.push(text)
         await injectWebRtcVoiceTranscript({
           ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
+          latencyTurnId: latencyTurn.turnId,
           sessionContext: priorContext,
           store,
           text,
@@ -363,8 +374,14 @@ export const createWebRtcUpstreamAudioSink = ({
             if (!cli) return
             const result = await provider.transcribeAudioFile(utterancePath)
             if (!result) return
+            const latencyTurn = startWebRtcVoiceLatencyTurn({
+              callId,
+              segment: currentUtteranceIndex,
+              workspaceId,
+            })
             await injectWebRtcVoiceTranscript({
               ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
+              latencyTurnId: latencyTurn.turnId,
               store,
               text: result.text,
               workspaceId,

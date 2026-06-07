@@ -2,6 +2,11 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { MobileChatMessage } from '../../src/server/mobile-chat-store.js'
 import { createWebRtcDownlinkAudio } from '../../src/server/webrtc-downlink-audio.js'
+import {
+  markWebRtcVoiceLatency,
+  resetWebRtcVoiceLatencyForTests,
+  startWebRtcVoiceLatencyTurn,
+} from '../../src/server/webrtc-voice-latency.js'
 
 const createMessage = (text: string): MobileChatMessage => ({
   content_json: JSON.stringify({ text }),
@@ -42,6 +47,7 @@ const startTestCall = async (
 
 describe('WebRTC downlink audio', () => {
   afterEach(() => {
+    resetWebRtcVoiceLatencyForTests()
     vi.useRealTimers()
   })
 
@@ -145,6 +151,135 @@ describe('WebRTC downlink audio', () => {
     expect(listener).toBeNull()
   })
 
+  test('logs WebRTC voice latency breakdown on the first pushed downlink frame', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_000)
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const infoLogs: string[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-latency',
+      now: 1_000,
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, {
+      escalated: true,
+      fastReplyEnterAt: 1_050,
+      gatekeeperAt: 1_100,
+      glmRequestAt: 1_060,
+      glmResponseAt: 1_090,
+    })
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => {
+          vi.setSystemTime(1_200)
+          return {
+            audio: Buffer.from('audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts',
+          }
+        },
+      }),
+      decodeAudioToPcmFrames: async () => {
+        vi.setSystemTime(1_300)
+        return [
+          {
+            bitsPerSample: 16,
+            channelCount: 1,
+            numberOfFrames: 480,
+            sampleRate: 48_000,
+            samples: new Int16Array(480),
+          },
+        ]
+      },
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: () => {
+          vi.setSystemTime(1_400)
+        },
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await startTestCall(downlink, {
+      callId: 'call-latency',
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createMessage('reply'))
+
+    await session.flush()
+
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voice latency breakdown: call_id=call-latency turn_id=call-latency-turn-1 segment=1'
+        ),
+        expect.stringContaining(
+          'final_to_fast_reply_ms=50 glm_ms=30 escalated=true gatekeeper_ms=50'
+        ),
+        expect.stringContaining('tts_ms=200 tts_to_first_frame_ms=200 final_to_downlink_ms=400'),
+      ])
+    )
+    expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
+  })
+
+  test('discards claimed WebRTC voice latency turn when TTS does not produce audio', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-tts-null',
+      now: 1_000,
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => null,
+      }),
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: () => {
+          throw new Error('should not push audio')
+        },
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await startTestCall(downlink, {
+      callId: 'call-tts-null',
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createMessage('reply'))
+
+    await session.flush()
+
+    expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
+  })
+
   test('applies default soft-clipped gain to PCM samples before pushing downlink audio', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const pushedSamples: Int16Array[] = []
@@ -167,6 +302,10 @@ describe('WebRTC downlink audio', () => {
           samples: new Int16Array([-12_000, -1_000, 0, 1_000, 12_000]),
         },
       ],
+      env: {
+        ...process.env,
+        HIVE_WEBRTC_DOWNLINK_GAIN: undefined,
+      },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -218,6 +357,7 @@ describe('WebRTC downlink audio', () => {
         },
       ],
       env: {
+        ...process.env,
         HIVE_WEBRTC_DOWNLINK_GAIN: '2',
       },
       store: {
@@ -325,6 +465,7 @@ describe('WebRTC downlink audio', () => {
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
       env: {
+        ...process.env,
         HIVE_WEBRTC_DOWNLINK_GAIN: '1',
       },
       store: {
@@ -385,6 +526,7 @@ describe('WebRTC downlink audio', () => {
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
       env: {
+        ...process.env,
         HIVE_WEBRTC_DOWNLINK_GAIN: '1',
       },
       store: {
@@ -448,6 +590,7 @@ describe('WebRTC downlink audio', () => {
       }),
       decodeAudioToPcmFrames: async () => [createFrame(1), createFrame(2), createFrame(3)],
       env: {
+        ...process.env,
         HIVE_WEBRTC_DOWNLINK_GAIN: '1',
       },
       store: {
@@ -514,6 +657,7 @@ describe('WebRTC downlink audio', () => {
         return [createFrame(4), createFrame(5)]
       },
       env: {
+        ...process.env,
         HIVE_WEBRTC_DOWNLINK_GAIN: '1',
       },
       logger: {

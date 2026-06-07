@@ -21,6 +21,13 @@ import type {
   WebRtcDownlinkAudioSession,
   WebRtcLocalAudioTrack,
 } from './webrtc-callee.js'
+import {
+  buildVoiceLatencyBreakdownLog,
+  claimPendingWebRtcVoiceLatencyTurn,
+  discardWebRtcVoiceLatencyTurn,
+  finishWebRtcVoiceLatencyTurn,
+  markWebRtcVoiceLatency,
+} from './webrtc-voice-latency.js'
 
 const execFileP = promisify(execFile)
 
@@ -267,10 +274,12 @@ export const createWebRtcDownlinkAudio = ({
       if (message.direction !== 'outbound' || message.message_type !== 'orch_reply') return
       const text = parseReplyText(message)
       if (!text) return
+      const latencyTurn = claimPendingWebRtcVoiceLatencyTurn(workspaceId)
       const queuedGeneration = playbackGeneration
       pendingReplyCount += 1
       queue = queue.then(async () => {
         let countedAsPending = true
+        let latencyTurnCompleted = false
         const markStarted = () => {
           if (!countedAsPending) return
           pendingReplyCount = Math.max(0, pendingReplyCount - 1)
@@ -281,9 +290,11 @@ export const createWebRtcDownlinkAudio = ({
           if (closed || queuedGeneration !== playbackGeneration) return
           const sanitizedText = sanitizeForSpeech(text)
           if (!sanitizedText) return
+          markWebRtcVoiceLatency(latencyTurn?.turnId, { ttsStartAt: Date.now() })
           const result = await createTtsProvider().synthesize(sanitizedText, {
             voice: WEBRTC_DOWNLINK_TTS_VOICE,
           })
+          markWebRtcVoiceLatency(latencyTurn?.turnId, { ttsEndAt: Date.now() })
           if (!result || closed || queuedGeneration !== playbackGeneration) return
           const frames = await (
             decodeAudioToPcmFrames ??
@@ -312,6 +323,16 @@ export const createWebRtcDownlinkAudio = ({
             await trackSession.onData(applyPcmGain(frame, downlinkGain))
             pushed += 1
             if (pushed === 1 || pushed % 50 === 0) {
+              if (pushed === 1 && latencyTurn) {
+                const completedTurn = markWebRtcVoiceLatency(latencyTurn.turnId, {
+                  firstDownlinkFrameAt: Date.now(),
+                })
+                if (completedTurn) {
+                  logDiagnostic(logger, buildVoiceLatencyBreakdownLog(completedTurn))
+                  finishWebRtcVoiceLatencyTurn(completedTurn.turnId)
+                  latencyTurnCompleted = true
+                }
+              }
               logDiagnostic(
                 logger,
                 `downlink audio pushed frame: call_id=${callId} message_id=${message.id} pushed=${pushed} sample_rate=${frame.sampleRate} frames=${frame.numberOfFrames} bits=${frame.bitsPerSample} channels=${frame.channelCount}`
@@ -325,6 +346,8 @@ export const createWebRtcDownlinkAudio = ({
         } catch (error) {
           markStarted()
           logger?.warn?.('failed to send WebRTC downlink audio', error)
+        } finally {
+          if (!latencyTurnCompleted) discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
         }
       })
     })

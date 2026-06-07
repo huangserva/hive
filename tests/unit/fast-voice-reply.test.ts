@@ -16,9 +16,15 @@ import {
   maybeInsertFastVoiceReplyWithGatekeeper,
   normalizeFastVoiceReply,
 } from '../../src/server/fast-voice-reply.js'
+import {
+  markWebRtcVoiceLatency,
+  resetWebRtcVoiceLatencyForTests,
+  startWebRtcVoiceLatencyTurn,
+} from '../../src/server/webrtc-voice-latency.js'
 
 describe('fast voice reply', () => {
   afterEach(() => {
+    resetWebRtcVoiceLatencyForTests()
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
   })
@@ -660,9 +666,15 @@ describe('fast voice reply', () => {
     const provider = {
       generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我在。'),
     }
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-drop',
+      segment: 1,
+      workspaceId: 'ws-1',
+    })
 
     await expect(
       maybeInsertFastVoiceReplyWithGatekeeper({
+        latencyTurnId: turn.turnId,
         provider,
         source: 'voice',
         store,
@@ -673,6 +685,7 @@ describe('fast voice reply', () => {
 
     expect(provider.generate).not.toHaveBeenCalled()
     expect(store.insertMobileChatMessage).not.toHaveBeenCalled()
+    expect(markWebRtcVoiceLatency(turn.turnId, { fastReplyEnterAt: 2_000 })).toBeNull()
   })
 
   it('keeps real team-name commands with action words on the orchestrator path', async () => {

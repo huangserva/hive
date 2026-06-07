@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { isDefaultPromptEcho } from './local-stt.js'
+import { discardWebRtcVoiceLatencyTurn, markWebRtcVoiceLatency } from './webrtc-voice-latency.js'
 
 export const FAST_VOICE_REPLY_MODEL = 'claude-haiku-4-5'
 export const GLM_FAST_VOICE_REPLY_MODEL = 'glm-5.1'
@@ -48,6 +49,7 @@ export type FastVoiceReplyHistoryItem = {
 export type FastVoiceReplyProvider = {
   generate(input: {
     history?: FastVoiceReplyHistoryItem[]
+    latencyTurnId?: string
     statusContext?: string
     transcript: string
   }): Promise<string | null>
@@ -445,13 +447,15 @@ export const createAnthropicFastVoiceReplyProvider = (
   const frontMode = resolveVoiceFrontMode(process.env.HIVE_VOICE_FRONT_MODE)
 
   return {
-    async generate({ history = [], statusContext = '', transcript }) {
+    async generate(input) {
+      const { history = [], statusContext = '', transcript } = input
       const prompt = transcript.trim()
       if (!apiKey || !fetchImpl || !prompt) return null
 
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
       try {
+        markWebRtcVoiceLatency(input.latencyTurnId, { glmRequestAt: Date.now() })
         const response = await fetchImpl('https://api.anthropic.com/v1/messages', {
           body: JSON.stringify({
             max_tokens: 80,
@@ -477,6 +481,7 @@ export const createAnthropicFastVoiceReplyProvider = (
           method: 'POST',
           signal: controller.signal,
         })
+        markWebRtcVoiceLatency(input.latencyTurnId, { glmResponseAt: Date.now() })
         if (!response.ok) return null
         return extractAnthropicText((await response.json()) as AnthropicMessageResponse)
       } finally {
@@ -508,13 +513,15 @@ export const createGlmFastVoiceReplyProvider = (
   const thinkingOptions = frontMode === 'strong' ? { thinking: { type: 'disabled' } } : {}
 
   return {
-    async generate({ history = [], statusContext = '', transcript }) {
+    async generate(input) {
+      const { history = [], statusContext = '', transcript } = input
       const prompt = transcript.trim()
       if (!apiKey || !fetchImpl || !prompt) return null
 
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), timeoutMs)
       try {
+        markWebRtcVoiceLatency(input.latencyTurnId, { glmRequestAt: Date.now() })
         const response = await fetchImpl(`${baseUrl}/chat/completions`, {
           body: JSON.stringify({
             max_tokens: maxTokens,
@@ -542,6 +549,7 @@ export const createGlmFastVoiceReplyProvider = (
           method: 'POST',
           signal: controller.signal,
         })
+        markWebRtcVoiceLatency(input.latencyTurnId, { glmResponseAt: Date.now() })
         if (!response.ok) return null
         return extractGlmText((await response.json()) as GlmChatCompletionResponse)
       } finally {
@@ -585,6 +593,7 @@ export const createFastVoiceReplyProvider = (
 }
 
 export const maybeInsertFastVoiceReply = async ({
+  latencyTurnId,
   provider = createFastVoiceReplyProvider(),
   source,
   store,
@@ -592,6 +601,7 @@ export const maybeInsertFastVoiceReply = async ({
   workspaceId,
 }: {
   provider?: FastVoiceReplyProvider
+  latencyTurnId?: string
   source: unknown
   store: FastVoiceReplyStore
   text: string
@@ -599,6 +609,7 @@ export const maybeInsertFastVoiceReply = async ({
 }) => {
   const result = await maybeInsertFastVoiceReplyWithGatekeeper({
     provider,
+    ...(latencyTurnId ? { latencyTurnId } : {}),
     source,
     store,
     text,
@@ -608,6 +619,7 @@ export const maybeInsertFastVoiceReply = async ({
 }
 
 export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
+  latencyTurnId,
   provider = createFastVoiceReplyProvider(),
   source,
   store,
@@ -615,21 +627,35 @@ export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
   workspaceId,
 }: {
   provider?: FastVoiceReplyProvider
+  latencyTurnId?: string
   source: unknown
   store: FastVoiceReplyStore
   text: string
   workspaceId: string
 }): Promise<FastVoiceReplyResult> => {
   if (source !== 'voice') return { gatekeeper: 'escalate', reply: null }
-  if (isDefaultPromptEcho(text)) return { gatekeeper: 'drop', reply: null }
+  if (isDefaultPromptEcho(text)) {
+    discardWebRtcVoiceLatencyTurn(latencyTurnId)
+    return { gatekeeper: 'drop', reply: null }
+  }
   const history = readFastVoiceReplyHistory({ store, transcript: text, workspaceId })
   const statusContext = readFastVoiceReplyStatusContext({ store, workspaceId })
   try {
-    const generated = await provider.generate({ history, statusContext, transcript: text })
+    markWebRtcVoiceLatency(latencyTurnId, { fastReplyEnterAt: Date.now() })
+    const generated = await provider.generate({
+      history,
+      ...(latencyTurnId ? { latencyTurnId } : {}),
+      statusContext,
+      transcript: text,
+    })
     if (generated) {
       const parsed = parseGatekeeperReply(generated)
       const reply = parsed.reply || pickFallbackReply(text)
       const gatekeeper = parsed.verdict ?? 'escalate'
+      markWebRtcVoiceLatency(latencyTurnId, {
+        escalated: gatekeeper === 'escalate',
+        gatekeeperAt: Date.now(),
+      })
       const inserted = insertFastVoiceReply({
         ...(parsed.verdict ? { gatekeeper: parsed.verdict } : {}),
         reply,
@@ -642,12 +668,14 @@ export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
       }
     }
     const reply = pickFallbackReply(text)
+    markWebRtcVoiceLatency(latencyTurnId, { escalated: true, gatekeeperAt: Date.now() })
     return {
       gatekeeper: 'escalate',
       reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
     }
   } catch {
     const reply = pickFallbackReply(text)
+    markWebRtcVoiceLatency(latencyTurnId, { escalated: true, gatekeeperAt: Date.now() })
     return {
       gatekeeper: 'escalate',
       reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
