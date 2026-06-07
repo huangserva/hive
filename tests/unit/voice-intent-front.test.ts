@@ -74,7 +74,7 @@ describe('voice intent front verdict provider', () => {
     expect(body.messages[1].content).toContain(baseInput.transcript)
   })
 
-  it('instructs GLM to escalate actionable project and team requests while handling only social talk', async () => {
+  it('instructs GLM to handle known status questions and escalate only real work requests', async () => {
     const fetchImpl = vi.fn().mockImplementation(async (_url: string, request: RequestInit) => {
       const body = JSON.parse(String(request.body)) as {
         messages: Array<{ content: string; role: string }>
@@ -82,25 +82,28 @@ describe('voice intent front verdict provider', () => {
       const systemPrompt = body.messages[0]?.content ?? ''
       const userPrompt = body.messages[1]?.content ?? ''
       const transcript = userPrompt.split('transcript:\n').at(-1)?.trim() ?? ''
-      const hasActionableEscalationRule =
-        systemPrompt.includes('要查、要办、要安排') &&
-        systemPrompt.includes('项目/团队/任务/进度') &&
-        systemPrompt.includes('拿不准就 escalate') &&
-        systemPrompt.includes('只有纯社交寒暄客套')
-      const isSocial = /^(你好|谢谢|在吗)$/u.test(transcript)
-      const shouldEscalate = hasActionableEscalationRule && !isSocial
+      const hasStrongFrontRule =
+        systemPrompt.includes('强前台') &&
+        systemPrompt.includes('状态/进度/团队在忙什么') &&
+        systemPrompt.includes('只有真要动手') &&
+        systemPrompt.includes('查证 GLM 不掌握的实时信息') &&
+        !systemPrompt.includes('拿不准就 escalate')
+      const shouldEscalate =
+        hasStrongFrontRule && /(?:派|安排|部署|重启|查证|我不知道的)/u.test(transcript)
+      const shouldHandle = hasStrongFrontRule && !shouldEscalate
       return {
         json: async () => ({
           choices: [
             {
               message: {
                 content: JSON.stringify({
-                  action: shouldEscalate ? 'escalate' : 'handled',
+                  action: shouldEscalate || !shouldHandle ? 'escalate' : 'handled',
                   completeness: 'complete',
                   confidence: 0.91,
                   distilled_intent: shouldEscalate ? transcript : '',
                   intent_generation: 1,
-                  reply_text: shouldEscalate ? '好，这个我转给主管。' : '你好，我在。',
+                  reply_text:
+                    shouldEscalate || !shouldHandle ? '好，这个我转给主管。' : '我直接答。',
                   should_speculate_tts: true,
                 }),
               },
@@ -117,20 +120,21 @@ describe('voice intent front verdict provider', () => {
       timeoutMs: 1000,
     })
 
+    for (const transcript of ['团队在忙什么', '现在几点了状态如何', '你好', '谢谢'] as const) {
+      await expect(provider.evaluate({ ...baseInput, transcript })).resolves.toMatchObject({
+        action: 'handled',
+      })
+    }
+
     for (const transcript of [
-      '团队在忙什么',
-      '帮我查下 WebRTC 进度',
-      '安排关羽做音量回归',
+      '派关羽做音量回归',
+      '帮我部署 4010',
+      '重启服务',
+      '查证一下我不知道的线上错误',
     ] as const) {
       await expect(provider.evaluate({ ...baseInput, transcript })).resolves.toMatchObject({
         action: 'escalate',
         distilled_intent: transcript,
-      })
-    }
-
-    for (const transcript of ['你好', '谢谢'] as const) {
-      await expect(provider.evaluate({ ...baseInput, transcript })).resolves.toMatchObject({
-        action: 'handled',
       })
     }
   })
