@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -317,6 +317,83 @@ writeFileSync(outPath, Buffer.from('voice=' + args[args.indexOf('--voice') + 1])
     const result = await provider.synthesize('你好', { voice: 'zh-CN-YunxiNeural' })
     expect(result?.provider).toBe('edge-tts')
     expect(result?.audio.toString('utf8')).toBe('voice=zh-CN-YunxiNeural')
+  })
+
+  test('edge-tts passes a safe default volume boost', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    const argsPath = join(tempRoot, 'edge-args.json')
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outPath = args[args.indexOf('--write-media') + 1]
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args))
+writeFileSync(outPath, Buffer.from('ok'))
+`)
+    )
+
+    const provider = createLocalTtsProvider({ env: { PATH: binDir }, tempRoot })
+    const result = await provider.synthesize('你好')
+
+    expect(result?.provider).toBe('edge-tts')
+    const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[]
+    expect(args).toContain('--volume')
+    expect(args[args.indexOf('--volume') + 1]).toBe('+40%')
+  })
+
+  test('edge-tts volume can be overridden by HIVE_TTS_EDGE_VOLUME', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    const argsPath = join(tempRoot, 'edge-args.json')
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outPath = args[args.indexOf('--write-media') + 1]
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args))
+writeFileSync(outPath, Buffer.from('ok'))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir, HIVE_TTS_EDGE_VOLUME: '+75%' },
+      tempRoot,
+    })
+    await provider.synthesize('你好')
+
+    const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[]
+    expect(args[args.indexOf('--volume') + 1]).toBe('+75%')
+  })
+
+  test('edge-tts skips invalid HIVE_TTS_EDGE_VOLUME values', async () => {
+    const binDir = setupDir('hive-tts-bin-')
+    const tempRoot = setupDir('hive-tts-tmp-')
+    const argsPath = join(tempRoot, 'edge-args.json')
+    writeExecutable(
+      binDir,
+      'edge-tts',
+      nodeScript(`
+import { writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+const outPath = args[args.indexOf('--write-media') + 1]
+writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args))
+writeFileSync(outPath, Buffer.from('ok'))
+`)
+    )
+
+    const provider = createLocalTtsProvider({
+      env: { PATH: binDir, HIVE_TTS_EDGE_VOLUME: 'loud' },
+      tempRoot,
+    })
+    await provider.synthesize('你好')
+
+    const args = JSON.parse(readFileSync(argsPath, 'utf8')) as string[]
+    expect(args).not.toContain('--volume')
   })
 
   test('edge-tts failure falls back to say instead of failing the whole synthesis', async () => {

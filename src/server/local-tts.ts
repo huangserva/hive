@@ -48,7 +48,7 @@ export interface LocalTtsProvider {
 }
 
 interface LocalTtsProviderOptions {
-  env?: NodeJS.ProcessEnv
+  env?: Record<string, string | undefined>
   logger?: Pick<HiveLogger, 'warn'>
   tempRoot?: string
   timeoutMs?: number
@@ -57,8 +57,10 @@ interface LocalTtsProviderOptions {
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_EDGE_TIMEOUT_MS = 8_000
 const DEFAULT_EDGE_VOICE = 'zh-CN-XiaoxiaoNeural'
+const DEFAULT_EDGE_VOLUME = '+40%'
 const DEFAULT_SAY_VOICE = 'Tingting'
 const MAX_TEXT_LENGTH = 2000
+const EDGE_VOLUME_PATTERN = /^[+-]\d+%$/
 
 const isExecutable = (filePath: string) => {
   try {
@@ -69,7 +71,7 @@ const isExecutable = (filePath: string) => {
   }
 }
 
-const findExecutable = (name: string, env: NodeJS.ProcessEnv): string | null => {
+const findExecutable = (name: string, env: Record<string, string | undefined>): string | null => {
   if (name.includes('/')) {
     const absolute = resolve(name)
     return existsSync(absolute) && isExecutable(absolute) ? absolute : null
@@ -82,6 +84,12 @@ const findExecutable = (name: string, env: NodeJS.ProcessEnv): string | null => 
   }
 
   return null
+}
+
+const resolveEdgeVolume = (env: Record<string, string | undefined>): string | null => {
+  const configured = env.HIVE_TTS_EDGE_VOLUME
+  const volume = configured === undefined ? DEFAULT_EDGE_VOLUME : configured.trim()
+  return EDGE_VOLUME_PATTERN.test(volume) ? volume : null
 }
 
 export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): LocalTtsProvider => {
@@ -122,14 +130,13 @@ export const createLocalTtsProvider = (options: LocalTtsProviderOptions = {}): L
     try {
       const outputPath = join(outputDir, 'tts.mp3')
       const resolvedVoice = voice?.trim() || cli.voice || DEFAULT_EDGE_VOICE
-      await execFileP(
-        cli.command,
-        ['--voice', resolvedVoice, '--text', text, '--write-media', outputPath],
-        {
-          maxBuffer: 10 * 1024 * 1024,
-          timeout: Math.min(timeoutMs, DEFAULT_EDGE_TIMEOUT_MS),
-        }
-      )
+      const volume = resolveEdgeVolume(env)
+      const args = ['--voice', resolvedVoice, '--text', text, '--write-media', outputPath]
+      if (volume) args.push('--volume', volume)
+      await execFileP(cli.command, args, {
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: Math.min(timeoutMs, DEFAULT_EDGE_TIMEOUT_MS),
+      })
       if (!existsSync(outputPath)) return null
       return { audio: readFileSync(outputPath), format: 'mp3', mime: 'audio/mpeg' }
     } finally {
