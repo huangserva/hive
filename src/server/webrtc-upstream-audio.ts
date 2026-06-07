@@ -97,6 +97,9 @@ const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, me
 
 const summarizeVoiceIntent = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 80)
 
+const formatVoiceIntentLogText = (text: string) =>
+  JSON.stringify(text.replace(/\s+/g, ' ').trim().slice(0, 120))
+
 const limitSessionContext = (sessionContext: string[]) => {
   const recentContext = sessionContext.slice(-MAX_SESSION_CONTEXT_SEGMENTS)
   const joined = recentContext.join('\n')
@@ -273,7 +276,7 @@ export const createWebRtcUpstreamAudioSink = ({
           latestVoiceIntentUpdate = update
           logDiagnostic(
             logger,
-            `voiceIntent shadow verdict: call_id=${callId} partial_seq=${voiceIntentPartialSeq} completeness=${update.verdict.completeness} action=${update.verdict.action} confidence=${update.verdict.confidence.toFixed(2)} would_handoff=${Boolean(update.handoff)} distilled_intent=${summarizeVoiceIntent(update.verdict.distilled_intent)}`
+            `voiceIntent shadow verdict: call_id=${callId} partial_seq=${voiceIntentPartialSeq} text=${formatVoiceIntentLogText(text)} completeness=${update.verdict.completeness} action=${update.verdict.action} confidence=${update.verdict.confidence.toFixed(2)} would_handoff=${Boolean(update.handoff)} distilled_intent=${summarizeVoiceIntent(update.verdict.distilled_intent)}`
           )
         } else if (update.status !== 'throttled') {
           logDiagnostic(
@@ -287,13 +290,13 @@ export const createWebRtcUpstreamAudioSink = ({
         return null
       }
     }
-    const logVoiceIntentEndpointComparison = () => {
+    const logVoiceIntentEndpointComparison = (finalText: string) => {
       if (!voiceIntentSession) return
       const verdict =
         latestVoiceIntentUpdate?.status === 'accepted' ? latestVoiceIntentUpdate.verdict : null
       logDiagnostic(
         logger,
-        `voiceIntent shadow endpoint_compare: call_id=${callId} partial_seq=${voiceIntentPartialSeq} endpoint=final latest_completeness=${verdict?.completeness ?? 'none'} latest_action=${verdict?.action ?? 'none'} latest_confidence=${verdict ? verdict.confidence.toFixed(2) : 'none'}`
+        `voiceIntent shadow endpoint_compare: call_id=${callId} partial_seq=${voiceIntentPartialSeq} endpoint=final final_text=${formatVoiceIntentLogText(finalText)} latest_completeness=${verdict?.completeness ?? 'none'} latest_action=${verdict?.action ?? 'none'} latest_confidence=${verdict ? verdict.confidence.toFixed(2) : 'none'}`
       )
     }
     let streamingSession = await createStreamingSession(callId, {
@@ -311,7 +314,7 @@ export const createWebRtcUpstreamAudioSink = ({
           `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
         )
         await evaluateVoiceIntentShadow(text, true, priorContext)
-        logVoiceIntentEndpointComparison()
+        logVoiceIntentEndpointComparison(text)
         sessionTranscript.push(text)
         await injectWebRtcVoiceTranscript({
           ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),

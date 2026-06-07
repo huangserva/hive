@@ -598,17 +598,93 @@ describe('WebRTC upstream audio sink', () => {
     expect(infoLogs).toEqual(
       expect.arrayContaining([
         expect.stringContaining(
-          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=1 completeness=likely_complete action=handled confidence=0.61 would_handoff=false distilled_intent=查询关羽进度'
+          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=1 text="让关羽" completeness=likely_complete action=handled confidence=0.61 would_handoff=false distilled_intent=查询关羽进度'
         ),
         expect.stringContaining(
-          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=2 completeness=complete action=escalate confidence=0.86 would_handoff=true distilled_intent=让关羽汇报进度'
+          'voiceIntent shadow verdict: call_id=call-shadow-on partial_seq=2 text="让关羽汇报进度" completeness=complete action=escalate confidence=0.86 would_handoff=true distilled_intent=让关羽汇报进度'
         ),
         expect.stringContaining(
-          'voiceIntent shadow endpoint_compare: call_id=call-shadow-on partial_seq=2 endpoint=final latest_completeness=complete latest_action=escalate latest_confidence=0.86'
+          'voiceIntent shadow endpoint_compare: call_id=call-shadow-on partial_seq=2 endpoint=final final_text="让关羽汇报进度" latest_completeness=complete latest_action=escalate latest_confidence=0.86'
         ),
       ])
     )
     expect(closeIntentSession).toHaveBeenCalledTimes(1)
+  })
+
+  test('truncates voice intent shadow transcript text in logs', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const infoLogs: string[] = []
+    const evaluate = vi.fn().mockResolvedValue({
+      candidate: {
+        action: 'handled',
+        completeness: 'incomplete',
+        confidence: 0.4,
+        distilledIntent: '',
+        intentGeneration: 1,
+        replyText: '',
+        shouldSpeculateTts: false,
+        transcript: '',
+      },
+      status: 'accepted',
+      verdict: {
+        action: 'handled',
+        completeness: 'incomplete',
+        confidence: 0.4,
+        distilled_intent: '',
+        intent_generation: 1,
+        reason: 'glm_verdict',
+        reply_text: '',
+        should_speculate_tts: false,
+      },
+    })
+    const createVoiceIntentSession = vi.fn(() => ({
+      close: vi.fn(),
+      evaluate,
+    }))
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession,
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-shadow-truncate',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+
+    const longText = '很'.repeat(130)
+    await capturedOptions.onPartial(longText)
+    await session.close()
+
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([expect.stringContaining(`text="${'很'.repeat(120)}"`)])
+    )
+    expect(infoLogs.join('\n')).not.toContain(`text="${'很'.repeat(121)}`)
   })
 
   test('swallows voice intent shadow failures and keeps the streaming final injection path working', async () => {
