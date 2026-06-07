@@ -64,6 +64,18 @@ user 重申并磨利了投机+播放闸架构，补三个关键增量（喂 Phas
 
 **前提不变**：先用 Phase 1 shadow 数据证明 GLM 判"意图完整"够准（正在收），准了才敢 Phase 2 让它真驱动——判错就播错段，撤救不过来。STT 用 funasr/Paraformer 系（M39 sherpa-onnx streaming 已是）。
 
+## 下行架构决定（2026-06-07 user 拍板）— 一箭双雕：文件分段播放下行
+
+**根因（赵云深挖 `reports/2026-06-07-webrtc-call-audio-loud-clean-deep-dive`）**：对讲念回响且干净=走 **expo-audio 文件播放**（TTS→MP3→useAudioPlayer + 媒体音量模式，STREAM_MUSIC）；WebRTC 通话下行=播 **libwebrtc 实时 remote track**（走通话流 STREAM_VOICE_CALL，天生小）。两条本质不同管线，对讲响亮配方搬不到 WebRTC track。media 路由发劈=edge-tts +40% 与下行 3x 双重增益 Int16 削波。
+
+**决定（user 拍板"试一下"）**：
+- **上行保持 WebRTC**（麦克风→实时 STT，已验证好）。
+- **下行改走文件分段播放**：AI 回复当**音频段（文件/chunk）**，用对讲那条 expo-audio 文件播放路播出来（响+干净，媒体流）。
+- **一箭双雕**：① 解音量（复用对讲验证过的响亮路，不再跟 WebRTC track 较劲、不双重增益削波）② 解分段（每段=一个文件，app 攥着段队列、撤未播的、播最新的，天然就是撤回协议要的粒度）③ 配合投机=段算好就发、app 择时播=低延迟。**音量根治 = M40 Phase 2 下行架构 = 同一件事。**
+- **★硬约束（user）**：**WebRTC 下行能力保留、不删**（flag-gated 当能力/fallback）；只是默认接口不走它、改走文件分段播放路。
+- 复用现成：对讲已用 voice_stream/relay 通道播 TTS 文件——通话下行接到同一条播放路，加分段+撤回。
+- 不再出 WebRTC-track 音量实验包（那条方向错）。
+
 ## 结果（后写）
 
 （实施后回填：真机延迟、投机命中率、PM 误办率、成本）
