@@ -105,6 +105,38 @@ describe('voice_call_state protocol', () => {
     ])
   })
 
+  test('normalizes a valid call state frame to the sender call id before sending and logging', () => {
+    const sent: unknown[] = []
+    const infoLogs: string[] = []
+    const sender = createVoiceCallStateSender({
+      callId: 'call-active',
+      logger: { info: (message: string) => infoLogs.push(message) },
+      send: (frame) => sent.push(frame),
+      watchdogMs: 0,
+    })
+
+    sender.send(
+      createVoiceCallStateFrame({
+        callId: 'call-stale',
+        phase: 'heard',
+        ts: 3_000,
+        turnId: 'turn-1',
+      })
+    )
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        call_id: 'call-active',
+        phase: 'heard',
+        turn_id: 'turn-1',
+        type: 'voice_call_state',
+      }),
+    ])
+    expect(infoLogs).toEqual([
+      'voice call state sent: call_id=call-active turn_id=turn-1 phase=heard at=3000',
+    ])
+  })
+
   test('responding, listening, and close clear the processing watchdog', () => {
     vi.useFakeTimers()
     const sent: unknown[] = []

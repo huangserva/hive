@@ -109,17 +109,17 @@ export const createVoiceCallStateSender = <TFrame>(input: {
       input.send(frame)
       return
     }
-    if (frame.call_id !== input.callId) {
-      input.send(frame)
-      return
-    }
-    const key = `${frame.turn_id}:${frame.phase}`
+    const callStateFrame =
+      frame.call_id === input.callId ? frame : { ...frame, call_id: input.callId }
+    const key = `${callStateFrame.turn_id}:${callStateFrame.phase}`
     if (sentCallStates.has(key)) return
     sentCallStates.add(key)
-    if (frame.phase === 'processing') startWatchdog(frame.turn_id)
-    if (frame.phase === 'responding' || frame.phase === 'listening') clearWatchdog(frame.turn_id)
-    logSentState(frame, metadata?.reason)
-    input.send(frame)
+    if (callStateFrame.phase === 'processing') startWatchdog(callStateFrame.turn_id)
+    if (callStateFrame.phase === 'responding' || callStateFrame.phase === 'listening') {
+      clearWatchdog(callStateFrame.turn_id)
+    }
+    logSentState(callStateFrame, metadata?.reason)
+    input.send(callStateFrame)
   }
 
   const close = () => {

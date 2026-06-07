@@ -150,6 +150,7 @@ describe('WebRTC upstream audio sink', () => {
 
   test('captures remote PCM frames with RTCAudioSink, writes wav, and injects a voice prompt', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
     const store = createStore()
     const infoLogs: string[] = []
     const transcribedPaths: string[] = []
@@ -649,6 +650,47 @@ describe('WebRTC upstream audio sink', () => {
     expect(provider.generate).toHaveBeenCalled()
     expect(store.inputs).toHaveLength(1)
     expect(store.inputs[0]?.text).toContain('让关羽汇报进度')
+  })
+
+  test('intent front final without a verdict uses the safe reply instead of the legacy gatekeeper', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const provider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n收到，我转主管。'),
+    }
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-1',
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+
+    await injectWebRtcVoiceTranscript({
+      fastVoiceReplyProvider: provider,
+      latencyTurnId: turn.turnId,
+      store,
+      text: '继续查这个问题',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(provider.generate).not.toHaveBeenCalled()
+    expect(store.inputs).toEqual([
+      expect.objectContaining({
+        options: expect.objectContaining({ forwardToOrchestrator: false }),
+        text: expect.stringContaining('继续查这个问题'),
+      }),
+    ])
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        direction: 'outbound',
+        messageType: 'orch_reply',
+      }),
+    ])
+    expect(JSON.parse(store.chat[0]?.contentJson ?? '{}')).toEqual({
+      source: 'voice_intent_front',
+      text: '我听到了，先继续说。',
+      voice_intent: true,
+    })
+    expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')?.turnId).toBe('call-1-turn-1')
   })
 
   test('segments live PCM into utterances and injects each transcript before the call closes', async () => {

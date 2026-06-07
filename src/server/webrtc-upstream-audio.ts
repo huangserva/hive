@@ -391,11 +391,7 @@ export const injectWebRtcVoiceTranscript = async ({
     )
   }
 
-  if (
-    isVoiceIntentFrontEnabled() &&
-    voiceIntentUpdate !== undefined &&
-    voiceIntentUpdate?.status !== 'accepted'
-  ) {
+  if (isVoiceIntentFrontEnabled() && latencyTurnId && voiceIntentUpdate?.status !== 'accepted') {
     logDiagnostic(
       logger,
       `voiceIntent driven fallback: reason=missing_final_verdict text=${formatVoiceIntentLogText(trimmed)}`

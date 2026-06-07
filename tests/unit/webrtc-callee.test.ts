@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import type { MobileChatMessageType } from '../../src/server/mobile-chat-store.js'
 import { createVoiceCallStateFrame } from '../../src/server/voice-call-state-protocol.js'
 import type { VoiceDownlinkSegmentFrame } from '../../src/server/voice-downlink-segment-protocol.js'
 import {
@@ -6,6 +7,7 @@ import {
   resolveWebRtcForceRelayEnabled,
 } from '../../src/server/webrtc-callee.js'
 import type { WebRtcSignalFrame } from '../../src/server/webrtc-signal-protocol.js'
+import { createWebRtcUpstreamAudioSink } from '../../src/server/webrtc-upstream-audio.js'
 
 class FakePeerConnection {
   addedTracks: unknown[] = []
@@ -47,6 +49,60 @@ class FakePeerConnection {
     this.closed = true
   }
 }
+
+class FakeAudioSink {
+  ondata?: (data: unknown) => void
+  constructor(readonly track: unknown) {}
+  stop() {}
+}
+
+const createWebRtcStore = () => ({
+  activeRun: {
+    agentId: 'workspace-1:orchestrator',
+    exitCode: null,
+    output: '',
+    pid: 123,
+    runId: 'run-1',
+    startedAt: 1,
+    status: 'running' as const,
+  },
+  chat: [] as Array<{
+    content_json: string
+    created_at: number
+    direction: 'inbound' | 'outbound'
+    id: string
+    message_type: MobileChatMessageType
+    workspace_id: string
+  }>,
+  inputs: [] as unknown[],
+  getActiveRunByAgentId(workspaceId: string, workerId: string) {
+    expect(workspaceId).toBe('workspace-1')
+    expect(workerId).toBe('workspace-1:orchestrator')
+    return this.activeRun
+  },
+  insertMobileChatMessage(
+    workspaceId: string,
+    direction: 'inbound' | 'outbound',
+    messageType: MobileChatMessageType,
+    contentJson: string
+  ) {
+    const message = {
+      content_json: contentJson,
+      created_at: 1,
+      direction,
+      id: `message-${this.chat.length + 1}`,
+      message_type: messageType,
+      workspace_id: workspaceId,
+    }
+    this.chat.push(message)
+    return message
+  },
+  listMobileChatMessages: () => [],
+  listWorkers: () => [],
+  recordUserInput(...input: unknown[]) {
+    this.inputs.push(input)
+  },
+})
 
 describe('WebRTC callee', () => {
   afterEach(() => {
@@ -452,6 +508,115 @@ describe('WebRTC callee', () => {
     ])
     expect(stderr.join('')).toContain(
       'voice call state sent: call_id=call-state-link turn_id=call-state-link-turn-1 phase=processing'
+    )
+  })
+
+  test('sends heard and processing call state frames through the callee upstream path', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    const peers: FakePeerConnection[] = []
+    const dataFrames: unknown[] = []
+    const stderr: string[] = []
+    const writeSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk))
+        return true
+      })
+    let streamingOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const audioSink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        streamingOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue({
+          status: 'accepted',
+          verdict: {
+            action: 'drop',
+            completeness: 'incomplete',
+            confidence: 0.6,
+            distilled_intent: '',
+            intent_generation: 1,
+            reason: 'test',
+            reply_text: '',
+            should_speculate_tts: false,
+          },
+        }),
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: { info: () => {}, warn: () => {} },
+      store: createWebRtcStore(),
+    })
+    const callee = createWebRtcCallee({
+      audioSink,
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-upstream-state',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      { send: () => {}, sendData: (frame) => dataFrames.push(frame) }
+    )
+    peers[0]?.ontrack?.({
+      receiver: { id: 'receiver-1' },
+      streams: [],
+      track: { kind: 'audio' },
+    })
+    await vi.waitFor(() => expect(streamingOptions).toBeDefined())
+    const callbacks = streamingOptions
+    if (!callbacks) throw new Error('streaming callbacks were not captured')
+
+    await callbacks.onPartial?.('你好')
+    await callbacks.onFinal('你好')
+
+    writeSpy.mockRestore()
+    expect(dataFrames).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          call_id: 'call-upstream-state',
+          phase: 'heard',
+          turn_id: 'call-upstream-state-turn-1',
+          type: 'voice_call_state',
+        }),
+        expect.objectContaining({
+          call_id: 'call-upstream-state',
+          phase: 'processing',
+          turn_id: 'call-upstream-state-turn-1',
+          type: 'voice_call_state',
+        }),
+      ])
+    )
+    expect(stderr.join('')).toContain(
+      'voice call state sent: call_id=call-upstream-state turn_id=call-upstream-state-turn-1 phase=heard'
+    )
+    expect(stderr.join('')).toContain(
+      'voice call state sent: call_id=call-upstream-state turn_id=call-upstream-state-turn-1 phase=processing'
     )
   })
 
