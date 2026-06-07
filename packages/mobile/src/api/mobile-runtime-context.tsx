@@ -24,6 +24,11 @@ import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../lib/webrt
 import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
 import type { WebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
 import { startWebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
+import {
+  applyWebRtcDownlinkVolumeToRefs,
+  DEFAULT_WEBRTC_DOWNLINK_VOLUME,
+  parseStoredWebRtcDownlinkVolume,
+} from '../lib/webrtc-track-volume'
 import { getExpoPushToken } from '../notifications'
 import {
   type ChatMessage,
@@ -99,6 +104,7 @@ const MOBILE_TOKEN_KEY = 'hippoteam.mobileToken'
 const WORKSPACE_ID_KEY = 'hippoteam.mobileWorkspaceId'
 const RELAY_CONFIG_KEY = 'hippoteam.mobileRelayConfig'
 const OUTBOX_KEY = 'hippoteam.mobileOutbox'
+const WEBRTC_DOWNLINK_VOLUME_KEY = 'hippoteam.webRtcDownlinkVolume'
 
 export type MobileRuntimeState = 'idle' | 'checking' | 'connected' | 'error'
 type RuntimeClient = ReturnType<typeof createRuntimeClient>
@@ -171,6 +177,7 @@ interface MobileRuntimeContextValue {
   ) => Promise<ChatSendOutcome>
   setHost: (host: string) => void
   setToken: (token: string) => void
+  setWebRtcDownlinkVolume: (volume: number) => void
   setWebRtcCallMuted: (muted: boolean) => boolean
   startWebRtcTestCall: () => Promise<WebRtcConnectionProbeResult>
   state: MobileRuntimeState
@@ -193,6 +200,7 @@ interface MobileRuntimeContextValue {
     mimeType: string
   ) => Promise<{ file_id: string; url: string } | null>
   webRtcTestCall: WebRtcTestCallState
+  webRtcDownlinkVolume: number
   workspaces: MobileWorkspace[]
 }
 
@@ -258,6 +266,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [outbox, setOutbox] = useState<MobileOutboxState>(createMobileOutboxState())
   const [syncRevision, setSyncRevision] = useState(0)
   const [webRtcTestCall, setWebRtcTestCall] = useState<WebRtcTestCallState>({ status: 'idle' })
+  const [webRtcDownlinkVolume, setWebRtcDownlinkVolumeState] = useState(
+    DEFAULT_WEBRTC_DOWNLINK_VOLUME
+  )
   const chatSinceRef = useRef<number | undefined>(undefined)
   const chatFetchFailureCountRef = useRef(0)
   const reconnectAttemptRef = useRef(0)
@@ -268,6 +279,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const webRtcTestCallSessionRef = useRef<WebRtcCallerSession | null>(null)
   const webRtcTestCallAudioRouteRef = useRef<WebRtcInCallAudioRoute | null>(null)
   const webRtcRemoteAudioRefsRef = useRef<unknown[]>([])
+  const webRtcDownlinkVolumeRef = useRef(DEFAULT_WEBRTC_DOWNLINK_VOLUME)
   const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
   const relayDiagnosticsUnsubscribeRef = useRef<(() => void) | null>(null)
   // M27 Part B：relay 服务器推送事件的处理器（指向最新闭包，避免 getRelayTransport 依赖 churn）
@@ -1111,6 +1123,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     return applied
   }, [])
 
+  const setWebRtcDownlinkVolume = useCallback((volume: number) => {
+    const nextVolume = parseStoredWebRtcDownlinkVolume(String(volume))
+    webRtcDownlinkVolumeRef.current = nextVolume
+    setWebRtcDownlinkVolumeState(nextVolume)
+    void secureSet(WEBRTC_DOWNLINK_VOLUME_KEY, String(nextVolume))
+    const result = applyWebRtcDownlinkVolumeToRefs(webRtcRemoteAudioRefsRef.current, nextVolume)
+    console.log('[WEBRTCDBG] test_call_downlink_volume', { ...result, volume: nextVolume })
+  }, [])
+
   const startWebRtcTestCall = useCallback(async (): Promise<WebRtcConnectionProbeResult> => {
     const transport = observedRelayTransportRef.current
     if (!transport || transport.status() !== 'ready') {
@@ -1159,8 +1180,15 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           if (event.track && typeof event.track === 'object' && 'enabled' in event.track) {
             ;(event.track as { enabled: boolean }).enabled = true
           }
+          const volumeResult = applyWebRtcDownlinkVolumeToRefs(
+            refs,
+            webRtcDownlinkVolumeRef.current
+          )
           console.log('[WEBRTCDBG] test_call_remote_track', {
             remoteAudioTrackCount: webRtcRemoteAudioRefsRef.current.length,
+            volumeApplied: volumeResult.applied,
+            volumeFailed: volumeResult.failed,
+            volumeUnsupported: volumeResult.unsupported,
           })
           setWebRtcTestCall((current) =>
             current.status === 'connected'
@@ -1447,20 +1475,26 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       secureGet(WORKSPACE_ID_KEY),
       secureGet(RELAY_CONFIG_KEY),
       secureGet(OUTBOX_KEY),
-    ]).then(([storedHost, storedToken, storedWorkspaceId, storedRelay, storedOutbox]) => {
-      if (cancelled) return
-      const nextHost = storedHost || DEFAULT_RUNTIME_HOST
-      const nextRelayConfig = parseStoredRelayConfig(storedRelay)
-      setHost(nextHost)
-      if (storedToken) setToken(storedToken)
-      if (storedWorkspaceId) setSelectedWorkspaceId(storedWorkspaceId)
-      if (nextRelayConfig) setRelayConfig(nextRelayConfig)
-      setOutbox(parseOutboxState(storedOutbox))
-      outboxLoadedRef.current = true
-      if (storedToken) {
-        void connectRef.current(nextHost, storedToken, nextRelayConfig)
+      secureGet(WEBRTC_DOWNLINK_VOLUME_KEY),
+    ]).then(
+      ([storedHost, storedToken, storedWorkspaceId, storedRelay, storedOutbox, storedVolume]) => {
+        if (cancelled) return
+        const nextHost = storedHost || DEFAULT_RUNTIME_HOST
+        const nextRelayConfig = parseStoredRelayConfig(storedRelay)
+        const nextWebRtcDownlinkVolume = parseStoredWebRtcDownlinkVolume(storedVolume)
+        setHost(nextHost)
+        if (storedToken) setToken(storedToken)
+        if (storedWorkspaceId) setSelectedWorkspaceId(storedWorkspaceId)
+        if (nextRelayConfig) setRelayConfig(nextRelayConfig)
+        webRtcDownlinkVolumeRef.current = nextWebRtcDownlinkVolume
+        setWebRtcDownlinkVolumeState(nextWebRtcDownlinkVolume)
+        setOutbox(parseOutboxState(storedOutbox))
+        outboxLoadedRef.current = true
+        if (storedToken) {
+          void connectRef.current(nextHost, storedToken, nextRelayConfig)
+        }
       }
-    })
+    )
     return () => {
       cancelled = true
     }
@@ -1708,6 +1742,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       setHost,
       setToken,
       setWebRtcCallMuted,
+      setWebRtcDownlinkVolume,
       startWebRtcTestCall,
       state: demoMode ? 'connected' : state,
       stopWebRtcTestCall,
@@ -1719,6 +1754,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       transcribeVoice,
       uploadMedia,
       webRtcTestCall,
+      webRtcDownlinkVolume,
       workspaces,
     }),
     [
@@ -1758,6 +1794,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       sendPromptToOrchestrator,
       sendPromptToOrchestratorWithOutcome,
       setWebRtcCallMuted,
+      setWebRtcDownlinkVolume,
       startWebRtcTestCall,
       state,
       stopWebRtcTestCall,
@@ -1769,6 +1806,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       transcribeVoice,
       uploadMedia,
       webRtcTestCall,
+      webRtcDownlinkVolume,
       workspaces,
     ]
   )

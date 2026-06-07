@@ -9,6 +9,8 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
   Modal,
   Pressable,
   ScrollView,
@@ -34,6 +36,11 @@ import {
   resolveWebRtcProbeEnabled,
   runWebRtcRuntimeProbe,
 } from '../../src/lib/webrtc-runtime-probe'
+import {
+  clampWebRtcDownlinkVolume,
+  WEBRTC_DOWNLINK_VOLUME_MAX,
+  WEBRTC_DOWNLINK_VOLUME_MIN,
+} from '../../src/lib/webrtc-track-volume'
 import { colors, radius, spacing } from '../../src/theme'
 
 // 相册图先归一成 PNG 喂纯 JS 解码；过大图按此上限缩边，限住解码耗时/内存，又保住二维码清晰度。
@@ -102,10 +109,12 @@ export default function SettingsTab() {
     selectedWorkspaceId,
     setHost,
     setToken,
+    setWebRtcDownlinkVolume,
     startWebRtcTestCall,
     state,
     stopWebRtcTestCall,
     token,
+    webRtcDownlinkVolume,
     webRtcTestCall,
     workspaces,
   } = useMobileRuntime()
@@ -794,6 +803,12 @@ export default function SettingsTab() {
                 })}
               </Text>
             ) : null}
+            <VolumeSlider
+              hint={t('settings.webrtcDownlinkVolumeHint')}
+              label={t('settings.webrtcDownlinkVolume')}
+              onChange={setWebRtcDownlinkVolume}
+              value={webRtcDownlinkVolume}
+            />
             <Pressable
               accessibilityRole="button"
               accessibilityState={{
@@ -898,6 +913,69 @@ const FieldHeader = ({ subtitle, title }: { subtitle: string; title: string }) =
     <Text style={styles.fieldSubtitle}>{subtitle}</Text>
   </View>
 )
+
+const VolumeSlider = ({
+  hint,
+  label,
+  onChange,
+  value,
+}: {
+  hint: string
+  label: string
+  onChange: (value: number) => void
+  value: number
+}) => {
+  const [trackWidth, setTrackWidth] = useState(1)
+  const clampedValue = clampWebRtcDownlinkVolume(value)
+  const percent =
+    ((clampedValue - WEBRTC_DOWNLINK_VOLUME_MIN) /
+      (WEBRTC_DOWNLINK_VOLUME_MAX - WEBRTC_DOWNLINK_VOLUME_MIN)) *
+    100
+
+  const applyGestureValue = useCallback(
+    (event: GestureResponderEvent) => {
+      const ratio = Math.max(0, Math.min(1, event.nativeEvent.locationX / Math.max(1, trackWidth)))
+      onChange(
+        clampWebRtcDownlinkVolume(
+          WEBRTC_DOWNLINK_VOLUME_MIN +
+            ratio * (WEBRTC_DOWNLINK_VOLUME_MAX - WEBRTC_DOWNLINK_VOLUME_MIN)
+        )
+      )
+    },
+    [onChange, trackWidth]
+  )
+
+  const onTrackLayout = useCallback((event: LayoutChangeEvent) => {
+    setTrackWidth(Math.max(1, event.nativeEvent.layout.width))
+  }, [])
+
+  return (
+    <View style={styles.volumeControl}>
+      <View style={styles.volumeHeader}>
+        <Text style={styles.volumeTitle}>{label}</Text>
+        <Text style={styles.volumeValue}>{clampedValue.toFixed(1)}x</Text>
+      </View>
+      <Text style={styles.volumeHint}>{hint}</Text>
+      <View
+        accessibilityLabel={label}
+        accessibilityRole="adjustable"
+        onLayout={onTrackLayout}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={applyGestureValue}
+        onResponderMove={applyGestureValue}
+        onStartShouldSetResponder={() => true}
+        style={styles.volumeSliderTrack}
+      >
+        <View style={[styles.volumeSliderFill, { width: `${percent}%` }]} />
+        <View style={[styles.volumeSliderThumb, { left: `${percent}%` }]} />
+      </View>
+      <View style={styles.volumeScale}>
+        <Text style={styles.volumeScaleText}>{WEBRTC_DOWNLINK_VOLUME_MIN.toFixed(1)}x</Text>
+        <Text style={styles.volumeScaleText}>{WEBRTC_DOWNLINK_VOLUME_MAX.toFixed(1)}x</Text>
+      </View>
+    </View>
+  )
+}
 
 const formatDateLabel = (label: string, value?: string | null, language = 'en') => {
   if (!value) return null
@@ -1633,6 +1711,66 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     fontWeight: '800',
+  },
+  volumeControl: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderMuted,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 8,
+    padding: spacing.sm,
+  },
+  volumeHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  volumeHint: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  volumeScale: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  volumeScaleText: {
+    color: colors.muted2,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  volumeSliderFill: {
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    height: '100%',
+  },
+  volumeSliderThumb: {
+    backgroundColor: colors.text,
+    borderColor: colors.accent,
+    borderRadius: 999,
+    borderWidth: 2,
+    height: 22,
+    marginLeft: -11,
+    position: 'absolute',
+    top: -7,
+    width: 22,
+  },
+  volumeSliderTrack: {
+    backgroundColor: colors.cardElevated,
+    borderRadius: 999,
+    height: 8,
+    marginHorizontal: 4,
+    marginTop: 6,
+  },
+  volumeTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  volumeValue: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: '900',
   },
   demoActive: {
     alignItems: 'center',
