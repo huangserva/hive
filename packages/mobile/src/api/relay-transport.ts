@@ -8,6 +8,10 @@ import {
   type KeyPair,
 } from '@huangserva/hippoteam-relay-crypto'
 import {
+  isVoiceDownlinkSegmentFrame,
+  type VoiceDownlinkSegmentFrame,
+} from './voice-downlink-segment-protocol'
+import {
   calculateVoiceStreamLatency,
   createVoiceStreamFrame,
   createVoiceStreamReassembler,
@@ -58,6 +62,7 @@ export interface RelayTransport {
   onDiagnosticsEvent?: (cb: (event: RelayTransportDiagnosticEvent) => void) => () => void
   onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
+  onVoiceDownlinkSegmentFrame(cb: (frame: VoiceDownlinkSegmentFrame) => void): () => void
   onVoiceStreamFrame(cb: (frame: VoiceStreamFrame) => void): () => void
   requestVoiceStreamSynthesis(
     text: string,
@@ -132,6 +137,7 @@ export const createRelayTransport = (
   const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
   const webRtcSignalListeners = new Set<(frame: WebRtcSignalFrame) => void | Promise<void>>()
+  const voiceDownlinkSegmentListeners = new Set<(frame: VoiceDownlinkSegmentFrame) => void>()
   const voiceStreamListeners = new Set<(frame: VoiceStreamFrame) => void>()
   const pending = new Map<
     string,
@@ -275,6 +281,10 @@ export const createRelayTransport = (
       for (const listener of voiceStreamListeners) listener(message)
       return
     }
+    if (isVoiceDownlinkSegmentFrame(message)) {
+      for (const listener of voiceDownlinkSegmentListeners) listener(message)
+      return
+    }
     if (isWebRtcSignalFrame(message)) {
       for (const listener of webRtcSignalListeners) listener(message)
       return
@@ -356,10 +366,10 @@ export const createRelayTransport = (
           const closeEvent = event as { code?: unknown; reason?: unknown }
           for (const listener of diagnosticsListeners) {
             listener({
-              code: typeof closeEvent?.code === 'number' ? closeEvent.code : undefined,
-              reason: typeof closeEvent?.reason === 'string' ? closeEvent.reason : undefined,
               ts: Date.now(),
               type: 'socket_close',
+              ...(typeof closeEvent?.code === 'number' ? { code: closeEvent.code } : {}),
+              ...(typeof closeEvent?.reason === 'string' ? { reason: closeEvent.reason } : {}),
             })
           }
           // 不在此 scheduleReconnect：transport 是被动连接器，重连由 context 唯一引擎驱动。
@@ -664,6 +674,10 @@ export const createRelayTransport = (
     onStatusChange(cb) {
       listeners.add(cb)
       return () => listeners.delete(cb)
+    },
+    onVoiceDownlinkSegmentFrame(cb) {
+      voiceDownlinkSegmentListeners.add(cb)
+      return () => voiceDownlinkSegmentListeners.delete(cb)
     },
     onVoiceStreamFrame(cb) {
       voiceStreamListeners.add(cb)

@@ -1,3 +1,4 @@
+import { setAudioModeAsync, useAudioPlayer } from 'expo-audio'
 import Constants from 'expo-constants'
 import * as SecureStore from 'expo-secure-store'
 import {
@@ -22,6 +23,11 @@ import {
 import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../lib/webrtc-caller'
 import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
+import {
+  cleanupWebRtcFileDownlinkResources,
+  cleanupWebRtcRuntimeCallResources,
+} from '../lib/webrtc-file-downlink-cleanup'
+import { playWebRtcFileDownlinkSegment } from '../lib/webrtc-file-downlink-playback'
 import type { WebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
 import { resolveWebRtcAudioRoute, startWebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
 import {
@@ -91,6 +97,10 @@ import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
 import type { RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
+import {
+  createVoiceDownlinkSegmentReassemblerCache,
+  type VoiceDownlinkSegmentFrame,
+} from './voice-downlink-segment-protocol'
 import type {
   VoiceStreamAudioResult,
   VoiceStreamLatencyOptions,
@@ -237,8 +247,15 @@ const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: st
 
 const getWebRtcRuntimeExtra = () =>
   Constants.expoConfig?.extra && typeof Constants.expoConfig.extra === 'object'
-    ? (Constants.expoConfig.extra as { webRtcAudioRoute?: unknown; webRtcForceRelay?: unknown })
+    ? (Constants.expoConfig.extra as {
+        webRtcAudioRoute?: unknown
+        webRtcDownlinkMode?: unknown
+        webRtcForceRelay?: unknown
+      })
     : undefined
+
+const resolveWebRtcDownlinkMode = (extra = getWebRtcRuntimeExtra()) =>
+  extra?.webRtcDownlinkMode === 'file_segments' ? 'file_segments' : 'webrtc_track'
 
 export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [host, setHost] = useState(DEFAULT_RUNTIME_HOST)
@@ -269,6 +286,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const [webRtcDownlinkVolume, setWebRtcDownlinkVolumeState] = useState(
     DEFAULT_WEBRTC_DOWNLINK_VOLUME
   )
+  // useAudioPlayer is cheap and must be a stable hook; file_segments only subscribes/plays when flagged.
+  const webRtcFileDownlinkPlayer = useAudioPlayer(null, { updateInterval: 100 })
   const chatSinceRef = useRef<number | undefined>(undefined)
   const chatFetchFailureCountRef = useRef(0)
   const reconnectAttemptRef = useRef(0)
@@ -279,6 +298,8 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   const webRtcTestCallSessionRef = useRef<WebRtcCallerSession | null>(null)
   const webRtcTestCallAudioRouteRef = useRef<WebRtcInCallAudioRoute | null>(null)
   const webRtcRemoteAudioRefsRef = useRef<unknown[]>([])
+  const webRtcDownlinkSegmentReassemblersRef = useRef(createVoiceDownlinkSegmentReassemblerCache())
+  const webRtcDownlinkSegmentUnsubscribeRef = useRef<(() => void) | null>(null)
   const webRtcDownlinkVolumeRef = useRef(DEFAULT_WEBRTC_DOWNLINK_VOLUME)
   const relayTransportRegistryRef = useRef(createRelayTransportRegistry())
   const relayDiagnosticsUnsubscribeRef = useRef<(() => void) | null>(null)
@@ -338,6 +359,14 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       return { ...next, lastRelayResult: event }
     })
   }, [])
+
+  const cleanupWebRtcFileDownlink = useCallback(() => {
+    cleanupWebRtcFileDownlinkResources({
+      player: webRtcFileDownlinkPlayer,
+      reassemblers: webRtcDownlinkSegmentReassemblersRef.current,
+      unsubscribeRef: webRtcDownlinkSegmentUnsubscribeRef,
+    })
+  }, [webRtcFileDownlinkPlayer])
 
   const getRelayTransport = useCallback(
     (nextToken: string, nextRelayConfig: StoredRelayConfig | null) => {
@@ -734,12 +763,16 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
   )
 
   const disconnect = useCallback(async () => {
-    const audioRoute = webRtcTestCallAudioRouteRef.current
-    webRtcTestCallSessionRef.current?.close()
-    webRtcTestCallSessionRef.current = null
-    webRtcTestCallAudioRouteRef.current = null
-    webRtcRemoteAudioRefsRef.current = []
-    void audioRoute?.stop().catch(() => {})
+    cleanupWebRtcRuntimeCallResources({
+      audioRouteRef: webRtcTestCallAudioRouteRef,
+      fileDownlink: {
+        player: webRtcFileDownlinkPlayer,
+        reassemblers: webRtcDownlinkSegmentReassemblersRef.current,
+        unsubscribeRef: webRtcDownlinkSegmentUnsubscribeRef,
+      },
+      remoteAudioRefsRef: webRtcRemoteAudioRefsRef,
+      sessionRef: webRtcTestCallSessionRef,
+    })
     setWebRtcTestCall({ status: 'idle' })
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
@@ -773,7 +806,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       secureDelete(WORKSPACE_ID_KEY),
       secureDelete(RELAY_CONFIG_KEY),
     ])
-  }, [])
+  }, [webRtcFileDownlinkPlayer])
 
   // 把扫码 / 手动录入的 relay 配置 + 本机生成的 device keypair 持久化到 SecureStore，
   // 并更新 relayConfig state。relayConfig 一变，下面的 client useMemo 会重建带 relayTransport 的
@@ -1096,11 +1129,42 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     webRtcTestCallSessionRef.current = null
     webRtcTestCallAudioRouteRef.current = null
     webRtcRemoteAudioRefsRef.current = []
+    cleanupWebRtcFileDownlink()
     session?.close()
     void audioRoute?.stop().catch(() => {})
     setWebRtcTestCall({ status: 'idle' })
     console.log('[WEBRTCDBG] test_call_closed')
-  }, [])
+  }, [cleanupWebRtcFileDownlink])
+
+  const playWebRtcFileDownlinkAudio = useCallback(
+    async (segment: { audio: string; format: string; mime: string; turn_id: string }) => {
+      await playWebRtcFileDownlinkSegment({
+        player: webRtcFileDownlinkPlayer,
+        segment,
+        setAudioMode: setAudioModeAsync,
+      })
+      console.log('[WEBRTCDBG] file_downlink_segment_playing', {
+        format: segment.format,
+        turnId: segment.turn_id,
+      })
+    },
+    [webRtcFileDownlinkPlayer]
+  )
+
+  const handleWebRtcFileDownlinkFrame = useCallback(
+    (frame: VoiceDownlinkSegmentFrame) => {
+      const activeCallId = webRtcTestCallSessionRef.current?.callId
+      if (!activeCallId || frame.call_id !== activeCallId) return
+      const result = webRtcDownlinkSegmentReassemblersRef.current.accept(frame)
+      if (!result) return
+      void playWebRtcFileDownlinkAudio(result).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setError(message)
+        console.warn('[WEBRTCDBG] file_downlink_segment_play_failed', message)
+      })
+    },
+    [playWebRtcFileDownlinkAudio]
+  )
 
   // Mute / unmute the local uplink by toggling the audio sender track's `enabled`
   // flag (canonical WebRTC mute — keeps the call up, sends silence). Returns
@@ -1153,6 +1217,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     webRtcTestCallSessionRef.current = null
     webRtcTestCallAudioRouteRef.current = null
     webRtcRemoteAudioRefsRef.current = []
+    cleanupWebRtcFileDownlink()
     void previousAudioRoute?.stop().catch(() => {})
     setWebRtcTestCall({ status: 'connecting' })
     setError(null)
@@ -1168,6 +1233,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           webRtcTestCallSessionRef.current = null
           webRtcTestCallAudioRouteRef.current = null
           webRtcRemoteAudioRefsRef.current = []
+          cleanupWebRtcFileDownlink()
           void closedAudioRoute?.stop().catch(() => {})
           const reason = `WebRTC connection ${state}`
           setWebRtcTestCall({ reason, status: 'error' })
@@ -1213,6 +1279,11 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         workspaceId,
       }).start()
       webRtcTestCallSessionRef.current = session
+      if (resolveWebRtcDownlinkMode(getWebRtcRuntimeExtra()) === 'file_segments') {
+        webRtcDownlinkSegmentUnsubscribeRef.current = transport.onVoiceDownlinkSegmentFrame(
+          handleWebRtcFileDownlinkFrame
+        )
+      }
       console.log('[WEBRTCDBG] test_call_started', { callId: session.callId })
       await session.waitForConnected()
       if (webRtcTestCallSessionRef.current !== session) {
@@ -1233,6 +1304,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       }
       const failedAudioRoute: WebRtcInCallAudioRoute | null = webRtcTestCallAudioRouteRef.current
       webRtcTestCallAudioRouteRef.current = null
+      cleanupWebRtcFileDownlink()
       session?.close()
       if (failedAudioRoute) {
         await (failedAudioRoute as WebRtcInCallAudioRoute).stop().catch(() => {})
@@ -1243,7 +1315,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       console.warn('[WEBRTCDBG] test_call_failed', reason)
       return { ok: false, reason }
     }
-  }, [])
+  }, [cleanupWebRtcFileDownlink, handleWebRtcFileDownlinkFrame])
 
   const sendPromptToOrchestratorWithOutcome = useCallback(
     async (
@@ -1598,11 +1670,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       webRtcTestCallSessionRef.current?.close()
       void webRtcTestCallAudioRouteRef.current?.stop().catch(() => {})
       webRtcTestCallAudioRouteRef.current = null
+      cleanupWebRtcFileDownlink()
       relayDiagnosticsUnsubscribeRef.current?.()
       relayEventUnsubscribeRef.current?.()
       relayTransportRegistryRef.current.close()
     },
-    []
+    [cleanupWebRtcFileDownlink]
   )
 
   useEffect(() => {

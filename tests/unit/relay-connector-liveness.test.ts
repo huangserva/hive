@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import type WebSocket from 'ws'
 
 import { generateKeyPair } from '../../packages/relay-crypto/src/index.js'
 import { createRelayConnector, type RelayConfig } from '../../src/server/relay-connector.js'

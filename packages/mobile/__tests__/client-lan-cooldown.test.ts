@@ -22,12 +22,19 @@ const makeRelay = (): { transport: RelayTransport; calls: string[] } => {
     onStatusChange() {
       return () => {}
     },
+    onVoiceDownlinkSegmentFrame() {
+      return () => {}
+    },
+    onWebRtcSignalFrame() {
+      return () => {}
+    },
     onVoiceStreamFrame() {
       return () => {}
     },
     async requestVoiceStreamSynthesis() {
       return { audio: '', format: 'm4a', mime: 'audio/mp4', stream_id: 'test' }
     },
+    sendWebRtcSignalFrame() {},
     sendVoiceStreamFrame() {},
     status() {
       return 'ready'

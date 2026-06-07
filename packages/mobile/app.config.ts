@@ -125,6 +125,8 @@ const config: ExpoConfigWithSplash = {
       process.env.EXPO_PUBLIC_WEBRTC_NATIVE_REGISTER ?? process.env.WEBRTC_NATIVE_REGISTER,
     webRtcForceRelay: process.env.EXPO_PUBLIC_WEBRTC_FORCE_RELAY ?? process.env.WEBRTC_FORCE_RELAY,
     webRtcAudioRoute: process.env.EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE ?? process.env.WEBRTC_AUDIO_ROUTE,
+    webRtcDownlinkMode:
+      process.env.EXPO_PUBLIC_WEBRTC_DOWNLINK_MODE ?? process.env.WEBRTC_DOWNLINK_MODE,
     eas: {
       projectId: '9fc7ebf2-5db2-4c6e-8bc4-c57b2d9f2873',
     },

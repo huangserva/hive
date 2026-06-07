@@ -12,13 +12,9 @@ import {
 } from '../../packages/relay-crypto/src/index.js'
 import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-protocol.js'
 
-import type { HiveLogger } from './logger.js'
-
 const log = (message: string, error?: unknown) => {
   const ts = new Date().toISOString()
-  const suffix = error
-    ? ` error=${error instanceof Error ? error.message : String(error)}`
-    : ''
+  const suffix = error ? ` error=${error instanceof Error ? error.message : String(error)}` : ''
   process.stderr.write(`[relay-connector ${ts}] ${message}${suffix}\n`)
 }
 
@@ -81,6 +77,7 @@ export interface RelayConnectorOptions {
       capabilities: string[]
       deviceId: string
       send: (frame: WebRtcSignalFrame) => void
+      sendData: (frame: unknown) => void
     }
   ) => Promise<boolean> | boolean
 }
@@ -99,6 +96,14 @@ type RelayHandshakeHello = {
   handshake: HandshakeInitMessage
   token: string
   type: 'e2ee_hello'
+}
+
+type RuntimeTimer = ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>
+
+const unrefTimer = (timer: RuntimeTimer) => {
+  if (typeof timer !== 'object' || timer === null || !('unref' in timer)) return
+  const unref = (timer as { unref?: unknown }).unref
+  if (typeof unref === 'function') unref.call(timer)
 }
 
 type ClearHandshakeFrame = RelayHandshakeHello | { type: string }
@@ -193,8 +198,8 @@ export const createRelayConnector = (
 ): RelayConnectorHandle => {
   let status = emptyStatus(config)
   let socket: WebSocket | null = null
-  let heartbeatTimer: NodeJS.Timeout | null = null
-  let reconnectTimer: NodeJS.Timeout | null = null
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS
   let closed = false
   // 最近一次从对端收到任意帧的时刻。探活基准：心跳 tick 时若 now-lastInboundAt 超阈值即判死。
@@ -222,7 +227,7 @@ export const createRelayConnector = (
 
   const startHeartbeat = () => {
     stopHeartbeat()
-    heartbeatTimer = setInterval(() => {
+    const timer = setInterval(() => {
       // 探活（根因修复 ①）：半开 socket 下对端不再回任何帧（heartbeat_ack/data），readyState 仍 OPEN、
       // 旧实现永远当自己活着 → 成 relay room 里的僵尸。这里若超 livenessTimeoutMs 没收到任何入站帧，
       // 判连接死 → terminate（→ onclose → sessions.clear + scheduleReconnect → 重 join，relay newest-wins
@@ -246,7 +251,8 @@ export const createRelayConnector = (
       }
       sendRelayFrame({ type: 'heartbeat' })
     }, heartbeatIntervalMs)
-    heartbeatTimer.unref?.()
+    heartbeatTimer = timer
+    unrefTimer(timer)
   }
 
   const scheduleReconnect = (error: unknown) => {
@@ -260,11 +266,12 @@ export const createRelayConnector = (
     }
     const delay = reconnectDelayMs
     reconnectDelayMs = Math.min(reconnectDelayMs * 2, reconnectMaxDelayMs)
-    reconnectTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       reconnectTimer = null
       connect()
     }, delay)
-    reconnectTimer.unref?.()
+    reconnectTimer = timer
+    unrefTimer(timer)
   }
 
   const handleHandshake = (frame: ClearHandshakeFrame) => {
@@ -359,7 +366,9 @@ export const createRelayConnector = (
 
   const handleWebRtcSignalFrame = async (session: RelayDeviceSession, frame: unknown) => {
     if (!isWebRtcSignalFrame(frame)) return false
-    log(`WebRTC signal received: kind=${frame.kind} call_id=${frame.call_id} device=${session.deviceId}`)
+    log(
+      `WebRTC signal received: kind=${frame.kind} call_id=${frame.call_id} device=${session.deviceId}`
+    )
     if (!session.capabilities.includes('send_prompt')) {
       log(`WebRTC signal rejected: no send_prompt capability, sending bye`)
       sendEncryptedResponse(session, {
@@ -374,9 +383,12 @@ export const createRelayConnector = (
       (await options.webrtcSignalHandler(frame, {
         capabilities: session.capabilities,
         deviceId: session.deviceId,
+        sendData: (outbound) => sendEncryptedResponse(session, outbound),
         send: (outbound) => {
           const out = outbound as unknown as Record<string, unknown>
-          log(`WebRTC signal sending: kind=${out.kind} call_id=${out.call_id ?? frame.call_id} candidate=${out.candidate ? 'present' : 'none'}`)
+          log(
+            `WebRTC signal sending: kind=${out.kind} call_id=${out.call_id ?? frame.call_id} candidate=${out.candidate ? 'present' : 'none'}`
+          )
           return sendEncryptedResponse(session, outbound)
         },
       }))

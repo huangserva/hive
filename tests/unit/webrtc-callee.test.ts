@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-
+import type { VoiceDownlinkSegmentFrame } from '../../src/server/voice-downlink-segment-protocol.js'
 import {
   createWebRtcCallee,
   resolveWebRtcForceRelayEnabled,
@@ -602,6 +602,79 @@ describe('WebRTC callee', () => {
 
     expect(stoppedTracks).toEqual(['downlink'])
     expect(peers[0]?.closed).toBe(true)
+  })
+
+  test('starts file downlink without adding a WebRTC track and sends segment frames via data channel', async () => {
+    const peers: FakePeerConnection[] = []
+    const sent: WebRtcSignalFrame[] = []
+    const sentData: VoiceDownlinkSegmentFrame[] = []
+    const closedFileSessions: string[] = []
+    const callee = createWebRtcCallee({
+      fileDownlinkAudio: {
+        startCall: async ({ callId, send }) => {
+          send({
+            call_id: callId,
+            generation: 0,
+            op: 'segment_open',
+            segment_id: 1,
+            seq: 0,
+            turn_id: 'turn-1',
+            type: 'voice_downlink_segment',
+          })
+          return {
+            close: () => {
+              closedFileSessions.push('closed')
+            },
+          }
+        },
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-file-downlink',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      {
+        send: (frame) => sent.push(frame),
+        sendData: (frame) => sentData.push(frame as VoiceDownlinkSegmentFrame),
+      }
+    )
+
+    expect(peers[0]?.addedTracks).toEqual([])
+    expect(sent).toEqual([
+      expect.objectContaining({
+        call_id: 'call-file-downlink',
+        kind: 'answer',
+        type: 'webrtc_signal',
+      }),
+    ])
+    expect(sentData).toEqual([
+      expect.objectContaining({
+        call_id: 'call-file-downlink',
+        op: 'segment_open',
+        type: 'voice_downlink_segment',
+      }),
+    ])
+
+    await callee.handleSignal(
+      { call_id: 'call-file-downlink', kind: 'bye', type: 'webrtc_signal' },
+      { send: () => {}, sendData: () => {} }
+    )
+    expect(closedFileSessions).toEqual(['closed'])
   })
 
   test('closes and forgets a peer immediately when downlink start fails', async () => {

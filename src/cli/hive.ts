@@ -24,6 +24,10 @@ import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.j
 import { createVersionService, type VersionService } from '../server/version-service.js'
 import { createWebRtcCallee } from '../server/webrtc-callee.js'
 import { createWebRtcDownlinkAudio } from '../server/webrtc-downlink-audio.js'
+import {
+  createWebRtcFileDownlinkAudio,
+  resolveWebRtcDownlinkMode,
+} from '../server/webrtc-file-downlink-audio.js'
 import { createWebRtcUpstreamAudioSink } from '../server/webrtc-upstream-audio.js'
 
 interface RunHiveCommandResult {
@@ -215,9 +219,12 @@ export const runHiveCommand = async (
   try {
     const relayConfig = await loadRelayConfig({ dataDir })
     if (relayConfig.enabled) {
+      const webRtcDownlinkMode = resolveWebRtcDownlinkMode()
       const webRtcCallee = createWebRtcCallee({
         audioSink: createWebRtcUpstreamAudioSink({ logger, store }),
-        downlinkAudio: createWebRtcDownlinkAudio({ logger, store }),
+        ...(webRtcDownlinkMode === 'file_segments'
+          ? { fileDownlinkAudio: createWebRtcFileDownlinkAudio({ logger, store }) }
+          : { downlinkAudio: createWebRtcDownlinkAudio({ logger, store }) }),
         getIceServers: async () => resolveWebRtcIceServers(),
       })
       relayConnector = createRelayConnector(
@@ -232,7 +239,7 @@ export const runHiveCommand = async (
         }
       )
       logger.info(
-        `relay connector enabled relay_url=${relayConfig.relay_url} room_id=${relayConfig.room_id}`
+        `relay connector enabled relay_url=${relayConfig.relay_url} room_id=${relayConfig.room_id} webrtc_downlink_mode=${webRtcDownlinkMode}`
       )
     } else {
       logger.info('relay connector disabled')

@@ -1,3 +1,4 @@
+import type { VoiceDownlinkSegmentFrame } from './voice-downlink-segment-protocol.js'
 import type { WebRtcIceCandidateInit, WebRtcSignalFrame } from './webrtc-signal-protocol.js'
 
 export interface WebRtcIceServer {
@@ -42,6 +43,7 @@ export interface WebRtcRuntime {
 export interface WebRtcCalleeContext {
   deviceId?: string
   send(frame: WebRtcSignalFrame): void
+  sendData?: (frame: VoiceDownlinkSegmentFrame) => void
 }
 
 export interface WebRtcLocalAudioTrack {
@@ -62,6 +64,23 @@ export interface WebRtcDownlinkAudio {
   }):
     | Promise<WebRtcDownlinkAudioSession | null | undefined>
     | WebRtcDownlinkAudioSession
+    | null
+    | undefined
+}
+
+export interface WebRtcFileDownlinkAudioSession {
+  close(): Promise<void> | void
+  interrupt?: () => void
+}
+
+export interface WebRtcFileDownlinkAudio {
+  startCall(input: {
+    callId: string
+    send: (frame: VoiceDownlinkSegmentFrame) => void
+    workspaceId: string
+  }):
+    | Promise<WebRtcFileDownlinkAudioSession | null | undefined>
+    | WebRtcFileDownlinkAudioSession
     | null
     | undefined
 }
@@ -89,6 +108,7 @@ export interface WebRtcCalleeOptions {
   audioSink?: WebRtcRemoteAudioSink
   callTimeoutMs?: number
   downlinkAudio?: WebRtcDownlinkAudio
+  fileDownlinkAudio?: WebRtcFileDownlinkAudio
   getIceServers: () => Promise<WebRtcIceServer[]> | WebRtcIceServer[]
   loadRuntime?: () => Promise<WebRtcRuntime>
 }
@@ -98,6 +118,7 @@ type WebRtcCall = {
   closed: boolean
   deviceId: string | null
   downlinkSession: WebRtcDownlinkAudioSession | null
+  fileDownlinkSession: WebRtcFileDownlinkAudioSession | null
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
 }
@@ -175,6 +196,10 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       void Promise.resolve(call.downlinkSession.close()).catch(() => {})
       call.downlinkSession = null
     }
+    if (call.fileDownlinkSession) {
+      void Promise.resolve(call.fileDownlinkSession.close()).catch(() => {})
+      call.fileDownlinkSession = null
+    }
     call.peer.close()
     calls.delete(callId)
   }
@@ -196,6 +221,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       closed: false,
       deviceId,
       downlinkSession: null,
+      fileDownlinkSession: null,
       peer,
       timer: setTimeout(() => closeCall(callId), callTimeoutMs),
     }
@@ -238,6 +264,28 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
           }
         } catch (downlinkError) {
           log(`downlink audio failed: call_id=${frame.call_id}`, downlinkError)
+          closeCall(frame.call_id)
+          context.send({
+            call_id: frame.call_id,
+            kind: 'bye',
+            type: 'webrtc_signal',
+          })
+          return true
+        }
+      }
+      if (options.fileDownlinkAudio && frame.workspace_id) {
+        try {
+          const fileDownlinkSession = await options.fileDownlinkAudio.startCall({
+            callId: frame.call_id,
+            send: (downlinkFrame) => context.sendData?.(downlinkFrame),
+            workspaceId: frame.workspace_id,
+          })
+          if (fileDownlinkSession) {
+            call.fileDownlinkSession = fileDownlinkSession
+            log(`file downlink session started: call_id=${frame.call_id}`)
+          }
+        } catch (downlinkError) {
+          log(`file downlink failed: call_id=${frame.call_id}`, downlinkError)
           closeCall(frame.call_id)
           context.send({
             call_id: frame.call_id,
@@ -299,6 +347,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
             callId: frame.call_id,
             onSpeechStart: () => {
               call.downlinkSession?.interrupt?.()
+              call.fileDownlinkSession?.interrupt?.()
             },
             receiver: event.receiver,
             streams: event.streams,
