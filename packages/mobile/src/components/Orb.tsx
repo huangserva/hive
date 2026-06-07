@@ -211,18 +211,18 @@ export function GlowOrb({
       {kind === 'heard' ? (
         <>
           <PulseRing
-            color={hexToRgba(accent, 0.5)}
+            color={hexToRgba(accent, 0.7)}
             delay={0}
-            duration={950}
+            duration={680}
             size={size}
-            toScale={1.28}
+            toScale={1.48}
           />
           <PulseRing
-            color={hexToRgba(accent, 0.35)}
-            delay={360}
-            duration={950}
+            color={hexToRgba(accent, 0.48)}
+            delay={260}
+            duration={680}
             size={size}
-            toScale={1.28}
+            toScale={1.48}
           />
         </>
       ) : null}
@@ -230,11 +230,11 @@ export function GlowOrb({
         <>
           <SpinArc color={accent} size={size + 8} />
           <PulseRing
-            color={hexToRgba(accent, 0.32)}
+            color={hexToRgba(accent, 0.58)}
             delay={0}
-            duration={760}
+            duration={520}
             size={size}
-            toScale={1.18}
+            toScale={1.24}
           />
         </>
       ) : null}
@@ -243,16 +243,16 @@ export function GlowOrb({
           <PulseRing
             color={hexToRgba(accent, 0.52)}
             delay={0}
-            duration={1700}
+            duration={1500}
             size={size}
-            toScale={1.62}
+            toScale={1.86}
           />
           <PulseRing
             color={hexToRgba(accent, 0.36)}
-            delay={820}
-            duration={1700}
+            delay={700}
+            duration={1500}
             size={size}
-            toScale={1.62}
+            toScale={1.86}
           />
         </>
       ) : null}

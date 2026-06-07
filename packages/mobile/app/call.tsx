@@ -9,9 +9,14 @@ import type { VoiceCallStatePhase } from '../src/api/voice-call-state-protocol'
 import { GlowOrb, type GlowOrbKind, hexToRgba } from '../src/components/Orb'
 import { useT } from '../src/i18n'
 import {
+  advanceCallPhaseDisplay,
   type CallPhase,
+  type CallPhaseDisplayState,
+  enqueueCallPhaseDisplay,
   formatCallDuration,
+  getCallPhaseLabelKey,
   isConnectedPhase,
+  MIN_CALL_PHASE_DWELL_MS,
   resolveCallPhase,
 } from '../src/lib/call-ui'
 
@@ -56,11 +61,11 @@ const CALL_VISUALS: Record<CallPhase, CallVisual> = {
     soft: '#ffb0b0',
   },
   heard: {
-    accent: '#6EF0C7',
+    accent: '#00E5FF',
     glyph: 'radio',
     kind: 'heard',
-    panel: 'rgba(110, 240, 199, 0.16)',
-    soft: '#a6ffe1',
+    panel: 'rgba(0, 229, 255, 0.18)',
+    soft: '#8ff5ff',
   },
   listening: {
     accent: '#46E6A9',
@@ -70,18 +75,18 @@ const CALL_VISUALS: Record<CallPhase, CallVisual> = {
     soft: '#7cffcb',
   },
   processing: {
-    accent: '#FFD166',
+    accent: '#FFB000',
     glyph: 'sync',
     kind: 'processing',
-    panel: 'rgba(255, 209, 102, 0.16)',
-    soft: '#ffe08a',
+    panel: 'rgba(255, 176, 0, 0.18)',
+    soft: '#ffd36a',
   },
   responding: {
-    accent: '#74B8FF',
+    accent: '#2F80FF',
     glyph: 'volume-high',
     kind: 'responding',
-    panel: 'rgba(116, 184, 255, 0.16)',
-    soft: '#a9d2ff',
+    panel: 'rgba(47, 128, 255, 0.18)',
+    soft: '#9bc4ff',
   },
 }
 
@@ -111,9 +116,15 @@ export default function CallScreen() {
   const [ended, setEnded] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [debugPhase, setDebugPhase] = useState<VoiceCallStatePhase | null>(null)
+  const [phaseDisplay, setPhaseDisplay] = useState<CallPhaseDisplayState>({
+    displayedPhase: 'listening',
+    holdUntilMs: 0,
+    queue: [],
+  })
 
   const startedRef = useRef(false)
   const connectedAtRef = useRef<number | null>(null)
+  const phaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Placeholder until the M39 transcript stream is exposed (see CallTranscriptLine).
   const transcriptLines: CallTranscriptLine[] = []
@@ -150,7 +161,47 @@ export default function CallScreen() {
   }, [ended, router])
 
   const callStatePhase = __DEV__ && debugPhase ? debugPhase : webRtcCallPhase
-  const phase = resolveCallPhase({ callStatePhase, ended, status: webRtcTestCall.status })
+  useEffect(() => {
+    if (ended || webRtcTestCall.status !== 'connected') {
+      if (phaseTimerRef.current) {
+        clearTimeout(phaseTimerRef.current)
+        phaseTimerRef.current = null
+      }
+      setPhaseDisplay({ displayedPhase: 'listening', holdUntilMs: 0, queue: [] })
+      return
+    }
+    setPhaseDisplay((current) =>
+      enqueueCallPhaseDisplay(current, callStatePhase, Date.now(), MIN_CALL_PHASE_DWELL_MS)
+    )
+  }, [callStatePhase, ended, webRtcTestCall.status])
+
+  useEffect(() => {
+    if (phaseTimerRef.current) {
+      clearTimeout(phaseTimerRef.current)
+      phaseTimerRef.current = null
+    }
+    if (ended || webRtcTestCall.status !== 'connected' || phaseDisplay.queue.length === 0) return
+    const delayMs = Math.max(0, phaseDisplay.holdUntilMs - Date.now())
+    phaseTimerRef.current = setTimeout(() => {
+      phaseTimerRef.current = null
+      setPhaseDisplay((current) =>
+        advanceCallPhaseDisplay(current, Date.now(), MIN_CALL_PHASE_DWELL_MS)
+      )
+    }, delayMs)
+    return () => {
+      if (phaseTimerRef.current) {
+        clearTimeout(phaseTimerRef.current)
+        phaseTimerRef.current = null
+      }
+    }
+  }, [ended, phaseDisplay, webRtcTestCall.status])
+
+  const displayedCallStatePhase = phaseDisplay.displayedPhase
+  const phase = resolveCallPhase({
+    callStatePhase: displayedCallStatePhase,
+    ended,
+    status: webRtcTestCall.status,
+  })
   const connected = isConnectedPhase(phase)
   const visual = CALL_VISUALS[phase]
 
@@ -192,7 +243,7 @@ export default function CallScreen() {
     })
   }, [callStatePhase])
 
-  const statusLabel = t(`call.status.${phase}`)
+  const statusLabel = t(getCallPhaseLabelKey(phase))
   const headline = t(`call.headline.${phase}`)
   const timerText = connected || ended ? formatCallDuration(elapsedMs) : '··:··'
   const errorReason = webRtcTestCall.status === 'error' ? webRtcTestCall.reason : null
@@ -227,7 +278,8 @@ export default function CallScreen() {
               <Ionicons color="#05070a" name={visual.glyph} size={30} />
             </GlowOrb>
           </Pressable>
-          <Text style={[styles.headline, { color: visual.soft }]}>{headline}</Text>
+          <Text style={[styles.headline, { color: visual.soft }]}>{statusLabel}</Text>
+          <Text style={styles.phaseCaption}>{headline}</Text>
           {phase === 'listening' ? (
             <View
               style={[
@@ -438,9 +490,21 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   headline: {
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: '900',
     letterSpacing: 0.3,
+    shadowColor: 'rgba(0, 0, 0, 0.45)',
+    shadowOffset: { height: 2, width: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    textAlign: 'center',
+  },
+  phaseCaption: {
+    color: '#C9D1D9',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginTop: -10,
     textAlign: 'center',
   },
   pill: {
