@@ -1,15 +1,73 @@
 import { describe, expect, test } from 'vitest'
 
-import { createWebRtcUtteranceVad } from '../../src/server/webrtc-vad.js'
+import {
+  createWebRtcUtteranceVad,
+  resolveWebRtcBargeRmsThreshold,
+} from '../../src/server/webrtc-vad.js'
 
 const frame = (value: number, samples = 160) =>
   Buffer.from(new Int16Array(samples).fill(value).buffer)
 
+const frameWithRms = (rms: number, samples = 160) => frame(Math.round(rms * 32768), samples)
+
 describe('WebRTC utterance VAD', () => {
+  test('defaults barge-in onset threshold high enough to reject residual echo and accept real speech', () => {
+    const echoStarts: number[] = []
+    const echoVad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      onSpeechStart: () => echoStarts.push(1),
+      silenceMs: 40,
+      speechStartConfirmationFrames: 3,
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      echoVad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frameWithRms(0.017),
+        sampleRate: 16_000,
+      })
+    }
+
+    const speechStarts: number[] = []
+    const speechVad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      onSpeechStart: () => speechStarts.push(1),
+      silenceMs: 40,
+      speechStartConfirmationFrames: 3,
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      speechVad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frameWithRms(0.06),
+        sampleRate: 16_000,
+      })
+    }
+
+    expect(echoStarts).toEqual([])
+    expect(speechStarts).toEqual([1])
+  })
+
+  test('allows the WebRTC barge-in RMS threshold to be tuned by environment', () => {
+    expect(
+      resolveWebRtcBargeRmsThreshold({
+        HIVE_WEBRTC_BARGE_RMS_THRESHOLD: '0.041',
+      })
+    ).toBe(0.041)
+    expect(
+      resolveWebRtcBargeRmsThreshold({
+        HIVE_WEBRTC_BARGE_RMS_THRESHOLD: 'not-a-number',
+      })
+    ).toBe(0.03)
+  })
+
   test('captures normal-volume speech below the old loud-only RMS threshold', () => {
     const vad = createWebRtcUtteranceVad({
       minSpeechMs: 20,
       silenceMs: 40,
+      speechRmsThreshold: 0.006,
     })
     const utterances: Buffer[] = []
 

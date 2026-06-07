@@ -13,6 +13,8 @@ export interface WebRtcPcmVadFrame {
   sampleRate: number
 }
 
+const DEFAULT_WEBRTC_BARGE_RMS_THRESHOLD = 0.03
+
 export interface WebRtcVadUtterance {
   averageRms: number
   bitsPerSample: number
@@ -26,7 +28,16 @@ export const DEFAULT_WEBRTC_UTTERANCE_VAD_CONFIG: WebRtcUtteranceVadConfig = {
   minSpeechMs: 250,
   silenceMs: 900,
   speechStartConfirmationFrames: 3,
-  speechRmsThreshold: 0.006,
+  speechRmsThreshold: DEFAULT_WEBRTC_BARGE_RMS_THRESHOLD,
+}
+
+export const resolveWebRtcBargeRmsThreshold = (
+  env: Record<string, string | undefined> = process.env
+) => {
+  const value = env.HIVE_WEBRTC_BARGE_RMS_THRESHOLD
+  if (typeof value !== 'string') return DEFAULT_WEBRTC_BARGE_RMS_THRESHOLD
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBRTC_BARGE_RMS_THRESHOLD
 }
 
 export const calculateWebRtcInt16Rms = (pcm: Buffer) => {
@@ -53,7 +64,11 @@ export const createWebRtcUtteranceVad = (
   flush: (options?: { force?: boolean }) => WebRtcVadUtterance | null
   push: (frame: WebRtcPcmVadFrame) => WebRtcVadUtterance | null
 } => {
-  const resolved = { ...DEFAULT_WEBRTC_UTTERANCE_VAD_CONFIG, ...config }
+  const resolved = {
+    ...DEFAULT_WEBRTC_UTTERANCE_VAD_CONFIG,
+    speechRmsThreshold: resolveWebRtcBargeRmsThreshold(),
+    ...config,
+  }
   let activeFrames: Buffer[] = []
   let activeBitsPerSample = 16
   let activeChannelCount = 1
