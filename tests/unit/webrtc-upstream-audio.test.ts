@@ -8,6 +8,12 @@ import {
   createWebRtcUpstreamAudioSink,
   injectWebRtcVoiceTranscript,
 } from '../../src/server/webrtc-upstream-audio.js'
+import {
+  claimWebRtcVoiceLatencyTurnForMessage,
+  markWebRtcVoiceLatency,
+  resetWebRtcVoiceLatencyForTests,
+  startWebRtcVoiceLatencyTurn,
+} from '../../src/server/webrtc-voice-latency.js'
 
 type FakeAudioSinkData = {
   bitsPerSample?: number
@@ -131,6 +137,8 @@ const emitFrame = (sink: FakeAudioSink | undefined, value: number, samples = 160
 
 describe('WebRTC upstream audio sink', () => {
   afterEach(() => {
+    resetWebRtcVoiceLatencyForTests()
+    vi.useRealTimers()
     vi.unstubAllEnvs()
     FakeAudioSink.instances = []
   })
@@ -272,8 +280,17 @@ describe('WebRTC upstream audio sink', () => {
   test('voice intent complete handled speaks directly without forwarding to orchestrator', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-handled',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 500,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, { intentVerdictAt: 1_200 })
 
     await injectWebRtcVoiceTranscript({
+      latencyTurnId: turn.turnId,
       store,
       text: '现在谁在处理通话',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -307,6 +324,8 @@ describe('WebRTC upstream audio sink', () => {
         workerId: 'workspace-1:orchestrator',
       },
     ])
+    const claimed = claimWebRtcVoiceLatencyTurnForMessage('message-2')
+    expect(claimed?.turnId).toBe(turn.turnId)
   })
 
   test('voice intent incomplete can speak a short reply but does not record a completed turn or forward to PM', async () => {
@@ -341,10 +360,23 @@ describe('WebRTC upstream audio sink', () => {
   })
 
   test('voice intent drop stays silent and does not forward to PM', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_100)
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-drop',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 700,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, { intentVerdictAt: 1_100 })
 
     await injectWebRtcVoiceTranscript({
+      latencyTurnId: turn.turnId,
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
       store,
       text: '噪声',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -357,6 +389,13 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.chat).toEqual([])
     expect(store.inputs).toEqual([])
+    expect(infoLogs).toEqual([
+      expect.stringContaining(
+        'voiceIntent driven decision: call_id=unknown completeness=incomplete action=drop'
+      ),
+      'voice turn timeline: call_id=call-drop turn=call-drop-turn-1 branch=drop forward_pm=false text_len=2 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=0 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na',
+    ])
+    expect(markWebRtcVoiceLatency(turn.turnId, { decisionAt: 2_000 })).toBeNull()
   })
 
   test('voice intent front strips internal markers before speaking or forwarding', async () => {
@@ -390,8 +429,15 @@ describe('WebRTC upstream audio sink', () => {
   test('voice intent true handoff keeps a handoff acknowledgement and sends distilled intent', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-handoff',
+      now: 1_000,
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
 
     await injectWebRtcVoiceTranscript({
+      latencyTurnId: turn.turnId,
       store,
       text: '让团队处理',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -408,11 +454,13 @@ describe('WebRTC upstream audio sink', () => {
     expect(store.inputs).toEqual([
       {
         options: undefined,
-        text: '[来自手机 Mobile App]\n---\n让团队处理 WebRTC 通话延迟',
+        text: expect.stringContaining('[来自手机 Mobile App]\n---\n让团队处理 WebRTC 通话延迟'),
         workspaceId: 'workspace-1',
         workerId: 'workspace-1:orchestrator',
       },
     ])
+    expect(store.inputs[0]?.text).not.toContain('voice_latency_turn_id')
+    expect(store.inputs[0]?.text).not.toContain('内部语音延迟追踪')
     expect(store.chat.at(1)?.contentJson).toBe(
       JSON.stringify({
         source: 'voice_intent_front',
@@ -936,7 +984,9 @@ describe('WebRTC upstream audio sink', () => {
       transcript: '让关羽汇报进度',
     })
     expect(store.inputs).toHaveLength(1)
-    expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\n让关羽汇报进度')
+    expect(store.inputs[0]?.text).toContain('[来自手机 Mobile App]\n---\n让关羽汇报进度')
+    expect(store.inputs[0]?.text).not.toContain('voice_latency_turn_id')
+    expect(store.inputs[0]?.text).not.toContain('内部语音延迟追踪')
     expect(infoLogs).toEqual(
       expect.arrayContaining([
         expect.stringContaining(

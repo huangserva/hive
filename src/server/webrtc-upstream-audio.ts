@@ -30,7 +30,13 @@ import {
   type WebRtcUtteranceVadConfig,
   type WebRtcVadUtterance,
 } from './webrtc-vad.js'
-import { startWebRtcVoiceLatencyTurn } from './webrtc-voice-latency.js'
+import {
+  bindWebRtcVoiceLatencyTurnToMessage,
+  buildVoiceTurnTimelineLog,
+  finishWebRtcVoiceLatencyTurn,
+  markWebRtcVoiceLatency,
+  startWebRtcVoiceLatencyTurn,
+} from './webrtc-voice-latency.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
 type WebRtcAudioSinkFrame = {
@@ -146,21 +152,29 @@ const isSafeVoiceIntentFallback = (verdict: VoiceIntentVerdict) =>
   verdict.action === 'drop' && verdict.confidence <= 0 && !verdict.reply_text.trim()
 
 const insertVoiceIntentFrontReply = ({
+  latencyTurnId,
   reply,
   store,
   workspaceId,
 }: {
+  latencyTurnId?: string | undefined
   reply: string
   store: WebRtcUpstreamStore
   workspaceId: string
 }) => {
-  if (!reply) return
-  store.insertMobileChatMessage(
+  if (!reply) return null
+  const message = store.insertMobileChatMessage(
     workspaceId,
     'outbound',
     'orch_reply',
     JSON.stringify({ source: 'voice_intent_front', text: reply, voice_intent: true })
   )
+  const messageId =
+    typeof message === 'object' && message && 'id' in message && typeof message.id === 'string'
+      ? message.id
+      : undefined
+  bindWebRtcVoiceLatencyTurnToMessage(latencyTurnId, messageId)
+  return messageId ?? null
 }
 
 const formatMobileVoicePrompt = (text: string) => `[来自手机 Mobile App]\n---\n${text}`
@@ -169,6 +183,7 @@ const applyVoiceIntentDrivenTranscript = ({
   activeRun,
   callId,
   logger,
+  latencyTurnId,
   store,
   text,
   update,
@@ -176,6 +191,7 @@ const applyVoiceIntentDrivenTranscript = ({
 }: {
   activeRun: NonNullable<ReturnType<WebRtcUpstreamStore['getActiveRunByAgentId']>>
   callId?: string | undefined
+  latencyTurnId?: string | undefined
   logger?: Pick<HiveLogger, 'info' | 'warn'> | undefined
   store: WebRtcUpstreamStore
   text: string
@@ -204,10 +220,34 @@ const applyVoiceIntentDrivenTranscript = ({
     `voiceIntent driven decision: call_id=${callId ?? 'unknown'} completeness=${verdict.completeness} action=${verdict.action} confidence=${verdict.confidence.toFixed(2)} forward_pm=${shouldForwardToPm} distilled_intent=${summarizeVoiceIntent(distilledIntent)}`
   )
 
-  if (verdict.action === 'drop') return 'handled' as const
+  const markDecision = (
+    branch: 'drop' | 'escalate' | 'handled' | 'incomplete',
+    forwardPm: boolean
+  ) =>
+    markWebRtcVoiceLatency(latencyTurnId, {
+      branch,
+      decisionAt: Date.now(),
+      forwardPm,
+      textLen: text.length,
+    })
+
+  const logFinishedTimeline = (turnId: string | undefined) => {
+    const turn = markWebRtcVoiceLatency(turnId, {})
+    if (!turn) return
+    logDiagnostic(logger, buildVoiceTurnTimelineLog(turn))
+    finishWebRtcVoiceLatencyTurn(turn.turnId)
+  }
+
+  if (verdict.action === 'drop') {
+    markDecision('drop', false)
+    logFinishedTimeline(latencyTurnId)
+    return 'handled' as const
+  }
 
   if (verdict.completeness !== 'complete') {
+    markDecision('incomplete', false)
     insertVoiceIntentFrontReply({ reply, store, workspaceId })
+    logFinishedTimeline(latencyTurnId)
     return 'handled' as const
   }
 
@@ -219,15 +259,18 @@ const applyVoiceIntentDrivenTranscript = ({
   )
 
   if (shouldForwardToPm) {
+    markDecision('escalate', true)
     store.recordUserInput(workspaceId, activeRun.agentId, formatMobileVoicePrompt(distilledIntent))
     insertVoiceIntentFrontReply({ reply, store, workspaceId })
     return 'handled' as const
   }
 
-  insertVoiceIntentFrontReply({ reply, store, workspaceId })
+  markDecision('handled', false)
+  insertVoiceIntentFrontReply({ latencyTurnId, reply, store, workspaceId })
   store.recordUserInput(workspaceId, activeRun.agentId, formatMobileVoicePrompt(text), {
     forwardToOrchestrator: false,
   })
+  if (!reply) logFinishedTimeline(latencyTurnId)
   return 'handled' as const
 }
 
@@ -316,6 +359,7 @@ export const injectWebRtcVoiceTranscript = async ({
     const result = applyVoiceIntentDrivenTranscript({
       activeRun,
       callId,
+      latencyTurnId,
       logger,
       store,
       text: trimmed,
@@ -396,6 +440,7 @@ export const createWebRtcUpstreamAudioSink = ({
     const sessionTranscript: string[] = []
     let voiceIntentPartialSeq = 0
     let latestVoiceIntentUpdate: VoiceIntentSessionUpdate | null = null
+    let streamingTurnSpeechStartAt: number | null = null
     const voiceIntentSession = isVoiceIntentFrontEnabled()
       ? createIntentSession({
           callId,
@@ -450,9 +495,12 @@ export const createWebRtcUpstreamAudioSink = ({
       onFinal: async (text) => {
         const priorContext = sessionTranscript.slice()
         const segment = priorContext.length + 1
+        const speechStartAt = streamingTurnSpeechStartAt ?? Date.now()
+        streamingTurnSpeechStartAt = null
         const latencyTurn = startWebRtcVoiceLatencyTurn({
           callId,
           segment,
+          speechStartAt,
           workspaceId,
         })
         logDiagnostic(
@@ -460,6 +508,7 @@ export const createWebRtcUpstreamAudioSink = ({
           `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
         )
         const finalVoiceIntentUpdate = await evaluateVoiceIntentShadow(text, true, priorContext)
+        markWebRtcVoiceLatency(latencyTurn.turnId, { intentVerdictAt: Date.now() })
         logVoiceIntentEndpointComparison(text)
         sessionTranscript.push(text)
         await injectWebRtcVoiceTranscript({
@@ -475,6 +524,7 @@ export const createWebRtcUpstreamAudioSink = ({
         })
       },
       onPartial: async (text) => {
+        streamingTurnSpeechStartAt ??= Date.now()
         logDiagnostic(
           logger,
           `audioSink streaming partial: call_id=${callId} text_len=${text.length}`

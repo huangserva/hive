@@ -9,7 +9,11 @@ import {
 } from './voice-downlink-segment-protocol.js'
 import {
   buildVoiceLatencyBreakdownLog,
-  claimPendingWebRtcVoiceLatencyTurn,
+  buildVoiceTurnTimelineLog,
+  claimPendingLegacyWebRtcVoiceLatencyTurn,
+  type claimPendingWebRtcVoiceLatencyTurn,
+  claimWebRtcVoiceLatencyTurnForId,
+  claimWebRtcVoiceLatencyTurnForMessage,
   discardWebRtcVoiceLatencyTurn,
   finishWebRtcVoiceLatencyTurn,
   markWebRtcVoiceLatency,
@@ -58,6 +62,26 @@ const parseReplyText = (message: MobileChatMessage) => {
     return typeof parsed.text === 'string' ? parsed.text.trim() : ''
   } catch {
     return ''
+  }
+}
+
+const parseVoiceLatencyTurnId = (message: MobileChatMessage) => {
+  try {
+    const parsed = JSON.parse(message.content_json) as { voice_latency_turn_id?: unknown }
+    return typeof parsed.voice_latency_turn_id === 'string'
+      ? parsed.voice_latency_turn_id.trim()
+      : ''
+  } catch {
+    return ''
+  }
+}
+
+const isVoiceIntentFrontReply = (message: MobileChatMessage) => {
+  try {
+    const parsed = JSON.parse(message.content_json) as { source?: unknown; voice_intent?: unknown }
+    return parsed.source === 'voice_intent_front' || parsed.voice_intent === true
+  } catch {
+    return false
   }
 }
 
@@ -120,13 +144,13 @@ export const createWebRtcFileDownlinkAudio = ({
               firstDownlinkFrameAt: Date.now(),
             })
             if (completedTurn) {
-              logDiagnostic(
-                logger,
-                buildVoiceLatencyBreakdownLog(completedTurn, {
-                  finalDownlinkField: 'final_to_segment_ms',
-                  includeTtsToFirstFrame: false,
-                })
-              )
+              const timelineLog = completedTurn.branch
+                ? buildVoiceTurnTimelineLog(completedTurn)
+                : buildVoiceLatencyBreakdownLog(completedTurn, {
+                    finalDownlinkField: 'final_to_segment_ms',
+                    includeTtsToFirstFrame: false,
+                  })
+              logDiagnostic(logger, timelineLog)
               finishWebRtcVoiceLatencyTurn(completedTurn.turnId)
               latencyTurnCompleted = true
             }
@@ -148,7 +172,18 @@ export const createWebRtcFileDownlinkAudio = ({
       if (message.direction !== 'outbound' || message.message_type !== 'orch_reply') return
       const text = parseReplyText(message)
       if (!text) return
-      const latencyTurn = claimPendingWebRtcVoiceLatencyTurn(workspaceId)
+      const correlatedTurnId = parseVoiceLatencyTurnId(message)
+      const exactLatencyTurn = claimWebRtcVoiceLatencyTurnForMessage(message.id)
+      const correlatedLatencyTurn = claimWebRtcVoiceLatencyTurnForId(correlatedTurnId, {
+        callId,
+        workspaceId,
+      })
+      const latencyTurn =
+        exactLatencyTurn ??
+        correlatedLatencyTurn ??
+        (isVoiceIntentFrontReply(message)
+          ? null
+          : claimPendingLegacyWebRtcVoiceLatencyTurn(workspaceId))
       const queuedGeneration = generation
       queue = queue.then(() => processReply(message, text, latencyTurn, queuedGeneration))
     })

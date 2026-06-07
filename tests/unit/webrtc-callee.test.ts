@@ -204,6 +204,8 @@ describe('WebRTC callee', () => {
     })
 
     expect(callee.hasActiveCall('device-1')).toBe(false)
+    expect(callee.hasActiveWorkspaceCall('workspace-1')).toBe(false)
+    expect(callee.getActiveWorkspaceCallIds('workspace-1')).toEqual([])
     await callee.handleSignal(
       {
         call_id: 'call-device',
@@ -211,12 +213,16 @@ describe('WebRTC callee', () => {
         sdp: 'offer-sdp',
         sdp_type: 'offer',
         type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
       },
       { deviceId: 'device-1', send: () => {} }
     )
 
     expect(callee.hasActiveCall('device-1')).toBe(true)
     expect(callee.hasActiveCall('device-2')).toBe(false)
+    expect(callee.hasActiveWorkspaceCall('workspace-1')).toBe(true)
+    expect(callee.hasActiveWorkspaceCall('workspace-2')).toBe(false)
+    expect(callee.getActiveWorkspaceCallIds('workspace-1')).toEqual(['call-device'])
 
     await callee.handleSignal(
       { call_id: 'call-device', kind: 'bye', type: 'webrtc_signal' },
@@ -225,6 +231,8 @@ describe('WebRTC callee', () => {
 
     expect(peers[0]?.closed).toBe(true)
     expect(callee.hasActiveCall('device-1')).toBe(false)
+    expect(callee.hasActiveWorkspaceCall('workspace-1')).toBe(false)
+    expect(callee.getActiveWorkspaceCallIds('workspace-1')).toEqual([])
   })
 
   test('closes unanswered calls after the configured timeout', async () => {

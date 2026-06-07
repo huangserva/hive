@@ -4,6 +4,8 @@ import type { MobileChatMessage } from '../../src/server/mobile-chat-store.js'
 import type { VoiceDownlinkSegmentFrame } from '../../src/server/voice-downlink-segment-protocol.js'
 import { createWebRtcFileDownlinkAudio } from '../../src/server/webrtc-file-downlink-audio.js'
 import {
+  bindWebRtcVoiceLatencyTurnToMessage,
+  claimWebRtcVoiceLatencyTurnForId,
   markWebRtcVoiceLatency,
   resetWebRtcVoiceLatencyForTests,
   startWebRtcVoiceLatencyTurn,
@@ -16,6 +18,22 @@ const createMessage = (text: string): MobileChatMessage => ({
   id: 'message-1',
   message_type: 'orch_reply',
   workspace_id: 'workspace-1',
+})
+
+const createVoiceIntentFrontMessage = (text: string): MobileChatMessage => ({
+  ...createMessage(text),
+  content_json: JSON.stringify({ source: 'voice_intent_front', text, voice_intent: true }),
+  id: 'front-message-1',
+})
+
+const createCorrelatedPmMessage = (
+  text: string,
+  voiceLatencyTurnId: string,
+  id = 'pm-message-1'
+): MobileChatMessage => ({
+  ...createMessage(text),
+  content_json: JSON.stringify({ text, voice_latency_turn_id: voiceLatencyTurnId }),
+  id,
 })
 
 const emitMessage = (
@@ -305,6 +323,83 @@ describe('WebRTC file downlink audio', () => {
     expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
   })
 
+  test('does not let an unbound voice intent front acknowledgement consume the PM latency turn', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_000)
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const infoLogs: string[] = []
+    const sent: VoiceDownlinkSegmentFrame[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-file-timeline',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 500,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, {
+      branch: 'escalate',
+      decisionAt: 1_250,
+      forwardPm: true,
+      intentVerdictAt: 1_200,
+      textLen: 7,
+    })
+    bindWebRtcVoiceLatencyTurnToMessage(turn.turnId, 'pm-message-1')
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 4,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => {
+          vi.setSystemTime(text.includes('主管') ? 3_000 : 1_400)
+          return {
+            audio: Buffer.from(text.includes('主管') ? 'pm-audio' : 'front-audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts',
+          }
+        },
+      }),
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-file-timeline',
+      send: (frame) => {
+        sent.push(frame)
+        if (frame.turn_id === 'pm-message-1') vi.setSystemTime(3_100)
+      },
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createVoiceIntentFrontMessage('这个我转给主管。'))
+    await session.flush()
+    expect(infoLogs).not.toEqual([expect.stringContaining('voice turn timeline:')])
+
+    emitMessage(listener, 'workspace-1', {
+      ...createMessage('主管回复'),
+      id: 'pm-message-1',
+    })
+    await session.flush()
+
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voice turn timeline: call_id=call-file-timeline turn=call-file-timeline-turn-1 branch=escalate forward_pm=true text_len=7 speech_to_final_ms=500 final_to_verdict_ms=200 verdict_to_dispatch_ms=50 dispatch_to_downlink_ms=1850 total_speech_to_audio_ms=2600'
+        ),
+      ])
+    )
+    expect(sent).toEqual(
+      expect.arrayContaining([expect.objectContaining({ turn_id: 'pm-message-1' })])
+    )
+  })
+
   test('discards claimed WebRTC voice latency turn when file TTS does not produce audio', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const turn = startWebRtcVoiceLatencyTurn({
@@ -339,5 +434,154 @@ describe('WebRTC file downlink audio', () => {
     await session.flush()
 
     expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
+  })
+
+  test('does not consume a voice latency turn for unrelated outbound replies without correlation', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_000)
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const infoLogs: string[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-no-fifo',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 500,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, {
+      branch: 'escalate',
+      decisionAt: 1_250,
+      forwardPm: true,
+      intentVerdictAt: 1_200,
+      textLen: 7,
+    })
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('unrelated-audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-no-fifo',
+      send: () => {},
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', {
+      ...createMessage('桌面端无关回复'),
+      id: 'unrelated-message',
+    })
+    await session.flush()
+
+    expect(infoLogs).not.toEqual([expect.stringContaining('voice turn timeline:')])
+    expect(
+      claimWebRtcVoiceLatencyTurnForId(turn.turnId, {
+        callId: 'call-no-fifo',
+        workspaceId: 'workspace-1',
+      })?.turnId
+    ).toBe(turn.turnId)
+  })
+
+  test('claims the correlated PM reply instead of the oldest pending voice turn', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_000)
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const infoLogs: string[] = []
+    const turn1 = startWebRtcVoiceLatencyTurn({
+      callId: 'call-out-of-order',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 500,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn1.turnId, {
+      branch: 'escalate',
+      decisionAt: 1_200,
+      forwardPm: true,
+      intentVerdictAt: 1_150,
+      textLen: 5,
+    })
+    const turn2 = startWebRtcVoiceLatencyTurn({
+      callId: 'call-out-of-order',
+      now: 2_000,
+      segment: 2,
+      speechStartAt: 1_500,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn2.turnId, {
+      branch: 'escalate',
+      decisionAt: 2_250,
+      forwardPm: true,
+      intentVerdictAt: 2_200,
+      textLen: 9,
+    })
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => {
+          vi.setSystemTime(3_000)
+          return {
+            audio: Buffer.from('pm-two-audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts',
+          }
+        },
+      }),
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-out-of-order',
+      send: () => {
+        vi.setSystemTime(3_100)
+      },
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', createCorrelatedPmMessage('第二个 PM 回复', turn2.turnId))
+    await session.flush()
+
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voice turn timeline: call_id=call-out-of-order turn=call-out-of-order-turn-2 branch=escalate forward_pm=true text_len=9'
+        ),
+      ])
+    )
+    expect(infoLogs).not.toEqual([
+      expect.stringContaining('turn=call-out-of-order-turn-1 branch=escalate'),
+    ])
+    expect(
+      claimWebRtcVoiceLatencyTurnForId(turn1.turnId, {
+        callId: 'call-out-of-order',
+        workspaceId: 'workspace-1',
+      })?.turnId
+    ).toBe(turn1.turnId)
   })
 })

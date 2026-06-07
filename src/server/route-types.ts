@@ -74,6 +74,10 @@ export interface RouteContext {
   feishuTransport?: FeishuOutboundTransport | null
   mobilePushService?: MobilePushService | null
   relayConnector?: RelayConnectorHandle | null
+  webRtcRuntime?: {
+    getActiveWorkspaceCallIds?: (workspaceId: string) => string[]
+    hasActiveWorkspaceCall: (workspaceId: string) => boolean
+  }
   logger: HiveLogger | undefined
   request: IncomingMessage
   response: ServerResponse

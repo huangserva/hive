@@ -20,6 +20,10 @@ export const startTestServer = async (
     dataDir?: string
     pickFolderPath?: string
     pickFolderService?: () => Promise<PickFolderResponse>
+    webRtcRuntime?: {
+      getActiveWorkspaceCallIds?: (workspaceId: string) => string[]
+      hasActiveWorkspaceCall: (workspaceId: string) => boolean
+    }
   } = {}
 ): Promise<TestServerContext> => {
   const ownsDataDir = !input.dataDir
@@ -36,7 +40,11 @@ export const startTestServer = async (
           supported: true,
         })
       : undefined)
-  const app = createApp({ pickFolderService, store })
+  const app = createApp({
+    ...(pickFolderService ? { pickFolderService } : {}),
+    store,
+    ...(input.webRtcRuntime ? { webRtcRuntime: input.webRtcRuntime } : {}),
+  })
 
   await new Promise<void>((resolve) => {
     app.server.listen(0, '127.0.0.1', () => resolve())

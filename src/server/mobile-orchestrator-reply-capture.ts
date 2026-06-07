@@ -152,20 +152,14 @@ export const createMobileOrchestratorReplyCapture = ({
     const text = normalizeReplyText(pending.buffer)
     if (text.length === 0) return
     if (isDuplicate(workspaceId, text)) return
-    insertMobileChatMessage(
-      workspaceId,
-      'outbound',
-      'orch_reply',
-      JSON.stringify({
-        text,
-      })
-    )
+    insertMobileChatMessage(workspaceId, 'outbound', 'orch_reply', JSON.stringify({ text }))
   }
 
   const scheduleFlush = (workspaceId: string, pending: PendingReply) => {
     clearTimer(pending)
     pending.flushTimer = setTimeout(() => flushPending(workspaceId), flushDelayMs)
-    pending.flushTimer.unref?.()
+    const flushTimer = pending.flushTimer as TimerHandle & { unref?: () => void }
+    flushTimer.unref?.()
   }
 
   const handleOutput = (workspaceId: string, chunk: string) => {

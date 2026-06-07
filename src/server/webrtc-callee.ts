@@ -121,6 +121,7 @@ type WebRtcCall = {
   fileDownlinkSession: WebRtcFileDownlinkAudioSession | null
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
+  workspaceId: string | null
 }
 
 const DEFAULT_WEBRTC_CALL_TIMEOUT_MS = 45_000
@@ -215,7 +216,12 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     })
   }
 
-  const rememberCall = (callId: string, peer: WebRtcPeerConnection, deviceId: string | null) => {
+  const rememberCall = (
+    callId: string,
+    peer: WebRtcPeerConnection,
+    deviceId: string | null,
+    workspaceId: string | null
+  ) => {
     const call: WebRtcCall = {
       audioSessions: new Set(),
       closed: false,
@@ -224,6 +230,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       fileDownlinkSession: null,
       peer,
       timer: setTimeout(() => closeCall(callId), callTimeoutMs),
+      workspaceId,
     }
     calls.set(callId, call)
     return call
@@ -234,6 +241,21 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       if (!call.closed && call.deviceId === deviceId) return true
     }
     return false
+  }
+
+  const hasActiveWorkspaceCall = (workspaceId: string) => {
+    for (const call of calls.values()) {
+      if (!call.closed && call.workspaceId === workspaceId) return true
+    }
+    return false
+  }
+
+  const getActiveWorkspaceCallIds = (workspaceId: string) => {
+    const activeCallIds: string[] = []
+    for (const [callId, call] of calls) {
+      if (!call.closed && call.workspaceId === workspaceId) activeCallIds.push(callId)
+    }
+    return activeCallIds
   }
 
   const handleSignal = async (
@@ -250,7 +272,12 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         `ICE servers resolved: count=${iceServers.length} urls=${iceServers.map((s) => (typeof s.urls === 'string' ? s.urls : (s.urls as string[]).join(','))).join(' | ')}`
       )
       const peer = new runtime.RTCPeerConnection(createPeerConnectionConfig(iceServers))
-      const call = rememberCall(frame.call_id, peer, context.deviceId ?? null)
+      const call = rememberCall(
+        frame.call_id,
+        peer,
+        context.deviceId ?? null,
+        frame.workspace_id ?? null
+      )
       if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
         try {
           const downlinkSession = await options.downlinkAudio.startCall({
@@ -435,5 +462,5 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     return true
   }
 
-  return { handleSignal, hasActiveCall }
+  return { getActiveWorkspaceCallIds, handleSignal, hasActiveCall, hasActiveWorkspaceCall }
 }

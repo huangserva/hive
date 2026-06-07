@@ -24,6 +24,10 @@ interface CreateAppOptions {
   store: RuntimeStore
   feishuTransport?: FeishuOutboundTransport | null
   relayConnector?: RelayConnectorHandle | null
+  webRtcRuntime?: {
+    getActiveWorkspaceCallIds?: (workspaceId: string) => string[]
+    hasActiveWorkspaceCall: (workspaceId: string) => boolean
+  }
   pickFolderService?: () => Promise<PickFolderResponse>
   tasksFileService?: TasksFileService
   versionService?: VersionService
@@ -120,6 +124,7 @@ const sendJson = (response: ServerResponse, statusCode: number, body: unknown) =
 export const createApp = ({
   feishuTransport = null,
   relayConnector = null,
+  webRtcRuntime,
   store,
   pickFolderService = pickFolder,
   tasksFileService = createTasksFileService(),
@@ -154,6 +159,7 @@ export const createApp = ({
           feishuTransport,
           mobilePushService,
           relayConnector,
+          ...(webRtcRuntime ? { webRtcRuntime } : {}),
           logger,
           runtimeInfo: {
             dataDir,

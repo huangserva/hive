@@ -7,6 +7,7 @@ import type {
   SendTaskBody,
 } from './route-types.js'
 import { authenticateCliAgent, requireCommandForRole } from './team-authz.js'
+import { claimOldestPendingWebRtcVoiceHandoffTurn } from './webrtc-voice-latency.js'
 
 const requireNonEmptyString = (value: unknown, field: string) => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -130,7 +131,7 @@ export const teamRoutes: RouteDefinition[] = [
     })
     return
   }),
-  route('POST', '/api/team/mobile-reply', async ({ request, response, store }) => {
+  route('POST', '/api/team/mobile-reply', async ({ request, response, store, webRtcRuntime }) => {
     const body = await readJsonBody<ReportTaskBody>(request)
     const projectId = requireNonEmptyString(body.project_id, 'project_id')
     const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
@@ -142,7 +143,20 @@ export const teamRoutes: RouteDefinition[] = [
       validateToken: store.validateAgentToken,
       workspaceId: projectId,
     })
-    store.insertMobileChatMessage(projectId, 'outbound', 'orch_reply', JSON.stringify({ text }))
+    const activeCallIds = webRtcRuntime?.getActiveWorkspaceCallIds?.(projectId)
+    const latencyTurn =
+      activeCallIds && activeCallIds.length > 0
+        ? claimOldestPendingWebRtcVoiceHandoffTurn(projectId, { callIds: activeCallIds })
+        : null
+    store.insertMobileChatMessage(
+      projectId,
+      'outbound',
+      'orch_reply',
+      JSON.stringify({
+        text,
+        ...(latencyTurn ? { voice_latency_turn_id: latencyTurn.turnId } : {}),
+      })
+    )
     sendJson(response, 200, { ok: true })
   }),
 ]

@@ -6,6 +6,11 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 
 import { buildMobileWorkerTranscript } from '../../src/server/routes-mobile.js'
+import {
+  markWebRtcVoiceLatency,
+  resetWebRtcVoiceLatencyForTests,
+  startWebRtcVoiceLatencyTurn,
+} from '../../src/server/webrtc-voice-latency.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -15,6 +20,7 @@ const originalPath = process.env.PATH
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
+  resetWebRtcVoiceLatencyForTests()
   process.env.PATH = originalPath
   delete process.env.HIVE_EDGE_TTS_ARGS_PATH
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
@@ -851,6 +857,192 @@ fs.writeFileSync(outputPath, 'audio')
       expect(JSON.parse(reply?.content_json ?? '{}')).toEqual({
         text: 'I received the mobile request and will inspect the sprint.',
       })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('records WebRTC voice latency correlation from active call runtime state', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer({
+      webRtcRuntime: {
+        getActiveWorkspaceCallIds: () => ['call-active-runtime'],
+        hasActiveWorkspaceCall: () => true,
+      },
+    })
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Reply Correlation')
+      const turn = startWebRtcVoiceLatencyTurn({
+        callId: 'call-active-runtime',
+        now: 1_000,
+        segment: 1,
+        workspaceId: workspace.id,
+      })
+      markWebRtcVoiceLatency(turn.turnId, {
+        branch: 'escalate',
+        decisionAt: 1_200,
+        forwardPm: true,
+        intentVerdictAt: 1_150,
+        textLen: 10,
+      })
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-mobile-reply-correlation.js')
+      writeFileSync(orchScript, 'process.stdin.resume()\n', 'utf8')
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+      const orchestratorToken = server.store.peekAgentToken(orchestratorId)
+      if (!orchestratorToken) throw new Error('Expected orchestrator token')
+
+      const response = await fetch(`${server.baseUrl}/api/team/mobile-reply`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({
+          from_agent_id: orchestratorId,
+          project_id: workspace.id,
+          text: 'PM 已处理。',
+          token: orchestratorToken,
+        }),
+      })
+      expect(response.status).toBe(200)
+
+      const messages = server.store.listMobileChatMessages(workspace.id)
+      const reply = messages.find((message) => message.message_type === 'orch_reply')
+      expect(JSON.parse(reply?.content_json ?? '{}')).toEqual({
+        text: 'PM 已处理。',
+        voice_latency_turn_id: turn.turnId,
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('does not add WebRTC voice latency correlation outside an active call', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer({
+      webRtcRuntime: {
+        getActiveWorkspaceCallIds: () => [],
+        hasActiveWorkspaceCall: () => false,
+      },
+    })
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Reply No Call')
+      startWebRtcVoiceLatencyTurn({
+        callId: 'call-inactive-runtime',
+        now: 1_000,
+        segment: 1,
+        workspaceId: workspace.id,
+      })
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-mobile-reply-no-call.js')
+      writeFileSync(orchScript, 'process.stdin.resume()\n', 'utf8')
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+      const orchestratorToken = server.store.peekAgentToken(orchestratorId)
+      if (!orchestratorToken) throw new Error('Expected orchestrator token')
+
+      const response = await fetch(`${server.baseUrl}/api/team/mobile-reply`, {
+        headers: jsonHeaders(),
+        method: 'POST',
+        body: JSON.stringify({
+          from_agent_id: orchestratorId,
+          project_id: workspace.id,
+          text: '普通回复。',
+          token: orchestratorToken,
+        }),
+      })
+      expect(response.status).toBe(200)
+
+      const messages = server.store.listMobileChatMessages(workspace.id)
+      const reply = messages.find((message) => message.message_type === 'orch_reply')
+      expect(JSON.parse(reply?.content_json ?? '{}')).toEqual({
+        text: '普通回复。',
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('assigns active call handoff turns to mobile replies in arrival order', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer({
+      webRtcRuntime: {
+        getActiveWorkspaceCallIds: () => ['call-runtime-order'],
+        hasActiveWorkspaceCall: () => true,
+      },
+    })
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Reply Order')
+      const turn1 = startWebRtcVoiceLatencyTurn({
+        callId: 'call-runtime-order',
+        now: 1_000,
+        segment: 1,
+        workspaceId: workspace.id,
+      })
+      markWebRtcVoiceLatency(turn1.turnId, {
+        branch: 'escalate',
+        decisionAt: 1_200,
+        forwardPm: true,
+        intentVerdictAt: 1_150,
+        textLen: 5,
+      })
+      const turn2 = startWebRtcVoiceLatencyTurn({
+        callId: 'call-runtime-order',
+        now: 2_000,
+        segment: 2,
+        workspaceId: workspace.id,
+      })
+      markWebRtcVoiceLatency(turn2.turnId, {
+        branch: 'escalate',
+        decisionAt: 2_200,
+        forwardPm: true,
+        intentVerdictAt: 2_150,
+        textLen: 6,
+      })
+      const orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-mobile-reply-order.js')
+      writeFileSync(orchScript, 'process.stdin.resume()\n', 'utf8')
+      server.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, orchestratorId, {
+        hivePort: '4010',
+      })
+      const orchestratorToken = server.store.peekAgentToken(orchestratorId)
+      if (!orchestratorToken) throw new Error('Expected orchestrator token')
+
+      for (const text of ['第一条 PM 回复。', '第二条 PM 回复。']) {
+        const response = await fetch(`${server.baseUrl}/api/team/mobile-reply`, {
+          headers: jsonHeaders(),
+          method: 'POST',
+          body: JSON.stringify({
+            from_agent_id: orchestratorId,
+            project_id: workspace.id,
+            text,
+            token: orchestratorToken,
+          }),
+        })
+        expect(response.status).toBe(200)
+      }
+
+      const replies = server.store
+        .listMobileChatMessages(workspace.id)
+        .filter((message) => message.message_type === 'orch_reply')
+        .map((message) => JSON.parse(message.content_json) as Record<string, unknown>)
+      expect(replies).toEqual([
+        { text: '第一条 PM 回复。', voice_latency_turn_id: turn1.turnId },
+        { text: '第二条 PM 回复。', voice_latency_turn_id: turn2.turnId },
+      ])
     } finally {
       await server.close()
     }
@@ -1769,7 +1961,7 @@ fs.writeFileSync(outputPath, 'audio')
       const done = await server.store.dispatchTask(workspace.id, worker.id, 'Report completed work')
       server.store.reportTask(workspace.id, worker.id, {
         dispatchId: done.id,
-        reportText: 'done',
+        text: 'done',
       })
       expect(server.store.listMobileChatMessages(workspace.id)).toContainEqual(
         expect.objectContaining({
@@ -1815,10 +2007,13 @@ fs.writeFileSync(outputPath, 'audio')
         'done',
         'cancelled',
       ])
-      expect(body.dispatches[0].worker_name).toBe('Alice')
-      expect(body.dispatches[0].worker_id).toBe(worker.id)
-      expect(body.dispatches[0].task_summary.length).toBeLessThanOrEqual(80)
-      expect(new Date(body.dispatches[0].created_at).toString()).not.toBe('Invalid Date')
+      const firstDispatch = body.dispatches[0]
+      expect(firstDispatch).toBeDefined()
+      if (!firstDispatch) throw new Error('expected at least one mobile task')
+      expect(firstDispatch.worker_name).toBe('Alice')
+      expect(firstDispatch.worker_id).toBe(worker.id)
+      expect(firstDispatch.task_summary.length).toBeLessThanOrEqual(80)
+      expect(new Date(firstDispatch.created_at).toString()).not.toBe('Invalid Date')
     } finally {
       await server.close()
     }

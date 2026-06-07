@@ -216,6 +216,12 @@ export const runHiveCommand = async (
     logger,
   })
   let relayConnector: RelayConnectorHandle | null = null
+  let webRtcRuntime:
+    | {
+        getActiveWorkspaceCallIds?: (workspaceId: string) => string[]
+        hasActiveWorkspaceCall: (workspaceId: string) => boolean
+      }
+    | undefined
   try {
     const relayConfig = await loadRelayConfig({ dataDir })
     if (relayConfig.enabled) {
@@ -227,6 +233,7 @@ export const runHiveCommand = async (
           : { downlinkAudio: createWebRtcDownlinkAudio({ logger, store }) }),
         getIceServers: async () => resolveWebRtcIceServers(),
       })
+      webRtcRuntime = webRtcCallee
       relayConnector = createRelayConnector(
         relayConfig,
         createRelayRpcHandler({ runtimeInfo: { dataDir, port }, store }),
@@ -261,6 +268,7 @@ export const runHiveCommand = async (
     logger,
     runtimeInfo: { dataDir, port },
     versionService,
+    ...(webRtcRuntime ? { webRtcRuntime } : {}),
   })
 
   try {
