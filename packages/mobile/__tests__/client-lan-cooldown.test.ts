@@ -22,6 +22,9 @@ const makeRelay = (): { transport: RelayTransport; calls: string[] } => {
     onStatusChange() {
       return () => {}
     },
+    onVoiceCallStateFrame() {
+      return () => {}
+    },
     onVoiceDownlinkSegmentFrame() {
       return () => {}
     },

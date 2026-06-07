@@ -25,6 +25,7 @@ const createFakeTransport = () => {
     measureVoiceStreamLatency: vi.fn(),
     onEvent: vi.fn(() => () => {}),
     onStatusChange: vi.fn(() => () => {}),
+    onVoiceCallStateFrame: vi.fn(() => () => {}),
     onVoiceDownlinkSegmentFrame: vi.fn(() => () => {}),
     onWebRtcSignalFrame: vi.fn(() => () => {}),
     onVoiceStreamFrame: vi.fn(() => () => {}),

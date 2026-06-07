@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { useMobileRuntime } from '../src/api/mobile-runtime-context'
+import type { VoiceCallStatePhase } from '../src/api/voice-call-state-protocol'
 import { GlowOrb, type GlowOrbKind, hexToRgba } from '../src/components/Orb'
 import { useT } from '../src/i18n'
 import {
@@ -20,6 +21,7 @@ import {
 // page logic layer (state machine / cue / barge-in / quality gate / reply queue).
 
 const CALL_BG = '#05070a'
+const DEBUG_PHASES: VoiceCallStatePhase[] = ['listening', 'heard', 'processing', 'responding']
 
 type CallVisual = {
   accent: string
@@ -53,6 +55,13 @@ const CALL_VISUALS: Record<CallPhase, CallVisual> = {
     panel: 'rgba(255, 107, 107, 0.16)',
     soft: '#ffb0b0',
   },
+  heard: {
+    accent: '#6EF0C7',
+    glyph: 'radio',
+    kind: 'heard',
+    panel: 'rgba(110, 240, 199, 0.16)',
+    soft: '#a6ffe1',
+  },
   listening: {
     accent: '#46E6A9',
     glyph: 'mic',
@@ -60,10 +69,17 @@ const CALL_VISUALS: Record<CallPhase, CallVisual> = {
     panel: 'rgba(70, 230, 169, 0.16)',
     soft: '#7cffcb',
   },
-  speaking: {
+  processing: {
+    accent: '#FFD166',
+    glyph: 'sync',
+    kind: 'processing',
+    panel: 'rgba(255, 209, 102, 0.16)',
+    soft: '#ffe08a',
+  },
+  responding: {
     accent: '#74B8FF',
     glyph: 'volume-high',
-    kind: 'speaking',
+    kind: 'responding',
     panel: 'rgba(116, 184, 255, 0.16)',
     soft: '#a9d2ff',
   },
@@ -81,19 +97,20 @@ export type CallTranscriptLine = {
 }
 
 export default function CallScreen() {
-  const { setWebRtcCallMuted, startWebRtcTestCall, stopWebRtcTestCall, webRtcTestCall } =
-    useMobileRuntime()
+  const {
+    setWebRtcCallMuted,
+    startWebRtcTestCall,
+    stopWebRtcTestCall,
+    webRtcCallPhase,
+    webRtcTestCall,
+  } = useMobileRuntime()
   const router = useRouter()
   const t = useT()
 
   const [muted, setMuted] = useState(false)
   const [ended, setEnded] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
-  // Connected sub-state (在听你 ⇄ AI 说话). There is no mobile-side downlink-TTS
-  // signal yet, so this stays false and the page shows "在听你" while connected.
-  // The speaking orb path below is fully wired — flip this when the server exposes
-  // a speaking / transcript signal (M39 follow-up, same seam as the transcript).
-  const [aiSpeaking] = useState(false)
+  const [debugPhase, setDebugPhase] = useState<VoiceCallStatePhase | null>(null)
 
   const startedRef = useRef(false)
   const connectedAtRef = useRef<number | null>(null)
@@ -132,7 +149,8 @@ export default function CallScreen() {
     return () => clearTimeout(id)
   }, [ended, router])
 
-  const phase = resolveCallPhase({ aiSpeaking, ended, status: webRtcTestCall.status })
+  const callStatePhase = __DEV__ && debugPhase ? debugPhase : webRtcCallPhase
+  const phase = resolveCallPhase({ callStatePhase, ended, status: webRtcTestCall.status })
   const connected = isConnectedPhase(phase)
   const visual = CALL_VISUALS[phase]
 
@@ -166,6 +184,14 @@ export default function CallScreen() {
     })
   }, [setWebRtcCallMuted])
 
+  const cycleDebugPhase = useCallback(() => {
+    if (!__DEV__) return
+    setDebugPhase((current) => {
+      const currentIndex = DEBUG_PHASES.indexOf(current ?? callStatePhase)
+      return DEBUG_PHASES[(currentIndex + 1) % DEBUG_PHASES.length] ?? 'listening'
+    })
+  }, [callStatePhase])
+
   const statusLabel = t(`call.status.${phase}`)
   const headline = t(`call.headline.${phase}`)
   const timerText = connected || ended ? formatCallDuration(elapsedMs) : '··:··'
@@ -192,9 +218,15 @@ export default function CallScreen() {
 
         {/* center: glowing orb + state headline + sub / barge-in hint */}
         <View style={styles.stage}>
-          <GlowOrb accent={visual.accent} kind={visual.kind} glyphSize={64} size={168}>
-            <Ionicons color="#05070a" name={visual.glyph} size={30} />
-          </GlowOrb>
+          <Pressable
+            disabled={!__DEV__}
+            onLongPress={cycleDebugPhase}
+            testID="call-orb-debug-cycle"
+          >
+            <GlowOrb accent={visual.accent} kind={visual.kind} glyphSize={64} size={168}>
+              <Ionicons color="#05070a" name={visual.glyph} size={30} />
+            </GlowOrb>
+          </Pressable>
           <Text style={[styles.headline, { color: visual.soft }]}>{headline}</Text>
           {phase === 'listening' ? (
             <View

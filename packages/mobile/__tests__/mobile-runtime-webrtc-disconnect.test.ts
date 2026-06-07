@@ -32,6 +32,10 @@ const relayMock = vi.hoisted(() => ({
   closeRegistry: vi.fn(),
   diagnosticsUnsubscribe: vi.fn(),
   eventUnsubscribe: vi.fn(),
+  callStateListener: null as
+    | null
+    | ((frame: { call_id: string; phase: string; type: string } & Record<string, unknown>) => void),
+  callStateUnsubscribe: vi.fn(),
   segmentListener: null as
     | null
     | ((frame: { call_id: string; op: string; type: string } & Record<string, unknown>) => void),
@@ -45,6 +49,7 @@ const relayMock = vi.hoisted(() => ({
     onDiagnosticsEvent: vi.fn(),
     onEvent: vi.fn(),
     onStatusChange: vi.fn(),
+    onVoiceCallStateFrame: vi.fn(),
     onVoiceDownlinkSegmentFrame: vi.fn(),
     onVoiceStreamFrame: vi.fn(),
     onWebRtcSignalFrame: vi.fn(),
@@ -140,6 +145,10 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
     relayMock.transport.onDiagnosticsEvent.mockReturnValue(relayMock.diagnosticsUnsubscribe)
     relayMock.transport.onEvent.mockReturnValue(relayMock.eventUnsubscribe)
     relayMock.transport.onStatusChange.mockReturnValue(relayMock.statusUnsubscribe)
+    relayMock.transport.onVoiceCallStateFrame.mockImplementation((listener) => {
+      relayMock.callStateListener = listener
+      return relayMock.callStateUnsubscribe
+    })
     relayMock.segmentListener = null
     relayMock.transport.onVoiceDownlinkSegmentFrame.mockImplementation((listener) => {
       relayMock.segmentListener = listener
@@ -275,5 +284,52 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
       uri: 'data:audio/mpeg;base64,second-audio',
     })
     expect(audioMock.player.play).toHaveBeenCalledTimes(2)
+  })
+
+  test('voice_call_state frames update the runtime call phase for the active call only', async () => {
+    let runtime: Runtime | null = null
+    render(
+      React.createElement(
+        MobileRuntimeProvider,
+        null,
+        React.createElement(Probe, { onRuntime: (next) => (runtime = next) })
+      )
+    )
+
+    await waitFor(() => expect(runtime?.selectedWorkspaceId).toBe('workspace-1'))
+    await act(async () => {
+      await requireRuntime(runtime).startWebRtcTestCall()
+    })
+
+    expect(requireRuntime(runtime).webRtcCallPhase).toBe('listening')
+    expect(relayMock.transport.onVoiceCallStateFrame).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      relayMock.callStateListener?.({
+        call_id: 'other-call',
+        phase: 'processing',
+        ts: 1,
+        turn_id: 'turn-1',
+        type: 'voice_call_state',
+      })
+    })
+    expect(requireRuntime(runtime).webRtcCallPhase).toBe('listening')
+
+    await act(async () => {
+      relayMock.callStateListener?.({
+        call_id: 'call-1',
+        phase: 'processing',
+        ts: 2,
+        turn_id: 'turn-1',
+        type: 'voice_call_state',
+      })
+    })
+    expect(requireRuntime(runtime).webRtcCallPhase).toBe('processing')
+
+    await act(async () => {
+      requireRuntime(runtime).stopWebRtcTestCall()
+    })
+    expect(requireRuntime(runtime).webRtcCallPhase).toBe('listening')
+    expect(relayMock.callStateUnsubscribe).toHaveBeenCalledTimes(1)
   })
 })

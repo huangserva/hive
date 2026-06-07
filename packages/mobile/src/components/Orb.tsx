@@ -17,7 +17,14 @@ import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg'
 // Pure decoration — never touches any touch / logic layer. The render output is
 // byte-identical to talk.tsx's previous inline OrbSphere/TalkOrb.
 
-export type GlowOrbKind = 'error' | 'idle' | 'listening' | 'processing' | 'speaking'
+export type GlowOrbKind =
+  | 'error'
+  | 'heard'
+  | 'idle'
+  | 'listening'
+  | 'processing'
+  | 'responding'
+  | 'speaking'
 
 // Convert a #RRGGBB hex to an rgba() string for the animated state rings/halo.
 export const hexToRgba = (hex: string, alpha: number) => {
@@ -201,8 +208,37 @@ export function GlowOrb({
           />
         </>
       ) : null}
-      {kind === 'processing' ? <SpinArc color={accent} size={size + 8} /> : null}
-      {kind === 'speaking' ? (
+      {kind === 'heard' ? (
+        <>
+          <PulseRing
+            color={hexToRgba(accent, 0.5)}
+            delay={0}
+            duration={950}
+            size={size}
+            toScale={1.28}
+          />
+          <PulseRing
+            color={hexToRgba(accent, 0.35)}
+            delay={360}
+            duration={950}
+            size={size}
+            toScale={1.28}
+          />
+        </>
+      ) : null}
+      {kind === 'processing' ? (
+        <>
+          <SpinArc color={accent} size={size + 8} />
+          <PulseRing
+            color={hexToRgba(accent, 0.32)}
+            delay={0}
+            duration={760}
+            size={size}
+            toScale={1.18}
+          />
+        </>
+      ) : null}
+      {kind === 'responding' || kind === 'speaking' ? (
         <>
           <PulseRing
             color={hexToRgba(accent, 0.52)}

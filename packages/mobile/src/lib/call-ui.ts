@@ -1,7 +1,9 @@
 // Pure UI helpers for the WebRTC call page (app/call.tsx). Kept out of the .tsx
 // so they can be unit-tested without a React Native renderer.
 
-export type CallPhase = 'connecting' | 'listening' | 'speaking' | 'error' | 'ended'
+import type { VoiceCallStatePhase } from '../api/voice-call-state-protocol'
+
+export type CallPhase = 'connecting' | VoiceCallStatePhase | 'error' | 'ended'
 
 export type WebRtcCallStatus = 'idle' | 'connecting' | 'connected' | 'error'
 
@@ -18,14 +20,15 @@ export const formatCallDuration = (ms: number) => {
 // local post-hangup display state the hook itself does not have); then error;
 // then the two connected sub-states; otherwise we are still dialing out.
 export const resolveCallPhase = (input: {
-  aiSpeaking: boolean
+  callStatePhase?: VoiceCallStatePhase
   ended: boolean
   status: WebRtcCallStatus
 }): CallPhase => {
   if (input.ended) return 'ended'
   if (input.status === 'error') return 'error'
-  if (input.status === 'connected') return input.aiSpeaking ? 'speaking' : 'listening'
+  if (input.status === 'connected') return input.callStatePhase ?? 'listening'
   return 'connecting'
 }
 
-export const isConnectedPhase = (phase: CallPhase) => phase === 'listening' || phase === 'speaking'
+export const isConnectedPhase = (phase: CallPhase) =>
+  phase === 'listening' || phase === 'heard' || phase === 'processing' || phase === 'responding'

@@ -28,34 +28,55 @@ describe('formatCallDuration', () => {
 
 describe('resolveCallPhase', () => {
   test('ended wins over every hook status (local post-hangup display state)', () => {
-    expect(resolveCallPhase({ aiSpeaking: false, ended: true, status: 'connected' })).toBe('ended')
-    expect(resolveCallPhase({ aiSpeaking: true, ended: true, status: 'error' })).toBe('ended')
+    expect(
+      resolveCallPhase({ callStatePhase: 'processing', ended: true, status: 'connected' })
+    ).toBe('ended')
+    expect(resolveCallPhase({ callStatePhase: 'responding', ended: true, status: 'error' })).toBe(
+      'ended'
+    )
   })
 
   test('error maps to the error phase when not ended', () => {
-    expect(resolveCallPhase({ aiSpeaking: false, ended: false, status: 'error' })).toBe('error')
+    expect(resolveCallPhase({ ended: false, status: 'error' })).toBe('error')
   })
 
-  test('connected splits into the listening / speaking sub-states', () => {
-    expect(resolveCallPhase({ aiSpeaking: false, ended: false, status: 'connected' })).toBe(
-      'listening'
+  test('connected follows the latest server voice_call_state phase', () => {
+    expect(
+      resolveCallPhase({ callStatePhase: 'listening', ended: false, status: 'connected' })
+    ).toBe('listening')
+    expect(resolveCallPhase({ callStatePhase: 'heard', ended: false, status: 'connected' })).toBe(
+      'heard'
     )
-    expect(resolveCallPhase({ aiSpeaking: true, ended: false, status: 'connected' })).toBe(
-      'speaking'
-    )
+    expect(
+      resolveCallPhase({ callStatePhase: 'processing', ended: false, status: 'connected' })
+    ).toBe('processing')
+    expect(
+      resolveCallPhase({ callStatePhase: 'responding', ended: false, status: 'connected' })
+    ).toBe('responding')
   })
 
   test('idle and connecting both show the connecting (dial-out) phase', () => {
-    expect(resolveCallPhase({ aiSpeaking: false, ended: false, status: 'idle' })).toBe('connecting')
-    expect(resolveCallPhase({ aiSpeaking: false, ended: false, status: 'connecting' })).toBe(
-      'connecting'
-    )
+    expect(resolveCallPhase({ ended: false, status: 'idle' })).toBe('connecting')
+    expect(resolveCallPhase({ ended: false, status: 'connecting' })).toBe('connecting')
   })
 })
 
 describe('isConnectedPhase', () => {
-  test('only the two connected sub-states count as connected', () => {
-    const phases: CallPhase[] = ['connecting', 'listening', 'speaking', 'error', 'ended']
-    expect(phases.filter(isConnectedPhase)).toEqual(['listening', 'speaking'])
+  test('only the four connected sub-states count as connected', () => {
+    const phases: CallPhase[] = [
+      'connecting',
+      'listening',
+      'heard',
+      'processing',
+      'responding',
+      'error',
+      'ended',
+    ]
+    expect(phases.filter(isConnectedPhase)).toEqual([
+      'listening',
+      'heard',
+      'processing',
+      'responding',
+    ])
   })
 })

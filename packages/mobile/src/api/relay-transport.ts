@@ -7,6 +7,7 @@ import {
   encodeJson,
   type KeyPair,
 } from '@huangserva/hippoteam-relay-crypto'
+import { isVoiceCallStateFrame, type VoiceCallStateFrame } from './voice-call-state-protocol'
 import {
   isVoiceDownlinkSegmentFrame,
   type VoiceDownlinkSegmentFrame,
@@ -62,6 +63,7 @@ export interface RelayTransport {
   onDiagnosticsEvent?: (cb: (event: RelayTransportDiagnosticEvent) => void) => () => void
   onEvent(cb: (event: RelayTransportEvent) => void): () => void
   onStatusChange(cb: (status: string) => void): () => void
+  onVoiceCallStateFrame(cb: (frame: VoiceCallStateFrame) => void): () => void
   onVoiceDownlinkSegmentFrame(cb: (frame: VoiceDownlinkSegmentFrame) => void): () => void
   onVoiceStreamFrame(cb: (frame: VoiceStreamFrame) => void): () => void
   requestVoiceStreamSynthesis(
@@ -137,6 +139,7 @@ export const createRelayTransport = (
   const eventListeners = new Set<(event: RelayTransportEvent) => void>()
   const listeners = new Set<(status: string) => void>()
   const webRtcSignalListeners = new Set<(frame: WebRtcSignalFrame) => void | Promise<void>>()
+  const voiceCallStateListeners = new Set<(frame: VoiceCallStateFrame) => void>()
   const voiceDownlinkSegmentListeners = new Set<(frame: VoiceDownlinkSegmentFrame) => void>()
   const voiceStreamListeners = new Set<(frame: VoiceStreamFrame) => void>()
   const pending = new Map<
@@ -279,6 +282,10 @@ export const createRelayTransport = (
     }
     if (isVoiceStreamFrame(message)) {
       for (const listener of voiceStreamListeners) listener(message)
+      return
+    }
+    if (isVoiceCallStateFrame(message)) {
+      for (const listener of voiceCallStateListeners) listener(message)
       return
     }
     if (isVoiceDownlinkSegmentFrame(message)) {
@@ -674,6 +681,10 @@ export const createRelayTransport = (
     onStatusChange(cb) {
       listeners.add(cb)
       return () => listeners.delete(cb)
+    },
+    onVoiceCallStateFrame(cb) {
+      voiceCallStateListeners.add(cb)
+      return () => voiceCallStateListeners.delete(cb)
     },
     onVoiceDownlinkSegmentFrame(cb) {
       voiceDownlinkSegmentListeners.add(cb)

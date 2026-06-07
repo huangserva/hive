@@ -36,6 +36,9 @@ const makeRelay = (
     onStatusChange() {
       return () => {}
     },
+    onVoiceCallStateFrame() {
+      return () => {}
+    },
     onVoiceDownlinkSegmentFrame() {
       return () => {}
     },

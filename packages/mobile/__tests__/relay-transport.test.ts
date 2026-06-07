@@ -10,6 +10,7 @@ import {
 } from '../../relay-crypto/src/index.js'
 import { createRuntimeClient } from '../src/api/client.js'
 import { createRelayTransport, type RelayTransportConfig } from '../src/api/relay-transport.js'
+import { createVoiceCallStateFrame } from '../src/api/voice-call-state-protocol.js'
 import { createVoiceDownlinkSegmentFrame } from '../src/api/voice-downlink-segment-protocol.js'
 import { createVoiceStreamFrame } from '../src/api/voice-stream-protocol.js'
 import { createWebRtcSignalFrame } from '../src/api/webrtc-signal-protocol.js'
@@ -242,6 +243,42 @@ describe('relay transport', () => {
         type: 'voice_downlink_segment',
       }),
     ])
+    expect(voiceFrames).toEqual([])
+  })
+
+  test('routes inbound voice_call_state frames to call-state listeners only', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const callStateFrames: unknown[] = []
+    const downlinkFrames: unknown[] = []
+    const voiceFrames: unknown[] = []
+    transport.onVoiceCallStateFrame((frame) => callStateFrames.push(frame))
+    transport.onVoiceDownlinkSegmentFrame((frame) => downlinkFrames.push(frame))
+    transport.onVoiceStreamFrame((frame) => voiceFrames.push(frame))
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(
+          createVoiceCallStateFrame({
+            callId: 'call-1',
+            phase: 'processing',
+            ts: 1_717_000,
+            turnId: 'turn-1',
+          })
+        )
+      ),
+      type: 'data',
+    })
+
+    expect(callStateFrames).toEqual([
+      expect.objectContaining({
+        call_id: 'call-1',
+        phase: 'processing',
+        ts: 1_717_000,
+        turn_id: 'turn-1',
+        type: 'voice_call_state',
+      }),
+    ])
+    expect(downlinkFrames).toEqual([])
     expect(voiceFrames).toEqual([])
   })
 
@@ -836,6 +873,7 @@ describe('runtime client relay fallback', () => {
       measureVoiceStreamLatency: vi.fn(),
       onEvent: vi.fn(() => () => {}),
       onStatusChange: vi.fn(() => () => {}),
+      onVoiceCallStateFrame: vi.fn(() => () => {}),
       onVoiceDownlinkSegmentFrame: vi.fn(() => () => {}),
       onWebRtcSignalFrame: vi.fn(() => () => {}),
       onVoiceStreamFrame: vi.fn(() => () => {}),
