@@ -21,6 +21,7 @@ import {
   createVoiceIntentSession,
   isVoiceIntentFrontEnabled,
   type VoiceIntentSessionUpdate,
+  type VoiceIntentVerdict,
 } from './voice-intent-front.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
@@ -100,12 +101,134 @@ const summarizeVoiceIntent = (text: string) => text.replace(/\s+/g, ' ').trim().
 const formatVoiceIntentLogText = (text: string) =>
   JSON.stringify(text.replace(/\s+/g, ' ').trim().slice(0, 120))
 
+const sanitizeVoiceIntentInternalText = (text: string) =>
+  text
+    .replace(/^\s*HIVE_GLM_GATEKEEPER\s*:\s*(?:handled|escalate)\b[^\S\r\n]*/gimu, '')
+    .replace(/^\s*HIVE_GLM_GATEKEEPER\s*$/gimu, '')
+    .replace(/^\s*(?:handled|escalate)\s*$/gimu, '')
+    .replace(/^\s*(?:handled|escalate)\s*[:：]\s*/gimu, '')
+    .replace(/([。！？!?])\s*(?:handled|escalate)\s*$/imu, '$1')
+    .replace(/\bHIVE_GLM_GATEKEEPER\b/gimu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
+
+const hasVoiceIntentHandoffClaim = (text: string) =>
+  /我(?:已经)?(?:派|安排|让团队|让.+去做)|已派|我来安排/u.test(text)
+
+const hasVoiceIntentResultClaim = (text: string) =>
+  /(?:已|已经).{0,8}(?:完成|部署|搞定|做好)|(?:完成|部署|搞定|做好)(?:了|完成)/u.test(text)
+
+const sanitizeVoiceIntentReply = ({
+  allowHandoffClaims,
+  text,
+}: {
+  allowHandoffClaims: boolean
+  text: string
+}) => {
+  const sanitized = sanitizeVoiceIntentInternalText(text).slice(0, 180)
+  if (hasVoiceIntentResultClaim(sanitized)) return ''
+  if (!allowHandoffClaims && hasVoiceIntentHandoffClaim(sanitized)) return ''
+  return sanitized
+}
+
 const limitSessionContext = (sessionContext: string[]) => {
   const recentContext = sessionContext.slice(-MAX_SESSION_CONTEXT_SEGMENTS)
   const joined = recentContext.join('\n')
   return joined.length > MAX_SESSION_CONTEXT_CHARS
     ? joined.slice(joined.length - MAX_SESSION_CONTEXT_CHARS)
     : joined
+}
+
+type AcceptedVoiceIntentUpdate = Extract<VoiceIntentSessionUpdate, { status: 'accepted' }>
+
+const isSafeVoiceIntentFallback = (verdict: VoiceIntentVerdict) =>
+  verdict.action === 'drop' && verdict.confidence <= 0 && !verdict.reply_text.trim()
+
+const insertVoiceIntentFrontReply = ({
+  reply,
+  store,
+  workspaceId,
+}: {
+  reply: string
+  store: WebRtcUpstreamStore
+  workspaceId: string
+}) => {
+  if (!reply) return
+  store.insertMobileChatMessage(
+    workspaceId,
+    'outbound',
+    'orch_reply',
+    JSON.stringify({ source: 'voice_intent_front', text: reply, voice_intent: true })
+  )
+}
+
+const formatMobileVoicePrompt = (text: string) => `[来自手机 Mobile App]\n---\n${text}`
+
+const applyVoiceIntentDrivenTranscript = ({
+  activeRun,
+  callId,
+  logger,
+  store,
+  text,
+  update,
+  workspaceId,
+}: {
+  activeRun: NonNullable<ReturnType<WebRtcUpstreamStore['getActiveRunByAgentId']>>
+  callId?: string | undefined
+  logger?: Pick<HiveLogger, 'info' | 'warn'> | undefined
+  store: WebRtcUpstreamStore
+  text: string
+  update: AcceptedVoiceIntentUpdate
+  workspaceId: string
+}) => {
+  const verdict = update.verdict
+  if (isSafeVoiceIntentFallback(verdict)) return 'fallback' as const
+
+  const distilledIntent = sanitizeVoiceIntentInternalText(
+    update.handoff?.distilledIntent || verdict.distilled_intent
+  )
+  const shouldForwardToPm =
+    Boolean(update.handoff) &&
+    verdict.completeness === 'complete' &&
+    verdict.action === 'escalate' &&
+    verdict.confidence >= 0.75 &&
+    Boolean(distilledIntent)
+  const reply = sanitizeVoiceIntentReply({
+    allowHandoffClaims: shouldForwardToPm,
+    text: verdict.reply_text,
+  })
+
+  logDiagnostic(
+    logger,
+    `voiceIntent driven decision: call_id=${callId ?? 'unknown'} completeness=${verdict.completeness} action=${verdict.action} confidence=${verdict.confidence.toFixed(2)} forward_pm=${shouldForwardToPm} distilled_intent=${summarizeVoiceIntent(distilledIntent)}`
+  )
+
+  if (verdict.action === 'drop') return 'handled' as const
+
+  if (verdict.completeness !== 'complete') {
+    insertVoiceIntentFrontReply({ reply, store, workspaceId })
+    return 'handled' as const
+  }
+
+  store.insertMobileChatMessage(
+    workspaceId,
+    'inbound',
+    'user_text',
+    JSON.stringify({ source: VOICE_INPUT_SOURCE.webRtcCall, text })
+  )
+
+  if (shouldForwardToPm) {
+    store.recordUserInput(workspaceId, activeRun.agentId, formatMobileVoicePrompt(distilledIntent))
+    insertVoiceIntentFrontReply({ reply, store, workspaceId })
+    return 'handled' as const
+  }
+
+  insertVoiceIntentFrontReply({ reply, store, workspaceId })
+  store.recordUserInput(workspaceId, activeRun.agentId, formatMobileVoicePrompt(text), {
+    forwardToOrchestrator: false,
+  })
+  return 'handled' as const
 }
 
 const loadWrtcAudioSink = async (): Promise<WebRtcAudioSinkCtor> => {
@@ -163,18 +286,24 @@ const writeWavFile = ({
 }
 
 export const injectWebRtcVoiceTranscript = async ({
+  callId,
   fastVoiceReplyProvider,
   latencyTurnId,
+  logger,
   sessionContext,
   store,
   text,
+  voiceIntentUpdate,
   workspaceId,
 }: {
+  callId?: string | undefined
   fastVoiceReplyProvider?: FastVoiceReplyProvider
-  latencyTurnId?: string
+  latencyTurnId?: string | undefined
+  logger?: Pick<HiveLogger, 'info' | 'warn'> | undefined
   sessionContext?: string[]
   store: WebRtcUpstreamStore
   text: string
+  voiceIntentUpdate?: VoiceIntentSessionUpdate | null | undefined
   workspaceId: string
 }) => {
   const trimmed = text.trim()
@@ -182,6 +311,23 @@ export const injectWebRtcVoiceTranscript = async ({
   const orchId = getOrchestratorId(workspaceId)
   const activeRun = store.getActiveRunByAgentId(workspaceId, orchId)
   if (!activeRun) throw new Error('Orchestrator is not running')
+
+  if (isVoiceIntentFrontEnabled() && voiceIntentUpdate && voiceIntentUpdate.status === 'accepted') {
+    const result = applyVoiceIntentDrivenTranscript({
+      activeRun,
+      callId,
+      logger,
+      store,
+      text: trimmed,
+      update: voiceIntentUpdate,
+      workspaceId,
+    })
+    if (result !== 'fallback') return
+    logDiagnostic(
+      logger,
+      `voiceIntent driven fallback: reason=safe_zero_confidence text=${formatVoiceIntentLogText(trimmed)}`
+    )
+  }
 
   const formatted =
     sessionContext && sessionContext.length > 0
@@ -313,15 +459,18 @@ export const createWebRtcUpstreamAudioSink = ({
           logger,
           `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
         )
-        await evaluateVoiceIntentShadow(text, true, priorContext)
+        const finalVoiceIntentUpdate = await evaluateVoiceIntentShadow(text, true, priorContext)
         logVoiceIntentEndpointComparison(text)
         sessionTranscript.push(text)
         await injectWebRtcVoiceTranscript({
           ...(fastVoiceReplyProvider ? { fastVoiceReplyProvider } : {}),
+          callId,
           latencyTurnId: latencyTurn.turnId,
+          logger,
           sessionContext: priorContext,
           store,
           text,
+          voiceIntentUpdate: finalVoiceIntentUpdate,
           workspaceId,
         })
       },

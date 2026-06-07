@@ -5,6 +5,8 @@
 
 ## In progress
 
+> 🚀 **2026-06-07 M40 Phase 2-core 意图引擎驱动前台（治本 10 条，已派关羽）** — user 打字拍板"先按治本 10 条去做"（ADR `2026-06-07-glm-front-intent-driven-10rules`）。**痛点**：真机实测语音回复到达要 ~26-31s，日志铁证根因 `escalated=true`=老前台每句 final 甩慢 PM(opus)+不判意图完整度排队堆积(`final_to_fast_reply=4837ms`)，GLM 自己才 2s/TTS 1.7s=慢在乱甩 PM+瞎回不在传输。**治本**=把在线决策驱动源从老 `maybeInsertFastVoiceReplyWithGatekeeper`(每句把关)换成 M40 意图引擎 verdict(`voice-intent-front.ts` 已建好只在 shadow 打日志,判意图初看 2/2 准)。**Phase 2-core 范围(派关羽,点2/3/4/5/9+加固7/8/10)**：完整度门控(半截话不交PM不当完成回合)+complete&handled→GLM直答不转PM+complete&escalate→念真接管垫场+转 distilled 完整意图(一回合一次)+净化层去 HIVE_GLM_GATEKEEPER/escalate marker+不假装+超时兜底不静默。**保留**老 gatekeeper 路作 `HIVE_VOICE_INTENT_FRONT≠1` fallback 不删。**Phase 2-spec(点6投机生成,边说边算一停即播)下期单排**。流程：关羽实现→钟馗复审(codex,不自审)→典韦补测→张飞真机验。
+> 🎉 **2026-06-07 M40 Phase 2a 音量根治真机验通（15h 马拉松收一大果）** — **user 真机反复确认"声音大了/响亮出来了"**。根因(赵云深挖)=WebRTC track 走通话流(小)、对讲走 expo-audio 文件媒体流(响);解=通话下行改走文件分段播放路(`voice_downlink_segment` 帧族+expo-audio 文件播放,复用对讲响亮路)。2a 全套 `1ef8c29`(钟馗 5 轮审:协议/断线泄漏/barge-in取消/reassembler上限/disconnect清理/穿透测试),APK 2.8.11(arm64,EXPO_PUBLIC_WEBRTC_DOWNLINK_MODE=file_segments)+ .env HIVE_WEBRTC_DOWNLINK_MODE=file_segments,4010 重启日志铁证 `webrtc_downlink_mode=file_segments`+`file downlink segment sent`。WebRTC track 下行 flag 保留不删。**教训:音量不在 WebRTC track 上磨(_setVolume华为不认/gain削波),对讲文件播放路才是解=一箭双雕音量+M40分段。** ⏳剩:① file 模式 barge-in 停播(赵云 `ccf01409`:file播文件不停,需发interrupt帧让app pause player) ② 速度(final→AI出声8-11s,关羽扩延迟埋点到file路定位GLM/TTS;根治=Phase2d投机) ③ GLM前台漏marker/乱诊断待收。
 > 🔥 **2026-06-07 早 实时通话真机攻坚 12h 马拉松（2.8.8 已装机）** — user 真机连续测，逐个炸出+修，核心起来了剩 polish：
 > ① ✅ **通话页 UI**（2.8.8 adb 装机，arm64 96M，webrtc/onnxruntime native 在；DMIT 链接 hippoteam-2.8.7-callpage/2.8.8-echofix-*）
 > ② ✅ **barge-in 流式下失效**（`faef57c`）：M39 流式绕过 VAD onset→barge-in 死；解耦 onset 与 STT；日志铁证开口即停生效（修前零 interrupt 修后一堆）
@@ -664,7 +666,38 @@
 - [x] **钟馗** dispatch `6281c87d` — M40关联·复审关羽的 WebRTC 回声根因修复(user真机命门:通话回声→上行STT全乱码+假打断)。范围 git diff：packages/mobile/src/lib/webrtc-caller.ts + packages/m…
 - [x] **关羽** dispatch `7ec8febf` — 紧急服务端调参（user 真机现场:装 2.8.8 后通话"一点声音都没有"）。PM 已用日志数据定位,按下面改。
 - [x] **钟馗** dispatch `195668f0` — M40关联·复审关羽的 barge-in onset RMS 门限修复(治 2.8.8 装机后"AI被回声打断到没声音")。范围 git diff：src/server/webrtc-vad.ts + tests/unit/webrtc-…
-- [ ] **马超** dispatch `df411be1` — WebRTC 通话音量控制做进设置页（user 真机反复要:不想每次重装/重启调音量,要在设置里直接调）。先调研最干净的实现路径再做,出方案我看。
+- [~] **马超** dispatch `df411be1` — WebRTC 通话音量控制做进设置页（user 真机反复要:不想每次重装/重启调音量,要在设置里直接调）。先调研最干净的实现路径再做,出方案我看。 ⊘ 马超 submitted 19min 未真启动,PTY idle,卡住,重派关羽
+- [x] **关羽** dispatch `d8eacdf4` — WebRTC 通话音量控制做进设置页——调研方案（马超卡住了重派给你，你这轮做过 webrtc-caller 熟 RN-webrtc）。先调研最干净路径，出方案我拍，别直接大改。
+- [x] **关羽** dispatch `bcff1436` — M40/通话·实现设置页音量控制（按你自己调研的路径 A，PM 拍板了）。报告 reports/2026-06-07-webrtc-call-volume-control.html。
+- [x] **钟馗** dispatch `a0e99d55` — 复审关羽的设置页通话音量控制（路径 A：客户端 RN-webrtc _setVolume，即时生效，PM 已拍板）。范围 git diff：packages/mobile/src/lib/webrtc-track-volume.ts(新)…
+- [x] **关羽** dispatch `25bbcef3` — WebRTC 通话 AI 声音太轻的根治（从 TTS 源头提电平）。user 真机:_setVolume 华为不认、下行硬乘 6x 也没感觉,软件放大顶不破。正解=让 edge-tts 在合成时就生成更响的语音。
+- [x] **钟馗** dispatch `a903f3f0` — 复审关羽的 edge-tts 源头音量提升(治通话 AI 声音太轻,软件下行 gain 顶不破设备天花板→从合成源头提)。范围 git diff:src/server/local-tts.ts + tests/unit/local-tts…
+- [x] **关羽** dispatch `2ba705e9` — edge-tts 音量提升钟馗审出 1 个 blocking(小 typing),修一下。
+- [x] **关羽** dispatch `f275d5bd` — WebRTC 通话音量小的真根因+修法调研(user 真机铁证:对讲念回很响,通话很闷,同一手机=不是设备天花板,是音频流不同)。先调研提方案,别盲改音频模式(device-sensitive,改不好回声/麦克风会坏)。
+- [x] **关羽** dispatch `4ec79c4f` — M40/通话·实现通话音量真修(按你自己调研报告 reports/2026-06-07-webrtc-call-volume-root-cause-plan.html 路径1,PM 拍板)。flag-gated,默认不变,出实验包验。
+- [x] **钟馗** dispatch `187529d0` — 复审关羽的 WebRTC 通话 media 音频路由实验开关(治通话音量小=被 InCallManager 塞进通话流;media 路由走媒体流像对讲那样响,PM 拍板路径1)。范围 git diff:packages/mobile/ap…
+- [x] **赵云** dispatch `fc3daa46` — WebRTC 通话音量深度调研(治本,别瞎试)。user 真机 14h:通话音量小;media 路由实验包反而声音发劈有杂音更糟;但**对讲念回在同一个手机上就是响且清的**。关羽试了 _setVolume(华为不认)/下行gain(没感…
+- [x] **关羽** dispatch `b742ac94` — WebRTC 通话延迟埋点(让 user 能一眼看到"停说话→AI出声"7-11秒花哪了,数据驱动,别猜)。纯服务端加日志,不改逻辑。
+- [x] **赵云** dispatch `829c6413` — M40 Phase 2 设计 spike:文件分段播放下行(=音量根治+你刚调研的对讲文件播放路+分段撤回,一箭双雕,user 拍板)。先出实现蓝图我拍,别改代码。承接你的 reports/2026-06-07-webrtc-call-a…
+- [x] **钟馗** dispatch `0e966dca` — 复审关羽的 WebRTC 通话延迟埋点(让 user 看清"停说话→AI出声"7秒花哪了)。范围 git diff:src/server/webrtc-voice-latency.ts(新) + webrtc-upstream-audio…
+- [x] **赵云** dispatch `af16e027` — M40 Phase 2a 实现(按你自己设计 reports/2026-06-07-m40-phase2-segmented-file-downlink-design.html,PM 拍板分阶段先做 2a)。**只做 2a:把通话 AI …
+- [x] **关羽** dispatch `f52470cc` — 延迟埋点钟馗审出 1 个 blocking(内存泄漏),修它。
+- [x] **钟馗** dispatch `69e9b3af` — M40 延迟埋点内存泄漏 blocking 复审(关羽修完你上轮那条)。只验泄漏修干净没。范围:src/server/webrtc-voice-latency.ts + webrtc-downlink-audio.ts + fast-vo…
+- [x] **钟馗** dispatch `2fcf861d` — M40 Phase 2a 复审(大改:WebRTC 通话下行加 file_segments 文件播放路径,治音量;默认 webrtc_track 零变更)。这是音量根治第一刀,跨服务端+移动端,认真审。中文 review。
+- [x] **赵云** dispatch `da494bb9` — Phase 2a 钟馗审出 3 个 blocking,修完再出包。都是真问题(泄漏+barge-in 没真停TTS)。
+- [x] **钟馗** dispatch `dd5d7df4` — Phase 2a 复审:赵云修完你上轮 3 个 blocking。只验这 3 条修干净没。范围 git diff:src/server/webrtc-file-downlink-audio.ts + voice-downlink-segm…
+- [x] **赵云** dispatch `e7aa71c5` — Phase 2a 钟馗复审:B2/B3 修干净了,B1 还漏一条路,补上即可。
+- [x] **钟馗** dispatch `fe5fc80a` — Phase 2a 最后复审:赵云补完你上轮 B1 残口(disconnect 漏清 file_segments)。只验这一条。范围:packages/mobile/src/api/mobile-runtime-context.tsx(di…
+- [x] **赵云** dispatch `4e4fa216` — Phase 2a 钟馗最后一条 blocking:**只补一个穿透 disconnect 入口的回归测试,代码不用改**(disconnect 行为代码钟馗已确认修干净)。
+- [x] **关羽** dispatch `e131010b` — 把通话延迟埋点(你之前加的 webrtc-voice-latency)的 breakdown 汇总扩到 file_segments 下行路。现状:埋点汇总行 voice latency breakdown 只在 webrtc-downli…
+- [x] **赵云** dispatch `ccf01409` — 紧急:file_segments 模式下 barge-in 不停播(user 真机:音量已修好✅,但开口打断时 AI 文件还在自顾自播)。
+- [x] **钟馗** dispatch `4bb096e6` — 复审赵云的 file_segments 模式 barge-in 停播修复(user 真机:file 模式音量好但打不断)。范围 git diff:src/server/voice-downlink-segment-protocol.ts …
+- [x] **赵云** dispatch `7a1ee709` — file 模式 barge-in 停播钟馗审过功能,只剩 1 个 typing blocking,修一下。
+- [x] **赵云** dispatch `606b8797` — M40 Phase1 shadow 日志增强:给 voiceIntent shadow verdict 带上"GLM 当时判的那句转写原文",让 PM 能验 GLM 判意图准不准(现在日志只有 completeness/confidenc…
+- [x] **关羽** dispatch `39506841` — 【M40 Phase 2-core：把实时语音前台从『老每句把关』升级为『意图引擎驱动』】
+- [x] **钟馗** dispatch `a6108afa` — 【复审 M40 Phase 2-core：意图引擎驱动实时语音前台】关羽实现，改 src/server/webrtc-upstream-audio.ts + tests/unit/webrtc-upstream-audio.test.ts…
+- [x] **关羽** dispatch `4b617965` — 【M40 Phase 2-core 钟馗复审 1 blocking，修】你上一单的意图驱动前台，钟馗审出一个 blocking 必须修，另收一个 non-blocking。
+- [x] **钟馗** dispatch `0a3ff22f` — 【复核 M40 Phase 2-core blocking 修复（窄）】关羽按你处方修了，只需复核 blocking 是否真闭环，不用重审全单。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
@@ -674,6 +707,12 @@
 - [ ] 9 个 🟡 中风险 event handler 是否补修（等 logger 抓到证据）
 
 ## Done
+
+### 2026-06-07（M40 Phase 2a 音量根治 + 通话页 + 批次）
+- [x] **赵云/关羽** — M40 Phase 2a 通话下行改 file_segments 文件播放路 `1ef8c29`：根治音量（WebRTC track 走通话流小→对讲 expo-audio 文件媒体流响），钟馗 5 轮审；**user 真机验通"声音很大了"**；WebRTC track 下行 flag 保留不删
+- [x] **马超/钟馗** — WebRTC 全屏通话页 `e650656`：对讲页右上角 📞→全屏 modal（入口方案 A），抽 Orb.tsx 共享
+- [x] **PM** — 2.8.12 批次 `e0068c7`/`e7c8fec`/`bace8d0`/`c4eb1a1`：file 模式 barge-in 停播(interrupt 帧)+延迟埋点扩到 file 路+shadow 日志带转写原文；APK arm64 投递 DMIT，4010 重启加载，日志验 file downlink interrupted/segment sent 触发
+- [x] **PM** — 延迟根因定位：`voice latency breakdown` 铁证 escalated=true（甩慢 PM）+per-sentence 排队=26s 真凶；shadow verdict 2/2 判意图准 → 拍板治本 10 条 ADR `2026-06-07-glm-front-intent-driven-10rules`
 
 ### 2026-06-06（baseline 体检 + 通话页设计稿 + M38）
 - [x] **周瑜** dispatch `c54a0b0e` — baseline 体检（只读）：187 commit drift，三文件清单交 PM

@@ -80,6 +80,45 @@ const createStore = () => ({
   },
 })
 
+const acceptedVoiceIntentUpdate = (overrides: {
+  action?: 'clarify' | 'drop' | 'escalate' | 'handled'
+  completeness?: 'complete' | 'incomplete' | 'likely_complete'
+  confidence?: number
+  distilledIntent?: string
+  handoff?: boolean
+  replyText?: string
+}) => {
+  const action = overrides.action ?? 'handled'
+  const completeness = overrides.completeness ?? 'complete'
+  const confidence = overrides.confidence ?? 0.9
+  const distilledIntent = overrides.distilledIntent ?? ''
+  const replyText = overrides.replyText ?? ''
+  return {
+    ...(overrides.handoff
+      ? {
+          handoff: {
+            confidence,
+            distilledIntent,
+            intentGeneration: 1,
+            transcript: 'raw transcript',
+            turnId: 'call-1',
+          },
+        }
+      : {}),
+    status: 'accepted' as const,
+    verdict: {
+      action,
+      completeness,
+      confidence,
+      distilled_intent: distilledIntent,
+      intent_generation: 1,
+      reason: 'test',
+      reply_text: replyText,
+      should_speculate_tts: false,
+    },
+  }
+}
+
 const emitFrame = (sink: FakeAudioSink | undefined, value: number, samples = 160) => {
   sink?.emit({
     bitsPerSample: 16,
@@ -178,6 +217,308 @@ describe('WebRTC upstream audio sink', () => {
       },
     ])
     expect(transcribedPaths[0] ? existsSync(transcribedPaths[0]) : true).toBe(false)
+  })
+
+  test('voice intent complete escalate speaks the front reply and sends only distilled intent to orchestrator', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '关羽那个你帮我让他',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'escalate',
+        completeness: 'complete',
+        confidence: 0.86,
+        distilledIntent: '让关羽汇报 WebRTC 通话延迟进度',
+        handoff: true,
+        replyText: '懂了，这个我转给主管。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat).toEqual([
+      {
+        contentJson: JSON.stringify({
+          source: 'webrtc_call',
+          text: '关羽那个你帮我让他',
+        }),
+        direction: 'inbound',
+        messageType: 'user_text',
+        workspaceId: 'workspace-1',
+      },
+      {
+        contentJson: JSON.stringify({
+          source: 'voice_intent_front',
+          text: '懂了，这个我转给主管。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+        workspaceId: 'workspace-1',
+      },
+    ])
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n让关羽汇报 WebRTC 通话延迟进度',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(store.inputs[0]?.text).not.toContain('关羽那个你帮我让他')
+  })
+
+  test('voice intent complete handled speaks directly without forwarding to orchestrator', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '现在谁在处理通话',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'complete',
+        replyText: '关羽在处理通话延迟，赵云在看回声。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        direction: 'inbound',
+        messageType: 'user_text',
+      }),
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          source: 'voice_intent_front',
+          text: '关羽在处理通话延迟，赵云在看回声。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+      }),
+    ])
+    expect(store.inputs).toEqual([
+      {
+        options: { forwardToOrchestrator: false },
+        text: '[来自手机 Mobile App]\n---\n现在谁在处理通话',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+  })
+
+  test('voice intent incomplete can speak a short reply but does not record a completed turn or forward to PM', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '让关羽',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'clarify',
+        completeness: 'incomplete',
+        confidence: 0.7,
+        replyText: '你继续说，我在听。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([])
+    expect(store.chat).toEqual([
+      {
+        contentJson: JSON.stringify({
+          source: 'voice_intent_front',
+          text: '你继续说，我在听。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+        workspaceId: 'workspace-1',
+      },
+    ])
+  })
+
+  test('voice intent drop stays silent and does not forward to PM', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '噪声',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'drop',
+        completeness: 'incomplete',
+        confidence: 0.6,
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat).toEqual([])
+    expect(store.inputs).toEqual([])
+  })
+
+  test('voice intent front strips internal markers before speaking or forwarding', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '请处理',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'escalate',
+        completeness: 'complete',
+        confidence: 0.9,
+        distilledIntent: 'HIVE_GLM_GATEKEEPER: escalate\n让关羽修复通话延迟',
+        handoff: true,
+        replyText: 'HIVE_GLM_GATEKEEPER: handled\n这个我转给主管。 escalate',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat.at(1)?.contentJson).toBe(
+      JSON.stringify({
+        source: 'voice_intent_front',
+        text: '这个我转给主管。',
+        voice_intent: true,
+      })
+    )
+    expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\n让关羽修复通话延迟')
+  })
+
+  test('voice intent true handoff keeps a handoff acknowledgement and sends distilled intent', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '让团队处理',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'escalate',
+        completeness: 'complete',
+        confidence: 0.9,
+        distilledIntent: '让团队处理 WebRTC 通话延迟',
+        handoff: true,
+        replyText: '这个我让团队上，马上',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n让团队处理 WebRTC 通话延迟',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(store.chat.at(1)?.contentJson).toBe(
+      JSON.stringify({
+        source: 'voice_intent_front',
+        text: '这个我让团队上，马上',
+        voice_intent: true,
+      })
+    )
+  })
+
+  test('voice intent handoff acknowledgement is stripped when no PM handoff happens', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '现在进度',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'complete',
+        replyText: '这个我让团队上，马上',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        direction: 'inbound',
+        messageType: 'user_text',
+      }),
+    ])
+    expect(store.inputs[0]?.options).toEqual({ forwardToOrchestrator: false })
+  })
+
+  test('voice intent result claims are stripped even when a real handoff happens', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '部署一下',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'escalate',
+        completeness: 'complete',
+        confidence: 0.9,
+        distilledIntent: '让主管处理部署请求',
+        handoff: true,
+        replyText: '已部署完成',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toHaveLength(1)
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        direction: 'inbound',
+        messageType: 'user_text',
+      }),
+    ])
+  })
+
+  test('voice intent sanitizer keeps ordinary handled and escalate words in body text', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      store,
+      text: '解释一下英文',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'complete',
+        replyText: '这里的 handled 和 escalate 是英文状态词。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.chat.at(1)?.contentJson).toBe(
+      JSON.stringify({
+        source: 'voice_intent_front',
+        text: '这里的 handled 和 escalate 是英文状态词。',
+        voice_intent: true,
+      })
+    )
+  })
+
+  test('voice intent safe zero-confidence drop falls back to the legacy gatekeeper path', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const provider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n收到，我转主管。'),
+    }
+
+    await injectWebRtcVoiceTranscript({
+      fastVoiceReplyProvider: provider,
+      store,
+      text: '让关羽汇报进度',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'drop',
+        completeness: 'incomplete',
+        confidence: 0,
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(provider.generate).toHaveBeenCalled()
+    expect(store.inputs).toHaveLength(1)
+    expect(store.inputs[0]?.text).toContain('让关羽汇报进度')
   })
 
   test('segments live PCM into utterances and injects each transcript before the call closes', async () => {
@@ -287,6 +628,7 @@ describe('WebRTC upstream audio sink', () => {
 
   test('uses streaming STT when available and skips the batch VAD/WAV path', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
     const store = createStore()
     let batchDetectCount = 0
     const pushedFrames: Array<{ bitsPerSample: number; pcmBuffer: Buffer; sampleRate: number }> = []

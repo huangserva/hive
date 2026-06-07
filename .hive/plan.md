@@ -1,9 +1,9 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: M38/M39 实时语音深化（M38 快准狠前台已 shipped `22d4224` 真机验通；M39 流式ASR+rolling transcript 已 commit `5970988` + 生产崩溃修复 `4ffbb00` 真机验通——下载流式模型激活路径后曾因漏 isReady 闸触发 sherpa native exit(-1) 崩 daemon，修后 call `webrtc-1780761642531` 日志铁证 streaming partial 边说边出字+final 注入+零崩溃。剩余：rolling transcript 上下文回灌 + 下行念回顺滑度待持续真机调）
+current_phase: M40 Phase 2 实时语音意图引擎驱动前台（治本 10 条，ADR `2026-06-07-glm-front-intent-driven-10rules`）。音量已根治（file_segments 文件播放下行，真机验"声音很大了"）；现头号敌人=延迟 ~26s，日志铁证根因=老前台每句 final 甩慢 PM(opus)+不判意图完整度排队堆积。M40 意图引擎(`voice-intent-front.ts`)已建好但只在 shadow 打日志(判意图初看 2/2 准)。Phase 2-core 进行中：把在线决策驱动源从老 fast-voice-reply gatekeeper 换成意图引擎 verdict——完整度门控(半截话不交 PM)+ distilled 完整意图交 PM + GLM 直答 + 净化层；已派关羽实现。Phase 2-spec(投机生成,点6)下期。前期 M38 快准狠前台 shipped `22d4224`；M39 流式ASR 崩溃修复 `4ffbb00` 真机验通
 status: active
-last_review: 2026-06-04
+last_review: 2026-06-07
 ---
 
 ## 目标
