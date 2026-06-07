@@ -1,5 +1,11 @@
+import {
+  createVoiceCallStateSender,
+  type VoiceCallStateFrame,
+} from './voice-call-state-protocol.js'
 import type { VoiceDownlinkSegmentFrame } from './voice-downlink-segment-protocol.js'
 import type { WebRtcIceCandidateInit, WebRtcSignalFrame } from './webrtc-signal-protocol.js'
+
+export type WebRtcDataFrame = VoiceCallStateFrame | VoiceDownlinkSegmentFrame
 
 export interface WebRtcIceServer {
   credential?: string
@@ -43,7 +49,7 @@ export interface WebRtcRuntime {
 export interface WebRtcCalleeContext {
   deviceId?: string
   send(frame: WebRtcSignalFrame): void
-  sendData?: (frame: VoiceDownlinkSegmentFrame) => void
+  sendData?: (frame: WebRtcDataFrame) => void
 }
 
 export interface WebRtcLocalAudioTrack {
@@ -76,7 +82,7 @@ export interface WebRtcFileDownlinkAudioSession {
 export interface WebRtcFileDownlinkAudio {
   startCall(input: {
     callId: string
-    send: (frame: VoiceDownlinkSegmentFrame) => void
+    send: (frame: WebRtcDataFrame) => void
     workspaceId: string
   }):
     | Promise<WebRtcFileDownlinkAudioSession | null | undefined>
@@ -93,6 +99,7 @@ export interface WebRtcRemoteAudioSink {
   start(input: {
     callId: string
     receiver?: unknown
+    sendCallState?: (frame: VoiceCallStateFrame) => void
     onSpeechStart?: () => void
     streams?: unknown[] | undefined
     track: NonNullable<WebRtcTrackEvent['track']>
@@ -115,6 +122,7 @@ export interface WebRtcCalleeOptions {
 
 type WebRtcCall = {
   audioSessions: Set<WebRtcRemoteAudioSession>
+  callStateSender: ReturnType<typeof createVoiceCallStateSender<WebRtcDataFrame>>
   closed: boolean
   deviceId: string | null
   downlinkSession: WebRtcDownlinkAudioSession | null
@@ -188,6 +196,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     const call = calls.get(callId)
     if (!call) return
     call.closed = true
+    call.callStateSender.close()
     clearCallTimer(call)
     for (const audioSession of call.audioSessions) {
       void Promise.resolve(audioSession.close()).catch(() => {})
@@ -220,10 +229,15 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
     callId: string,
     peer: WebRtcPeerConnection,
     deviceId: string | null,
-    workspaceId: string | null
+    workspaceId: string | null,
+    sendData: ((frame: WebRtcDataFrame) => void) | undefined
   ) => {
     const call: WebRtcCall = {
       audioSessions: new Set(),
+      callStateSender: createVoiceCallStateSender<WebRtcDataFrame>({
+        callId,
+        send: (dataFrame) => sendData?.(dataFrame),
+      }),
       closed: false,
       deviceId,
       downlinkSession: null,
@@ -276,7 +290,8 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         frame.call_id,
         peer,
         context.deviceId ?? null,
-        frame.workspace_id ?? null
+        frame.workspace_id ?? null,
+        context.sendData
       )
       if (options.downlinkAudio && frame.workspace_id && peer.addTrack) {
         try {
@@ -304,7 +319,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         try {
           const fileDownlinkSession = await options.fileDownlinkAudio.startCall({
             callId: frame.call_id,
-            send: (downlinkFrame) => context.sendData?.(downlinkFrame),
+            send: (downlinkFrame) => call.callStateSender.send(downlinkFrame),
             workspaceId: frame.workspace_id,
           })
           if (fileDownlinkSession) {
@@ -377,6 +392,8 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
               call.fileDownlinkSession?.interrupt?.()
             },
             receiver: event.receiver,
+            sendCallState: (stateFrame: VoiceCallStateFrame) =>
+              call.callStateSender.send(stateFrame),
             streams: event.streams,
             track,
             workspaceId: frame.workspace_id,

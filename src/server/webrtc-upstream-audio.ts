@@ -15,6 +15,7 @@ import {
   type StreamingRecognitionOptions,
   type StreamingRecognitionSession,
 } from './streaming-stt-online.js'
+import { createVoiceCallStateFrame, type VoiceCallStatePhase } from './voice-call-state-protocol.js'
 import { VOICE_INPUT_SOURCE } from './voice-input-source-tags.js'
 import {
   createGlmVoiceIntentVerdictProvider,
@@ -184,6 +185,7 @@ const applyVoiceIntentDrivenTranscript = ({
   callId,
   logger,
   latencyTurnId,
+  onTurnComplete,
   store,
   text,
   update,
@@ -193,6 +195,7 @@ const applyVoiceIntentDrivenTranscript = ({
   callId?: string | undefined
   latencyTurnId?: string | undefined
   logger?: Pick<HiveLogger, 'info' | 'warn'> | undefined
+  onTurnComplete?: ((turnId: string) => void) | undefined
   store: WebRtcUpstreamStore
   text: string
   update: AcceptedVoiceIntentUpdate
@@ -236,6 +239,7 @@ const applyVoiceIntentDrivenTranscript = ({
     if (!turn) return
     logDiagnostic(logger, buildVoiceTurnTimelineLog(turn))
     finishWebRtcVoiceLatencyTurn(turn.turnId)
+    onTurnComplete?.(turn.turnId)
   }
 
   if (verdict.action === 'drop') {
@@ -333,6 +337,7 @@ export const injectWebRtcVoiceTranscript = async ({
   fastVoiceReplyProvider,
   latencyTurnId,
   logger,
+  onTurnComplete,
   sessionContext,
   store,
   text,
@@ -343,6 +348,7 @@ export const injectWebRtcVoiceTranscript = async ({
   fastVoiceReplyProvider?: FastVoiceReplyProvider
   latencyTurnId?: string | undefined
   logger?: Pick<HiveLogger, 'info' | 'warn'> | undefined
+  onTurnComplete?: ((turnId: string) => void) | undefined
   sessionContext?: string[]
   store: WebRtcUpstreamStore
   text: string
@@ -361,6 +367,7 @@ export const injectWebRtcVoiceTranscript = async ({
       callId,
       latencyTurnId,
       logger,
+      onTurnComplete,
       store,
       text: trimmed,
       update: voiceIntentUpdate,
@@ -385,7 +392,22 @@ export const injectWebRtcVoiceTranscript = async ({
     text: trimmed,
     workspaceId,
   })
-  if (fastReply.gatekeeper === 'drop') return
+  if (fastReply.gatekeeper === 'drop') {
+    const turn = markWebRtcVoiceLatency(latencyTurnId, {
+      branch: 'drop',
+      decisionAt: Date.now(),
+      forwardPm: false,
+      textLen: trimmed.length,
+    })
+    if (turn) {
+      logDiagnostic(logger, buildVoiceTurnTimelineLog(turn))
+      finishWebRtcVoiceLatencyTurn(turn.turnId)
+      onTurnComplete?.(turn.turnId)
+    } else if (latencyTurnId) {
+      onTurnComplete?.(latencyTurnId)
+    }
+    return
+  }
 
   store.insertMobileChatMessage(
     workspaceId,
@@ -423,7 +445,13 @@ export const createWebRtcUpstreamAudioSink = ({
   tempRoot = tmpdir(),
   vad,
 }: WebRtcUpstreamAudioSinkOptions): WebRtcRemoteAudioSink => ({
-  async start({ callId, onSpeechStart, track, workspaceId }): Promise<WebRtcRemoteAudioSession> {
+  async start({
+    callId,
+    onSpeechStart,
+    sendCallState,
+    track,
+    workspaceId,
+  }): Promise<WebRtcRemoteAudioSession> {
     const tempDir = mkdtempSync(join(tempRoot, 'hive-webrtc-upstream-'))
     const AudioSink = await loadAudioSink()
     const sink = new AudioSink(track)
@@ -441,6 +469,15 @@ export const createWebRtcUpstreamAudioSink = ({
     let voiceIntentPartialSeq = 0
     let latestVoiceIntentUpdate: VoiceIntentSessionUpdate | null = null
     let streamingTurnSpeechStartAt: number | null = null
+    const sentCallStates = new Set<string>()
+    const emitCallState = (phase: VoiceCallStatePhase, turnId: string | undefined) => {
+      if (!turnId || !sendCallState) return
+      const key = `${turnId}:${phase}`
+      if (sentCallStates.has(key)) return
+      sentCallStates.add(key)
+      sendCallState(createVoiceCallStateFrame({ callId, phase, turnId }))
+    }
+    const nextStreamingTurnId = () => `${callId}-turn-${sessionTranscript.length + 1}`
     const voiceIntentSession = isVoiceIntentFrontEnabled()
       ? createIntentSession({
           callId,
@@ -503,6 +540,7 @@ export const createWebRtcUpstreamAudioSink = ({
           speechStartAt,
           workspaceId,
         })
+        emitCallState('processing', latencyTurn.turnId)
         logDiagnostic(
           logger,
           `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
@@ -516,6 +554,7 @@ export const createWebRtcUpstreamAudioSink = ({
           callId,
           latencyTurnId: latencyTurn.turnId,
           logger,
+          onTurnComplete: (turnId) => emitCallState('listening', turnId),
           sessionContext: priorContext,
           store,
           text,
@@ -525,6 +564,7 @@ export const createWebRtcUpstreamAudioSink = ({
       },
       onPartial: async (text) => {
         streamingTurnSpeechStartAt ??= Date.now()
+        emitCallState('heard', nextStreamingTurnId())
         logDiagnostic(
           logger,
           `audioSink streaming partial: call_id=${callId} text_len=${text.length}`

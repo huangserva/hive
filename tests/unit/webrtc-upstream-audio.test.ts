@@ -5,6 +5,10 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { MobileChatMessageType } from '../../src/server/mobile-chat-store.js'
 import {
+  createVoiceCallStateSender,
+  type VoiceCallStateFrame,
+} from '../../src/server/voice-call-state-protocol.js'
+import {
   createWebRtcUpstreamAudioSink,
   injectWebRtcVoiceTranscript,
 } from '../../src/server/webrtc-upstream-audio.js'
@@ -856,6 +860,259 @@ describe('WebRTC upstream audio sink', () => {
     expect(createVoiceIntentSession).not.toHaveBeenCalled()
     expect(store.inputs).toHaveLength(1)
     expect(store.inputs[0]?.text).toBe('[来自手机 Mobile App]\n---\n让关羽汇报进度')
+  })
+
+  test('sends call state frames for streaming heard, processing, and silent drop', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const sentStates: VoiceCallStateFrame[] = []
+    const createVoiceIntentSession = vi.fn(() => ({
+      close: vi.fn(),
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce(
+          acceptedVoiceIntentUpdate({
+            action: 'handled',
+            completeness: 'likely_complete',
+            confidence: 0.6,
+          })
+        )
+        .mockResolvedValueOnce(
+          acceptedVoiceIntentUpdate({
+            action: 'drop',
+            completeness: 'incomplete',
+            confidence: 0.6,
+          })
+        )
+        .mockResolvedValueOnce(
+          acceptedVoiceIntentUpdate({
+            action: 'drop',
+            completeness: 'incomplete',
+            confidence: 0.6,
+          })
+        ),
+    }))
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {
+            await options.onFinal('噪声')
+          },
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession,
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-state',
+      sendCallState: (frame) => sentStates.push(frame),
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+
+    await capturedOptions.onPartial('噪')
+    await capturedOptions.onPartial('噪声')
+    await session.close()
+
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['heard', 'processing', 'listening'])
+    expect(sentStates).toEqual([
+      expect.objectContaining({
+        call_id: 'call-state',
+        phase: 'heard',
+        turn_id: 'call-state-turn-1',
+        type: 'voice_call_state',
+      }),
+      expect.objectContaining({
+        call_id: 'call-state',
+        phase: 'processing',
+        turn_id: 'call-state-turn-1',
+        type: 'voice_call_state',
+      }),
+      expect.objectContaining({
+        call_id: 'call-state',
+        phase: 'listening',
+        turn_id: 'call-state-turn-1',
+        type: 'voice_call_state',
+      }),
+    ])
+    expect(store.chat).toEqual([])
+    expect(store.inputs).toEqual([])
+  })
+
+  test('does not crash when call state sender is absent', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('团队成员：关羽、马超、赵云、钟馗、吕布')
+        },
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue(
+          acceptedVoiceIntentUpdate({
+            action: 'drop',
+            completeness: 'incomplete',
+            confidence: 0.6,
+          })
+        ),
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-state-no-sender',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    await expect(session.close()).resolves.toBeUndefined()
+  })
+
+  test('watchdog returns an empty-handoff escalate turn to listening when PM does not reply', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const sentStates: VoiceCallStateFrame[] = []
+    const stateSender = createVoiceCallStateSender<VoiceCallStateFrame>({
+      callId: 'call-watchdog',
+      send: (frame) => sentStates.push(frame),
+      watchdogMs: 100,
+    })
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('让关羽处理')
+        },
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue(
+          acceptedVoiceIntentUpdate({
+            action: 'escalate',
+            completeness: 'complete',
+            confidence: 0.9,
+            distilledIntent: '让关羽处理通话问题',
+            handoff: true,
+            replyText: '已部署完成',
+          })
+        ),
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-watchdog',
+      sendCallState: stateSender.send,
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await session.close()
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing'])
+    vi.advanceTimersByTime(100)
+
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing', 'listening'])
+    expect(sentStates.at(-1)).toMatchObject({
+      call_id: 'call-watchdog',
+      turn_id: 'call-watchdog-turn-1',
+      type: 'voice_call_state',
+    })
+    expect(store.inputs).toEqual([
+      expect.objectContaining({ text: '[来自手机 Mobile App]\n---\n让关羽处理通话问题' }),
+    ])
+  })
+
+  test('safe fallback gatekeeper drop returns the turn to listening immediately', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const sentStates: VoiceCallStateFrame[] = []
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('团队成员：关羽、马超、赵云、钟馗、吕布')
+        },
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue(
+          acceptedVoiceIntentUpdate({
+            action: 'drop',
+            completeness: 'incomplete',
+            confidence: 0,
+          })
+        ),
+      }),
+      fastVoiceReplyProvider: {
+        generate: async () => {
+          throw new Error('drop should happen before model generation')
+        },
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-fallback-drop',
+      sendCallState: (frame) => sentStates.push(frame),
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await session.close()
+
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing', 'listening'])
+    expect(store.chat).toEqual([])
+    expect(store.inputs).toEqual([])
   })
 
   test('feeds streaming partial and final text into the voice intent shadow session and only logs verdicts', async () => {

@@ -3,6 +3,12 @@ import type { HiveLogger } from './logger.js'
 import type { MobileChatMessage } from './mobile-chat-store.js'
 import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import {
+  createVoiceCallStateFrame,
+  createVoiceCallStateSender,
+  type VoiceCallStateFrame,
+  type VoiceCallStatePhase,
+} from './voice-call-state-protocol.js'
+import {
   createVoiceDownlinkSegmentFrame,
   splitAudioBase64ToVoiceDownlinkSegmentFrames,
   type VoiceDownlinkSegmentFrame,
@@ -25,6 +31,8 @@ type WebRtcFileDownlinkStore = {
   ) => () => void
 }
 
+type WebRtcFileDownlinkFrame = VoiceCallStateFrame | VoiceDownlinkSegmentFrame
+
 export type WebRtcDownlinkMode = 'file_segments' | 'webrtc_track'
 
 export interface WebRtcFileDownlinkAudioSession {
@@ -36,7 +44,7 @@ export interface WebRtcFileDownlinkAudioSession {
 export interface WebRtcFileDownlinkAudio {
   startCall(input: {
     callId: string
-    send: (frame: VoiceDownlinkSegmentFrame) => void
+    send: (frame: WebRtcFileDownlinkFrame) => void
     workspaceId: string
   }): Promise<WebRtcFileDownlinkAudioSession> | WebRtcFileDownlinkAudioSession
 }
@@ -100,6 +108,12 @@ export const createWebRtcFileDownlinkAudio = ({
     let closed = false
     let generation = 0
     let queue = Promise.resolve()
+    const callStateSender = createVoiceCallStateSender<VoiceDownlinkSegmentFrame>({ callId, send })
+
+    const sendCallState = (phase: VoiceCallStatePhase, turnId: string | undefined) => {
+      if (!turnId) return
+      callStateSender.send(createVoiceCallStateFrame({ callId, phase, turnId }))
+    }
 
     const processReply = async (
       message: MobileChatMessage,
@@ -108,6 +122,10 @@ export const createWebRtcFileDownlinkAudio = ({
       queuedGeneration: number
     ) => {
       let latencyTurnCompleted = false
+      const callStateTurnId = latencyTurn?.turnId ?? message.id
+      let sentAudioFrame = false
+      let shouldResetCallState =
+        Boolean(callStateTurnId) && !closed && queuedGeneration === generation
       if (closed || queuedGeneration !== generation) {
         discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
         return
@@ -115,6 +133,7 @@ export const createWebRtcFileDownlinkAudio = ({
       const sanitizedText = sanitizeForSpeech(text)
       if (!sanitizedText) {
         discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
+        sendCallState('listening', callStateTurnId)
         return
       }
       try {
@@ -139,6 +158,10 @@ export const createWebRtcFileDownlinkAudio = ({
         for (const frame of frames) {
           if (closed || queuedGeneration !== generation) break
           send(frame)
+          if (!sentAudioFrame) {
+            sentAudioFrame = true
+            sendCallState('responding', callStateTurnId)
+          }
           if (!latencyTurnCompleted && latencyTurn) {
             const completedTurn = markWebRtcVoiceLatency(latencyTurn.turnId, {
               firstDownlinkFrameAt: Date.now(),
@@ -156,6 +179,10 @@ export const createWebRtcFileDownlinkAudio = ({
             }
           }
         }
+        if (sentAudioFrame && !closed && queuedGeneration === generation) {
+          sendCallState('listening', callStateTurnId)
+          shouldResetCallState = false
+        }
         logDiagnostic(
           logger,
           `file downlink segment sent: call_id=${callId} turn_id=${message.id} frames=${frames.length} bytes=${result.audio.byteLength}`
@@ -163,6 +190,9 @@ export const createWebRtcFileDownlinkAudio = ({
       } catch (error) {
         logger?.warn?.('failed to send WebRTC file downlink audio', error)
       } finally {
+        if (!sentAudioFrame && shouldResetCallState && !closed && queuedGeneration === generation) {
+          sendCallState('listening', callStateTurnId)
+        }
         if (!latencyTurnCompleted) discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
       }
     }
@@ -192,6 +222,7 @@ export const createWebRtcFileDownlinkAudio = ({
       async close() {
         if (closed) return
         closed = true
+        callStateSender.close()
         unsubscribe()
         await queue
       },
@@ -211,6 +242,7 @@ export const createWebRtcFileDownlinkAudio = ({
             turnId: `interrupt-${generation}`,
           })
         )
+        sendCallState('listening', `interrupt-${generation}`)
         logDiagnostic(logger, `file downlink interrupted: call_id=${callId}`)
       },
     }

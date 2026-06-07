@@ -376,6 +376,7 @@ describe('WebRTC callee', () => {
         callId: 'call-audio',
         onSpeechStart: expect.any(Function),
         receiver: { id: 'receiver-1' },
+        sendCallState: expect.any(Function),
         streams: [audioStream],
         track: audioTrack,
         workspaceId: 'workspace-1',

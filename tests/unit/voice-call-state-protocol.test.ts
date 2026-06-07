@@ -1,11 +1,16 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import {
   createVoiceCallStateFrame,
+  createVoiceCallStateSender,
   isVoiceCallStateFrame,
 } from '../../src/server/voice-call-state-protocol.js'
 
 describe('voice_call_state protocol', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   test('creates a valid voice_call_state frame with snake_case fields', () => {
     const frame = createVoiceCallStateFrame({
       callId: 'call-1',
@@ -52,5 +57,65 @@ describe('voice_call_state protocol', () => {
         type: 'voice_call_state',
       })
     ).toBe(false)
+  })
+
+  test('watchdog returns a processing turn to listening when no response arrives', () => {
+    vi.useFakeTimers()
+    const sent: unknown[] = []
+    const sender = createVoiceCallStateSender({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      watchdogMs: 100,
+    })
+
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'processing', turnId: 't1' }))
+    vi.advanceTimersByTime(99)
+    expect(sent).toHaveLength(1)
+
+    vi.advanceTimersByTime(1)
+
+    expect(sent).toEqual([
+      expect.objectContaining({ phase: 'processing', turn_id: 't1' }),
+      expect.objectContaining({ phase: 'listening', turn_id: 't1' }),
+    ])
+  })
+
+  test('responding, listening, and close clear the processing watchdog', () => {
+    vi.useFakeTimers()
+    const sent: unknown[] = []
+    const sender = createVoiceCallStateSender({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      watchdogMs: 100,
+    })
+
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'processing', turnId: 't1' }))
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'responding', turnId: 't1' }))
+    vi.advanceTimersByTime(100)
+    expect(sent.map((frame) => (frame as { phase?: string }).phase)).toEqual([
+      'processing',
+      'responding',
+    ])
+
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'processing', turnId: 't2' }))
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'listening', turnId: 't2' }))
+    vi.advanceTimersByTime(100)
+    expect(sent.map((frame) => (frame as { phase?: string }).phase)).toEqual([
+      'processing',
+      'responding',
+      'processing',
+      'listening',
+    ])
+
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'processing', turnId: 't3' }))
+    sender.close()
+    vi.advanceTimersByTime(100)
+    expect(sent.map((frame) => (frame as { phase?: string }).phase)).toEqual([
+      'processing',
+      'responding',
+      'processing',
+      'listening',
+      'processing',
+    ])
   })
 })

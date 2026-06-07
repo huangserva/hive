@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import type { MobileChatMessage } from '../../src/server/mobile-chat-store.js'
+import type { VoiceCallStateFrame } from '../../src/server/voice-call-state-protocol.js'
 import type { VoiceDownlinkSegmentFrame } from '../../src/server/voice-downlink-segment-protocol.js'
 import { createWebRtcFileDownlinkAudio } from '../../src/server/webrtc-file-downlink-audio.js'
 import {
@@ -10,6 +11,8 @@ import {
   resetWebRtcVoiceLatencyForTests,
   startWebRtcVoiceLatencyTurn,
 } from '../../src/server/webrtc-voice-latency.js'
+
+type VoiceFileDownlinkFrame = VoiceCallStateFrame | VoiceDownlinkSegmentFrame
 
 const createMessage = (text: string): MobileChatMessage => ({
   content_json: JSON.stringify({ text }),
@@ -53,7 +56,7 @@ describe('WebRTC file downlink audio', () => {
 
   test('synthesizes outbound replies and sends a single final voice_downlink_segment', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
-    const sent: VoiceDownlinkSegmentFrame[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
     const synthesizeCalls: Array<{ text: string; voice?: string }> = []
     const downlink = createWebRtcFileDownlinkAudio({
       chunkSize: 4,
@@ -89,14 +92,17 @@ describe('WebRTC file downlink audio', () => {
     await session.flush()
 
     expect(synthesizeCalls).toEqual([{ text: '正式回复 链接', voice: 'zh-CN-XiaoxiaoNeural' }])
-    expect(sent.map((frame) => frame.op)).toEqual([
+    const segmentFrames = sent.filter(
+      (frame): frame is VoiceDownlinkSegmentFrame => frame.type === 'voice_downlink_segment'
+    )
+    expect(segmentFrames.map((frame) => frame.op)).toEqual([
       'segment_open',
       'segment_chunk',
       'segment_chunk',
       'segment_chunk',
       'segment_chunk',
     ])
-    expect(sent[0]).toMatchObject({
+    expect(segmentFrames[0]).toMatchObject({
       call_id: 'call-1',
       generation: 0,
       is_final: true,
@@ -105,7 +111,7 @@ describe('WebRTC file downlink audio', () => {
       turn_id: 'message-1',
       type: 'voice_downlink_segment',
     })
-    expect(sent.at(-1)).toMatchObject({ done: true, format: 'mp3', mime: 'audio/mpeg' })
+    expect(segmentFrames.at(-1)).toMatchObject({ done: true, format: 'mp3', mime: 'audio/mpeg' })
 
     await session.close()
     expect(listener).toBeNull()
@@ -113,7 +119,7 @@ describe('WebRTC file downlink audio', () => {
 
   test('does not let an interrupted pending TTS block the next reply', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
-    const sent: VoiceDownlinkSegmentFrame[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
     let resolveFirst: (value: {
       audio: Buffer
       format: string
@@ -193,7 +199,7 @@ describe('WebRTC file downlink audio', () => {
 
   test('sends a file downlink interrupt frame so the mobile player can stop current playback', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
-    const sent: VoiceDownlinkSegmentFrame[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
     const downlink = createWebRtcFileDownlinkAudio({
       createTtsProvider: () => ({
         detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
@@ -222,7 +228,7 @@ describe('WebRTC file downlink audio', () => {
 
     session.interrupt?.()
 
-    expect(sent).toEqual([
+    expect(sent.filter((frame) => frame.type === 'voice_downlink_segment')).toEqual([
       expect.objectContaining({
         call_id: 'call-1',
         generation: 1,
@@ -256,7 +262,7 @@ describe('WebRTC file downlink audio', () => {
     vi.setSystemTime(1_000)
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const infoLogs: string[] = []
-    const sent: VoiceDownlinkSegmentFrame[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
     const turn = startWebRtcVoiceLatencyTurn({
       callId: 'call-file-latency',
       now: 1_000,
@@ -323,12 +329,177 @@ describe('WebRTC file downlink audio', () => {
     expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
   })
 
+  test('sends responding and listening call state around file segment playback', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_000)
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-state-downlink',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 800,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, {
+      branch: 'handled',
+      decisionAt: 1_200,
+      forwardPm: false,
+      intentVerdictAt: 1_150,
+      textLen: 4,
+    })
+    bindWebRtcVoiceLatencyTurnToMessage(turn.turnId, 'message-state')
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 4,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('abcdefghij'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts',
+        }),
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-state-downlink',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', { ...createMessage('回复'), id: 'message-state' })
+
+    await session.flush()
+
+    const stateFrames = sent.filter(
+      (frame): frame is VoiceCallStateFrame => frame.type === 'voice_call_state'
+    )
+    expect(stateFrames.map((frame) => frame.phase)).toEqual(['responding', 'listening'])
+    expect(stateFrames).toEqual([
+      expect.objectContaining({
+        call_id: 'call-state-downlink',
+        phase: 'responding',
+        turn_id: turn.turnId,
+        type: 'voice_call_state',
+      }),
+      expect.objectContaining({
+        call_id: 'call-state-downlink',
+        phase: 'listening',
+        turn_id: turn.turnId,
+        type: 'voice_call_state',
+      }),
+    ])
+    expect(sent.filter((frame) => frame.type === 'voice_downlink_segment')).toHaveLength(5)
+  })
+
+  test('returns to listening when file TTS produces no audio or throws before first segment', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    const nullTurn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-file-no-audio',
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+    bindWebRtcVoiceLatencyTurnToMessage(nullTurn.turnId, 'message-null')
+    const throwTurn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-file-no-audio',
+      segment: 2,
+      workspaceId: 'workspace-1',
+    })
+    bindWebRtcVoiceLatencyTurnToMessage(throwTurn.turnId, 'message-throw')
+    const downlink = createWebRtcFileDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => {
+          if (text === 'throw') throw new Error('tts failed')
+          return null
+        },
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-file-no-audio',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', { ...createMessage('null'), id: 'message-null' })
+    emitMessage(listener, 'workspace-1', { ...createMessage('throw'), id: 'message-throw' })
+
+    await session.flush()
+
+    const stateFrames = sent.filter(
+      (frame): frame is VoiceCallStateFrame => frame.type === 'voice_call_state'
+    )
+    expect(stateFrames.map((frame) => [frame.phase, frame.turn_id])).toEqual([
+      ['listening', nullTurn.turnId],
+      ['listening', throwTurn.turnId],
+    ])
+    expect(sent.filter((frame) => frame.type === 'voice_downlink_segment')).toEqual([])
+  })
+
+  test('returns to listening when sanitized file downlink text is empty', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-file-empty',
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+    bindWebRtcVoiceLatencyTurnToMessage(turn.turnId, 'message-empty')
+    const downlink = createWebRtcFileDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => {
+          throw new Error('should not synthesize empty speech')
+        },
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+    })
+
+    const session = await downlink.startCall({
+      callId: 'call-file-empty',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+    emitMessage(listener, 'workspace-1', { ...createMessage('❌'), id: 'message-empty' })
+
+    await session.flush()
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        phase: 'listening',
+        turn_id: turn.turnId,
+        type: 'voice_call_state',
+      }),
+    ])
+  })
+
   test('does not let an unbound voice intent front acknowledgement consume the PM latency turn', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(1_000)
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const infoLogs: string[] = []
-    const sent: VoiceDownlinkSegmentFrame[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
     const turn = startWebRtcVoiceLatencyTurn({
       callId: 'call-file-timeline',
       now: 1_000,
@@ -424,8 +595,10 @@ describe('WebRTC file downlink audio', () => {
 
     const session = await downlink.startCall({
       callId: 'call-file-tts-null',
-      send: () => {
-        throw new Error('should not send file segment')
+      send: (frame) => {
+        if (frame.type === 'voice_downlink_segment') {
+          throw new Error('should not send file segment')
+        }
       },
       workspaceId: 'workspace-1',
     })
