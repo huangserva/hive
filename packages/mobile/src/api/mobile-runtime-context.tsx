@@ -26,6 +26,7 @@ import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
 import {
   cleanupWebRtcFileDownlinkResources,
   cleanupWebRtcRuntimeCallResources,
+  clearWebRtcFileDownlinkPlaybackResources,
 } from '../lib/webrtc-file-downlink-cleanup'
 import { playWebRtcFileDownlinkSegment } from '../lib/webrtc-file-downlink-playback'
 import type { WebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
@@ -1155,6 +1156,18 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     (frame: VoiceDownlinkSegmentFrame) => {
       const activeCallId = webRtcTestCallSessionRef.current?.callId
       if (!activeCallId || frame.call_id !== activeCallId) return
+      if (frame.op === 'interrupt') {
+        clearWebRtcFileDownlinkPlaybackResources({
+          player: webRtcFileDownlinkPlayer,
+          reassemblers: webRtcDownlinkSegmentReassemblersRef.current,
+        })
+        console.log('[WEBRTCDBG] file_downlink_interrupted', {
+          callId: frame.call_id,
+          generation: frame.generation,
+          turnId: frame.turn_id,
+        })
+        return
+      }
       const result = webRtcDownlinkSegmentReassemblersRef.current.accept(frame)
       if (!result) return
       void playWebRtcFileDownlinkAudio(result).catch((error) => {
@@ -1163,7 +1176,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         console.warn('[WEBRTCDBG] file_downlink_segment_play_failed', message)
       })
     },
-    [playWebRtcFileDownlinkAudio]
+    [playWebRtcFileDownlinkAudio, webRtcFileDownlinkPlayer]
   )
 
   // Mute / unmute the local uplink by toggling the audio sender track's `enabled`

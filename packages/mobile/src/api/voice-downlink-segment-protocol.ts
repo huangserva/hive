@@ -1,4 +1,4 @@
-export type VoiceDownlinkSegmentOperation = 'segment_chunk' | 'segment_open'
+export type VoiceDownlinkSegmentOperation = 'interrupt' | 'segment_chunk' | 'segment_open'
 
 export interface VoiceDownlinkSegmentFrame {
   call_id: string
@@ -29,7 +29,11 @@ export interface VoiceDownlinkSegmentAudioResult {
   turn_id: string
 }
 
-const OPERATIONS = new Set<VoiceDownlinkSegmentOperation>(['segment_chunk', 'segment_open'])
+const OPERATIONS = new Set<VoiceDownlinkSegmentOperation>([
+  'interrupt',
+  'segment_chunk',
+  'segment_open',
+])
 
 export const isVoiceDownlinkSegmentFrame = (value: unknown): value is VoiceDownlinkSegmentFrame => {
   if (typeof value !== 'object' || value === null) return false

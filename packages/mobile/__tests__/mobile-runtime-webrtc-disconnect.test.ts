@@ -32,6 +32,9 @@ const relayMock = vi.hoisted(() => ({
   closeRegistry: vi.fn(),
   diagnosticsUnsubscribe: vi.fn(),
   eventUnsubscribe: vi.fn(),
+  segmentListener: null as
+    | null
+    | ((frame: { call_id: string; op: string; type: string } & Record<string, unknown>) => void),
   segmentUnsubscribe: vi.fn(),
   statusUnsubscribe: vi.fn(),
   transport: {
@@ -125,6 +128,11 @@ const Probe = ({ onRuntime }: { onRuntime: (runtime: Runtime) => void }) => {
   return null
 }
 
+const requireRuntime = (runtime: Runtime | null): Runtime => {
+  if (!runtime) throw new Error('mobile runtime was not mounted')
+  return runtime
+}
+
 describe('MobileRuntime WebRTC file downlink disconnect', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -132,7 +140,11 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
     relayMock.transport.onDiagnosticsEvent.mockReturnValue(relayMock.diagnosticsUnsubscribe)
     relayMock.transport.onEvent.mockReturnValue(relayMock.eventUnsubscribe)
     relayMock.transport.onStatusChange.mockReturnValue(relayMock.statusUnsubscribe)
-    relayMock.transport.onVoiceDownlinkSegmentFrame.mockReturnValue(relayMock.segmentUnsubscribe)
+    relayMock.segmentListener = null
+    relayMock.transport.onVoiceDownlinkSegmentFrame.mockImplementation((listener) => {
+      relayMock.segmentListener = listener
+      return relayMock.segmentUnsubscribe
+    })
     webRtcMock.startAudioRoute.mockResolvedValue(webRtcMock.audioRoute)
     webRtcMock.createWebRtcCaller.mockImplementation((options) => ({
       start: vi.fn(async () => {
@@ -166,7 +178,7 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
 
     let startResult: Awaited<ReturnType<Runtime['startWebRtcTestCall']>> | null = null
     await act(async () => {
-      startResult = await runtime?.startWebRtcTestCall()
+      startResult = await requireRuntime(runtime).startWebRtcTestCall()
     })
 
     expect(startResult).toEqual({ callId: 'call-1', ok: true })
@@ -185,5 +197,83 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
     expect(relayMock.segmentUnsubscribe).toHaveBeenCalledTimes(1)
     expect(reassemblerMock.cache.clear).toHaveBeenCalledTimes(1)
     expect(audioMock.player.pause).toHaveBeenCalledTimes(1)
+  })
+
+  test('file_segments interrupt frame pauses current playback, clears stale chunks, and allows next generation playback', async () => {
+    let runtime: Runtime | null = null
+    render(
+      React.createElement(
+        MobileRuntimeProvider,
+        null,
+        React.createElement(Probe, { onRuntime: (next) => (runtime = next) })
+      )
+    )
+
+    await waitFor(() => expect(runtime?.selectedWorkspaceId).toBe('workspace-1'))
+    await act(async () => {
+      await runtime?.startWebRtcTestCall()
+    })
+
+    reassemblerMock.cache.accept.mockReturnValueOnce({
+      audio: 'first-audio',
+      call_id: 'call-1',
+      format: 'mp3',
+      generation: 0,
+      is_final: true,
+      mime: 'audio/mpeg',
+      segment_id: 1,
+      turn_id: 'turn-1',
+    })
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        op: 'segment_chunk',
+        type: 'voice_downlink_segment',
+      })
+    })
+    expect(audioMock.player.replace).toHaveBeenLastCalledWith({
+      uri: 'data:audio/mpeg;base64,first-audio',
+    })
+    expect(audioMock.player.play).toHaveBeenCalledTimes(1)
+
+    reassemblerMock.cache.clear.mockClear()
+    audioMock.player.pause.mockClear()
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        generation: 1,
+        op: 'interrupt',
+        segment_id: 0,
+        seq: 0,
+        turn_id: 'interrupt-1',
+        type: 'voice_downlink_segment',
+      })
+    })
+
+    expect(audioMock.player.pause).toHaveBeenCalledTimes(1)
+    expect(reassemblerMock.cache.clear).toHaveBeenCalledTimes(1)
+
+    reassemblerMock.cache.accept.mockReturnValueOnce({
+      audio: 'second-audio',
+      call_id: 'call-1',
+      format: 'mp3',
+      generation: 1,
+      is_final: true,
+      mime: 'audio/mpeg',
+      segment_id: 1,
+      turn_id: 'turn-2',
+    })
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        op: 'segment_chunk',
+        type: 'voice_downlink_segment',
+      })
+    })
+
+    expect(audioMock.player.replace).toHaveBeenLastCalledWith({
+      uri: 'data:audio/mpeg;base64,second-audio',
+    })
+    expect(audioMock.player.play).toHaveBeenCalledTimes(2)
   })
 })

@@ -1,5 +1,16 @@
 type MutableRef<T> = { current: T }
 
+export const clearWebRtcFileDownlinkPlaybackResources = ({
+  player,
+  reassemblers,
+}: {
+  player: { pause: () => void }
+  reassemblers: { clear: () => void }
+}) => {
+  reassemblers.clear()
+  player.pause()
+}
+
 export const cleanupWebRtcFileDownlinkResources = ({
   player,
   reassemblers,
@@ -11,8 +22,7 @@ export const cleanupWebRtcFileDownlinkResources = ({
 }) => {
   unsubscribeRef.current?.()
   unsubscribeRef.current = null
-  reassemblers.clear()
-  player.pause()
+  clearWebRtcFileDownlinkPlaybackResources({ player, reassemblers })
 }
 
 export const cleanupWebRtcRuntimeCallResources = ({
