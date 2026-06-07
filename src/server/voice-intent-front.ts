@@ -119,8 +119,10 @@ const VOICE_INTENT_SYSTEM_PROMPT =
   '{"completeness":"incomplete|likely_complete|complete","action":"handled|escalate|clarify|drop","confidence":0到1,' +
   '"intent_generation":数字,"distilled_intent":"完整意图","reply_text":"给用户听的短回复","should_speculate_tts":布尔值}。' +
   '规则: 用户话还没说完时 completeness=incomplete 或 likely_complete; 只有语义完整时才能 complete。' +
-  '只有用户要求真实操作、派工、改代码、部署、重启或 PM 决策时 action=escalate; 普通状态问答/闲聊 action=handled; 听不清 action=clarify; 噪声或无意义 action=drop。' +
-  'distilled_intent 只在 complete 时写成一句完整、可交给 PM 的意图; 非 complete 时留空或写当前理解。'
+  'action 判定必须偏向 escalate: 只要用户的意思是要查、要办、要安排、问项目/团队/任务/进度的真实情况、需要 PM 决策或需要团队动手,一律 action=escalate。' +
+  '拿不准就 escalate,因为漏转真实事项比多转一次代价更大。只有纯社交寒暄客套(如你好、谢谢、在吗、闲聊)才 action=handled。' +
+  'clarify 仅用于真听不清或需要用户补一句才能判断; drop 仅用于噪声或无意义内容。' +
+  'distilled_intent 在 complete 时必须写成一句完整、可执行、可交给 PM 的意图; 非 complete 时留空或写当前理解。'
 
 const normalizeTranscript = (text: string) => text.replace(/\s+/g, '').trim()
 

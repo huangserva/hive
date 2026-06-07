@@ -74,6 +74,67 @@ describe('voice intent front verdict provider', () => {
     expect(body.messages[1].content).toContain(baseInput.transcript)
   })
 
+  it('instructs GLM to escalate actionable project and team requests while handling only social talk', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async (_url: string, request: RequestInit) => {
+      const body = JSON.parse(String(request.body)) as {
+        messages: Array<{ content: string; role: string }>
+      }
+      const systemPrompt = body.messages[0]?.content ?? ''
+      const userPrompt = body.messages[1]?.content ?? ''
+      const transcript = userPrompt.split('transcript:\n').at(-1)?.trim() ?? ''
+      const hasActionableEscalationRule =
+        systemPrompt.includes('要查、要办、要安排') &&
+        systemPrompt.includes('项目/团队/任务/进度') &&
+        systemPrompt.includes('拿不准就 escalate') &&
+        systemPrompt.includes('只有纯社交寒暄客套')
+      const isSocial = /^(你好|谢谢|在吗)$/u.test(transcript)
+      const shouldEscalate = hasActionableEscalationRule && !isSocial
+      return {
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: shouldEscalate ? 'escalate' : 'handled',
+                  completeness: 'complete',
+                  confidence: 0.91,
+                  distilled_intent: shouldEscalate ? transcript : '',
+                  intent_generation: 1,
+                  reply_text: shouldEscalate ? '好，这个我转给主管。' : '你好，我在。',
+                  should_speculate_tts: true,
+                }),
+              },
+            },
+          ],
+        }),
+        ok: true,
+      }
+    })
+    const provider = createGlmVoiceIntentVerdictProvider({
+      apiKey: 'glm-key',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      model: 'glm-5.1',
+      timeoutMs: 1000,
+    })
+
+    for (const transcript of [
+      '团队在忙什么',
+      '帮我查下 WebRTC 进度',
+      '安排关羽做音量回归',
+    ] as const) {
+      await expect(provider.evaluate({ ...baseInput, transcript })).resolves.toMatchObject({
+        action: 'escalate',
+        distilled_intent: transcript,
+      })
+    }
+
+    for (const transcript of ['你好', '谢谢'] as const) {
+      await expect(provider.evaluate({ ...baseInput, transcript })).resolves.toMatchObject({
+        action: 'handled',
+      })
+    }
+  })
+
   it('turns garbage, empty output, and invalid JSON into a safe non-complete verdict', () => {
     for (const raw of ['', '不是 json', '{"completeness":"complete"'] as const) {
       const verdict = parseVoiceIntentVerdict(raw, baseInput)
@@ -486,7 +547,7 @@ describe('voice intent session state machine', () => {
 
   it('is flag-gated off by default and does not call the provider', async () => {
     const provider = { evaluate: vi.fn() }
-    const session = createVoiceIntentSession({ provider, turnId: 'turn-1' })
+    const session = createVoiceIntentSession({ env: {}, provider, turnId: 'turn-1' })
 
     await expect(
       session.evaluate({ isFinal: true, partialSeq: 1, transcript: '让关羽汇报进度' })
