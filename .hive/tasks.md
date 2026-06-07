@@ -5,6 +5,16 @@
 
 ## In progress
 
+> 🔥 **2026-06-07 早 实时通话真机攻坚 12h 马拉松（2.8.8 已装机）** — user 真机连续测，逐个炸出+修，核心起来了剩 polish：
+> ① ✅ **通话页 UI**（2.8.8 adb 装机，arm64 96M，webrtc/onnxruntime native 在；DMIT 链接 hippoteam-2.8.7-callpage/2.8.8-echofix-*）
+> ② ✅ **barge-in 流式下失效**（`faef57c`）：M39 流式绕过 VAD onset→barge-in 死；解耦 onset 与 STT；日志铁证开口即停生效（修前零 interrupt 修后一堆）
+> ③ ✅ **回声→上行 STT 乱码**（`e61959f`，2.8.8）：根因 `webrtc-caller.ts` getUserMedia 裸 `audio:true` 没开 echoCancellation→AI 下行声被麦克风录回当 user 说话→转写垃圾（下家/三零/心连着心跳啪）。修=开 echoCancellation/noiseSuppression/autoGainControl。**真机见效=转写从 1-2 字垃圾变 text_len 100+ 干净长句**
+> ④ ✅ **回声残留误触发 barge-in 把 AI 掐死没声音**（`bc6114a`）：2.8.8 装机后"一点声音都没有"，数据=回声残留 RMS 0.003~0.017 越过门限 0.006→疯狂误打断（downlink 推 2 次 interrupt 十几次）。门限 0.006→0.03（回声挡住/人声 0.06 放过）+ `HIVE_WEBRTC_BARGE_RMS_THRESHOLD` env 可调
+> ⑤ ✅ **延迟 ~3s**（user 认"还不错"）；⚠️ **打断后恢复 ~7s**（门限改了待重测）
+> ⑥ 🔧 **音量**：服务端 6x 确认逐帧应用但手机硬件主导、感知有限 → **马超调研"设置页直接调音量"**（`df411be1`，user 明确要,一劳永逸不重装不重启）
+> ⑦ ✅ **M40 shadow 真在收数据**（voiceIntent shadow verdict 一条条打）；⚠️ **GLM 前台乱诊断**（sherpa崩/信号差/漏 HIVE_GYM_GATEKEEPER marker）→ M40 前台 prompt 待收
+> **教训**：① AEC device-sensitive，开了 echoCancellation 仍有残留回声够触发 barge-in→需 RMS 门限分离回声(0.017)与人声(0.06) ② 手机通话音量硬件主导，软件增益叠加有限，正解=app 内可调 ③ GLM 前台不该对不懂的技术根因 confident 瞎诊断 ④ 12h 一通通磨 user 是 grind，核心通了该转 async polish [[feedback_no_blind_iteration_grind_user]]。
+> 📞 **2026-06-07 WebRTC 正式通话页已实现+审过(待出 APK 真机验)** — 把设置页测试通话扶正成全屏通话页(设计稿 reports/2026-06-06-webrtc-call-ui-design.html，user 拍入口方案 A)。马超实现 `e650656`(claude)/钟馗复审 0block(codex)：新建 app/call.tsx 全屏 modal(svg发光球+状态pill+大挂断+静音+时长+transcript占位区,5态映射)、抽 src/components/Orb.tsx 共享(对讲页 orb 逐字节等价、逻辑零改)、对讲页右上角加 📞 入口。follow-up(非阻塞,待服务端暴露信号)：实时 partial transcript 流 + aiSpeaking speaking 子态 + ended 时长≤1s 精度 nit。**待 user 出 APK 真机验 6 条**(📞→全屏/球色计时/静音真停上行/ended自动关/动画流畅/进通话页前先退对讲防双mic)。
 > 💬✅ **2026-06-06 消息重复气泡修复 → 2.8.6 已装机验通** — user 真机截图：每条发送消息显示两份气泡。PM 真诊断：sqlite3 铁证服务端只有 1 条（`SELECT * FROM mobile_chat_messages`），纯客户端显示 bug。根因=手机 Android 时钟比 Mac NTP 快数百毫秒，`filterPendingOptimisticMessages` 严格 `<=` 时间比较失败 → optimistic 不消费 → relay echo + optimistic 同时显示。修复(`f4dc3e9`)：加 `CLOCK_SKEW_TOLERANCE_MS=3_000` 容差覆盖手机-服务器时钟漂移，新增回归测试（12 测全绿）。版本 2.8.5→2.8.6，USB adb 直装，**user 真机确认"确定了，不重复了！"**。
 
 > 🟢 **2026-06-06 深夜 user 睡后 PM 自主驱动：M40 实时通话理解层 Phase 1 全部落地（待真机收 shadow 数据）** — user 拍板做成决议(ADR `2026-06-06-speculative-voice-front-pm-handoff`)后授权"你决定做到满意为止"去睡。PM 自主驱动团队完成 Phase 1 三件，全 codex 互审闭环：① 来源通路分离 `037b898`(webrtc_call/talk_continuous/voice 三标签,治通话转写混普通语音老坑) ② 意图引擎核心 `9b69557` voice-intent-front.ts(GLM 结构化 verdict+latest-wins+abort+PM闸+安全默认,钟馗首轮3 blocking→闭环,flag HIVE_VOICE_INTENT_FRONT 默认关) ③ shadow 集成 `fc69475`(接 webrtc-upstream 纯观察打日志+endpoint对照,零行为变更,close泄漏修复,钟馗2轮闭环)。**⏸️ 待 user 醒**：开 flag+重启4010+真机打电话→看 `voiceIntent shadow verdict`/`endpoint_compare` 日志验"GLM 判意图完整 vs M39 端点final"可靠度→可靠才进 Phase 2(意图引擎真驱动回复=行为变更)。Phase 3(mobile 播放闸)+真机也待 user。
@@ -646,6 +656,15 @@
 - [x] **钟馗** dispatch `6032ee0c` — M40 Phase 1 shadow 集成复审：赵云把 voice-intent-front 接进 WebRTC 上行（纯 shadow 打日志、flag HIVE_VOICE_INTENT_FRONT 默认关、零行为变更）。范围 git…
 - [x] **赵云** dispatch `59630f37` — M40 Phase 1 shadow 集成钟馗审出 1 个 blocking，修它再 commit。
 - [x] **钟馗** dispatch `db5880e9` — M40 Phase 1 shadow 集成 close 泄漏 blocking 复审（赵云修完你上轮那条）。只验这一条。范围：src/server/webrtc-upstream-audio.ts + tests/unit/webrtc-…
+- [x] **马超** dispatch `ea72e25f` — 实现 WebRTC 正式通话页（把设置页的"测试通话"扶正成全屏通话页）。依据你/赵云的设计稿 .hive/reports/2026-06-06-webrtc-call-ui-design.html + research 同名 .md（先…
+- [x] **钟馗** dispatch `b2ef7cef` — 复审马超的 WebRTC 全屏通话页实现（设置页测试通话扶正成正式页）。马超是 claude 我不自审，你 codex 审。范围 git diff/新文件：app/call.tsx(新) + src/components/Orb.tsx(…
+- [x] **关羽** dispatch `529da80a` — 紧急修复（user 命门·真机现场实测炸出）：WebRTC 通话流式识别开着时 barge-in(开口即停)完全失效——AI 一路说到底、user 说话打不断。PM 已冷诊断坐实根因，按下面修。
+- [x] **钟馗** dispatch `4b4e19d0` — M40/M39 关联·复审关羽的 barge-in 回归修复（流式识别开着时开口即停失效，user 真机命门）。范围 git diff：src/server/webrtc-upstream-audio.ts + tests/unit/we…
+- [x] **关羽** dispatch `d49f7170` — 紧急根因修复（user 真机命门·实时通话回声→上行STT全是乱码+假打断）。PM 已定位确切根因，按下面修。
+- [x] **钟馗** dispatch `6281c87d` — M40关联·复审关羽的 WebRTC 回声根因修复(user真机命门:通话回声→上行STT全乱码+假打断)。范围 git diff：packages/mobile/src/lib/webrtc-caller.ts + packages/m…
+- [x] **关羽** dispatch `7ec8febf` — 紧急服务端调参（user 真机现场:装 2.8.8 后通话"一点声音都没有"）。PM 已用日志数据定位,按下面改。
+- [x] **钟馗** dispatch `195668f0` — M40关联·复审关羽的 barge-in onset RMS 门限修复(治 2.8.8 装机后"AI被回声打断到没声音")。范围 git diff：src/server/webrtc-vad.ts + tests/unit/webrtc-…
+- [ ] **马超** dispatch `df411be1` — WebRTC 通话音量控制做进设置页（user 真机反复要:不想每次重装/重启调音量,要在设置里直接调）。先调研最干净的实现路径再做,出方案我看。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假

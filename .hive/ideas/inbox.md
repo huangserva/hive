@@ -4,6 +4,12 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-07 app 内可调通话音量（设置页）— user 真机反复要求
+
+- **idea-12 通话音量 app 内自调**：user 12h 真机马拉松反复卡在音量，原话"希望这个声音在设置页里面可以去调整，而不是每次重新安装/重启"。现状=下行音量靠服务端 env `HIVE_WEBRTC_DOWNLINK_GAIN`(改要重启 4010)；手机通话音量其实硬件(音量键/免提路由)主导，软件增益叠加感知有限。
+- **方向**：设置页加通话音量控制(滑块/档位)，即时生效、持久化、不重启不重装。已派马超调研(`df411be1`)两条路：A 客户端直接调 react-native-webrtc 远端 track 播放音量(最干净，待证 API 支持)；B 设置存偏好→经 voice_stream/relay 传 daemon→当 per-call downlinkGain(需服务端配合关羽改 webrtc-downlink-audio gain 来源)。
+- **promote 条件**：马超方案 report 回 → PM 拍路径 → 排实现(下个 APK 批次)。这是结束"音量靠重启折腾"的结构性解法。
+
 ### 2026-06-06 WebRTC 通话流式 ASR + early-response — user 实测口述
 
 - **idea-10 流式 STT + 边收边算架构**：user 在 WebRTC 通话实测中指出，当前"等静音→攒完→STT→AI→TTS"链路导致 5-6s 延迟，根本原因是客户端攒完再传。user 正确方向：
@@ -11,6 +17,7 @@
   - 不等用户停顿，检测到"意图完整"即响应（intent-complete 而非 silence-boundary）
   - AI streaming 回复 + streaming TTS 同步推下行 → 端到端延迟可降到 ~1-2s
   - 技术路径：streaming Whisper（whisper.cpp server-sent events）或 cloud streaming ASR（Google/Azure），配合 LLM streaming + edge-tts streaming
+  - **rolling session transcript**：流式 ASR 副产品——每次 utterance 的 partial transcript 自动 append 到 session-level rolling transcript；AI 处理新 utterance 时把历史 transcript 直接带上，上下文完整、无重复音频处理；同时解决现有"每次 VAD 触发无记忆"问题（当前 AI 只拿当次 utterance，历史靠 chat history 文字还原，数据源不统一）。2026-06-06 user 口述补充。
   - **当前差距**：audioSink 在 webrtc-upstream-audio.ts 等 VAD 静音后整段 inject；改成流式需重构 STT 接入层
   - promote 条件：当前 WebRTC 通话体验稳定后（M38 收尾）进入 backlog 评估
 
