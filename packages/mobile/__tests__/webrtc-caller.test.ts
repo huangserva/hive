@@ -191,6 +191,7 @@ describe('WebRTC caller', () => {
     const order: string[] = []
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
+    let mediaConstraints: unknown = null
     const audioTrack = { kind: 'audio', stop: () => order.push('track.stop') }
     const stream = {
       getAudioTracks: () => [audioTrack],
@@ -201,7 +202,8 @@ describe('WebRTC caller', () => {
       loadRuntime: async () => ({
         mediaDevices: {
           getUserMedia: async (constraints) => {
-            order.push(`getUserMedia:${constraints.audio}:${constraints.video}`)
+            mediaConstraints = constraints
+            order.push('getUserMedia')
             return stream
           },
         },
@@ -238,7 +240,15 @@ describe('WebRTC caller', () => {
 
     const session = await caller.start()
 
-    expect(order).toEqual(['audioRoute.start', 'getUserMedia:true:false', 'createOffer'])
+    expect(order).toEqual(['audioRoute.start', 'getUserMedia', 'createOffer'])
+    expect(mediaConstraints).toEqual({
+      audio: {
+        autoGainControl: true,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+      video: false,
+    })
     expect(peers[0]?.addedTracks).toEqual([{ stream, track: audioTrack }])
     expect(sent[0]).toMatchObject({
       call_id: 'call-audio',
@@ -250,7 +260,7 @@ describe('WebRTC caller', () => {
     session.close()
     expect(order).toEqual([
       'audioRoute.start',
-      'getUserMedia:true:false',
+      'getUserMedia',
       'createOffer',
       'track.stop',
       'audioRoute.stop',

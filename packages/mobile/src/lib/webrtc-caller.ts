@@ -30,6 +30,19 @@ type WebRtcStream = {
   getTracks?: () => WebRtcTrack[]
 }
 
+type WebRtcAudioConstraints =
+  | boolean
+  | {
+      autoGainControl?: boolean
+      echoCancellation?: boolean
+      noiseSuppression?: boolean
+    }
+
+type WebRtcMediaStreamConstraints = {
+  audio: WebRtcAudioConstraints
+  video: boolean
+}
+
 type WebRtcPeerConnection = {
   addIceCandidate(candidate: WebRtcIceCandidateInit): Promise<void> | void
   addTrack?: (track: WebRtcTrack, stream: WebRtcStream) => unknown
@@ -45,7 +58,7 @@ type WebRtcPeerConnection = {
 
 export interface WebRtcRuntime {
   mediaDevices?: {
-    getUserMedia?: (constraints: { audio: boolean; video: boolean }) => Promise<WebRtcStream>
+    getUserMedia?: (constraints: WebRtcMediaStreamConstraints) => Promise<WebRtcStream>
   }
   RTCPeerConnection: new (config: WebRtcPeerConnectionConfig) => WebRtcPeerConnection
 }
@@ -89,6 +102,12 @@ const createPeerConnectionConfig = (
   forceRelay: boolean
 ): WebRtcPeerConnectionConfig =>
   forceRelay ? { iceServers, iceTransportPolicy: 'relay' } : { iceServers }
+
+const WEBRTC_CALL_AUDIO_CONSTRAINTS = {
+  autoGainControl: true,
+  echoCancellation: true,
+  noiseSuppression: true,
+} as const
 
 const normalizeIceCandidate = (candidate: unknown): WebRtcIceCandidateInit | null => {
   if (!candidate) return null
@@ -166,7 +185,10 @@ export const createWebRtcCaller = (options: WebRtcCallerOptions) => {
           if (!peer.addTrack) {
             throw new Error('react-native-webrtc RTCPeerConnection.addTrack is unavailable')
           }
-          localStream = await getUserMedia({ audio: true, video: false })
+          localStream = await getUserMedia({
+            audio: WEBRTC_CALL_AUDIO_CONSTRAINTS,
+            video: false,
+          })
           localTracks = localStream.getAudioTracks?.() ?? localStream.getTracks?.() ?? []
           console.log(
             '[WEBRTCDBG] local_audio_tracks',
