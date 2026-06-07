@@ -108,7 +108,11 @@ export const createWebRtcFileDownlinkAudio = ({
     let closed = false
     let generation = 0
     let queue = Promise.resolve()
-    const callStateSender = createVoiceCallStateSender<VoiceDownlinkSegmentFrame>({ callId, send })
+    const callStateSender = createVoiceCallStateSender<VoiceDownlinkSegmentFrame>({
+      callId,
+      logger,
+      send,
+    })
 
     const sendCallState = (phase: VoiceCallStatePhase, turnId: string | undefined) => {
       if (!turnId) return

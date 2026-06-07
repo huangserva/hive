@@ -349,6 +349,7 @@ describe('WebRTC file downlink audio', () => {
       textLen: 4,
     })
     bindWebRtcVoiceLatencyTurnToMessage(turn.turnId, 'message-state')
+    const infoLogs: string[] = []
     const downlink = createWebRtcFileDownlinkAudio({
       chunkSize: 4,
       createTtsProvider: () => ({
@@ -360,7 +361,7 @@ describe('WebRTC file downlink audio', () => {
           provider: 'edge-tts',
         }),
       }),
-      logger: { info: vi.fn(), warn: vi.fn() },
+      logger: { info: (message) => infoLogs.push(message), warn: vi.fn() },
       store: {
         registerMobileChatListener(nextListener) {
           listener = nextListener
@@ -397,6 +398,16 @@ describe('WebRTC file downlink audio', () => {
       }),
     ])
     expect(sent.filter((frame) => frame.type === 'voice_downlink_segment')).toHaveLength(5)
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          `voice call state sent: call_id=call-state-downlink turn_id=${turn.turnId} phase=responding`
+        ),
+        expect.stringContaining(
+          `voice call state sent: call_id=call-state-downlink turn_id=${turn.turnId} phase=listening`
+        ),
+      ])
+    )
   })
 
   test('returns to listening when file TTS produces no audio or throws before first segment', async () => {

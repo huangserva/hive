@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { createVoiceCallStateFrame } from '../../src/server/voice-call-state-protocol.js'
 import type { VoiceDownlinkSegmentFrame } from '../../src/server/voice-downlink-segment-protocol.js'
 import {
   createWebRtcCallee,
@@ -387,6 +388,71 @@ describe('WebRTC callee', () => {
     )
     expect(closedSessions).toEqual(['call-audio'])
     expect(peers[0]?.closed).toBe(true)
+  })
+
+  test('normalizes upstream call state frames to the active call id and logs the send', async () => {
+    const peers: FakePeerConnection[] = []
+    const dataFrames: unknown[] = []
+    const stderr: string[] = []
+    const writeSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderr.push(String(chunk))
+        return true
+      })
+    const callee = createWebRtcCallee({
+      audioSink: {
+        start: (input) => {
+          input.sendCallState?.(
+            createVoiceCallStateFrame({
+              callId: 'stale-call-id',
+              phase: 'processing',
+              turnId: 'call-state-link-turn-1',
+            })
+          )
+          return { close: () => {} }
+        },
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-state-link',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      { send: () => {}, sendData: (frame) => dataFrames.push(frame) }
+    )
+    peers[0]?.ontrack?.({
+      receiver: { id: 'receiver-1' },
+      streams: [],
+      track: { kind: 'audio' },
+    })
+
+    writeSpy.mockRestore()
+    expect(dataFrames).toEqual([
+      expect.objectContaining({
+        call_id: 'call-state-link',
+        phase: 'processing',
+        turn_id: 'call-state-link-turn-1',
+        type: 'voice_call_state',
+      }),
+    ])
+    expect(stderr.join('')).toContain(
+      'voice call state sent: call_id=call-state-link turn_id=call-state-link-turn-1 phase=processing'
+    )
   })
 
   test('wires upstream speech-start to interrupt the downlink session', async () => {

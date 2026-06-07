@@ -1193,6 +1193,67 @@ describe('WebRTC upstream audio sink', () => {
     expect(store.inputs).toEqual([])
   })
 
+  test('intent front final without a verdict does not fall back to slow gatekeeper escalation', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const sentStates: VoiceCallStateFrame[] = []
+    const provider = {
+      generate: vi.fn(async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。'),
+    }
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => ({
+        close: () => {},
+        flush: async () => {
+          await options.onFinal('让关羽帮我处理一下通话延迟')
+        },
+        pushFrame: () => {},
+      }),
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue({ status: 'superseded' }),
+      }),
+      fastVoiceReplyProvider: provider,
+      loadAudioSink: async () => FakeAudioSink,
+      logger: {
+        info: () => {},
+        warn: () => {},
+      },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-null-intent',
+      sendCallState: (frame) => sentStates.push(frame),
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+
+    await session.close()
+
+    expect(provider.generate).not.toHaveBeenCalled()
+    expect(store.inputs).toEqual([
+      expect.objectContaining({
+        options: { forwardToOrchestrator: false },
+        text: '[来自手机 Mobile App]\n---\n让关羽帮我处理一下通话延迟',
+      }),
+    ])
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          source: 'voice_intent_front',
+          text: '我听到了，先继续说。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+      }),
+    ])
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing'])
+  })
+
   test('feeds streaming partial and final text into the voice intent shadow session and only logs verdicts', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
@@ -1455,11 +1516,22 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.inputs).toEqual([
       {
-        options: undefined,
+        options: { forwardToOrchestrator: false },
         text: '[来自手机 Mobile App]\n---\n让关羽汇报进度',
         workspaceId: 'workspace-1',
         workerId: 'workspace-1:orchestrator',
       },
+    ])
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          source: 'voice_intent_front',
+          text: '我听到了，先继续说。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+      }),
     ])
     expect(warnings).toEqual(
       expect.arrayContaining([expect.arrayContaining(['voice intent shadow evaluation failed'])])

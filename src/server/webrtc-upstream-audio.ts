@@ -152,6 +152,8 @@ type AcceptedVoiceIntentUpdate = Extract<VoiceIntentSessionUpdate, { status: 'ac
 const isSafeVoiceIntentFallback = (verdict: VoiceIntentVerdict) =>
   verdict.action === 'drop' && verdict.confidence <= 0 && !verdict.reply_text.trim()
 
+const VOICE_INTENT_UNAVAILABLE_REPLY = '我听到了，先继续说。'
+
 const insertVoiceIntentFrontReply = ({
   latencyTurnId,
   reply,
@@ -387,6 +389,40 @@ export const injectWebRtcVoiceTranscript = async ({
       logger,
       `voiceIntent driven fallback: reason=safe_zero_confidence text=${formatVoiceIntentLogText(trimmed)}`
     )
+  }
+
+  if (
+    isVoiceIntentFrontEnabled() &&
+    voiceIntentUpdate !== undefined &&
+    voiceIntentUpdate?.status !== 'accepted'
+  ) {
+    logDiagnostic(
+      logger,
+      `voiceIntent driven fallback: reason=missing_final_verdict text=${formatVoiceIntentLogText(trimmed)}`
+    )
+    const turn = markWebRtcVoiceLatency(latencyTurnId, {
+      branch: 'handled',
+      decisionAt: Date.now(),
+      forwardPm: false,
+      textLen: trimmed.length,
+    })
+    const messageId = insertVoiceIntentFrontReply({
+      latencyTurnId,
+      reply: VOICE_INTENT_UNAVAILABLE_REPLY,
+      store,
+      workspaceId,
+    })
+    store.recordUserInput(workspaceId, orchId, formatMobileVoicePrompt(trimmed), {
+      forwardToOrchestrator: false,
+    })
+    if (!messageId && turn) {
+      logDiagnostic(logger, buildVoiceTurnTimelineLog(turn))
+      finishWebRtcVoiceLatencyTurn(turn.turnId)
+      onTurnComplete?.(turn.turnId)
+    } else if (!messageId && latencyTurnId) {
+      onTurnComplete?.(latencyTurnId)
+    }
+    return
   }
 
   const formatted =

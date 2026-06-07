@@ -394,7 +394,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
             },
             receiver: event.receiver,
             sendCallState: (stateFrame: VoiceCallStateFrame) =>
-              call.callStateSender.send(stateFrame),
+              call.callStateSender.send({ ...stateFrame, call_id: frame.call_id }),
             streams: event.streams,
             track,
             workspaceId: frame.workspace_id,
