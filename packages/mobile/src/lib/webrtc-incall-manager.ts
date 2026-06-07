@@ -8,8 +8,24 @@ export type WebRtcInCallAudioRoute = {
   stop: () => Promise<void>
 }
 
+export type WebRtcAudioRouteMode = 'incall' | 'media'
+
+export type WebRtcAudioRouteExtra = {
+  webRtcAudioRoute?: unknown
+}
+
 type StartWebRtcInCallAudioRouteOptions = {
+  audioRoute?: WebRtcAudioRouteMode
   loadManager?: () => Promise<WebRtcInCallManager>
+}
+
+export const resolveWebRtcAudioRoute = (
+  extra: WebRtcAudioRouteExtra | undefined,
+  env: Record<string, unknown> = process.env
+): WebRtcAudioRouteMode => {
+  const value =
+    extra?.webRtcAudioRoute ?? env.EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE ?? env.WEBRTC_AUDIO_ROUTE
+  return value === 'media' ? 'media' : 'incall'
 }
 
 const loadReactNativeInCallManager = async (): Promise<WebRtcInCallManager> => {
@@ -29,8 +45,15 @@ const loadReactNativeInCallManager = async (): Promise<WebRtcInCallManager> => {
 }
 
 export const startWebRtcInCallAudioRoute = async ({
+  audioRoute = 'incall',
   loadManager = loadReactNativeInCallManager,
 }: StartWebRtcInCallAudioRouteOptions = {}): Promise<WebRtcInCallAudioRoute> => {
+  if (audioRoute === 'media') {
+    console.log('[WEBRTCDBG] test_call_audio_route_media')
+    return {
+      stop: async () => {},
+    }
+  }
   const manager = await loadManager()
   let stopped = false
   let started = false

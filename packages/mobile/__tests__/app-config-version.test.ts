@@ -31,6 +31,17 @@ describe('mobile app config version', () => {
     })
   })
 
+  test('injects WebRTC audio route flag into Expo extra from build env', async () => {
+    vi.stubEnv('EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE', 'media')
+    vi.resetModules()
+
+    const { default: envConfig } = await import('../app.config')
+
+    expect(envConfig.extra).toMatchObject({
+      webRtcAudioRoute: 'media',
+    })
+  })
+
   test('excludes WebRTC native autolinking by default', async () => {
     vi.unstubAllEnvs()
     vi.resetModules()

@@ -1,5 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
-import { startWebRtcInCallAudioRoute } from '../src/lib/webrtc-incall-manager.js'
+import {
+  resolveWebRtcAudioRoute,
+  startWebRtcInCallAudioRoute,
+} from '../src/lib/webrtc-incall-manager.js'
 
 describe('WebRTC InCallManager audio route', () => {
   test('starts Android call audio mode and forces speakerphone for WebRTC calls', async () => {
@@ -80,5 +83,34 @@ describe('WebRTC InCallManager audio route', () => {
         },
       })
     ).rejects.toThrow('react-native-incall-manager unavailable')
+  })
+
+  test('skips InCallManager startup and cleanup when WebRTC audio route is media', async () => {
+    const calls: string[] = []
+    const route = await startWebRtcInCallAudioRoute({
+      audioRoute: 'media',
+      loadManager: async () => ({
+        setForceSpeakerphoneOn: (enabled) => calls.push(`speaker:${enabled}`),
+        start: () => calls.push('start'),
+        stop: () => calls.push('stop'),
+      }),
+    })
+
+    await route.stop()
+
+    expect(calls).toEqual([])
+  })
+
+  test('resolves WebRTC audio route from explicit extra or build env with incall as default', () => {
+    expect(resolveWebRtcAudioRoute({ webRtcAudioRoute: 'media' }, {})).toBe('media')
+    expect(resolveWebRtcAudioRoute({ webRtcAudioRoute: 'incall' }, {})).toBe('incall')
+    expect(resolveWebRtcAudioRoute(undefined, { EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE: 'media' })).toBe(
+      'media'
+    )
+    expect(resolveWebRtcAudioRoute(undefined, { WEBRTC_AUDIO_ROUTE: 'media' })).toBe('media')
+    expect(resolveWebRtcAudioRoute(undefined, { EXPO_PUBLIC_WEBRTC_AUDIO_ROUTE: 'MEDIA' })).toBe(
+      'incall'
+    )
+    expect(resolveWebRtcAudioRoute(undefined, {})).toBe('incall')
   })
 })

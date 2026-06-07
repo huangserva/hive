@@ -23,7 +23,7 @@ import { withUiOperationTimeout } from '../lib/ui-operation-timeout'
 import { createWebRtcCaller, resolveWebRtcForceRelayEnabled } from '../lib/webrtc-caller'
 import { runWebRtcConnectionProbeSession } from '../lib/webrtc-connection-probe'
 import type { WebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
-import { startWebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
+import { resolveWebRtcAudioRoute, startWebRtcInCallAudioRoute } from '../lib/webrtc-incall-manager'
 import {
   applyWebRtcDownlinkVolumeToRefs,
   DEFAULT_WEBRTC_DOWNLINK_VOLUME,
@@ -237,7 +237,7 @@ const chooseWorkspace = (workspaces: MobileWorkspace[], preferredWorkspaceId: st
 
 const getWebRtcRuntimeExtra = () =>
   Constants.expoConfig?.extra && typeof Constants.expoConfig.extra === 'object'
-    ? (Constants.expoConfig.extra as { webRtcForceRelay?: unknown })
+    ? (Constants.expoConfig.extra as { webRtcAudioRoute?: unknown; webRtcForceRelay?: unknown })
     : undefined
 
 export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
@@ -1200,7 +1200,9 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
           )
         },
         runAudioSession: async (runSession) => {
-          const audioRoute = await startWebRtcInCallAudioRoute()
+          const audioRoute = await startWebRtcInCallAudioRoute({
+            audioRoute: resolveWebRtcAudioRoute(getWebRtcRuntimeExtra()),
+          })
           webRtcTestCallAudioRouteRef.current = audioRoute
           return {
             close: () => audioRoute?.stop(),
