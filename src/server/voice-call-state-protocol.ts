@@ -46,6 +46,10 @@ const parsePositiveInteger = (value: unknown) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+type VoiceCallStateLogger = {
+  info?: (message: string) => void
+}
+
 export const resolveVoiceCallStateWatchdogMs = (
   env: Record<string, unknown> = process.env
 ): number =>
@@ -54,6 +58,7 @@ export const resolveVoiceCallStateWatchdogMs = (
 
 export const createVoiceCallStateSender = <TFrame>(input: {
   callId: string
+  logger?: VoiceCallStateLogger | undefined
   send: (frame: TFrame | VoiceCallStateFrame) => void
   watchdogMs?: number
 }) => {
@@ -69,8 +74,23 @@ export const createVoiceCallStateSender = <TFrame>(input: {
     watchdogs.delete(turnId)
   }
 
+  const logSentState = (frame: VoiceCallStateFrame, reason?: string) => {
+    input.logger?.info?.(
+      [
+        'voice call state sent:',
+        `call_id=${frame.call_id}`,
+        `turn_id=${frame.turn_id}`,
+        `phase=${frame.phase}`,
+        `at=${frame.ts}`,
+        ...(reason ? [`reason=${reason}`] : []),
+      ].join(' ')
+    )
+  }
+
   const sendListening = (turnId: string) => {
-    send(createVoiceCallStateFrame({ callId: input.callId, phase: 'listening', turnId }))
+    send(createVoiceCallStateFrame({ callId: input.callId, phase: 'listening', turnId }), {
+      reason: 'watchdog',
+    })
   }
 
   const startWatchdog = (turnId: string) => {
@@ -83,7 +103,7 @@ export const createVoiceCallStateSender = <TFrame>(input: {
     watchdogs.set(turnId, timer)
   }
 
-  const send = (frame: TFrame | VoiceCallStateFrame) => {
+  const send = (frame: TFrame | VoiceCallStateFrame, metadata?: { reason?: string }) => {
     if (closed) return
     if (!isVoiceCallStateFrame(frame)) {
       input.send(frame)
@@ -98,6 +118,7 @@ export const createVoiceCallStateSender = <TFrame>(input: {
     sentCallStates.add(key)
     if (frame.phase === 'processing') startWatchdog(frame.turn_id)
     if (frame.phase === 'responding' || frame.phase === 'listening') clearWatchdog(frame.turn_id)
+    logSentState(frame, metadata?.reason)
     input.send(frame)
   }
 

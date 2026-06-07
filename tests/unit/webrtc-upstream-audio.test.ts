@@ -13,6 +13,7 @@ import {
   injectWebRtcVoiceTranscript,
 } from '../../src/server/webrtc-upstream-audio.js'
 import {
+  buildVoiceTurnTimelineLog,
   claimWebRtcVoiceLatencyTurnForMessage,
   markWebRtcVoiceLatency,
   resetWebRtcVoiceLatencyForTests,
@@ -360,6 +361,83 @@ describe('WebRTC upstream audio sink', () => {
         messageType: 'orch_reply',
         workspaceId: 'workspace-1',
       },
+    ])
+  })
+
+  test('voice intent likely complete reply binds the latency turn for downlink totals', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_200)
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-likely',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 700,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, { intentVerdictAt: 1_100 })
+
+    await injectWebRtcVoiceTranscript({
+      latencyTurnId: turn.turnId,
+      store,
+      text: '现在这个通话',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'likely_complete',
+        confidence: 0.82,
+        replyText: '现在通话已经接上，我继续看。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    const claimed = claimWebRtcVoiceLatencyTurnForMessage('message-1')
+    expect(claimed?.turnId).toBe(turn.turnId)
+    expect(claimed?.branch).toBe('handled')
+    vi.setSystemTime(1_900)
+    const completed = markWebRtcVoiceLatency(claimed?.turnId, { firstDownlinkFrameAt: Date.now() })
+    expect(completed && buildVoiceTurnTimelineLog(completed)).toContain(
+      'dispatch_to_downlink_ms=700 total_speech_to_audio_ms=1200'
+    )
+  })
+
+  test('voice intent likely complete empty reply finishes without a downlink total', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(1_200)
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const infoLogs: string[] = []
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-likely-empty',
+      now: 1_000,
+      segment: 1,
+      speechStartAt: 700,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn.turnId, { intentVerdictAt: 1_100 })
+
+    await injectWebRtcVoiceTranscript({
+      latencyTurnId: turn.turnId,
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
+      store,
+      text: '现在这个通话',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'likely_complete',
+        confidence: 0.82,
+        replyText: '',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')).toBeNull()
+    expect(infoLogs).toEqual([
+      expect.stringContaining(
+        'voiceIntent driven decision: call_id=unknown completeness=likely_complete action=handled'
+      ),
+      expect.stringContaining(
+        'branch=incomplete forward_pm=false text_len=6 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=100 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na'
+      ),
     ])
   })
 

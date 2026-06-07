@@ -236,6 +236,7 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
       audioSessions: new Set(),
       callStateSender: createVoiceCallStateSender<WebRtcDataFrame>({
         callId,
+        logger: { info: log },
         send: (dataFrame) => sendData?.(dataFrame),
       }),
       closed: false,

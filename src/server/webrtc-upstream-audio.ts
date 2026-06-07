@@ -249,8 +249,17 @@ const applyVoiceIntentDrivenTranscript = ({
   }
 
   if (verdict.completeness !== 'complete') {
+    const messageId = insertVoiceIntentFrontReply({
+      latencyTurnId: reply ? latencyTurnId : undefined,
+      reply,
+      store,
+      workspaceId,
+    })
+    if (messageId) {
+      markDecision('handled', false)
+      return 'handled' as const
+    }
     markDecision('incomplete', false)
-    insertVoiceIntentFrontReply({ reply, store, workspaceId })
     logFinishedTimeline(latencyTurnId)
     return 'handled' as const
   }

@@ -80,6 +80,31 @@ describe('voice_call_state protocol', () => {
     ])
   })
 
+  test('logs every sent call state frame and marks watchdog fallback', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(2_000)
+    const sent: unknown[] = []
+    const infoLogs: string[] = []
+    const sender = createVoiceCallStateSender({
+      callId: 'call-1',
+      logger: { info: (message: string) => infoLogs.push(message) },
+      send: (frame) => sent.push(frame),
+      watchdogMs: 100,
+    })
+
+    sender.send(createVoiceCallStateFrame({ callId: 'call-1', phase: 'processing', turnId: 't1' }))
+    vi.advanceTimersByTime(100)
+
+    expect(sent).toEqual([
+      expect.objectContaining({ phase: 'processing', turn_id: 't1' }),
+      expect.objectContaining({ phase: 'listening', turn_id: 't1' }),
+    ])
+    expect(infoLogs).toEqual([
+      'voice call state sent: call_id=call-1 turn_id=t1 phase=processing at=2000',
+      'voice call state sent: call_id=call-1 turn_id=t1 phase=listening at=2100 reason=watchdog',
+    ])
+  })
+
   test('responding, listening, and close clear the processing watchdog', () => {
     vi.useFakeTimers()
     const sent: unknown[] = []
