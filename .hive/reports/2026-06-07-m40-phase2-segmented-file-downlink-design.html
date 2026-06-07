@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>M40 Phase 2：文件分段播放下行设计</title>
+    <style>
+      body {
+        margin: 0;
+        background: #f7f8fb;
+        color: #1f2937;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+          sans-serif;
+        line-height: 1.65;
+      }
+      main {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 28px 18px 60px;
+      }
+      h1,
+      h2,
+      h3 {
+        color: #111827;
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 8px;
+      }
+      h2 {
+        border-top: 1px solid #d8dee8;
+        font-size: 22px;
+        margin-top: 32px;
+        padding-top: 22px;
+      }
+      h3 {
+        font-size: 18px;
+        margin-top: 20px;
+      }
+      code {
+        background: #eef2f7;
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+      pre {
+        background: #111827;
+        border-radius: 8px;
+        color: #e5e7eb;
+        overflow-x: auto;
+        padding: 14px;
+      }
+      table {
+        border-collapse: collapse;
+        margin: 14px 0;
+        width: 100%;
+      }
+      th,
+      td {
+        border: 1px solid #d8dee8;
+        padding: 9px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        background: #edf2f7;
+      }
+      .box {
+        background: #ffffff;
+        border: 1px solid #d8dee8;
+        border-left: 5px solid #2563eb;
+        border-radius: 8px;
+        margin: 14px 0;
+        padding: 15px 18px;
+      }
+      .warn {
+        background: #fff7ed;
+        border-left-color: #f97316;
+      }
+      .ok {
+        background: #f0fdf4;
+        border-left-color: #16a34a;
+      }
+      .muted {
+        color: #64748b;
+        font-size: 14px;
+      }
+      ul,
+      ol {
+        padding-left: 22px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="muted">2026-06-07 · M40 Phase 2 设计 spike · 不改产品代码</p>
+      <h1>M40 Phase 2：WebRTC 上行 + 文件分段播放下行</h1>
+
+      <div class="box">
+        <strong>目标决议：</strong>WebRTC 继续负责上行麦克风 / 流式 STT；AI 回复下行默认不再走
+        WebRTC remote audio track，而改为服务端生成短音频段，经 relay E2E 数据通道推给 App，
+        App 复用对讲的 <code>expo-audio</code> 文件播放路径。WebRTC track 下行保留为
+        flag-gated fallback，不删除。
+      </div>
+
+      <h2>1. 现有对讲播放路如何复用</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>现状组件</th>
+            <th>证据 / 位置</th>
+            <th>Phase 2 复用方式</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>App 文件播放器</td>
+            <td><code>packages/mobile/app/(tabs)/talk.tsx:394</code> <code>useAudioPlayer</code>；<code>1206-1209</code> 以 data URI 播放</td>
+            <td>抽成可复用的 <code>segmented-file-downlink-player</code> 小模块，call 页面和 talk 页共用同一播放口径：<code>setAudioModeAsync({ allowsRecording:false, playsInSilentMode:true })</code> + <code>player.replace(dataUri)</code> + <code>player.play()</code>。</td>
+          </tr>
+          <tr>
+            <td>voice_stream 文件传输</td>
+            <td><code>voice-stream-protocol.ts</code> 已有 <code>open/chunk/error/close</code>、base64 切片、reassembler</td>
+            <td>不破坏既有请求式 TTS；新增 <code>voice_downlink_segment</code> 帧族或在 <code>voice_stream</code> 上加 <code>kind:"downlink_segment"</code>。推荐新帧族，避免和旧 <code>synthesizeVoiceStream(text)</code> 语义混淆。</td>
+          </tr>
+          <tr>
+            <td>服务端 TTS</td>
+            <td><code>relay-voice-stream-tts.ts</code> 与 <code>local-tts.ts</code> 已能合成音频文件</td>
+            <td>新增 <code>webrtc-segmented-file-downlink.ts</code>，复用 <code>createLocalTtsProvider</code> + <code>sanitizeForSpeech</code>，但由 daemon 主动推段，不再要求 App 先 open 请求。</td>
+          </tr>
+          <tr>
+            <td>WebRTC 上行注入</td>
+            <td><code>webrtc-upstream-audio.ts</code> streaming partial/final 与 <code>VoiceIntentSession</code> shadow 已接入</td>
+            <td>Phase 2a 仍由现有 orchestrator reply 触发段生成；Phase 2d 再让 <code>VoiceIntentSession</code> 的投机候选驱动段生成。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>2. 推荐新增协议：voice_downlink_segment</h2>
+      <p>
+        旧 <code>voice_stream</code> 是“App 请求一段文本合成 → daemon 回完整音频”。通话下行需要
+        daemon 主动推、支持分段、撤回、generation latest-wins。为了隔离旧路径，建议新增帧族：
+      </p>
+      <pre><code>{
+  "type": "voice_downlink_segment",
+  "op": "segment_open" | "segment_chunk" | "segment_ready" | "retract" | "turn_close" | "error",
+  "call_id": "webrtc-...",
+  "turn_id": "turn-...",
+  "segment_id": 3,
+  "generation": 7,
+  "seq": 1,
+  "text": "我先查一下关羽的状态。",
+  "audio": "base64 chunk",          // segment_chunk
+  "mime": "audio/mpeg",
+  "format": "mp3",
+  "is_final": false,                // 本 turn 最后一段
+  "retract_from_segment_id": 3,      // retract
+  "reason": "superseded"
+}</code></pre>
+      <h3>字段规则</h3>
+      <ul>
+        <li><code>call_id</code>：绑定当前 WebRTC call；App 只接受当前 call 的帧，挂断后全部丢弃。</li>
+        <li><code>turn_id</code>：用户这一轮话权的 ID。M39 final / M40 semantic complete 都应生成 turn。</li>
+        <li><code>generation</code>：VoiceIntentSession / speculative planner 的代际号。App 永远只播放当前 turn 里 generation 最新的未播段。</li>
+        <li><code>segment_id</code>：同一 turn 内单调递增。撤回以 <code>segment_id &gt;= N</code> 为粒度。</li>
+        <li><code>segment_open</code>：告知文本和元信息，可用于 UI “AI 正在准备第 N 段”。</li>
+        <li><code>segment_chunk</code>：base64 音频切片，按 <code>seq</code> 重组；沿用旧 reassembler 的“按 base64 字符串拼接后一次性解码”纪律。</li>
+        <li><code>segment_ready</code>：该段音频完整可播。也可由最后一个 chunk <code>done:true</code> 隐式表示；推荐显式 ready，方便无音频错误路径。</li>
+        <li><code>retract</code>：App 丢弃未播且 <code>segment_id &gt;= retract_from_segment_id</code> 的段；正在播放和已播段不动。</li>
+      </ul>
+
+      <h2>3. App 段队列与播放闸</h2>
+      <p>
+        App 新增 per-call <code>SegmentedDownlinkQueue</code>。它只做队列和播放，不决定“用户是不是说完了”。
+        播放触发复用现有通话 / 对讲“用户停说话”节点：上行 VAD / streaming endpoint 判用户让出话权后，
+        App 调 <code>queue.releaseLatest(turn_id)</code>。
+      </p>
+      <pre><code>state per call:
+  currentCallId
+  currentTurnId
+  releasedTurnIds: Set&lt;turn_id&gt;
+  playingSegment: Segment | null
+  pendingSegments: Map&lt;turn_id, Map&lt;segment_id, Segment&gt;&gt;
+  latestGenerationByTurn: Map&lt;turn_id, number&gt;
+
+on segment_ready:
+  if frame.call_id != currentCallId: drop
+  if frame.generation &lt; latestGenerationByTurn[turn_id]: drop
+  enqueue segment as pending
+  if turn_id is released and nothing playing: play next
+
+on user_yield(turn_id):
+  mark turn released
+  play newest-generation pending segment in segment_id order
+
+on retract(turn_id, from):
+  delete pending segments where segment_id &gt;= from
+  if playing segment matches: do nothing
+  already played: do nothing</code></pre>
+      <h3>播放行为</h3>
+      <ul>
+        <li>每段一个完整文件，仍用 <code>expo-audio</code>：<code>player.replace({ uri: data:${mime};base64,... })</code>。</li>
+        <li>段与段之间串行播放；不叠放。当前段结束事件触发下一段。</li>
+        <li>播放前设置 <code>allowsRecording:false</code> 获取对讲同款媒体播放响度；若要继续 barge-in，则只保留 VAD 监听所需录音策略，不让它抢占播放器路径。</li>
+        <li>如果新 generation 到来，未播旧 generation 全丢；已在播段承认，不中断。</li>
+      </ul>
+
+      <h2>4. 服务端段生成与撤回状态机</h2>
+      <p>服务端新增 <code>SegmentedFileDownlinkSession</code>，挂在 WebRTC callee / upstream call 生命周期下：</p>
+      <pre><code>CallDownlinkSession
+  call_id
+  workspace_id
+  mode: "file_segments" | "webrtc_track"
+  currentTurn: {
+    turn_id
+    generation
+    next_segment_id
+    segments: [
+      { segment_id, text, status: planned|synthesizing|sent|retracted|played? }
+    ]
+    abortControllers: Map&lt;segment_id, AbortController&gt;
+  }
+
+on orch_reply / speculative_reply:
+  split text into short segments
+  for each segment:
+    allocate segment_id
+    send segment_open
+    synthesize TTS with abort support
+    send segment_chunk...
+    send segment_ready
+
+on generation superseded:
+  abort in-flight GLM/TTS for old generation
+  send retract from first affected segment_id
+  create new generation and resend from correction point</code></pre>
+
+      <h3>分段粒度</h3>
+      <ul>
+        <li>第一版按短句切：中文标点 <code>。！？；</code>、逗号后长度足够时切；每段建议 6-18 个中文字。</li>
+        <li>过短片段合并，避免播放器频繁 replace 带来空隙；过长句再按 18-24 字软切。</li>
+        <li>每段 TTS 独立文件。缺点是段间可能有轻微停顿；收益是撤回窗口短、音量走媒体播放。</li>
+      </ul>
+
+      <h2>5. 投机生成如何接 Phase 1 VoiceIntentSession</h2>
+      <p>
+        Phase 1 的 <code>voice-intent-front.ts</code> 已有结构化 verdict、generation、latest-wins、handoff 闸。
+        Phase 2d 才让它驱动下行，规则如下：
+      </p>
+      <ul>
+        <li><code>likely_complete/complete + should_speculate_tts</code>：生成 speculative reply 段，但只入 App hold 队列，不立即播。</li>
+        <li>语义 key 改变导致 generation+1：服务端 abort 旧 GLM/TTS，向 App 发 <code>retract</code>，再发新 generation 段。</li>
+        <li><code>complete + escalate + confidence>=0.75</code>：只触发一次 PM handoff，且 handoff 内容必须是 <code>distilled_intent</code>，不是 partial 碎片。</li>
+        <li>PM / orchestrator 最终回复回来后，作为更高置信 generation 或新的 turn 段进入同一队列；如果前台已播“我去安排”，最终结果可作为后续段播放。</li>
+      </ul>
+      <div class="box warn">
+        <strong>取消纪律：</strong>撤回不仅是 App 丢段，服务端也必须真 abort in-flight GLM 请求和 TTS
+        合成；旧 generation 的 TTS 完成后必须检查 generation，不得再发送 segment_ready。
+      </div>
+
+      <h2>6. WebRTC 下行保留开关</h2>
+      <p>新增服务端和移动端一致的下行模式开关：</p>
+      <pre><code>HIVE_WEBRTC_DOWNLINK_MODE=file_segments | webrtc_track | dual_shadow
+EXPO_PUBLIC_WEBRTC_DOWNLINK_MODE=file_segments | webrtc_track | dual_shadow</code></pre>
+      <ul>
+        <li><code>file_segments</code>：默认。不开 WebRTC downlink audio track；AI 下行全走文件分段。</li>
+        <li><code>webrtc_track</code>：保留旧能力，继续 <code>createWebRtcDownlinkAudio</code> + remote track。</li>
+        <li><code>dual_shadow</code>：只给诊断包用。WebRTC track 可继续生成但 App 默认静音/不播，比较延迟和日志，不给用户日常包开。</li>
+      </ul>
+      <p>
+        <code>src/cli/hive.ts</code> 当前直接把 <code>downlinkAudio:createWebRtcDownlinkAudio(...)</code>
+        注入 callee。实现时应改为按 <code>HIVE_WEBRTC_DOWNLINK_MODE</code> 选择：默认不注入
+        <code>downlinkAudio</code>，而注入新的 <code>segmentedFileDownlink</code>。
+      </p>
+
+      <h2>7. 分阶段实现路线</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>阶段</th>
+            <th>目标</th>
+            <th>主要文件</th>
+            <th>验收</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>2a：通话回复走文件播放</td>
+            <td>不做分段撤回，先把 WebRTC 通话 AI 回复从 remote track 改到文件播放，验证响度和清晰度。</td>
+            <td><code>src/cli/hive.ts</code>、新增 <code>webrtc-file-downlink.ts</code>、<code>relay-connector.ts</code>、<code>mobile-runtime-context.tsx</code>、<code>app/call.tsx</code></td>
+            <td>真机通话中 AI 声音接近对讲念回；WebRTC 上行 STT 不回归；flag 切回 <code>webrtc_track</code> 仍可用。</td>
+          </tr>
+          <tr>
+            <td>2b：短句分段协议</td>
+            <td>每条回复切成多个独立音频段，App 队列串行播放。</td>
+            <td><code>voice-downlink-segment-protocol.ts</code>、<code>relay-transport.ts</code>、<code>segmented-file-downlink-player.ts</code></td>
+            <td>2-3 段回复按序播放，无叠音；段间空隙可接受；单测覆盖乱序 chunk 重组。</td>
+          </tr>
+          <tr>
+            <td>2c：撤回协议</td>
+            <td>支持 <code>retract segment_id>=N</code>，未播丢弃，在播不打断。</td>
+            <td>同 2b + 服务端段注册表</td>
+            <td>构造旧 generation 第 2/3 段未播时撤回，App 只播新段；正在播段不中断。</td>
+          </tr>
+          <tr>
+            <td>2d：投机生成接入</td>
+            <td>接 <code>VoiceIntentSession</code> verdict，likely_complete 先算段，用户停说话即播最新 generation。</td>
+            <td><code>webrtc-upstream-audio.ts</code>、<code>voice-intent-front.ts</code>、新 downlink session</td>
+            <td>shadow 日志证明 GLM 判定可靠后开启；旧 generation 不抢播；PM handoff 只吃完整 <code>distilled_intent</code>。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>8. 测试与风险</h2>
+      <h3>测试计划</h3>
+      <ul>
+        <li>协议单测：segment 帧 schema、chunk 重组、retract 语义、generation latest-wins。</li>
+        <li>App 队列单测：hold/release、在播不撤、未播撤回、旧 generation 丢弃、播放完成接下一段。</li>
+        <li>服务端单测：TTS 失败发 error、abort 后不发 ready、mode flag 选择 file vs WebRTC。</li>
+        <li>真机验收：响度/清晰度、barge-in、用户停说话后首段启动延迟、段间 gap。</li>
+      </ul>
+      <h3>主要风险</h3>
+      <ul>
+        <li>文件段播放不是 WebRTC remote track，严格意义上不是同一媒体通道；但这是为响度和撤回能力主动取舍。</li>
+        <li>段太短会有播放器切换 gap；段太长会降低撤回精度。需要真机日志调 6-18 字的默认段长。</li>
+        <li>如果播放前强制 <code>allowsRecording:false</code>，barge-in 监听可能受影响；2a 要先验“响度”，barge-in 联动单独跟进。</li>
+        <li>relay E2E 数据通道承载音频文件段会增加 data 帧流量；但短段 MP3 通常可控，且比 WebRTC 下行音质问题更可控。</li>
+      </ul>
+
+      <div class="box ok">
+        <strong>推荐拍板：</strong>先派 2a，只做“通话 AI 回复走文件播放路 + flag 保留 WebRTC
+        下行”，不做投机和撤回。若 2a 真机响度/清晰度过关，再派 2b/2c 做分段与撤回，最后接
+        Phase 1 VoiceIntentSession 的投机驱动。
+      </div>
+    </main>
+  </body>
+</html>
