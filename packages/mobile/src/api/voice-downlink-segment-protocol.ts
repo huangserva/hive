@@ -1,4 +1,8 @@
-export type VoiceDownlinkSegmentOperation = 'interrupt' | 'segment_chunk' | 'segment_open'
+export type VoiceDownlinkSegmentOperation =
+  | 'interrupt'
+  | 'retract'
+  | 'segment_chunk'
+  | 'segment_open'
 
 export interface VoiceDownlinkSegmentFrame {
   call_id: string
@@ -10,6 +14,7 @@ export interface VoiceDownlinkSegmentFrame {
   mime?: string
   op: VoiceDownlinkSegmentOperation
   payload?: string
+  retract_generation?: number
   segment_id: number
   seq: number
   text?: string
@@ -31,6 +36,7 @@ export interface VoiceDownlinkSegmentAudioResult {
 
 const OPERATIONS = new Set<VoiceDownlinkSegmentOperation>([
   'interrupt',
+  'retract',
   'segment_chunk',
   'segment_open',
 ])
@@ -38,6 +44,11 @@ const OPERATIONS = new Set<VoiceDownlinkSegmentOperation>([
 export const isVoiceDownlinkSegmentFrame = (value: unknown): value is VoiceDownlinkSegmentFrame => {
   if (typeof value !== 'object' || value === null) return false
   const frame = value as Partial<VoiceDownlinkSegmentFrame>
+  const hasValidRetractGeneration =
+    frame.op !== 'retract' ||
+    (typeof frame.retract_generation === 'number' &&
+      Number.isInteger(frame.retract_generation) &&
+      frame.retract_generation >= 0)
   return (
     frame.type === 'voice_downlink_segment' &&
     typeof frame.call_id === 'string' &&
@@ -54,7 +65,8 @@ export const isVoiceDownlinkSegmentFrame = (value: unknown): value is VoiceDownl
     Number.isInteger(frame.seq) &&
     frame.seq >= 0 &&
     typeof frame.op === 'string' &&
-    OPERATIONS.has(frame.op as VoiceDownlinkSegmentOperation)
+    OPERATIONS.has(frame.op as VoiceDownlinkSegmentOperation) &&
+    hasValidRetractGeneration
   )
 }
 
@@ -68,6 +80,7 @@ export const createVoiceDownlinkSegmentFrame = (
     isFinal?: boolean
     mime?: string
     payload?: string
+    retractGeneration?: number
     segmentId: number
     seq: number
     text?: string
@@ -79,6 +92,7 @@ export const createVoiceDownlinkSegmentFrame = (
   ...(input.isFinal !== undefined ? { is_final: input.isFinal } : {}),
   ...(input.mime !== undefined ? { mime: input.mime } : {}),
   ...(input.payload !== undefined ? { payload: input.payload } : {}),
+  ...(input.retractGeneration !== undefined ? { retract_generation: input.retractGeneration } : {}),
   ...(input.text !== undefined ? { text: input.text } : {}),
   call_id: input.callId,
   generation: input.generation,
@@ -178,6 +192,7 @@ export const createVoiceDownlinkSegmentReassemblerCache = ({
       updatedAtMs: number
     }
   >()
+  const retractedGenerationByCall = new Map<string, number>()
 
   const cleanup = (nowMs = Date.now()) => {
     for (const [key, entry] of entries) {
@@ -198,12 +213,29 @@ export const createVoiceDownlinkSegmentReassemblerCache = ({
     }
   }
 
+  const clearRetractedGenerations = (callId: string, retractGeneration: number) => {
+    const previous = retractedGenerationByCall.get(callId)
+    retractedGenerationByCall.set(
+      callId,
+      previous === undefined ? retractGeneration : Math.max(previous, retractGeneration)
+    )
+    for (const [key, entry] of entries) {
+      if (entry.frame.call_id === callId && entry.frame.generation <= retractGeneration) {
+        entries.delete(key)
+      }
+    }
+  }
+
   return {
     accept(
       frame: VoiceDownlinkSegmentFrame,
       nowMs = Date.now()
     ): VoiceDownlinkSegmentAudioResult | null {
       cleanup(nowMs)
+      const retractedGeneration = retractedGenerationByCall.get(frame.call_id)
+      if (retractedGeneration !== undefined && frame.generation <= retractedGeneration) {
+        return null
+      }
       clearOlderGenerations(frame)
       const key = cacheKeyForFrame(frame)
       let entry = entries.get(key)
@@ -230,7 +262,9 @@ export const createVoiceDownlinkSegmentReassemblerCache = ({
     cleanup,
     clear() {
       entries.clear()
+      retractedGenerationByCall.clear()
     },
+    clearRetractedGenerations,
     size() {
       return entries.size
     },

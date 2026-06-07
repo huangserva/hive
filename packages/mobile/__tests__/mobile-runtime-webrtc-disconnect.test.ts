@@ -22,6 +22,7 @@ const reassemblerMock = vi.hoisted(() => ({
   cache: {
     accept: vi.fn(),
     clear: vi.fn(),
+    clearRetractedGenerations: vi.fn(),
     cleanup: vi.fn(),
     size: vi.fn(() => 0),
   },
@@ -282,6 +283,91 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
 
     expect(audioMock.player.replace).toHaveBeenLastCalledWith({
       uri: 'data:audio/mpeg;base64,second-audio',
+    })
+    expect(audioMock.player.play).toHaveBeenCalledTimes(2)
+  })
+
+  test('file_segments retract frame clears unplayed older generations without pausing current playback', async () => {
+    let runtime: Runtime | null = null
+    render(
+      React.createElement(
+        MobileRuntimeProvider,
+        null,
+        React.createElement(Probe, { onRuntime: (next) => (runtime = next) })
+      )
+    )
+
+    await waitFor(() => expect(runtime?.selectedWorkspaceId).toBe('workspace-1'))
+    await act(async () => {
+      await requireRuntime(runtime).startWebRtcTestCall()
+    })
+
+    reassemblerMock.cache.accept.mockReturnValueOnce({
+      audio: 'playing-audio',
+      call_id: 'call-1',
+      format: 'mp3',
+      generation: 2,
+      is_final: true,
+      mime: 'audio/mpeg',
+      segment_id: 1,
+      turn_id: 'turn-playing',
+    })
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        generation: 2,
+        op: 'segment_chunk',
+        segment_id: 1,
+        seq: 1,
+        turn_id: 'turn-playing',
+        type: 'voice_downlink_segment',
+      })
+    })
+    expect(audioMock.player.play).toHaveBeenCalledTimes(1)
+
+    audioMock.player.pause.mockClear()
+    reassemblerMock.cache.clear.mockClear()
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        generation: 4,
+        op: 'retract',
+        retract_generation: 3,
+        segment_id: 0,
+        seq: 0,
+        turn_id: 'turn-retract',
+        type: 'voice_downlink_segment',
+      })
+    })
+
+    expect(reassemblerMock.cache.clearRetractedGenerations).toHaveBeenCalledWith('call-1', 3)
+    expect(reassemblerMock.cache.clear).not.toHaveBeenCalled()
+    expect(audioMock.player.pause).not.toHaveBeenCalled()
+
+    reassemblerMock.cache.accept.mockReturnValueOnce({
+      audio: 'new-audio',
+      call_id: 'call-1',
+      format: 'mp3',
+      generation: 4,
+      is_final: true,
+      mime: 'audio/mpeg',
+      segment_id: 2,
+      turn_id: 'turn-new',
+    })
+    await act(async () => {
+      relayMock.segmentListener?.({
+        call_id: 'call-1',
+        generation: 4,
+        op: 'segment_chunk',
+        segment_id: 2,
+        seq: 1,
+        turn_id: 'turn-new',
+        type: 'voice_downlink_segment',
+      })
+    })
+
+    expect(audioMock.player.replace).toHaveBeenLastCalledWith({
+      uri: 'data:audio/mpeg;base64,new-audio',
     })
     expect(audioMock.player.play).toHaveBeenCalledTimes(2)
   })

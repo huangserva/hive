@@ -1180,6 +1180,19 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
         })
         return
       }
+      if (frame.op === 'retract') {
+        webRtcDownlinkSegmentReassemblersRef.current.clearRetractedGenerations(
+          frame.call_id,
+          frame.retract_generation ?? frame.generation
+        )
+        console.log('[WEBRTCDBG] file_downlink_retracted', {
+          callId: frame.call_id,
+          generation: frame.generation,
+          retractGeneration: frame.retract_generation ?? frame.generation,
+          turnId: frame.turn_id,
+        })
+        return
+      }
       const result = webRtcDownlinkSegmentReassemblersRef.current.accept(frame)
       if (!result) return
       void playWebRtcFileDownlinkAudio(result).catch((error) => {

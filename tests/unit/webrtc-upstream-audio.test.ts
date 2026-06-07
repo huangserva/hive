@@ -13,7 +13,6 @@ import {
   injectWebRtcVoiceTranscript,
 } from '../../src/server/webrtc-upstream-audio.js'
 import {
-  buildVoiceTurnTimelineLog,
   claimWebRtcVoiceLatencyTurnForMessage,
   markWebRtcVoiceLatency,
   resetWebRtcVoiceLatencyForTests,
@@ -96,8 +95,10 @@ const acceptedVoiceIntentUpdate = (overrides: {
   completeness?: 'complete' | 'incomplete' | 'likely_complete'
   confidence?: number
   distilledIntent?: string
+  intentGeneration?: number
   handoff?: boolean
   replyText?: string
+  shouldSpeculateTts?: boolean
 }) => {
   const action = overrides.action ?? 'handled'
   const completeness = overrides.completeness ?? 'complete'
@@ -110,7 +111,7 @@ const acceptedVoiceIntentUpdate = (overrides: {
           handoff: {
             confidence,
             distilledIntent,
-            intentGeneration: 1,
+            intentGeneration: overrides.intentGeneration ?? 1,
             transcript: 'raw transcript',
             turnId: 'call-1',
           },
@@ -122,10 +123,10 @@ const acceptedVoiceIntentUpdate = (overrides: {
       completeness,
       confidence,
       distilled_intent: distilledIntent,
-      intent_generation: 1,
+      intent_generation: overrides.intentGeneration ?? 1,
       reason: 'test',
       reply_text: replyText,
-      should_speculate_tts: false,
+      should_speculate_tts: overrides.shouldSpeculateTts ?? false,
     },
   }
 }
@@ -263,6 +264,7 @@ describe('WebRTC upstream audio sink', () => {
       },
       {
         contentJson: JSON.stringify({
+          intent_generation: 1,
           source: 'voice_intent_front',
           text: '懂了，这个我转给主管。',
           voice_intent: true,
@@ -314,6 +316,7 @@ describe('WebRTC upstream audio sink', () => {
       }),
       expect.objectContaining({
         contentJson: JSON.stringify({
+          intent_generation: 1,
           source: 'voice_intent_front',
           text: '关羽在处理通话延迟，赵云在看回声。',
           voice_intent: true,
@@ -334,7 +337,7 @@ describe('WebRTC upstream audio sink', () => {
     expect(claimed?.turnId).toBe(turn.turnId)
   })
 
-  test('voice intent incomplete can speak a short reply but does not record a completed turn or forward to PM', async () => {
+  test('voice intent incomplete stays silent instead of speaking over fragments', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
 
@@ -351,25 +354,16 @@ describe('WebRTC upstream audio sink', () => {
     })
 
     expect(store.inputs).toEqual([])
-    expect(store.chat).toEqual([
-      {
-        contentJson: JSON.stringify({
-          source: 'voice_intent_front',
-          text: '你继续说，我在听。',
-          voice_intent: true,
-        }),
-        direction: 'outbound',
-        messageType: 'orch_reply',
-        workspaceId: 'workspace-1',
-      },
-    ])
+    expect(store.chat).toEqual([])
   })
 
-  test('voice intent likely complete reply binds the latency turn for downlink totals', async () => {
+  test('voice intent likely complete stays silent and finishes without downlink audio', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(1_200)
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
+    const completedTurns: string[] = []
     const turn = startWebRtcVoiceLatencyTurn({
       callId: 'call-likely',
       now: 1_000,
@@ -381,6 +375,8 @@ describe('WebRTC upstream audio sink', () => {
 
     await injectWebRtcVoiceTranscript({
       latencyTurnId: turn.turnId,
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
+      onTurnComplete: (turnId) => completedTurns.push(turnId),
       store,
       text: '现在这个通话',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -392,13 +388,16 @@ describe('WebRTC upstream audio sink', () => {
       workspaceId: 'workspace-1',
     })
 
-    const claimed = claimWebRtcVoiceLatencyTurnForMessage('message-1')
-    expect(claimed?.turnId).toBe(turn.turnId)
-    expect(claimed?.branch).toBe('handled')
-    vi.setSystemTime(1_900)
-    const completed = markWebRtcVoiceLatency(claimed?.turnId, { firstDownlinkFrameAt: Date.now() })
-    expect(completed && buildVoiceTurnTimelineLog(completed)).toContain(
-      'dispatch_to_downlink_ms=700 total_speech_to_audio_ms=1200'
+    expect(store.chat).toEqual([])
+    expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')).toBeNull()
+    expect(completedTurns).toEqual([turn.turnId])
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voice turn timeline: call_id=call-likely turn=call-likely-turn-1 branch=incomplete'
+        ),
+        expect.stringContaining('total_speech_to_audio_ms=na'),
+      ])
     )
   })
 
@@ -501,6 +500,7 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.chat.at(1)?.contentJson).toBe(
       JSON.stringify({
+        intent_generation: 1,
         source: 'voice_intent_front',
         text: '这个我转给主管。',
         voice_intent: true,
@@ -546,6 +546,7 @@ describe('WebRTC upstream audio sink', () => {
     expect(store.inputs[0]?.text).not.toContain('内部语音延迟追踪')
     expect(store.chat.at(1)?.contentJson).toBe(
       JSON.stringify({
+        intent_generation: 1,
         source: 'voice_intent_front',
         text: '这个我让团队上，马上',
         voice_intent: true,
@@ -621,6 +622,7 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.chat.at(1)?.contentJson).toBe(
       JSON.stringify({
+        intent_generation: 1,
         source: 'voice_intent_front',
         text: '这里的 handled 和 escalate 是英文状态词。',
         voice_intent: true,
@@ -652,9 +654,10 @@ describe('WebRTC upstream audio sink', () => {
     expect(store.inputs[0]?.text).toContain('让关羽汇报进度')
   })
 
-  test('intent front final without a verdict uses the safe reply instead of the legacy gatekeeper', async () => {
+  test('intent front final without a verdict stays silent instead of using legacy gatekeeper or holding speech', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const completedTurns: string[] = []
     const provider = {
       generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n收到，我转主管。'),
     }
@@ -667,6 +670,7 @@ describe('WebRTC upstream audio sink', () => {
     await injectWebRtcVoiceTranscript({
       fastVoiceReplyProvider: provider,
       latencyTurnId: turn.turnId,
+      onTurnComplete: (turnId) => completedTurns.push(turnId),
       store,
       text: '继续查这个问题',
       workspaceId: 'workspace-1',
@@ -679,18 +683,9 @@ describe('WebRTC upstream audio sink', () => {
         text: expect.stringContaining('继续查这个问题'),
       }),
     ])
-    expect(store.chat).toEqual([
-      expect.objectContaining({
-        direction: 'outbound',
-        messageType: 'orch_reply',
-      }),
-    ])
-    expect(JSON.parse(store.chat[0]?.contentJson ?? '{}')).toEqual({
-      source: 'voice_intent_front',
-      text: '我听到了，先继续说。',
-      voice_intent: true,
-    })
-    expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')?.turnId).toBe('call-1-turn-1')
+    expect(store.chat).toEqual([])
+    expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')).toBeNull()
+    expect(completedTurns).toEqual([turn.turnId])
   })
 
   test('segments live PCM into utterances and injects each transcript before the call closes', async () => {
@@ -1282,18 +1277,8 @@ describe('WebRTC upstream audio sink', () => {
         text: '[来自手机 Mobile App]\n---\n让关羽帮我处理一下通话延迟',
       }),
     ])
-    expect(store.chat).toEqual([
-      expect.objectContaining({
-        contentJson: JSON.stringify({
-          source: 'voice_intent_front',
-          text: '我听到了，先继续说。',
-          voice_intent: true,
-        }),
-        direction: 'outbound',
-        messageType: 'orch_reply',
-      }),
-    ])
-    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing'])
+    expect(store.chat).toEqual([])
+    expect(sentStates.map((frame) => frame.phase)).toEqual(['processing', 'listening'])
   })
 
   test('feeds streaming partial and final text into the voice intent shadow session and only logs verdicts', async () => {
@@ -1441,6 +1426,153 @@ describe('WebRTC upstream audio sink', () => {
     expect(closeIntentSession).toHaveBeenCalledTimes(1)
   })
 
+  test('speculates from a complete streaming partial without waiting for final and deduplicates generation', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const evaluate = vi.fn().mockResolvedValue(
+      acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'complete',
+        confidence: 0.91,
+        intentGeneration: 7,
+        replyText: '可以，我直接回答。',
+        shouldSpeculateTts: true,
+      })
+    )
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate,
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: { info: () => {}, warn: () => {} },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-spec',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+
+    await capturedOptions.onPartial('这个问题已经完整了')
+    await capturedOptions.onPartial('这个问题已经完整了')
+
+    const outboundReplies = store.chat.filter(
+      (message) => message.direction === 'outbound' && message.messageType === 'orch_reply'
+    )
+    expect(outboundReplies).toHaveLength(1)
+    expect(JSON.parse(outboundReplies[0]?.contentJson ?? '{}')).toEqual({
+      intent_generation: 7,
+      source: 'voice_intent_front',
+      text: '可以，我直接回答。',
+      voice_intent: true,
+    })
+    expect(store.inputs).toEqual([
+      expect.objectContaining({
+        options: { forwardToOrchestrator: false },
+        text: '[来自手机 Mobile App]\n---\n这个问题已经完整了',
+      }),
+    ])
+    await session.close()
+  })
+
+  test('speculative complete escalate sends handoff to PM while inserting the spoken acknowledgement', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      createVoiceIntentSession: () => ({
+        close: vi.fn(),
+        evaluate: vi.fn().mockResolvedValue(
+          acceptedVoiceIntentUpdate({
+            action: 'escalate',
+            completeness: 'complete',
+            confidence: 0.92,
+            distilledIntent: '让关羽立刻检查通话延迟',
+            handoff: true,
+            intentGeneration: 3,
+            replyText: '好，这个我转给主管。',
+            shouldSpeculateTts: true,
+          })
+        ),
+      }),
+      loadAudioSink: async () => FakeAudioSink,
+      logger: { info: () => {}, warn: () => {} },
+      store,
+      tempRoot: tmpdir(),
+    })
+
+    const session = await sink.start({
+      callId: 'call-spec-escalate',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions?.onPartial) throw new Error('streaming partial callback was not captured')
+
+    await capturedOptions.onPartial('让关羽立刻检查通话延迟')
+
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          source: 'webrtc_call',
+          text: '让关羽立刻检查通话延迟',
+        }),
+        direction: 'inbound',
+      }),
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          intent_generation: 3,
+          source: 'voice_intent_front',
+          text: '好，这个我转给主管。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+      }),
+    ])
+    expect(store.inputs).toEqual([
+      expect.objectContaining({
+        text: '[来自手机 Mobile App]\n---\n让关羽立刻检查通话延迟',
+      }),
+    ])
+    await session.close()
+  })
+
   test('truncates voice intent shadow transcript text in logs', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
@@ -1564,17 +1696,7 @@ describe('WebRTC upstream audio sink', () => {
         workerId: 'workspace-1:orchestrator',
       },
     ])
-    expect(store.chat).toEqual([
-      expect.objectContaining({
-        contentJson: JSON.stringify({
-          source: 'voice_intent_front',
-          text: '我听到了，先继续说。',
-          voice_intent: true,
-        }),
-        direction: 'outbound',
-        messageType: 'orch_reply',
-      }),
-    ])
+    expect(store.chat).toEqual([])
     expect(warnings).toEqual(
       expect.arrayContaining([expect.arrayContaining(['voice intent shadow evaluation failed'])])
     )

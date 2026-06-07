@@ -246,6 +246,39 @@ describe('relay transport', () => {
     expect(voiceFrames).toEqual([])
   })
 
+  test('routes inbound voice_downlink_segment retract frames to downlink listeners', async () => {
+    const { channel, socket, transport } = await setupReadyRelay()
+    const downlinkFrames: unknown[] = []
+    transport.onVoiceDownlinkSegmentFrame((frame) => downlinkFrames.push(frame))
+
+    socket.receive({
+      payload: channel.encrypt(
+        encodeJson(
+          createVoiceDownlinkSegmentFrame('retract', {
+            callId: 'call-1',
+            generation: 5,
+            retractGeneration: 4,
+            segmentId: 0,
+            seq: 0,
+            turnId: 'turn-1',
+          })
+        )
+      ),
+      type: 'data',
+    })
+
+    expect(downlinkFrames).toEqual([
+      expect.objectContaining({
+        call_id: 'call-1',
+        generation: 5,
+        op: 'retract',
+        retract_generation: 4,
+        turn_id: 'turn-1',
+        type: 'voice_downlink_segment',
+      }),
+    ])
+  })
+
   test('routes inbound voice_call_state frames to call-state listeners only', async () => {
     const { channel, socket, transport } = await setupReadyRelay()
     const callStateFrames: unknown[] = []

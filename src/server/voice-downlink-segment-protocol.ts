@@ -1,4 +1,8 @@
-export type VoiceDownlinkSegmentOperation = 'interrupt' | 'segment_chunk' | 'segment_open'
+export type VoiceDownlinkSegmentOperation =
+  | 'interrupt'
+  | 'retract'
+  | 'segment_chunk'
+  | 'segment_open'
 
 export interface VoiceDownlinkSegmentFrame {
   call_id: string
@@ -10,6 +14,7 @@ export interface VoiceDownlinkSegmentFrame {
   mime?: string
   op: VoiceDownlinkSegmentOperation
   payload?: string
+  retract_generation?: number
   segment_id: number
   seq: number
   text?: string
@@ -31,6 +36,7 @@ export interface VoiceDownlinkSegmentAudioResult {
 
 const OPERATIONS = new Set<VoiceDownlinkSegmentOperation>([
   'interrupt',
+  'retract',
   'segment_chunk',
   'segment_open',
 ])
@@ -68,6 +74,7 @@ export const createVoiceDownlinkSegmentFrame = (
     isFinal?: boolean
     mime?: string
     payload?: string
+    retractGeneration?: number
     segmentId: number
     seq: number
     text?: string
@@ -79,6 +86,7 @@ export const createVoiceDownlinkSegmentFrame = (
   ...(input.isFinal !== undefined ? { is_final: input.isFinal } : {}),
   ...(input.mime !== undefined ? { mime: input.mime } : {}),
   ...(input.payload !== undefined ? { payload: input.payload } : {}),
+  ...(input.retractGeneration !== undefined ? { retract_generation: input.retractGeneration } : {}),
   ...(input.text !== undefined ? { text: input.text } : {}),
   call_id: input.callId,
   generation: input.generation,

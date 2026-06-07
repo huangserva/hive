@@ -23,9 +23,17 @@ const createMessage = (text: string): MobileChatMessage => ({
   workspace_id: 'workspace-1',
 })
 
-const createVoiceIntentFrontMessage = (text: string): MobileChatMessage => ({
+const createVoiceIntentFrontMessage = (
+  text: string,
+  intentGeneration?: number
+): MobileChatMessage => ({
   ...createMessage(text),
-  content_json: JSON.stringify({ source: 'voice_intent_front', text, voice_intent: true }),
+  content_json: JSON.stringify({
+    ...(intentGeneration !== undefined ? { intent_generation: intentGeneration } : {}),
+    source: 'voice_intent_front',
+    text,
+    voice_intent: true,
+  }),
   id: 'front-message-1',
 })
 
@@ -193,6 +201,229 @@ describe('WebRTC file downlink audio', () => {
     await session.flush()
     expect(sent).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ turn_id: 'message-first' })])
+    )
+    await session.close()
+  })
+
+  test('serializes voice intent front and PM replies so they do not play at the same time', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    let resolveFront: (value: {
+      audio: Buffer
+      format: string
+      mime: string
+      provider: 'edge-tts'
+    }) => void = () => {}
+    const pendingFront = new Promise<{
+      audio: Buffer
+      format: string
+      mime: string
+      provider: 'edge-tts'
+    }>((resolve) => {
+      resolveFront = resolve
+    })
+    const synthesizeCalls: string[] = []
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => {
+          synthesizeCalls.push(text)
+          if (text === '我转给主管。') return pendingFront
+          return {
+            audio: Buffer.from('pm-audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts' as const,
+          }
+        },
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+    })
+    const session = await downlink.startCall({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+
+    emitMessage(listener, 'workspace-1', createVoiceIntentFrontMessage('我转给主管。'))
+    emitMessage(listener, 'workspace-1', {
+      ...createMessage('PM 回复'),
+      id: 'pm-message-1',
+    })
+    await Promise.resolve()
+
+    expect(synthesizeCalls).toEqual(['我转给主管。'])
+    expect(sent.filter((frame) => frame.type === 'voice_downlink_segment')).toEqual([])
+
+    resolveFront({
+      audio: Buffer.from('front-audio'),
+      format: 'mp3',
+      mime: 'audio/mpeg',
+      provider: 'edge-tts',
+    })
+    await session.flush()
+
+    expect(synthesizeCalls).toEqual(['我转给主管。', 'PM 回复'])
+    expect(
+      sent
+        .filter(
+          (frame): frame is VoiceDownlinkSegmentFrame => frame.type === 'voice_downlink_segment'
+        )
+        .map((frame) => frame.turn_id)
+    ).toEqual(expect.arrayContaining(['front-message-1', 'pm-message-1']))
+    await session.close()
+  })
+
+  test('retracts an unsent speculative generation when a newer intent generation arrives', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    let resolveOld: (value: {
+      audio: Buffer
+      format: string
+      mime: string
+      provider: 'edge-tts'
+    }) => void = () => {}
+    const oldTts = new Promise<{
+      audio: Buffer
+      format: string
+      mime: string
+      provider: 'edge-tts'
+    }>((resolve) => {
+      resolveOld = resolve
+    })
+    const synthesizeCalls: string[] = []
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => {
+          synthesizeCalls.push(text)
+          if (text === '旧投机回复') return oldTts
+          return {
+            audio: Buffer.from('new-audio'),
+            format: 'mp3',
+            mime: 'audio/mpeg',
+            provider: 'edge-tts' as const,
+          }
+        },
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+    })
+    const session = await downlink.startCall({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('旧投机回复', 1),
+      id: 'front-old',
+    })
+    await Promise.resolve()
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('新投机回复', 2),
+      id: 'front-new',
+    })
+    await session.flush()
+
+    expect(synthesizeCalls).toEqual(['旧投机回复', '新投机回复'])
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          generation: 1,
+          op: 'retract',
+          retract_generation: 0,
+          type: 'voice_downlink_segment',
+        }),
+        expect.objectContaining({
+          generation: 1,
+          op: 'segment_open',
+          turn_id: 'front-new',
+          type: 'voice_downlink_segment',
+        }),
+      ])
+    )
+    expect(sent).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ turn_id: 'front-old' })])
+    )
+
+    resolveOld({
+      audio: Buffer.from('old-audio'),
+      format: 'mp3',
+      mime: 'audio/mpeg',
+      provider: 'edge-tts',
+    })
+    await session.flush()
+    expect(sent).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ turn_id: 'front-old' })])
+    )
+    await session.close()
+  })
+
+  test('does not retract a speculative generation after it has started playing', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => ({
+          audio: Buffer.from(`${text}-audio`),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts' as const,
+        }),
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+    })
+    const session = await downlink.startCall({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('已开播回复', 1),
+      id: 'front-playing',
+    })
+    await session.flush()
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('后续回复', 2),
+      id: 'front-next',
+    })
+    await session.flush()
+
+    expect(sent).not.toEqual(expect.arrayContaining([expect.objectContaining({ op: 'retract' })]))
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ turn_id: 'front-playing', type: 'voice_downlink_segment' }),
+        expect.objectContaining({ turn_id: 'front-next', type: 'voice_downlink_segment' }),
+      ])
     )
     await session.close()
   })

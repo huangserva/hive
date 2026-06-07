@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 
 import {
+  createVoiceDownlinkSegmentFrame,
   createVoiceDownlinkSegmentReassembler,
   createVoiceDownlinkSegmentReassemblerCache,
   isVoiceDownlinkSegmentFrame,
@@ -127,5 +128,28 @@ describe('voice downlink segment protocol', () => {
     expect(cache.size()).toBe(1)
     cache.accept({ ...base, generation: 2 }, 1)
     expect(cache.size()).toBe(1)
+  })
+
+  test('creates a retract frame for dropping unsent speculative generations', () => {
+    const frame = createVoiceDownlinkSegmentFrame('retract', {
+      callId: 'call-1',
+      generation: 4,
+      retractGeneration: 3,
+      segmentId: 0,
+      seq: 0,
+      turnId: 'retract-4',
+    })
+
+    expect(isVoiceDownlinkSegmentFrame(frame)).toBe(true)
+    expect(frame).toMatchObject({
+      call_id: 'call-1',
+      generation: 4,
+      op: 'retract',
+      retract_generation: 3,
+      segment_id: 0,
+      seq: 0,
+      turn_id: 'retract-4',
+      type: 'voice_downlink_segment',
+    })
   })
 })

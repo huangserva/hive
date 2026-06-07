@@ -89,6 +89,59 @@ describe('WebRTC file downlink reassembler cache', () => {
     cache.cleanup(111)
     expect(cache.size()).toBe(0)
   })
+
+  test('retracts incomplete segments at or below the requested generation without affecting newer segments', () => {
+    const cache = createVoiceDownlinkSegmentReassemblerCache({ maxEntries: 10, ttlMs: 1_000 })
+    const frame = {
+      call_id: 'call-1',
+      op: 'segment_chunk' as const,
+      payload: 'a',
+      segment_id: 1,
+      seq: 1,
+      turn_id: 'turn-1',
+      type: 'voice_downlink_segment' as const,
+    }
+
+    cache.accept({ ...frame, generation: 2 }, 0)
+    cache.accept({ ...frame, generation: 3, segment_id: 2 }, 10)
+    cache.accept({ ...frame, call_id: 'other-call', generation: 2, segment_id: 3 }, 20)
+
+    cache.clearRetractedGenerations('call-1', 2)
+
+    expect(cache.size()).toBe(2)
+    expect(
+      cache.accept(
+        {
+          ...frame,
+          done: true,
+          generation: 2,
+          payload: 'late',
+          seq: 1,
+        },
+        30
+      )
+    ).toBeNull()
+    expect(
+      cache.accept(
+        {
+          ...frame,
+          done: true,
+          generation: 3,
+          payload: 'b',
+          segment_id: 2,
+          seq: 2,
+        },
+        40
+      )
+    ).toEqual(
+      expect.objectContaining({
+        audio: 'ab',
+        call_id: 'call-1',
+        generation: 3,
+        segment_id: 2,
+      })
+    )
+  })
 })
 
 describe('WebRTC file downlink cleanup', () => {
