@@ -5,12 +5,12 @@
 
 ## In progress
 
-> 🧹 **2026-06-10｜大批次收口 sprint（当前活跃）**
+> 🧹 **2026-06-10｜大批次收口 sprint — ✅ 完成**
 >
-> 重启后首要任务：工作树 ~60 文件 / +3.8k 行未提交改动（挂 3 天）走完审查后整批分逻辑 commit。审查账已对齐：
-> - ✅ **已放行**：M40 mobile-reply ↔ handoff correlation / 无 correlation 409 硬收口 / CLI `--voice-latency-turn-id`（钟馗 06-09 00:53 + 典韦 78/78）；aliyun hard cut 代码面（钟馗 06-09 08:09 + 典韦 390/390）；M40 第二刀 3 blocking（钟馗 06-08 17:30）。
-> - 🔧 **本 sprint 在途**：关羽修 pairing P0 最后 1 个 blocking（detector/audit research 候选集不一致）；钟馗补审三条未审线（grm allowPmHandoff 补丁 / sentinel team status 契约收口 / L1 dispatch report_overdue 状态机）；马超重刷 runtime-flows.md baseline（上单 orphan 取消重派）；PM 并行跑全量测试。
-> - 全绿后分批 commit；根目录垃圾 `app.json` 已删；`ARCHITECTURE.md` / `packages/relay-crypto/dist/` 随批次入库。
+> 挂 3 天的 ~60 文件 / +3.8k 行未提交改动已全部审查闭环并分 11 个逻辑 commit 收口（`3c91ca9`..`5efc986`）：pairing 统一规则 / aliyun hard cut / M40 手机端播放闸门+retract / relay-crypto dist / sentinel 契约 / GRM Turn Decision contract / PM 文档+ARCHITECTURE.md / 存量红测试修 / M40 服务端下行一致性 / L1 dispatch 状态机+report/mobile-reply 协议硬收口。
+> - 五条审查线全部放行（钟馗多轮 + 典韦验证）；L1 语义裁决：completed=收到明确 team report 关账，旧 reported 行兼容读取。
+> - 全量 root 套件 1765/1766 绿（1 个 tasks-flow flake 单跑 8/8 绿）+ mobile 390/390 绿。
+> - 🔧 **唯一在途尾项**：main 存量 14 个红测试（5 个 PTY/session 文件，基线 `0a83774` 即红，与本批无关），赵云查根因中（dispatch `b837709e`）。
 
 > 🧠 **2026-06-08｜M40 GRM Turn Orchestrator 协议化重写**
 >
@@ -757,7 +757,9 @@
 - [x] **关羽** dispatch `fd78e45c` — 修钟馗对 L1 dispatch 状态机增量审出的 2 个 blocking，最小改动不扩 scope。语义裁决（PM 已定，按原 L1 派单 spec）：completed = 收到明确 team report 关账，你 markRep…
 - [x] **钟馗** dispatch `2a01daef` — 复审关羽对 Cockpit report/research pairing P0 最后 1 个 blocking 的修复（你 06-09 01:26 报的 detector/audit research 候选集不一致），只审不改代码。关羽…
 - [x] **钟馗** dispatch `20aea55d` — 窄项最终确认：关羽已修你审 L1 dispatch 状态机报的 2 个 blocking，请只对这次增量做最终 verdict，可放行就明确写。语义裁决已定（PM 按原派单 spec）：completed = 收到明确 team repo…
-- [ ] **赵云** dispatch `5b1fb459` — 查修 main 上 3 个存量红测试（已坐实在基线 commit 0a83774 就失败，与当前批次无关）。1）tests/unit/mobile-outbox.test.ts 两个失败：dedupes identical actions…
+- [x] **赵云** dispatch `5b1fb459` — 查修 main 上 3 个存量红测试（已坐实在基线 commit 0a83774 就失败，与当前批次无关）。1）tests/unit/mobile-outbox.test.ts 两个失败：dedupes identical actions…
+- [x] **关羽** dispatch `245c5919` — 续修 L1/team 协议契约的测试同步——你修了 tests/unit/team-atomicity.test.ts 但同族失败还有 5 个文件漏掉，安静树全量跑铁证如下，逐个收口：1）tests/unit/team-operation…
+- [ ] **赵云** dispatch `b837709e` — 诊断+修 main 上另一批存量红测试（已用基线 worktree 在 commit 0a83774 复现，与当前未提交批次无关），共 14 个失败 5 个文件：tests/integration/preset-driven-layer-…
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
