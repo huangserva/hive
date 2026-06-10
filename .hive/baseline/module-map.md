@@ -69,7 +69,16 @@
 - feishu-credentials.ts / feishu-bindings-store.ts / feishu-reaction-store.ts — ~/.config/hive/feishu.json；feishu_bindings、feishu_reactions 表。
 - feishu-transport.ts / -utils.ts / -route-resolver.ts / -inbound-handler.ts — lark WSClient inbound/outbound/card；text 切片/card 纯函数；chat→workspace 路由；注入 orch（含图片/附件路径 inbound）。
 - feishu-approval-ledger.ts / routes-feishu.ts — in-memory approval ledger；Feishu UI/internal endpoints（approval-request 现也写 mobile_chat_messages，M28）。
-- local-stt.ts — 本地 STT provider（M14a voice，openclaw 路线）。
+- local-stt.ts — 本地 STT provider（Paraformer/sherpa-onnx 主力，Whisper fallback，仍保留抗幻听防线）。
+- streaming-stt-online.ts — **M39 进行中**：sherpa-onnx OnlineRecognizer 流式 ASR，替代 VAD 批处理等待。
+- local-tts.ts — 本地 TTS provider（edge-tts 晓晓主，piper/say 降级链）。
+- fast-voice-reply.ts — GLM 快嘴前台：voice source 秒回、handled/escalate 门控、失败兜底。
+- relay-voice-stream-tts.ts — relay voice_stream TTS 路径；带 `hasActiveWebRtcCall` 守卫避免双路播放。
+- webrtc-callee.ts — WebRTC 服务端 callee；call 生命周期、answer/ICE、active-call 查询。
+- webrtc-upstream-audio.ts — 上行 audio sink：WebRTC PCM 帧→VAD/流式 STT→注入 orchestrator。
+- webrtc-downlink-audio.ts — 下行 TTS→PCM→WebRTC audio track 推送；包含帧节奏和增益控制。
+- webrtc-signal-protocol.ts — WebRTC offer/answer/candidate/bye 信令帧解析。
+- webrtc-vad.ts — 服务端能量 VAD；切 utterance 给上行 STT。
 
 ### Mobile backend（src/server）
 - routes-mobile.ts — mobile API：token/device CRUD、push-token、dashboard（含 runs.started_at + stale/escalated_dispatches 计数）、tasks、transcript、voice、cockpit（plan/tasks/questions/ideas/actions + baseline/decisions/reports/research/archive）、dispatch/approve/worker controls。
@@ -106,12 +115,17 @@
 - src/api/client.ts — LAN-first HTTP/WS client（LAN cooldown 跳死探、relay fallback）。
 - src/api/relay-transport.ts / relay-transport-registry.ts / relay-device-keys.ts / relay-event-actions.ts — 单例 relay E2E transport（base64 明文握手帧）、注册表防双 transport、设备 keypair、event→action 路由。
 - src/api/mobile-runtime-context.tsx / -context-logic.ts / mobile-outbox.ts / mobile-reconnect-policy.ts / mobile-dispatch-history.ts / mobile-diagnostics.ts — runtime context + 纯逻辑、离线 outbox 队列、重连策略、dispatch 历史、连接诊断面板。
+- src/lib/relay-config-store.ts / connection-qr.ts — relay 配置的持久化 schema、扫码/手填入参组装、SecureStore 读回校验，以及 **legacy `dmit.servasyy.com` → `aliyun.servasyy.com` 的移动端迁移**。
+- src/lib/neural-voice-vad.ts / neural-vad-pcm-probe.ts / silero-vad-shadow.ts — Silero ONNX neural VAD 三阶段：PCM probe、shadow scoring、takeover 判停/打断。
+- src/lib/voice-vad.ts — 统一 VAD 入口；音量 fallback + neural 状态机。
+- src/lib/webrtc-caller.ts / webrtc-audio-interlock.ts / webrtc-incall-manager.ts — WebRTC caller、expo-audio 互斥、Android InCallManager 音频模式。
+- src/lib/webrtc-connection-probe.ts / webrtc-runtime-probe.ts / webrtc-signal-protocol.ts — WebRTC 连接探针、runtime API 可达性、mobile 信令协议。
 - src/cockpit/* / components/* / notifications.ts / config.ts / i18n / demo-data.ts — cockpit 视图（Plan/Tasks/Questions/Ideas/Actions）、RN primitives + offline banner、Expo push 注册、relay/版本配置、i18n、demo。
 - app.config.ts / eas.json / build-local.sh — Expo/EAS 配置（arm64-only ABI）；**自建本地 gradle 构建脚本（脱离 EAS）**。
 
 ## Relay packages
 
-- packages/relay/src — relay-server.ts（轻量 WebSocket room 中转，peer evict + singleton）、keygen.ts/keygen-cli.ts（部署 keypair）、index.ts；deploy 模板（systemd/Caddy/nginx）。
+- packages/relay/src — relay-server.ts（轻量 WebSocket room 中转，peer evict + singleton）、keygen.ts/keygen-cli.ts（**生成一套 aliyun hard cut 部署 secrets / Mac 侧 `relay.json` seed**）、index.ts；deploy/*（**checked-in Caddy/nginx/systemd/relay.json 模板，默认公网入口统一为 `aliyun.servasyy.com`**）。
 - packages/relay-crypto/src — tweetnacl keys/handshake/channel/encoding；daemon connector 与 mobile transport 共用 E2E 握手与会话加密。
 
 ## CLI / Shared

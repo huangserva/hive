@@ -1,7 +1,7 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: M40 Phase 2 实时语音意图引擎驱动前台（治本 10 条，ADR `2026-06-07-glm-front-intent-driven-10rules`）。音量已根治（file_segments 文件播放下行，真机验"声音很大了"）；现头号敌人=延迟 ~26s，日志铁证根因=老前台每句 final 甩慢 PM(opus)+不判意图完整度排队堆积。M40 意图引擎(`voice-intent-front.ts`)已建好但只在 shadow 打日志(判意图初看 2/2 准)。Phase 2-core 进行中：把在线决策驱动源从老 fast-voice-reply gatekeeper 换成意图引擎 verdict——完整度门控(半截话不交 PM)+ distilled 完整意图交 PM + GLM 直答 + 净化层；已派关羽实现。Phase 2-spec(投机生成,点6)下期。前期 M38 快准狠前台 shipped `22d4224`；M39 流式ASR 崩溃修复 `4ffbb00` 真机验通
+current_phase: M40 Phase 3 GRM Turn Orchestrator 协议化落地（user 已拍板：保留强前台，但把 turn contract / verdict contract / handled-escalate 决策表 / PM 回流单声道全部协议化，先做 contract+adapter+decision-table tests，再补统一观测，最后收 prompt/handoff）。前期 M38 快准狠前台 shipped `22d4224`；M39 流式ASR 崩溃修复 `4ffbb00` 真机验通；M40 Phase2-spec 投机+撤回已 ship `0fb4ab8`，当前改造重点从“会不会回”转为“按协议回、不胡说、不漏交 PM”
 status: active
 last_review: 2026-06-07
 ---
@@ -487,6 +487,18 @@ last_review: 2026-06-07
 > - Phase 3：播放闸帧协议 + app hold/latest generation（mobile）
 > - Phase 4：PM complete-distill handoff 闸（绝不喂碎片）
 > - Phase 5：relay frame → WebRTC data channel 降 RTT
+> **2026-06-08 user 新拍板：M40 从“意图引擎接管”升级为“GRM Turn Orchestrator 协议化重写”**。核心判断：问题不在要不要强前台，而在强前台尚未协议化；当前两大痛点=**胡说八道**（上下文不足仍敢答）+ **该交没交**（handled/escalate 仍像 prompt judgement，不像协议 judgement）。
+> - **冻结统一 turn contract**：输入对象统一 `source/workspace_id/call_id/turn_id/partial_seq/transcript/context_snapshot_id`；verdict 统一 `completeness/action/confidence/distilled_intent/reply_text/risk/requires_pm_reason`。legacy `fast-voice-reply` 只能当 adapter，不再直接驱动副作用。
+> - **L1 决策表写死 5 个命运**：drop / incomplete / handled / escalate / fallback；明确每类是否 insert outbound、是否 forward PM、是否开 obligation、是否记 timeline、是否发 call state。**行动项/查证未知/部署重启/派工/PM 拍板一律 escalate**；寒暄/已知状态/当前进度/已在 context snapshot 的事实才允许 handled。
+> - **partial/final 协议**：partial 只允许抢快 ack/预判 complete，不允许编事实或给行动结论；final 才 settle handled/escalate。继续坚持“未播可撤、在播不撤”。
+> - **单声道闭环**：PM 长期只收 distilled intent，结果应回流 GRM 再由同一 persona 对用户说；短期 `webrtc-file-downlink-audio.ts` 只解决串行防重叠，不等于人格闭环。
+> - **统一观测**：turn timeline 至少串 verdict / branch / handoff_id / reply_message_id / downlink first segment / obligation status，结束“能查一点但不能一眼判刑”。
+> **实施顺序（本轮 user 已拍板，可直接派 worker）**：
+> 1. 冻结 contract（输入对象 + verdict schema + handoff 语义 + 禁止词/marker contract）
+> 2. 统一 verdict adapter（M38 legacy + M40 intent + safe fallback 都转内部同一决策对象）
+> 3. 补 turn decision-table tests（三入口 × handled/escalate/drop/incomplete/fallback）
+> 4. 补统一观测（timeline/handoff/mobile-reply/downlink）
+> 5. 再收 prompt / 分支 / PM 结果回流 GRM 单声道
 > **分工**：关羽=来源通路分离(`6eeb753c`,进行中,touches webrtc-upstream→Phase1集成要等它)；赵云=Phase1 核心 voice-intent-front.ts 模块(新文件无冲突)。钟馗串行复审，user 醒后真机验+拍后续。自我进化(④)后续阶段。
 
 ### M39 · 流式 ASR + rolling session transcript · 核心打通+生产崩溃已修真机验通 2026-06-06（`5970988` + 崩溃修复 `4ffbb00`）

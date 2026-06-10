@@ -16,12 +16,13 @@
 - Current mitigation: `mobile-api-client.test.ts` covers LAN client shapes; `packages/mobile/__tests__/relay-transport.test.ts` covers relay handshake/call/fallback.
 - Watch: adding a control endpoint must update both LAN route mapping and relay method mapping.
 
-## Relay / E2E channel
+## Aliyun relay hard cut rollout
 
-- Risk: relay should forward opaque frames only; auth, room cleanup, and handshake mismatch can cause data leak or stuck mobile sessions.
-- Trigger: changes in `packages/relay/src/relay-server.ts`, `packages/relay-crypto/src/*`, `src/server/relay-connector.ts`, `src/server/relay-rpc-handler.ts`.
-- Current mitigation: relay server unit tests, relay-crypto tests, relay connector/RPC unit tests.
-- Gap: no real cross-process relay integration test yet; MVP verifies pieces, not full daemon↔relay↔mobile path under packet loss.
+- Risk: **存量手机只有装到带迁移逻辑的新 APK，`SecureStore` 里的 relay 配置才会从 `dmit.servasyy.com` 迁到 `aliyun.servasyy.com`**；旧包会继续拿旧 host 连接。
+- Trigger: `packages/mobile/src/lib/relay-config-store.ts`, `packages/mobile/src/api/mobile-runtime-context.tsx`, `packages/mobile/app/(tabs)/settings.tsx`, 以及任何新的 pairing / relay config 写入路径。
+- Current mitigation: `relay-config-store.test.ts` 覆盖 build-time 与 read-time 迁移；`mobile-runtime-webrtc-disconnect.test.ts` 覆盖 hydration 后回写持久化；settings cluster tests 已覆盖旧 relay URL 在 UI/runtime 中的读写链路。
+- Watch: 线上切换时必须把 **新 APK、QR/pairing 原文、Mac `~/.config/hive/relay.json`、公网 relay deploy 模板、以及 WebRTC/TURN 对外口径** 一起切到 aliyun；否则会出现新旧 host 混跑。
+- Residual: **旧 QR 原始内容仍可能写着 dmit**；新 app 会迁移后再落盘，但旧 app 不会，且 user 如果长期不升级就不会触发迁移。
 
 ## Push notifications
 
@@ -32,16 +33,39 @@
 
 ## Voice / local STT
 
-- Risk: voice control depends on local binaries and mobile recording permissions; failures can look like dispatch bugs.
-- Trigger: `local-stt.ts`, `/api/mobile/voice/transcribe`, `VoiceRecordButton.tsx`, Expo audio dependency changes.
-- Current mitigation: `local-stt.test.ts`, `voice-transcribe.test.ts`, and relay voice RPC test cover provider fallback and API shape.
-- Watch: cross-platform behavior beyond macOS remains thin; verify iOS/Android recording paths before beta.
+- Risk: voice control depends on local/native ASR/TTS binaries, Android audio session behavior, and mobile recording permissions; failures can look like dispatch bugs.
+- Trigger: `local-stt.ts`, `streaming-stt-online.ts`, `/api/mobile/voice/transcribe`, WebRTC upstream/downlink voice paths, `VoiceRecordButton.tsx`, Expo audio dependency changes.
+- Current mitigation: STT main path has moved from Whisper to Paraformer via `sherpa-onnx` 1.13.2; recognizer is module-level cached (`760ec6a`) instead of reloading the 78MB model per utterance. App side adds Silero `voice_prob` quality gate (`00adc92`) to drop low-quality segments locally. TTS defaults to edge-tts Xiaoxiao with piper/say fallback; `relay-voice-stream-tts.ts` is an independent relay TTS path.
+- Watch: M39 `streaming-stt-online.ts` is in progress; OnlineRecognizer endpoint parameters can inject too early/late. Verify Android recording, speech quality gating, and streaming ASR together before beta.
+
+## WebRTC realtime call path
+
+- Risk: M37/M38 WebRTC is the highest-risk voice path: signaling/TURN, native audio, upstream STT, downlink TTS, and barge-in all interact.
+- Trigger: `webrtc-callee.ts`, `webrtc-upstream-audio.ts`, `webrtc-downlink-audio.ts`, `webrtc-signal-protocol.ts`, `webrtc-vad.ts`, and `src/cli/hive.ts` callee initialization.
+- External SPOF: Aliyun coturn `106.14.227.192` is the only TURN node; `@roamhq/wrtc` native binding is required server-side.
+- Current risk: no fallback if signaling/TURN disconnects mid-call; downlink drift compensation, gain (`HIVE_WEBRTC_DOWNLINK_GAIN`), and double-playback elimination are numeric-sensitive; Android InCallManager audio-mode switching and recorder interlock caused the 2.8.x crash chain.
+- Gap: server-side `webrtc-*.ts` family has no `tests/server/` dedicated coverage; much of the path is device-sensitive and verified on real phones.
+- Current mitigation: relay-only fallback flag; downlink gain is env-tunable; mobile path has multiple reviewer passes; barge-in/downlink drift have unit tests.
+
+## Neural voice VAD (Silero ONNX, mobile)
+
+- Risk: Silero ONNX controls barge-in/speech-end sensitivity; native binding failures or threshold drift can break real-time talkback.
+- Trigger: `packages/mobile/src/lib/neural-voice-vad*`, `neural-vad-pcm-probe`, `silero-vad-shadow`, `voice-vad.ts`.
+- Current risk: `onnxruntime-react-native` native binding can crash (`.install()` FATAL happened before); skipping probe→shadow→takeover flag order can make barge-in regress; `voice_prob` thresholds directly affect interruption sensitivity.
+- Current mitigation: catch-before-import native probe, config plugin registers `OnnxruntimePackage`, feature flags isolate phases, and `[SILERODBG]` logs support true-device threshold tuning.
+
+## GLM fast voice reply front desk
+
+- Risk: fast replies depend on external GLM API and must not claim work that only orchestrator can do.
+- Trigger: `src/server/fast-voice-reply.ts`, GLM model changes (`glm-4-flash`, `glm-5.1`), prompt/history/status context changes.
+- Current risk: GLM outage/timeout must degrade to fixed confirmation; feeding history/status can hit the timeout wall (raised 2500→5000ms); front desk can over-claim dispatch/control actions if prompt regresses.
+- Current mitigation: `HIVE_GLM_GATEKEEPER=0` rollback switch; timeout/abort resolves to null then fixed short fallback; system prompt forbids over-claiming (`22d4224`); currently no server tests for this path.
 
 ## Sentinel / orphaned dispatch detection
 
 - Risk: sentinel and worker-exit fallback can misclassify a slow worker as stale/orphaned, or miss a real stuck dispatch.
 - Trigger: `sentinel-heartbeat.ts`, `orphaned-dispatch-nudge.ts`, `workspace-store-mutations.ts`, dispatch ledger state changes.
-- Current mitigation: sentinel heartbeat tests and orphaned-dispatch-nudge unit tests cover stale age, worker exit, pending count reset.
+- Current mitigation: sentinel heartbeat tests and orphaned-dispatch-nudge unit tests cover stale age, worker exit, pending count reset; worker restart no longer clears `pendingTaskCount` (`cc52a87`) and frontend uses terminal runs to override stale fake-idle cache (`e924dd6`).
 - Watch: do not let sentinel role receive normal dispatch nudges; sentinel should observe, not become another worker backlog source.
 
 ## PM nudge mechanisms
@@ -55,7 +79,7 @@
 
 - Risk: DB state, in-memory pending counts, and PTY stdin writes can diverge on start/stop/report/cancel edge cases.
 - Trigger: `team-operations.ts`, `dispatch-ledger-store.ts`, `agent-stdin-dispatcher.ts`, `agent-runtime*.ts`.
-- Current mitigation: team atomicity, team protocol e2e, authz, CLI side-effect, and lifecycle tests cover real HTTP+SQLite+PTY paths.
+- Current mitigation: team atomicity, team protocol e2e, authz, CLI side-effect, and lifecycle tests cover real HTTP+SQLite+PTY paths; pending-count/status recovery has been hardened by `cc52a87` / `e924dd6`.
 - Rule: DB/ledger mutations must succeed before in-memory state updates; failed stdin forwarding must not corrupt dispatch state.
 
 ## Worker settings / startup command persistence
@@ -106,7 +130,7 @@
 - Risk: mobile beta config can drift from actual runtime protocol or fail store builds late.
 - Trigger: `packages/mobile/app.config.ts`, `eas.json`, native permissions, Expo dependency changes.
 - Current mitigation: mobile README + EAS config + package typecheck; no real EAS build without Apple/Google credentials.
-- Watch: before TestFlight/internal release, run device smoke for token entry, push permission, voice record, relay fallback.
+- Watch: before TestFlight/internal release, run device smoke for token entry, push permission, voice record, relay fallback. The Expo SDK56 `expo-av`→`expo-audio` migration is a native-audio regression point and must be revalidated on SDK upgrades.
 
 ## Local data and secrets
 
