@@ -2,7 +2,12 @@ import { describe, expect, test } from 'vitest'
 
 import { generateDeviceKeypair } from '../src/api/relay-device-keys'
 import type { RelayPairingInput } from '../src/lib/connection-qr'
-import { buildStoredRelayConfig, parseStoredRelayConfig } from '../src/lib/relay-config-store'
+import {
+  buildStoredRelayConfig,
+  normalizeRelayUrl,
+  parseStoredRelayConfig,
+  parseStoredRelayConfigWithMigration,
+} from '../src/lib/relay-config-store'
 
 const pairing: RelayPairingInput = {
   capabilities: ['read_dashboard', 'admin_runtime'],
@@ -31,6 +36,30 @@ describe('relay config store', () => {
 
     const reparsed = parseStoredRelayConfig(JSON.stringify(built))
     expect(reparsed).toEqual(built)
+  })
+
+  test('normalizes legacy dmit relay urls to aliyun while preserving url parts', () => {
+    expect(normalizeRelayUrl('wss://dmit.servasyy.com:9443/relay/ws?room=1#frag')).toBe(
+      'wss://aliyun.servasyy.com:9443/relay/ws?room=1#frag'
+    )
+  })
+
+  test('buildStoredRelayConfig migrates scanned or manual legacy relay url before storing', () => {
+    const keypair = generateDeviceKeypair()
+    const built = buildStoredRelayConfig(
+      { ...pairing, relay_url: 'wss://dmit.servasyy.com/relay?room=1' },
+      keypair
+    )
+
+    expect(built.relay_url).toBe('wss://aliyun.servasyy.com/relay?room=1')
+  })
+
+  test('parseStoredRelayConfig migrates stored legacy relay url', () => {
+    const built = buildStoredRelayConfig(pairing, generateDeviceKeypair())
+    const stored = JSON.stringify({ ...built, relay_url: 'wss://dmit.servasyy.com/ws' })
+
+    expect(parseStoredRelayConfig(stored)?.relay_url).toBe('wss://aliyun.servasyy.com/ws')
+    expect(parseStoredRelayConfigWithMigration(stored)?.migrated).toBe(true)
   })
 
   test('parseStoredRelayConfig rejects a config missing the device keypair', () => {

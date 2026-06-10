@@ -1,7 +1,7 @@
 {
   "_comment": "放到 Mac 的 ~/.config/hive/relay.json。relay_auth_token 必须与 VPS relay 的 RELAY_AUTH_TOKEN 一致。改完重启 4010 生效。daemon 密钥对由 runtime 首次启动自动生成到同目录 relay-keypair.json，无需手填。",
   "enabled": true,
-  "relay_url": "wss://relay.example.com",
+  "relay_url": "wss://aliyun.servasyy.com",
   "relay_auth_token": "<PASTE_RELAY_AUTH_TOKEN>",
   "room_id": "<PASTE_ROOM_ID>",
   "runtime_id": "<PASTE_RUNTIME_ID>"

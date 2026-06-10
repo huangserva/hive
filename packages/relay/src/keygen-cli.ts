@@ -14,7 +14,7 @@ console.log(
   JSON.stringify(
     {
       enabled: true,
-      relay_url: 'wss://relay.example.com',
+      relay_url: 'wss://aliyun.servasyy.com',
       relay_auth_token: secrets.authToken,
       room_id: secrets.roomId,
       runtime_id: secrets.runtimeId,
@@ -24,7 +24,9 @@ console.log(
   )
 )
 console.log('#')
-console.log('# relay_url 换成你的域名（wss://relay.<domain>）。')
+console.log(
+  '# relay_url 默认指向 aliyun.servasyy.com；如部署到其他域名，再改成对应 wss://<domain>。'
+)
 console.log(
   '# daemon 密钥对由 runtime 首次启动时自动生成到 ~/.config/hive/relay-keypair.json，无需手动。'
 )

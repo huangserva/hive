@@ -1,9 +1,10 @@
 # HippoTeam relay — Caddy 反代（推荐：自动 Let's Encrypt TLS + wss）
-# 放到 /etc/caddy/Caddyfile，把 relay.example.com 换成你的域名（A 记录指向 VPS IP）。
+# 放到 /etc/caddy/Caddyfile；默认公网入口为 aliyun.servasyy.com（A 记录指向阿里云 relay 节点）。
 # 启用：sudo systemctl reload caddy
 # Caddy 会自动签发并续期证书，wss:// 直接可用，无需 certbot。
+# 这份模板只反代 relay WebSocket/API；APK/HTML 投递入口见 README 的 /dl/* 与 /view/* 说明。
 
-relay.example.com {
+aliyun.servasyy.com {
 	# WebSocket 升级请求与普通请求都反代到本地 relay（127.0.0.1:8787）。
 	reverse_proxy 127.0.0.1:8787
 }

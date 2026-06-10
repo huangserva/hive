@@ -64,6 +64,7 @@ import {
   buildMarkdownSegments,
   buildUploadedMediaPrompt,
   normalizeUploadedMediaResult,
+  parseContent,
 } from '../app/(tabs)/index'
 import { applyScannedConnectionQrFlow } from '../app/(tabs)/settings'
 
@@ -95,6 +96,30 @@ describe('mobile chat and settings cluster B regressions', () => {
       { language: 'ts', text: 'const x = `value`', type: 'code' },
       { text: 'after', type: 'paragraph' },
     ])
+  })
+
+  test('keeps real newlines as multiline chat text', () => {
+    const text = parseContent(JSON.stringify({ text: '第一行\n第二行' }))
+
+    expect(text).toBe('第一行\n第二行')
+    expect(buildMarkdownSegments(text)).toEqual([
+      { text: '第一行', type: 'paragraph' },
+      { text: '第二行', type: 'paragraph' },
+    ])
+  })
+
+  test('normalizes escaped newline strings from the mobile chat chain', () => {
+    const text = parseContent(JSON.stringify({ text: String.raw`第一行\n第二行` }))
+
+    expect(text).toBe('第一行\n第二行')
+    expect(text).not.toContain(String.raw`\n`)
+  })
+
+  test('does not rewrite ordinary text or intentionally escaped backslashes', () => {
+    expect(parseContent(JSON.stringify({ text: '普通中文回复' }))).toBe('普通中文回复')
+    expect(parseContent(JSON.stringify({ text: String.raw`路径 C:\\new-folder` }))).toBe(
+      String.raw`路径 C:\\new-folder`
+    )
   })
 
   test('connects a scanned relay QR with the newly configured relay config, never the old one', async () => {
@@ -149,6 +174,58 @@ describe('mobile chat and settings cluster B regressions', () => {
     expect(connect).toHaveBeenCalledTimes(1)
     expect(connect).toHaveBeenCalledWith('10.0.0.2:4010', 'new-token', newConfig)
     expect(connect).not.toHaveBeenCalledWith('10.0.0.2:4010', 'new-token', oldConfig)
+  })
+
+  test('connects a scanned relay QR with aliyun relay when QR still contains dmit host', async () => {
+    const newConfig = {
+      capabilities: ['read_runtime'],
+      daemon_public_key: 'new-daemon',
+      device_id: 'new-device',
+      device_keypair: { publicKey: 'new-public', secretKey: 'new-secret' },
+      relay_auth_token: 'new-auth',
+      relay_url: 'wss://aliyun.servasyy.com/relay',
+      room_id: 'new-room',
+    }
+    const configureRelay = vi.fn().mockResolvedValue(newConfig)
+    const connect = vi.fn().mockResolvedValue(true)
+
+    await applyScannedConnectionQrFlow(
+      {
+        host: '10.0.0.2:4010',
+        relay: {
+          capabilities: ['read_runtime'],
+          daemon_public_key: 'new-daemon',
+          device_id: 'new-device',
+          relay_auth_token: 'new-auth',
+          relay_url: 'wss://dmit.servasyy.com/relay',
+          room_id: 'new-room',
+        },
+        token: 'new-token',
+      },
+      {
+        configureRelay,
+        connect,
+        onConnected: vi.fn(),
+        onRelayConfigureFailed: vi.fn(),
+        relayConfig: null,
+        setDraftHost: vi.fn(),
+        setDraftToken: vi.fn(),
+        setHost: vi.fn(),
+        setScanLocked: vi.fn(),
+        setScannerOpen: vi.fn(),
+        setToken: vi.fn(),
+      }
+    )
+
+    expect(configureRelay).toHaveBeenCalledWith(
+      expect.objectContaining({ relay_url: 'wss://dmit.servasyy.com/relay' })
+    )
+    expect(connect).toHaveBeenCalledWith('10.0.0.2:4010', 'new-token', newConfig)
+    expect(connect).not.toHaveBeenCalledWith(
+      '10.0.0.2:4010',
+      'new-token',
+      expect.objectContaining({ relay_url: 'wss://dmit.servasyy.com/relay' })
+    )
   })
 
   test('does not connect when scanned relay configuration fails to persist', async () => {
