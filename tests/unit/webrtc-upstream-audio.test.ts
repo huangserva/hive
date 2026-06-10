@@ -237,8 +237,15 @@ describe('WebRTC upstream audio sink', () => {
   test('voice intent complete escalate speaks the front reply and sends only distilled intent to orchestrator', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
 
     await injectWebRtcVoiceTranscript({
+      callId: 'call-intent-handoff-log',
+      latencyTurnId: 'call-intent-handoff-log-turn-1',
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
       store,
       text: '关羽那个你帮我让他',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -283,11 +290,56 @@ describe('WebRTC upstream audio sink', () => {
       },
     ])
     expect(store.inputs[0]?.text).not.toContain('关羽那个你帮我让他')
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceIntent PM handoff queued: call_id=call-intent-handoff-log turn_id=call-intent-handoff-log-turn-1'
+        ),
+      ])
+    )
+  })
+
+  test('logs legacy gatekeeper and PM handoff events with call and turn ids', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    const store = createStore()
+    const infoLogs: string[] = []
+
+    await injectWebRtcVoiceTranscript({
+      callId: 'call-log',
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n好，我转给主管。',
+      },
+      latencyTurnId: 'call-log-turn-1',
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: () => {},
+      },
+      store,
+      text: '让关羽查一下为什么通话卡住',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceTranscript received: call_id=call-log turn_id=call-log-turn-1'
+        ),
+        expect.stringContaining(
+          'voiceTranscript gatekeeper result: call_id=call-log turn_id=call-log-turn-1 gatekeeper=escalate has_reply=true'
+        ),
+        expect.stringContaining(
+          'voiceTranscript PM handoff submitted: call_id=call-log turn_id=call-log-turn-1 forward_pm=true gatekeeper=escalate'
+        ),
+      ])
+    )
+    expect(store.inputs).toHaveLength(1)
   })
 
   test('voice intent complete handled speaks directly without forwarding to orchestrator', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
     const turn = startWebRtcVoiceLatencyTurn({
       callId: 'call-handled',
       now: 1_000,
@@ -298,6 +350,7 @@ describe('WebRTC upstream audio sink', () => {
     markWebRtcVoiceLatency(turn.turnId, { intentVerdictAt: 1_200 })
 
     await injectWebRtcVoiceTranscript({
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
       latencyTurnId: turn.turnId,
       store,
       text: '现在谁在处理通话',
@@ -335,13 +388,144 @@ describe('WebRTC upstream audio sink', () => {
     ])
     const claimed = claimWebRtcVoiceLatencyTurnForMessage('message-2')
     expect(claimed?.turnId).toBe(turn.turnId)
+    expect(infoLogs.some((message) => message.includes('voiceIntent PM handoff queued'))).toBe(
+      false
+    )
+  })
+
+  test('voice intent decision table escalates explicit work requests even when verdict says handled', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const infoLogs: string[] = []
+
+    await injectWebRtcVoiceTranscript({
+      callId: 'call-action-override',
+      latencyTurnId: 'call-action-override-turn-1',
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
+      store,
+      text: '帮我部署 4010 并重启服务',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'handled',
+        completeness: 'complete',
+        confidence: 0.91,
+        replyText: '我直接答。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n帮我部署 4010 并重启服务',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(store.chat).toEqual([
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          source: 'webrtc_call',
+          text: '帮我部署 4010 并重启服务',
+        }),
+        direction: 'inbound',
+        messageType: 'user_text',
+      }),
+      expect.objectContaining({
+        contentJson: JSON.stringify({
+          intent_generation: 1,
+          source: 'voice_intent_front',
+          text: '好，这个我转给主管。',
+          voice_intent: true,
+        }),
+        direction: 'outbound',
+        messageType: 'orch_reply',
+      }),
+    ])
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceIntent PM handoff queued: call_id=call-action-override turn_id=call-action-override-turn-1'
+        ),
+        expect.stringContaining('requires_pm_reason=execute_engineering_work'),
+      ])
+    )
+  })
+
+  test('does not forward low-confidence voice intent escalate without handoff or explicit work', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
+    const store = createStore()
+    const infoLogs: string[] = []
+
+    await injectWebRtcVoiceTranscript({
+      callId: 'call-low-confidence',
+      latencyTurnId: 'call-low-confidence-turn-1',
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
+      store,
+      text: '这个问题我有点纠结',
+      voiceIntentUpdate: acceptedVoiceIntentUpdate({
+        action: 'escalate',
+        completeness: 'complete',
+        confidence: 0.4,
+        distilledIntent: '用户对问题有疑问',
+        replyText: '我先按已知情况说。',
+      }),
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([
+      {
+        options: { forwardToOrchestrator: false },
+        text: '[来自手机 Mobile App]\n---\n这个问题我有点纠结',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(infoLogs.some((message) => message.includes('voiceIntent PM handoff queued'))).toBe(
+      false
+    )
+  })
+
+  test('legacy gatekeeper handled reply is not inserted when explicit work override forwards PM', async () => {
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createStore()
+
+    await injectWebRtcVoiceTranscript({
+      callId: 'call-legacy-override',
+      fastVoiceReplyProvider: {
+        generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我直接答。'),
+      },
+      latencyTurnId: 'call-legacy-override-turn-1',
+      logger: { info: () => {}, warn: () => {} },
+      store,
+      text: '让关羽重启 4010 服务',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n让关羽重启 4010 服务',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+    expect(
+      store.chat.some(
+        (message) =>
+          message.direction === 'outbound' &&
+          JSON.parse(message.contentJson).source === 'voice_fast_reply'
+      )
+    ).toBe(false)
   })
 
   test('voice intent incomplete stays silent instead of speaking over fragments', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
 
     await injectWebRtcVoiceTranscript({
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
       store,
       text: '让关羽',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -355,6 +539,9 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.inputs).toEqual([])
     expect(store.chat).toEqual([])
+    expect(infoLogs.some((message) => message.includes('voiceIntent PM handoff queued'))).toBe(
+      false
+    )
   })
 
   test('voice intent likely complete stays silent and finishes without downlink audio', async () => {
@@ -431,14 +618,16 @@ describe('WebRTC upstream audio sink', () => {
     })
 
     expect(claimWebRtcVoiceLatencyTurnForMessage('message-1')).toBeNull()
-    expect(infoLogs).toEqual([
-      expect.stringContaining(
-        'voiceIntent driven decision: call_id=unknown completeness=likely_complete action=handled'
-      ),
-      expect.stringContaining(
-        'branch=incomplete forward_pm=false text_len=6 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=100 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na'
-      ),
-    ])
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceIntent driven decision: call_id=unknown completeness=likely_complete action=handled'
+        ),
+        expect.stringContaining(
+          'branch=incomplete forward_pm=false text_len=6 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=100 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na'
+        ),
+      ])
+    )
   })
 
   test('voice intent drop stays silent and does not forward to PM', async () => {
@@ -471,13 +660,18 @@ describe('WebRTC upstream audio sink', () => {
 
     expect(store.chat).toEqual([])
     expect(store.inputs).toEqual([])
-    expect(infoLogs).toEqual([
-      expect.stringContaining(
-        'voiceIntent driven decision: call_id=unknown completeness=incomplete action=drop'
-      ),
-      'voice turn timeline: call_id=call-drop turn=call-drop-turn-1 branch=drop forward_pm=false text_len=2 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=0 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na',
-    ])
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'voiceIntent driven decision: call_id=unknown completeness=incomplete action=drop'
+        ),
+        'voice turn timeline: call_id=call-drop turn=call-drop-turn-1 branch=drop forward_pm=false text_len=2 speech_to_final_ms=300 final_to_verdict_ms=100 verdict_to_dispatch_ms=0 dispatch_to_downlink_ms=na total_speech_to_audio_ms=na',
+      ])
+    )
     expect(markWebRtcVoiceLatency(turn.turnId, { decisionAt: 2_000 })).toBeNull()
+    expect(infoLogs.some((message) => message.includes('voiceIntent PM handoff queued'))).toBe(
+      false
+    )
   })
 
   test('voice intent front strips internal markers before speaking or forwarding', async () => {
@@ -633,12 +827,21 @@ describe('WebRTC upstream audio sink', () => {
   test('voice intent safe zero-confidence drop falls back to the legacy gatekeeper path', async () => {
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '1')
     const store = createStore()
+    const infoLogs: string[] = []
     const provider = {
       generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: escalate\n收到，我转主管。'),
     }
+    const turn = startWebRtcVoiceLatencyTurn({
+      callId: 'call-safe-zero',
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
 
     await injectWebRtcVoiceTranscript({
+      callId: 'call-safe-zero',
       fastVoiceReplyProvider: provider,
+      latencyTurnId: turn.turnId,
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
       store,
       text: '让关羽汇报进度',
       voiceIntentUpdate: acceptedVoiceIntentUpdate({
@@ -652,6 +855,14 @@ describe('WebRTC upstream audio sink', () => {
     expect(provider.generate).toHaveBeenCalled()
     expect(store.inputs).toHaveLength(1)
     expect(store.inputs[0]?.text).toContain('让关羽汇报进度')
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('voiceIntent driven fallback: reason=safe_zero_confidence'),
+        expect.stringContaining(
+          'voiceTranscript PM handoff submitted: call_id=call-safe-zero turn_id=call-safe-zero-turn-1 forward_pm=true gatekeeper=escalate'
+        ),
+      ])
+    )
   })
 
   test('intent front final without a verdict stays silent instead of using legacy gatekeeper or holding speech', async () => {

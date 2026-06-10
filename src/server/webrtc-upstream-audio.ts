@@ -5,8 +5,13 @@ import { join } from 'node:path'
 import {
   appendFastReplyCoordination,
   type FastVoiceReplyProvider,
-  maybeInsertFastVoiceReplyWithGatekeeper,
+  generateFastVoiceReplyWithGatekeeper,
+  insertFastVoiceReply,
 } from './fast-voice-reply.js'
+import {
+  adaptFastVoiceReplyToGrmTurnDecision,
+  adaptVoiceIntentToGrmTurnDecision,
+} from './grm-turn-decision.js'
 import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
@@ -22,7 +27,6 @@ import {
   createVoiceIntentSession,
   isVoiceIntentFrontEnabled,
   type VoiceIntentSessionUpdate,
-  type VoiceIntentVerdict,
 } from './voice-intent-front.js'
 import type { WebRtcRemoteAudioSession, WebRtcRemoteAudioSink } from './webrtc-callee.js'
 import {
@@ -149,9 +153,6 @@ const limitSessionContext = (sessionContext: string[]) => {
 
 type AcceptedVoiceIntentUpdate = Extract<VoiceIntentSessionUpdate, { status: 'accepted' }>
 
-const isSafeVoiceIntentFallback = (verdict: VoiceIntentVerdict) =>
-  verdict.action === 'drop' && verdict.confidence <= 0 && !verdict.reply_text.trim()
-
 const insertVoiceIntentFrontReply = ({
   intentGeneration,
   latencyTurnId,
@@ -209,25 +210,26 @@ const applyVoiceIntentDrivenTranscript = ({
   workspaceId: string
 }) => {
   const verdict = update.verdict
-  if (isSafeVoiceIntentFallback(verdict)) return 'fallback' as const
+  const decision = adaptVoiceIntentToGrmTurnDecision({
+    source: 'webrtc_call',
+    transcript: text,
+    turnId: latencyTurnId ?? null,
+    update,
+  })
+  if (decision.branch === 'fallback') return 'fallback' as const
 
   const distilledIntent = sanitizeVoiceIntentInternalText(
-    update.handoff?.distilledIntent || verdict.distilled_intent
+    decision.distilledIntent || update.handoff?.distilledIntent || verdict.distilled_intent
   )
-  const shouldForwardToPm =
-    Boolean(update.handoff) &&
-    verdict.completeness === 'complete' &&
-    verdict.action === 'escalate' &&
-    verdict.confidence >= 0.75 &&
-    Boolean(distilledIntent)
+  const shouldForwardToPm = decision.allowPmHandoff && Boolean(distilledIntent)
   const reply = sanitizeVoiceIntentReply({
     allowHandoffClaims: shouldForwardToPm,
-    text: verdict.reply_text,
+    text: decision.replyText,
   })
 
   logDiagnostic(
     logger,
-    `voiceIntent driven decision: call_id=${callId ?? 'unknown'} completeness=${verdict.completeness} action=${verdict.action} confidence=${verdict.confidence.toFixed(2)} forward_pm=${shouldForwardToPm} distilled_intent=${summarizeVoiceIntent(distilledIntent)}`
+    `voiceIntent driven decision: call_id=${callId ?? 'unknown'} completeness=${decision.completeness} action=${decision.action} branch=${decision.branch} confidence=${decision.confidence.toFixed(2)} forward_pm=${shouldForwardToPm} requires_pm_reason=${decision.requiresPmReason ?? 'none'} distilled_intent=${summarizeVoiceIntent(distilledIntent)}`
   )
 
   const markDecision = (
@@ -238,6 +240,7 @@ const applyVoiceIntentDrivenTranscript = ({
       branch,
       decisionAt: Date.now(),
       forwardPm,
+      intentGeneration: verdict.intent_generation,
       textLen: text.length,
     })
 
@@ -249,13 +252,13 @@ const applyVoiceIntentDrivenTranscript = ({
     onTurnComplete?.(turn.turnId)
   }
 
-  if (verdict.action === 'drop') {
+  if (decision.branch === 'drop') {
     markDecision('drop', false)
     logFinishedTimeline(latencyTurnId)
     return 'handled' as const
   }
 
-  if (verdict.completeness !== 'complete') {
+  if (decision.branch === 'incomplete') {
     markDecision('incomplete', false)
     logFinishedTimeline(latencyTurnId)
     return 'handled' as const
@@ -271,6 +274,10 @@ const applyVoiceIntentDrivenTranscript = ({
   if (shouldForwardToPm) {
     markDecision('escalate', true)
     store.recordUserInput(workspaceId, activeRun.agentId, formatMobileVoicePrompt(distilledIntent))
+    logDiagnostic(
+      logger,
+      `voiceIntent PM handoff queued: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} text_len=${distilledIntent.length} distilled_intent=${summarizeVoiceIntent(distilledIntent)}`
+    )
     insertVoiceIntentFrontReply({
       intentGeneration: verdict.intent_generation,
       reply,
@@ -377,6 +384,10 @@ export const injectWebRtcVoiceTranscript = async ({
   const orchId = getOrchestratorId(workspaceId)
   const activeRun = store.getActiveRunByAgentId(workspaceId, orchId)
   if (!activeRun) throw new Error('Orchestrator is not running')
+  logDiagnostic(
+    logger,
+    `voiceTranscript received: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} text_len=${trimmed.length} voice_intent_update=${voiceIntentUpdate?.status ?? 'none'} text=${formatVoiceIntentLogText(trimmed)}`
+  )
 
   if (isVoiceIntentFrontEnabled() && voiceIntentUpdate && voiceIntentUpdate.status === 'accepted') {
     const result = applyVoiceIntentDrivenTranscript({
@@ -425,7 +436,7 @@ export const injectWebRtcVoiceTranscript = async ({
     sessionContext && sessionContext.length > 0
       ? `[对话上下文（本次通话之前说的）]\n${limitSessionContext(sessionContext)}\n\n[来自手机 Mobile App]\n---\n${trimmed}`
       : `[来自手机 Mobile App]\n---\n${trimmed}`
-  const fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
+  const fastReply = await generateFastVoiceReplyWithGatekeeper({
     ...(fastVoiceReplyProvider ? { provider: fastVoiceReplyProvider } : {}),
     ...(latencyTurnId ? { latencyTurnId } : {}),
     source: 'voice',
@@ -433,7 +444,17 @@ export const injectWebRtcVoiceTranscript = async ({
     text: trimmed,
     workspaceId,
   })
-  if (fastReply.gatekeeper === 'drop') {
+  logDiagnostic(
+    logger,
+    `voiceTranscript gatekeeper result: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} gatekeeper=${fastReply.gatekeeper} has_reply=${fastReply.reply !== null} text_len=${trimmed.length}`
+  )
+  const legacyDecision = adaptFastVoiceReplyToGrmTurnDecision({
+    fastReply,
+    source: 'webrtc_call',
+    transcript: trimmed,
+    turnId: latencyTurnId ?? null,
+  })
+  if (legacyDecision.branch === 'drop') {
     const turn = markWebRtcVoiceLatency(latencyTurnId, {
       branch: 'drop',
       decisionAt: Date.now(),
@@ -447,6 +468,10 @@ export const injectWebRtcVoiceTranscript = async ({
     } else if (latencyTurnId) {
       onTurnComplete?.(latencyTurnId)
     }
+    logDiagnostic(
+      logger,
+      `voiceTranscript dropped: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} reason=gatekeeper_drop`
+    )
     return
   }
 
@@ -457,21 +482,60 @@ export const injectWebRtcVoiceTranscript = async ({
     JSON.stringify({ source: VOICE_INPUT_SOURCE.webRtcCall, text: trimmed })
   )
 
+  const gatekeeperEnabled = process.env.HIVE_GLM_GATEKEEPER !== '0'
   const gatekeeperHandled =
-    process.env.HIVE_GLM_GATEKEEPER !== '0' &&
-    fastReply.gatekeeper === 'handled' &&
-    fastReply.reply !== null
-  const promptForOrchestrator =
-    process.env.HIVE_GLM_GATEKEEPER !== '0' &&
+    gatekeeperEnabled && legacyDecision.branch === 'handled' && fastReply.reply !== null
+  const gatekeeperEscalated =
+    gatekeeperEnabled &&
+    legacyDecision.allowPmHandoff &&
     fastReply.gatekeeper === 'escalate' &&
     fastReply.reply !== null
-      ? appendFastReplyCoordination(formatted, fastReply.reply)
-      : formatted
-
+  const reply = fastReply.reply
   if (gatekeeperHandled) {
+    if (!reply) return
+    const inserted = insertFastVoiceReply({
+      ...(fastReply.insertGatekeeper ? { gatekeeper: fastReply.insertGatekeeper } : {}),
+      reply,
+      store,
+      workspaceId,
+    })
+    if (!inserted) {
+      store.recordUserInput(workspaceId, orchId, formatted)
+      logDiagnostic(
+        logger,
+        `voiceTranscript PM handoff submitted: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} forward_pm=true gatekeeper=${fastReply.gatekeeper} worker_id=${orchId} prompt_len=${formatted.length} reason=fast_reply_insert_failed`
+      )
+      return
+    }
     store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
-  } else {
+    logDiagnostic(
+      logger,
+      `voiceTranscript local handled: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} forward_pm=false gatekeeper=${fastReply.gatekeeper}`
+    )
+  } else if (!gatekeeperEnabled || legacyDecision.allowPmHandoff) {
+    let promptForOrchestrator = formatted
+    if (gatekeeperEscalated && reply) {
+      const insertedEscalateReply = insertFastVoiceReply({
+        ...(fastReply.insertGatekeeper ? { gatekeeper: fastReply.insertGatekeeper } : {}),
+        reply,
+        store,
+        workspaceId,
+      })
+      if (insertedEscalateReply) {
+        promptForOrchestrator = appendFastReplyCoordination(formatted, reply)
+      }
+    }
     store.recordUserInput(workspaceId, orchId, promptForOrchestrator)
+    logDiagnostic(
+      logger,
+      `voiceTranscript PM handoff submitted: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} forward_pm=true gatekeeper=${fastReply.gatekeeper} worker_id=${orchId} prompt_len=${promptForOrchestrator.length}`
+    )
+  } else {
+    store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+    logDiagnostic(
+      logger,
+      `voiceTranscript local handled: call_id=${callId ?? 'unknown'} turn_id=${latencyTurnId ?? 'none'} forward_pm=false gatekeeper=${fastReply.gatekeeper} reason=pm_handoff_not_allowed`
+    )
   }
 }
 

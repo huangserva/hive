@@ -57,6 +57,7 @@ export type FastVoiceReplyProvider = {
 
 export type FastVoiceReplyResult = {
   gatekeeper: FastVoiceReplyDisposition
+  insertGatekeeper?: FastVoiceReplyGatekeeperVerdict
   reply: string | null
 }
 
@@ -312,7 +313,11 @@ const readFastVoiceReplyStatusContext = ({
     if (!store.listWorkers && !store.listDispatches) return readProjectVoiceContext().join('\n')
     const workers = store.listWorkers?.(workspaceId) ?? []
     const openDispatches = (store.listDispatches?.(workspaceId) ?? []).filter(
-      (dispatch) => dispatch.status === 'queued' || dispatch.status === 'submitted'
+      (dispatch) =>
+        dispatch.status === 'queued' ||
+        dispatch.status === 'submitted' ||
+        dispatch.status === 'running' ||
+        dispatch.status === 'report_overdue'
     )
     const dispatchesByWorkerId = new Map<string, string[]>()
     for (const dispatch of openDispatches) {
@@ -381,7 +386,7 @@ const readFastVoiceReplyStatusContext = ({
   }
 }
 
-const insertFastVoiceReply = ({
+export const insertFastVoiceReply = ({
   gatekeeper,
   reply,
   store,
@@ -618,7 +623,7 @@ export const maybeInsertFastVoiceReply = async ({
   return result.reply
 }
 
-export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
+export const generateFastVoiceReplyWithGatekeeper = async ({
   latencyTurnId,
   provider = createFastVoiceReplyProvider(),
   source,
@@ -656,29 +661,59 @@ export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
         escalated: gatekeeper === 'escalate',
         gatekeeperAt: Date.now(),
       })
-      const inserted = insertFastVoiceReply({
-        ...(parsed.verdict ? { gatekeeper: parsed.verdict } : {}),
-        reply,
-        store,
-        workspaceId,
-      })
       return {
-        gatekeeper: inserted ? gatekeeper : 'escalate',
-        reply: inserted ? reply : null,
+        gatekeeper,
+        ...(parsed.verdict ? { insertGatekeeper: parsed.verdict } : {}),
+        reply,
       }
     }
     const reply = pickFallbackReply(text)
     markWebRtcVoiceLatency(latencyTurnId, { escalated: true, gatekeeperAt: Date.now() })
     return {
       gatekeeper: 'escalate',
-      reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
+      reply,
     }
   } catch {
     const reply = pickFallbackReply(text)
     markWebRtcVoiceLatency(latencyTurnId, { escalated: true, gatekeeperAt: Date.now() })
     return {
       gatekeeper: 'escalate',
-      reply: insertFastVoiceReply({ reply, store, workspaceId }) ? reply : null,
+      reply,
     }
   }
+}
+
+export const maybeInsertFastVoiceReplyWithGatekeeper = async ({
+  latencyTurnId,
+  provider = createFastVoiceReplyProvider(),
+  source,
+  store,
+  text,
+  workspaceId,
+}: {
+  provider?: FastVoiceReplyProvider
+  latencyTurnId?: string
+  source: unknown
+  store: FastVoiceReplyStore
+  text: string
+  workspaceId: string
+}): Promise<FastVoiceReplyResult> => {
+  const result = await generateFastVoiceReplyWithGatekeeper({
+    provider,
+    ...(latencyTurnId ? { latencyTurnId } : {}),
+    source,
+    store,
+    text,
+    workspaceId,
+  })
+  if (result.gatekeeper === 'drop' || !result.reply) return result
+  const inserted = insertFastVoiceReply({
+    ...(result.insertGatekeeper ? { gatekeeper: result.insertGatekeeper } : {}),
+    reply: result.reply,
+    store,
+    workspaceId,
+  })
+  return inserted
+    ? { gatekeeper: result.gatekeeper, reply: result.reply }
+    : { gatekeeper: 'escalate', reply: null }
 }

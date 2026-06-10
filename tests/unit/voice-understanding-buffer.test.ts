@@ -95,6 +95,44 @@ describe('voice understanding buffer', () => {
     )
   })
 
+  test('does not insert handled fast reply when explicit work override forwards continuous voice to PM', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createStore()
+    const provider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我直接答。'),
+    }
+
+    await enqueueVoiceUnderstandingInput({
+      fastVoiceReplyProvider: provider,
+      store,
+      text: '让关羽修一下对讲',
+      windowMs: 100,
+      workspaceId: 'ws-1',
+    })
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      '[来自手机 Mobile App]\n---\n让关羽修一下对讲'
+    )
+    expect(store.recordUserInput).not.toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.any(String),
+      { forwardToOrchestrator: false }
+    )
+    expect(
+      store.insertMobileChatMessage.mock.calls.some(
+        ([, direction, messageType, contentJson]) =>
+          direction === 'outbound' &&
+          messageType === 'orch_reply' &&
+          JSON.parse(contentJson as string).source === 'voice_fast_reply'
+      )
+    ).toBe(false)
+  })
+
   test('flushes immediately when the understanding window is configured as zero', async () => {
     const store = createStore()
     const provider = {

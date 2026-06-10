@@ -1,8 +1,10 @@
 import {
   appendFastReplyCoordination,
   type FastVoiceReplyProvider,
-  maybeInsertFastVoiceReplyWithGatekeeper,
+  generateFastVoiceReplyWithGatekeeper,
+  insertFastVoiceReply,
 } from './fast-voice-reply.js'
+import { adaptFastVoiceReplyToGrmTurnDecision } from './grm-turn-decision.js'
 import type { HiveLogger } from './logger.js'
 import { VOICE_INPUT_SOURCE } from './voice-input-source-tags.js'
 import { getOrchestratorId } from './workspace-store-support.js'
@@ -168,9 +170,9 @@ const flushVoiceUnderstandingBuffer = async (workspaceId: string) => {
     return
   }
 
-  let fastReply: Awaited<ReturnType<typeof maybeInsertFastVoiceReplyWithGatekeeper>>
+  let fastReply: Awaited<ReturnType<typeof generateFastVoiceReplyWithGatekeeper>>
   try {
-    fastReply = await maybeInsertFastVoiceReplyWithGatekeeper({
+    fastReply = await generateFastVoiceReplyWithGatekeeper({
       ...(buffer.fastVoiceReplyProvider ? { provider: buffer.fastVoiceReplyProvider } : {}),
       source: 'voice',
       store: buffer.store,
@@ -186,20 +188,54 @@ const flushVoiceUnderstandingBuffer = async (workspaceId: string) => {
     fastReply = { gatekeeper: 'escalate', reply: null }
   }
   if (fastReply.gatekeeper === 'drop') return
+  const decision = adaptFastVoiceReplyToGrmTurnDecision({
+    fastReply,
+    source: 'talk_continuous',
+    transcript: combinedText,
+  })
+  if (decision.branch === 'drop') return
 
   persistInboundChatMessage(buffer, workspaceId, combinedText)
 
+  const gatekeeperEnabled = isGlmGatekeeperEnabled()
   const gatekeeperHandled =
-    isGlmGatekeeperEnabled() && fastReply.gatekeeper === 'handled' && fastReply.reply !== null
-  const promptForOrchestrator =
-    isGlmGatekeeperEnabled() && fastReply.gatekeeper === 'escalate' && fastReply.reply !== null
-      ? appendFastReplyCoordination(formatted, fastReply.reply)
-      : formatted
+    gatekeeperEnabled && decision.branch === 'handled' && fastReply.reply !== null
+  const gatekeeperEscalated =
+    gatekeeperEnabled &&
+    decision.allowPmHandoff &&
+    fastReply.gatekeeper === 'escalate' &&
+    fastReply.reply !== null
+  const reply = fastReply.reply
 
   if (gatekeeperHandled) {
-    recordVoiceInput(buffer, workspaceId, orchId, formatted, { forwardToOrchestrator: false })
-  } else {
+    if (!reply) return
+    const inserted = insertFastVoiceReply({
+      ...(fastReply.insertGatekeeper ? { gatekeeper: fastReply.insertGatekeeper } : {}),
+      reply,
+      store: buffer.store,
+      workspaceId,
+    })
+    if (inserted) {
+      recordVoiceInput(buffer, workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+    } else {
+      recordVoiceInput(buffer, workspaceId, orchId, formatted)
+    }
+  } else if (!gatekeeperEnabled || decision.allowPmHandoff) {
+    let promptForOrchestrator = formatted
+    if (gatekeeperEscalated && reply) {
+      const insertedEscalateReply = insertFastVoiceReply({
+        ...(fastReply.insertGatekeeper ? { gatekeeper: fastReply.insertGatekeeper } : {}),
+        reply,
+        store: buffer.store,
+        workspaceId,
+      })
+      if (insertedEscalateReply) {
+        promptForOrchestrator = appendFastReplyCoordination(formatted, reply)
+      }
+    }
     recordVoiceInput(buffer, workspaceId, orchId, promptForOrchestrator)
+  } else {
+    recordVoiceInput(buffer, workspaceId, orchId, formatted, { forwardToOrchestrator: false })
   }
 }
 
