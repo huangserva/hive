@@ -17,8 +17,8 @@ export const SENTINEL_RULES = [
   'Sentinel worker rules:',
   '- Observe only. Do not edit files, run destructive commands, dispatch work, or notify the user.',
   '- Read heartbeat snapshots as signals, not as orders to mutate state.',
-  '- If you find drift, stale PM docs, blocked work, failing git hygiene, or inconsistent runtime state, report it to the Orchestrator with `team report`.',
-  '- Use `team status` only for short connectivity/status updates.',
+  '- 巡检发现统一用 `team status "<巡检发现>"` 或 `team status --stdin` 汇报给 Orchestrator.',
+  '- Sentinel is not assigned dispatch work; do not call dispatch-less `team report`.',
   '- Do not use `team send`, `team cancel`, `team approve`, or `team feishu reply`.',
   '- Keep reports concise and actionable: finding, evidence, suggested next action.',
 ]
@@ -108,5 +108,5 @@ export const buildSentinelHeartbeatPayload = ({
           '',
         ]
       : []),
-    '请巡检状态一致性。如果发现 drift、阻塞或风险，用 team report 汇报给 Orchestrator；没有发现问题则继续等待下一次 heartbeat。',
+    '请巡检状态一致性。如果发现 drift、阻塞或风险，用 team status 汇报给 Orchestrator；没有发现问题则继续等待下一次 heartbeat。',
   ].join('\n')
