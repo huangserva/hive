@@ -92,12 +92,13 @@ describe('aiActions', () => {
   })
 
   test('promote actions only use top-level ideas, not indented child bullets', () => {
+    const today = new Date().toISOString().slice(0, 10)
     const dir = setupWorkspace({
       'ideas/inbox.md': `# Ideas Inbox
 
 ## inbox
 
-### 2026-05-24
+### ${today}
 
 - 🤔 idea: provider catalog
   - 详细能力声明
@@ -282,7 +283,7 @@ describe('parseCockpit tasks and research integration', () => {
     })
     const result = parseCockpit(dir)
     const playbookActions = result.aiActions.filter((a) => a.type === 'playbook')
-    const researchActions = result.aiActions.filter((a) => a.type === 'research')
+    const researchActions = result.aiActions.filter((a) => a.targetTab === 'research')
     expect(playbookActions).toEqual([])
     expect(researchActions).toEqual([])
   })

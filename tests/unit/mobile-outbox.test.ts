@@ -8,6 +8,7 @@ import {
   enqueueOutboxItem,
   flushOutboxState,
   getOutboxCounts,
+  type MobileOutboxItem,
   parseOutboxState,
   removeOutboxItem,
   retryFailedOutboxItems,
@@ -45,7 +46,7 @@ describe('mobile outbox helpers', () => {
     expect(parsed.items.map((item) => item.status)).toEqual(['queued', 'queued', 'queued'])
   })
 
-  test('dedupes identical actions so repeated sends do not enqueue twice', () => {
+  test('allows identical prompt text with distinct ids so legitimate repeated sends are preserved', () => {
     const first = createPromptOutboxItem(
       { text: 'Ping orchestrator', workspaceId: 'ws-1' },
       { id: 'prompt-1' }
@@ -56,6 +57,21 @@ describe('mobile outbox helpers', () => {
     )
 
     const state = enqueueOutboxItem(enqueueOutboxItem(createMobileOutboxState(), first), second)
+    expect(state.items).toHaveLength(2)
+    expect(state.items.map((item) => item.id)).toEqual(['prompt-1', 'prompt-2'])
+  })
+
+  test('dedupes the same id so replaying a queued action does not enqueue twice', () => {
+    const first = createPromptOutboxItem(
+      { text: 'Ping orchestrator', workspaceId: 'ws-1' },
+      { id: 'prompt-1' }
+    )
+    const replay = createPromptOutboxItem(
+      { text: 'Ping orchestrator', workspaceId: 'ws-1' },
+      { id: 'prompt-1' }
+    )
+
+    const state = enqueueOutboxItem(enqueueOutboxItem(createMobileOutboxState(), first), replay)
     expect(state.items).toHaveLength(1)
     expect(state.items[0]?.id).toBe('prompt-1')
   })
@@ -102,7 +118,7 @@ describe('mobile outbox helpers', () => {
     expect(flushed.sentCount).toBe(1)
   })
 
-  test('a failed item blocks later queued items until it is retried', async () => {
+  test('a failed item does not block later queued items from flushing', async () => {
     const state = {
       items: [
         createPromptOutboxItem({ text: 'Blocked first', workspaceId: 'ws-1' }, { id: 'prompt-1' }),
@@ -121,20 +137,18 @@ describe('mobile outbox helpers', () => {
       ],
     }
 
-    const sendItem = vi.fn(async (item: (typeof state.items)[number]) => {
+    const sendItem = vi.fn(async (item: MobileOutboxItem) => {
       if (item.id === 'prompt-1') throw new Error('network down')
     })
 
     const flushed = await flushOutboxState(state, sendItem)
 
-    expect(sendItem).toHaveBeenCalledTimes(1)
-    expect(flushed.state.items.map((item) => item.id)).toEqual([
-      'prompt-1',
-      'dispatch-1',
-      'approval-1',
-    ])
+    expect(sendItem).toHaveBeenCalledTimes(2)
+    expect(sendItem.mock.calls.map((call) => call[0]?.id)).toEqual(['prompt-1', 'approval-1'])
+    expect(flushed.state.items.map((item) => item.id)).toEqual(['prompt-1', 'dispatch-1'])
     expect(flushed.state.items[0]?.status).toBe('failed')
     expect(flushed.state.items[1]?.status).toBe('failed')
-    expect(flushed.state.items[2]?.status).toBe('queued')
+    expect(flushed.sentIds).toEqual(['approval-1'])
+    expect(flushed.failedItems).toEqual([{ error: 'network down', id: 'prompt-1' }])
   })
 })
