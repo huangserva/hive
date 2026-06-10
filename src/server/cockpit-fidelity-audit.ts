@@ -1,7 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 
 import { parseDecisionsDoc } from './pm-decisions-doc.js'
+import {
+  findPairedResearchNote,
+  listPmResearchCandidates,
+  shouldIgnoreReportResearchPairing,
+} from './pm-report-research-pairing.js'
 import { parseReportsDoc } from './pm-reports-doc.js'
 
 export type CockpitFidelityFindingType =
@@ -21,7 +26,6 @@ export interface CockpitFidelityFindings {
   findings: CockpitFidelityFinding[]
 }
 
-const DATE_PATTERN = /\d{4}-\d{2}-\d{2}/g
 const INLINE_DECISION_METADATA_RE = /^\s*\*\*(?:状态|日期)\*\*\s*[:：]/m
 const YAML_FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/
 
@@ -31,27 +35,6 @@ const listFiles = (directory: string, predicate: (filename: string) => boolean) 
     .filter((entry) => entry.isFile() && predicate(entry.name))
     .map((entry) => entry.name)
     .sort()
-}
-
-const normalizeTopic = (filename: string) =>
-  basename(filename)
-    .replace(/\.[^.]+$/u, '')
-    .toLowerCase()
-    .replace(DATE_PATTERN, '')
-    .replace(/[^a-z0-9\u4e00-\u9fff]+/gu, '-')
-    .replace(/^-+|-+$/gu, '')
-
-const hasPairedResearchNote = (reportFilename: string, researchFiles: string[]) => {
-  const reportTopic = normalizeTopic(reportFilename)
-  if (!reportTopic) return false
-  return researchFiles.some((researchFilename) => {
-    const researchTopic = normalizeTopic(researchFilename)
-    return (
-      researchTopic === reportTopic ||
-      researchTopic.includes(reportTopic) ||
-      reportTopic.includes(researchTopic)
-    )
-  })
 }
 
 export const auditCockpitFidelity = (workspacePath: string): CockpitFidelityFindings => {
@@ -78,12 +61,16 @@ export const auditCockpitFidelity = (workspacePath: string): CockpitFidelityFind
     }
   }
 
-  const researchFiles = listFiles(
-    researchDir,
-    (filename) => !filename.startsWith('.') && filename.toLowerCase().endsWith('.md')
-  )
+  const researchFiles = listPmResearchCandidates(researchDir)
   for (const filename of reportFiles) {
-    if (!hasPairedResearchNote(filename, researchFiles)) {
+    if (shouldIgnoreReportResearchPairing(filename)) continue
+    const reportPath = join(reportsDir, filename)
+    if (
+      !findPairedResearchNote(
+        { content: readFileSync(reportPath, 'utf8'), filename, path: reportPath },
+        researchFiles
+      )
+    ) {
       findings.push({
         detail: `${filename} is missing paired research note in .hive/research.`,
         file: filename,

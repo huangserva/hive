@@ -21,8 +21,8 @@ const setupHiveDir = () => {
   return hive
 }
 
-const writeReport = (hiveDir: string, filename: string) =>
-  writeFileSync(join(hiveDir, 'reports', filename), '<html><body>report</body></html>', 'utf8')
+const writeReport = (hiveDir: string, filename: string, body = 'report') =>
+  writeFileSync(join(hiveDir, 'reports', filename), `<html><body>${body}</body></html>`, 'utf8')
 
 const writeResearch = (hiveDir: string, filename: string) =>
   writeFileSync(join(hiveDir, 'research', filename), '# Research\n', 'utf8')
@@ -43,19 +43,66 @@ describe('detectOrphanReports', () => {
     writeReport(hive, 'feishu-e2e-setup-guide-2026-05-24.html')
     writeReport(hive, '2026-05-24-cli-tutorial.html')
     writeReport(hive, '2026-05-24-session-handoff.html')
+    writeReport(hive, '2026-05-24-voice-mockup.html')
+    writeReport(hive, '2026-05-24-product-deck.html')
+    writeReport(hive, '2026-05-24-rollout-plan.html')
+    writeReport(hive, '2026-05-24-boss-view.html')
+
+    expect(detectOrphanReports(hive)).toEqual([])
+  })
+
+  test('pairs reports that explicitly link to an older research note', () => {
+    const hive = setupHiveDir()
+    writeReport(
+      hive,
+      '2026-06-08-relay-4g-deployment.html',
+      '<a href="../research/2026-06-01-relay-mobile-network.md">research note</a>'
+    )
+    writeResearch(hive, '2026-06-01-relay-mobile-network.md')
+
+    expect(detectOrphanReports(hive)).toEqual([])
+  })
+
+  test('pairs dot-hive research references even when date and topic differ', () => {
+    const hive = setupHiveDir()
+    writeReport(
+      hive,
+      '2026-06-08-composite-mobile-report.html',
+      '.hive/research/2026-06-01-relay-network-note.md'
+    )
+    writeResearch(hive, '2026-06-01-relay-network-note.md')
+
+    expect(detectOrphanReports(hive)).toEqual([])
+  })
+
+  test('pairs composite reports that cite multiple PM documents', () => {
+    const hive = setupHiveDir()
+    writeReport(
+      hive,
+      '2026-06-08-grm-front-layer-orchestration-map.html',
+      [
+        '.hive/research/2026-06-08-grm-front-layer-orchestration-map.md',
+        '.hive/reports/2026-06-08-related-report.html',
+        '.hive/research/2026-06-06-voice-intent-front.md',
+      ].join('\n')
+    )
+    writeResearch(hive, '2026-06-08-grm-front-layer-orchestration-map.md')
+    writeResearch(hive, '2026-06-06-voice-intent-front.md')
 
     expect(detectOrphanReports(hive)).toEqual([])
   })
 
   test('reports html files with a date but no same-day research note', () => {
     const hive = setupHiveDir()
-    writeReport(hive, '2026-05-24-orphan-spike.html')
+    writeReport(hive, '2026-05-24-orphan-research-spike.html')
 
     const [orphan] = detectOrphanReports(hive)
 
     expect(orphan?.reportDate).toBe('2026-05-24')
-    expect(basename(orphan?.reportPath ?? '')).toBe('2026-05-24-orphan-spike.html')
-    expect(basename(orphan?.suggestedResearchPath ?? '')).toBe('2026-05-24-orphan-spike.md')
+    expect(basename(orphan?.reportPath ?? '')).toBe('2026-05-24-orphan-research-spike.html')
+    expect(basename(orphan?.suggestedResearchPath ?? '')).toBe(
+      '2026-05-24-orphan-research-spike.md'
+    )
   })
 
   test('detects date infix reports and suggests a date-prefixed research filename', () => {

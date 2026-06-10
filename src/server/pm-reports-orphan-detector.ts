@@ -1,5 +1,13 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
+
+import {
+  extractPmDocDate,
+  findPairedResearchNote,
+  listPmResearchCandidates,
+  shouldIgnoreReportResearchPairing,
+  suggestedResearchFilename,
+} from './pm-report-research-pairing.js'
 
 export interface OrphanReport {
   reportDate: string
@@ -7,57 +15,32 @@ export interface OrphanReport {
   suggestedResearchPath: string
 }
 
-const REPORT_DATE_PATTERN = /\d{4}-\d{2}-\d{2}/
-const IGNORED_REPORT_PATTERNS = [/setup-guide/i, /tutorial/i, /handoff/i]
-
-const extractDate = (filename: string) => REPORT_DATE_PATTERN.exec(filename)?.[0] ?? null
-
-const isIgnoredReport = (filename: string) =>
-  IGNORED_REPORT_PATTERNS.some((pattern) => pattern.test(filename))
-
-const stripDate = (stem: string, date: string) =>
-  stem
-    .replace(date, '')
-    .replace(/^[-_]+|[-_]+$/g, '')
-    .replace(/[-_]+/g, '-')
-
-const suggestedResearchFilename = (reportFilename: string, reportDate: string) => {
-  const stem = reportFilename.replace(/\.html$/i, '')
-  const slug = stripDate(stem, reportDate) || 'research-note'
-  return `${reportDate}-${slug}.md`
-}
-
-const listMarkdownFiles = (dir: string): string[] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    if (entry.name.startsWith('.')) return []
-    const entryPath = join(dir, entry.name)
-    if (entry.isDirectory()) return listMarkdownFiles(entryPath)
-    return entry.isFile() && entry.name.endsWith('.md') ? [entryPath] : []
-  })
-
 export const detectOrphanReports = (hiveDir: string): OrphanReport[] => {
   const reportsDir = join(hiveDir, 'reports')
   const researchDir = join(hiveDir, 'research')
   if (!existsSync(reportsDir)) return []
 
-  const researchDates = new Set(
-    existsSync(researchDir)
-      ? listMarkdownFiles(researchDir)
-          .map(extractDate)
-          .filter((date): date is string => Boolean(date))
-      : []
-  )
+  const researchFiles = listPmResearchCandidates(researchDir)
 
   return readdirSync(reportsDir)
     .filter((filename) => filename.endsWith('.html') && !filename.startsWith('.'))
-    .filter((filename) => !isIgnoredReport(filename))
+    .filter((filename) => !shouldIgnoreReportResearchPairing(filename))
     .flatMap((filename) => {
-      const reportDate = extractDate(filename)
-      if (!reportDate || researchDates.has(reportDate)) return []
+      const reportDate = extractPmDocDate(filename)
+      const reportPath = join(reportsDir, filename)
+      if (
+        !reportDate ||
+        findPairedResearchNote(
+          { content: readFileSync(reportPath, 'utf8'), filename, path: reportPath },
+          researchFiles
+        )
+      ) {
+        return []
+      }
       return [
         {
           reportDate,
-          reportPath: join(reportsDir, filename),
+          reportPath,
           suggestedResearchPath: join(
             researchDir,
             suggestedResearchFilename(basename(filename), reportDate)
