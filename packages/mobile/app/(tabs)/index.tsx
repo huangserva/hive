@@ -919,12 +919,50 @@ const firstString = (...values: unknown[]) =>
     .find((value): value is string => typeof value === 'string' && value.trim().length > 0)
     ?.trim()
 
-const parseContent = (json: string): string => {
+export const normalizeChatDisplayText = (text: string): string => {
+  let result = ''
+  for (let index = 0; index < text.length; ) {
+    if (text[index] !== '\\') {
+      result += text[index]
+      index += 1
+      continue
+    }
+
+    let slashCount = 0
+    while (text[index + slashCount] === '\\') {
+      slashCount += 1
+    }
+
+    const nextIndex = index + slashCount
+    const next = text[nextIndex]
+    const escapedCrLf = next === 'r' && text[nextIndex + 1] === '\\' && text[nextIndex + 2] === 'n'
+
+    if (slashCount % 2 === 1 && escapedCrLf) {
+      result += '\\'.repeat(Math.floor(slashCount / 2))
+      result += '\n'
+      index = nextIndex + 3
+      continue
+    }
+
+    if (slashCount % 2 === 1 && (next === 'n' || next === 'r')) {
+      result += '\\'.repeat(Math.floor(slashCount / 2))
+      result += '\n'
+      index = nextIndex + 1
+      continue
+    }
+
+    result += '\\'.repeat(slashCount)
+    index = nextIndex
+  }
+  return result
+}
+
+export const parseContent = (json: string): string => {
   const parsed = parseContentObject(json)
-  return (
+  const text =
     firstString(parsed.text, parsed.summary, parsed.description, parsed.reason, parsed.action) ??
     (Object.keys(parsed).length > 0 ? JSON.stringify(parsed) : json)
-  )
+  return normalizeChatDisplayText(text)
 }
 
 const parseWorkerName = (json: string): string | null => {
