@@ -119,8 +119,8 @@ export const isClaudeCaptureSource = (source: string | undefined): boolean =>
   source === CLAUDE_CAPTURE_SOURCE
 
 // 门控：Claude managed home 默认关闭。重定位 HOME 在 macOS 触及 Keychain 鉴权，需真机验证后才默认开。
-export const isClaudeManagedHomeEnabled = (): boolean =>
-  process.env.HIVE_CLAUDE_MANAGED_HOME === '1'
+export const isClaudeManagedHomeEnabled = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  env.HIVE_CLAUDE_MANAGED_HOME === '1'
 
 // managed Claude home 布局：`<dataDir>/agents/<agentSeg>/provider/claude/home`（与 codex 平行）。
 export const resolveClaudeManagedHome = (dataDir: string, agentId: string): string =>

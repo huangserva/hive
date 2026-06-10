@@ -38,6 +38,11 @@ type LaunchPreset = Pick<
   'resumeArgsTemplate' | 'sessionIdCapture' | 'yoloArgsTemplate'
 >
 
+interface AgentRunBootstrapOptions {
+  claudeSourceHome?: string
+  env?: NodeJS.ProcessEnv
+}
+
 const resolveLaunchPreset = (
   config: AgentLaunchConfigInput,
   getCommandPreset: (id: string) => CommandPresetRecord | undefined
@@ -109,9 +114,11 @@ export const buildAgentRunBootstrap = (
   // `<projects>/<encoded_cwd>/`、resume 存在性校验、首启捕获），否则按旧 canonical cwd 查会破坏
   // per-worker resume 隔离。缺省（不传 / 老测试 / 未分层）退回 workspace.path。
   // 仅决定会话目录；HIVE_PROJECT_ID 等仍按 workspace 标识。
-  launchCwd?: string
+  launchCwd?: string,
+  options: AgentRunBootstrapOptions = {}
 ) => {
   const sessionCwd = launchCwd ?? workspace.path
+  const runtimeEnv = options.env ?? process.env
   const preset = resolveLaunchPreset(config, getCommandPreset)
   const discriminator = createSessionCaptureDiscriminator(workspace, agent)
 
@@ -122,8 +129,10 @@ export const buildAgentRunBootstrap = (
   // per-agent 隔离的会话找不到、resume 被错误丢弃。与 M32 cwd 维解耦：本维只设 HOME / CLAUDE_PROJECTS_ROOT。
   const effectiveCaptureSource = (config.sessionIdCapture ?? preset?.sessionIdCapture)?.source
   const claudeManaged =
-    dataDir && isClaudeManagedHomeEnabled() && isClaudeCaptureSource(effectiveCaptureSource)
-      ? materializeClaudeManagedProfile(dataDir, agentId)
+    dataDir &&
+    isClaudeManagedHomeEnabled(runtimeEnv) &&
+    isClaudeCaptureSource(effectiveCaptureSource)
+      ? materializeClaudeManagedProfile(dataDir, agentId, options.claudeSourceHome)
       : undefined
 
   const startConfig = withPresetResumeArgs(
@@ -167,7 +176,7 @@ export const buildAgentRunBootstrap = (
       HIVE_PROJECT_ID: workspace.id,
       HIVE_AGENT_ID: agentId,
       HIVE_AGENT_TOKEN: '',
-      PATH: `${HIVE_BIN_DIR}${delimiter}${process.env.PATH ?? ''}`,
+      PATH: `${HIVE_BIN_DIR}${delimiter}${runtimeEnv.PATH ?? process.env.PATH ?? ''}`,
     },
   }
 }

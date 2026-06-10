@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-
+import type { AgentManager } from '../../src/server/agent-manager.js'
 import { createAgentRunStarter } from '../../src/server/agent-run-starter.js'
 import { createAgentTokenRegistry } from '../../src/server/agent-tokens.js'
 import { createLiveRunRegistry } from '../../src/server/live-run-registry.js'
+import { createPtyOutputBus } from '../../src/server/pty-output-bus.js'
 import { createNoopRestartPolicy } from '../../src/server/restart-policy.js'
 import { SESSION_START_REVIEW_MESSAGE } from '../../src/server/session-start-review-message.js'
+import type { AgentSummary } from '../../src/shared/types.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -18,34 +20,63 @@ const WORKSPACE = {
   summary: { id: 'ws-1', name: 'Test', path: '/tmp/ws-1' },
 } as const
 
+const makeAgentSummary = (
+  id: string,
+  role: AgentSummary['role'],
+  name: string,
+  description: string,
+  workspaceId: string = WORKSPACE.id
+): AgentSummary => ({
+  description,
+  id,
+  name,
+  pendingTaskCount: 0,
+  role,
+  status: 'idle',
+  workspaceId,
+})
+
 const PROMPT_READY_OUTPUT = '\n❯ '
 const makeAgentManagerMock = () => {
   const writtenInputs: Array<{ runId: string; text: string }> = []
   const getRunCalls = new Map<string, number>()
-  const mock = {
-    startAgent: vi.fn().mockResolvedValue({
-      runId: 'run-test-1',
-      pid: 1234,
+  const outputBus = createPtyOutputBus()
+  const startAgent = vi.fn<AgentManager['startAgent']>().mockResolvedValue({
+    runId: 'run-test-1',
+    pid: 1234,
+    status: 'running',
+    exitCode: null,
+    errorTail: null,
+    output: '',
+    agentId: ORCHESTRATOR_AGENT_ID,
+  })
+  const writeInput = vi.fn<AgentManager['writeInput']>((runId, text) => {
+    writtenInputs.push({ runId, text: String(text) })
+  })
+  const getRun = vi.fn<AgentManager['getRun']>((runId = 'run-test-1') => {
+    const calls = getRunCalls.get(runId) ?? 0
+    getRunCalls.set(runId, calls + 1)
+    return {
+      agentId: ORCHESTRATOR_AGENT_ID,
+      runId,
       status: 'running',
+      output: calls === 0 ? '' : PROMPT_READY_OUTPUT,
+      pid: 1234,
       exitCode: null,
       errorTail: null,
-    }),
-    writeInput: vi.fn((runId: string, text: string | Buffer) => {
-      writtenInputs.push({ runId, text: String(text) })
-    }),
-    getRun: vi.fn((runId = 'run-test-1') => {
-      const calls = getRunCalls.get(runId) ?? 0
-      getRunCalls.set(runId, calls + 1)
-      return {
-        runId,
-        status: 'running',
-        output: calls === 0 ? '' : PROMPT_READY_OUTPUT,
-        pid: 1234,
-        exitCode: null,
-      }
-    }),
+    }
+  })
+  const mock = {
+    getOutputBus: vi.fn(() => outputBus),
+    startAgent,
+    writeInput,
+    getRun,
+    pauseRun: vi.fn(),
+    resizeRun: vi.fn(),
+    resumeRun: vi.fn(),
+    removeRun: vi.fn(),
     stopRun: vi.fn(),
-  }
+  } satisfies AgentManager
   return { mock, writtenInputs }
 }
 
@@ -70,12 +101,9 @@ describe('session-start-review via agent-run-starter', () => {
     const sessionStore = makeSessionStoreMock()
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
-    const getAgent = vi.fn().mockReturnValue({
-      id: ORCHESTRATOR_AGENT_ID,
-      name: 'orch',
-      role: 'orchestrator',
-      description: 'test orch',
-    })
+    const getAgent = vi
+      .fn()
+      .mockReturnValue(makeAgentSummary(ORCHESTRATOR_AGENT_ID, 'orchestrator', 'orch', 'test orch'))
 
     const startLiveRun = createAgentRunStarter({
       agentManager,
@@ -112,12 +140,9 @@ describe('session-start-review via agent-run-starter', () => {
     const sessionStore = makeSessionStoreMock()
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
-    const getAgent = vi.fn().mockReturnValue({
-      id: WORKER_AGENT_ID,
-      name: 'worker1',
-      role: 'coder',
-      description: 'test worker',
-    })
+    const getAgent = vi
+      .fn()
+      .mockReturnValue(makeAgentSummary(WORKER_AGENT_ID, 'coder', 'worker1', 'test worker'))
 
     const startLiveRun = createAgentRunStarter({
       agentManager,
@@ -153,12 +178,9 @@ describe('session-start-review via agent-run-starter', () => {
     const sessionStore = makeSessionStoreMock()
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
-    const getAgent = vi.fn().mockReturnValue({
-      id: ORCHESTRATOR_AGENT_ID,
-      name: 'orch',
-      role: 'orchestrator',
-      description: 'test orch',
-    })
+    const getAgent = vi
+      .fn()
+      .mockReturnValue(makeAgentSummary(ORCHESTRATOR_AGENT_ID, 'orchestrator', 'orch', 'test orch'))
 
     const startLiveRun = createAgentRunStarter({
       agentManager,
@@ -173,9 +195,11 @@ describe('session-start-review via agent-run-starter', () => {
     })
 
     agentManager.startAgent.mockResolvedValueOnce({
+      agentId: ORCHESTRATOR_AGENT_ID,
       runId: 'run-1',
       pid: 100,
       status: 'running',
+      output: '',
       exitCode: null,
       errorTail: null,
     })
@@ -190,9 +214,11 @@ describe('session-start-review via agent-run-starter', () => {
     const firstWrites = writtenInputs.splice(0)
 
     agentManager.startAgent.mockResolvedValueOnce({
+      agentId: ORCHESTRATOR_AGENT_ID,
       runId: 'run-2',
       pid: 200,
       status: 'running',
+      output: '',
       exitCode: null,
       errorTail: null,
     })
@@ -218,12 +244,14 @@ describe('session-start-review via agent-run-starter', () => {
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
 
-    const getAgent = (_wsId: string, agentId: string) => ({
-      id: agentId,
-      name: agentId.includes('ws-2') ? 'orch2' : 'orch1',
-      role: 'orchestrator' as const,
-      description: 'test orch',
-    })
+    const getAgent = (workspaceId: string, agentId: string) =>
+      makeAgentSummary(
+        agentId,
+        'orchestrator',
+        agentId.includes('ws-2') ? 'orch2' : 'orch1',
+        'test orch',
+        workspaceId
+      )
 
     const startLiveRun = createAgentRunStarter({
       agentManager,
@@ -238,9 +266,11 @@ describe('session-start-review via agent-run-starter', () => {
     })
 
     agentManager.startAgent.mockResolvedValueOnce({
+      agentId: 'ws-1:orchestrator',
       runId: 'run-ws1',
       pid: 100,
       status: 'running',
+      output: '',
       exitCode: null,
       errorTail: null,
     })
@@ -257,9 +287,11 @@ describe('session-start-review via agent-run-starter', () => {
     expect(firstCombined).toContain('[Hive 系统消息：会话开始]')
 
     agentManager.startAgent.mockResolvedValueOnce({
+      agentId: 'ws-2:orchestrator',
       runId: 'run-ws2',
       pid: 200,
       status: 'running',
+      output: '',
       exitCode: null,
       errorTail: null,
     })
@@ -281,12 +313,9 @@ describe('session-start-review via agent-run-starter', () => {
     const sessionStore = makeSessionStoreMock()
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
-    const getAgent = vi.fn().mockReturnValue({
-      id: ORCHESTRATOR_AGENT_ID,
-      name: 'orch',
-      role: 'orchestrator',
-      description: 'test orch',
-    })
+    const getAgent = vi
+      .fn()
+      .mockReturnValue(makeAgentSummary(ORCHESTRATOR_AGENT_ID, 'orchestrator', 'orch', 'test orch'))
 
     const startLiveRun = createAgentRunStarter({
       agentManager,
@@ -319,12 +348,9 @@ describe('session-start-review via agent-run-starter', () => {
     const sessionStore = makeSessionStoreMock()
     const tokenRegistry = createAgentTokenRegistry()
     const registry = createLiveRunRegistry()
-    const getAgent = vi.fn().mockReturnValue({
-      id: ORCHESTRATOR_AGENT_ID,
-      name: 'orch',
-      role: 'orchestrator',
-      description: 'test orch',
-    })
+    const getAgent = vi
+      .fn()
+      .mockReturnValue(makeAgentSummary(ORCHESTRATOR_AGENT_ID, 'orchestrator', 'orch', 'test orch'))
 
     const startLiveRun = createAgentRunStarter({
       agentManager,

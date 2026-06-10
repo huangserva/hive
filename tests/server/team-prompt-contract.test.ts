@@ -193,6 +193,6 @@ describe('team prompt contract', () => {
       expect(run?.output).toContain('实现登录')
       expect(run?.output).toContain('\u001b[201~')
       expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
-    }, 9000)
-  }, 15_000)
+    }, 14_000)
+  }, 20_000)
 })

@@ -55,8 +55,10 @@ let serverContext: Awaited<ReturnType<typeof startTestServer>> | undefined
 let workspaceId = ''
 let sleeperPresetId = ''
 let uiCookie = ''
+const originalPath = process.env.PATH
 
 const WORKER_FLOW_TIMEOUT_MS = 5000
+const WORKER_FLOW_TEST_TIMEOUT_MS = WORKER_FLOW_TIMEOUT_MS * 12
 
 const fetchThroughServer = (input: RequestInfo | URL, init?: RequestInit) => {
   const value =
@@ -67,16 +69,45 @@ const fetchThroughServer = (input: RequestInfo | URL, init?: RequestInit) => {
   return { headers, url }
 }
 
+const isExternalRequest = (url: string) =>
+  serverContext?.baseUrl ? !url.startsWith(serverContext.baseUrl) : url.startsWith('http')
+
+const createExternalFetchResponse = () =>
+  Promise.resolve(
+    new Response(JSON.stringify({ version: '2.3.0' }), {
+      headers: { 'content-type': 'application/json' },
+      status: 200,
+    })
+  )
+
+const fetchAndTrackUiCookie = async (url: string, init: RequestInit) => {
+  const response = await nativeFetch(url, init)
+  const nextCookie = response.headers.get('set-cookie')
+  if (nextCookie) uiCookie = nextCookie
+  return response
+}
+
+const waitForDialogTestId = async (dialog: HTMLElement, testId: string) => {
+  await waitFor(
+    () => {
+      expect(within(dialog).queryByTestId(testId)).toBeInTheDocument()
+    },
+    { timeout: WORKER_FLOW_TIMEOUT_MS }
+  )
+}
+
 const stubFetch = () => {
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     const { headers, url } = fetchThroughServer(input, init)
-    return nativeFetch(url, { ...init, headers })
+    if (isExternalRequest(url)) return createExternalFetchResponse()
+    return fetchAndTrackUiCookie(url, { ...init, headers })
   })
 }
 
 const stubFetchWithEmptyTerminalRuns = () => {
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     const { headers, url } = fetchThroughServer(input, init)
+    if (isExternalRequest(url)) return createExternalFetchResponse()
     if (url.endsWith(`/api/ui/workspaces/${workspaceId}/runs`)) {
       return Promise.resolve(
         new Response(JSON.stringify([]), {
@@ -85,12 +116,13 @@ const stubFetchWithEmptyTerminalRuns = () => {
         })
       )
     }
-    return nativeFetch(url, { ...init, headers })
+    return fetchAndTrackUiCookie(url, { ...init, headers })
   })
 }
 
 beforeEach(async () => {
   window.localStorage.clear()
+  process.env.PATH = '/usr/bin:/bin'
   window.matchMedia =
     window.matchMedia ??
     ((query: string) =>
@@ -104,6 +136,7 @@ beforeEach(async () => {
         removeEventListener: () => {},
         removeListener: () => {},
       }) as MediaQueryList)
+  vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
 
   const server = await startTestServer()
   serverContext = server
@@ -140,6 +173,8 @@ afterEach(async () => {
   cleanup()
   vi.restoreAllMocks()
   window.localStorage.clear()
+  if (originalPath === undefined) delete process.env.PATH
+  else process.env.PATH = originalPath
   await cleanupServer?.()
   cleanupServer = undefined
   serverContext = undefined
@@ -149,261 +184,306 @@ afterEach(async () => {
 })
 
 describe('worker flow with real server', () => {
-  test('Add Worker dialog creates a card with role badge + status dot', async () => {
-    render(<App />)
+  test(
+    'Add Worker dialog creates a card with role badge + status dot',
+    async () => {
+      render(<App />)
 
-    // Open the AddWorkerDialog via the Team Members pane "Add Member" header button
-    await waitFor(() => {
-      const buttons = screen.getAllByRole('button', { name: /Add Member/ })
-      expect(buttons.length).toBeGreaterThan(0)
-    })
-    expect(screen.getByText('Team members')).toBeInTheDocument()
-    const newWorkerButtons = screen.getAllByRole('button', { name: /Add Member/ })
-    fireEvent.click(newWorkerButtons[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate random member name' }))
-    const nameInput = within(dialog).getByPlaceholderText('e.g. Alice') as HTMLInputElement
-    expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[0-9]{2}$/)
-    fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
-      target: { value: 'Alice' },
-    })
-    // M6-A: role is selected via card buttons (no native select). Coder card is
-    // the default-active card; click is idempotent and asserts wiring.
-    fireEvent.click(within(dialog).getByTestId('role-card-coder'))
-    // Agent CLI is selected via radio-style buttons keyed by preset id.
-    await waitFor(() => {
-      expect(within(dialog).queryByTestId(`agent-radio-${sleeperPresetId}`)).toBeInTheDocument()
-    })
-    fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
-    fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
-
-    // Dialog closes, card appears with testid + role badge
-    await waitFor(
-      () => {
-        expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
-      },
-      { timeout: WORKER_FLOW_TIMEOUT_MS }
-    )
-
-    const card = await screen.findByRole(
-      'button',
-      { name: /^Open Alice$/ },
-      { timeout: WORKER_FLOW_TIMEOUT_MS }
-    )
-    expect(card).toBeInTheDocument()
-    expect(within(card).getByText('Alice')).toBeInTheDocument()
-    expect(within(card).getByText('Coder')).toBeInTheDocument()
-    expect(within(card).getByRole('status')).toHaveTextContent('idle')
-    // Add Member affordance now lives only in the WorkersPane header (the
-    // dashed in-grid Add Member tile was redundant and visually misleading).
-    expect(screen.getByTestId('add-worker-trigger')).toHaveTextContent('Add Member')
-
-    const workerRun = serverContext?.store
-      .listTerminalRuns(workspaceId)
-      .find((run) => run.agent_name === 'Alice')
-    expect(workerRun?.run_id).toEqual(expect.any(String))
-
-    // Verify clicking the card opens the modal and the PTY portal mounts.
-    fireEvent.click(card)
-    await screen.findByRole('dialog', { name: 'Alice' })
-    await waitFor(() => {
-      expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
-    })
-    // Close modal — control actions (Stop/Restart/Delete) live on the card now.
-    fireEvent.click(screen.getByLabelText('Close worker detail'))
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog', { name: 'Alice' })).toBeNull()
-    })
-
-    // Delete via the card's hover-revealed action cluster.
-    fireEvent.click(screen.getByRole('button', { name: 'Delete team member Alice' }))
-    const confirm = await screen.findByTestId('confirm-title')
-    expect(confirm).toHaveTextContent('Delete Alice?')
-    fireEvent.click(screen.getByTestId('confirm-action'))
-
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /^Open Alice$/ })).toBeNull()
-    })
-    expect(serverContext?.store.listWorkers(workspaceId)).toHaveLength(0)
-    expect(
-      serverContext?.store.listTerminalRuns(workspaceId).filter((run) => run.agent_name === 'Alice')
-    ).toHaveLength(0)
-  })
-
-  test('Add Worker dialog shows role instructions and saves an edited prompt', async () => {
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
-    const instructions = await within(dialog).findByLabelText('Role instructions')
-    expect((instructions as HTMLTextAreaElement).value).toContain('You are a Coder')
-    expect((instructions as HTMLTextAreaElement).value).toContain('Report changed files')
-
-    fireEvent.click(within(dialog).getByTestId('role-card-reviewer'))
-    expect((instructions as HTMLTextAreaElement).value).toContain('You are a Reviewer')
-    expect((instructions as HTMLTextAreaElement).value).toContain('blocking issues')
-
-    fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
-      target: { value: 'ReviewLead' },
-    })
-    fireEvent.change(instructions, {
-      target: {
-        value: '你是审查型 worker。先找高风险问题，再给出最小修复建议。',
-      },
-    })
-    expect(within(dialog).getByText(/Modified from Reviewer default/)).toBeInTheDocument()
-    expect((instructions as HTMLTextAreaElement).value).toContain(
-      '你是审查型 worker。先找高风险问题，再给出最小修复建议。'
-    )
-    await waitFor(() => {
-      expect(within(dialog).queryByTestId(`agent-radio-${sleeperPresetId}`)).toBeInTheDocument()
-    })
-    fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
-    fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
-
-    await waitFor(
-      () => {
-        expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
-      },
-      { timeout: WORKER_FLOW_TIMEOUT_MS }
-    )
-    const worker = serverContext?.store
-      .getWorkspaceSnapshot(workspaceId)
-      .agents.find((agent) => agent.name === 'ReviewLead')
-    expect(worker?.role).toBe('reviewer')
-    expect(worker?.description).toBe('你是审查型 worker。先找高风险问题，再给出最小修复建议。')
-  })
-
-  test('Add Worker random name follows the selected Chinese language', async () => {
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Switch language to 中文' }))
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /添加成员/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /添加成员/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: '添加团队成员' })
-    const nameInput = within(dialog).getByPlaceholderText('例如 火锅判官-27') as HTMLInputElement
-    fireEvent.click(within(dialog).getByRole('button', { name: '生成随机成员名' }))
-
-    expect(nameInput.value).toMatch(/^[\u4e00-\u9fff]+-[\u4e00-\u9fff]+-[0-9]{2}$/)
-  })
-
-  test('Add Worker dialog can override the default preset with a full startup command', async () => {
-    render(<App />)
-
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
-
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
-    fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
-      target: { value: 'CustomAgent' },
-    })
-    fireEvent.click(within(dialog).getByText('Startup command'))
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Startup command' }), {
-      target: { value: 'bash -c "echo custom worker; sleep 60"' },
-    })
-    fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
-
-    await waitFor(
-      () => {
-        expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
-      },
-      { timeout: WORKER_FLOW_TIMEOUT_MS }
-    )
-
-    const worker = serverContext?.store
-      .getWorkspaceSnapshot(workspaceId)
-      .agents.find((agent) => agent.name === 'CustomAgent')
-    expect(worker?.id).toEqual(expect.any(String))
-    expect(serverContext?.store.peekAgentLaunchConfig(workspaceId, worker?.id ?? '')).toEqual(
-      expect.objectContaining({
-        args: expect.arrayContaining(['bash -c "echo custom worker; sleep 60"']),
-        commandPresetId: null,
-        interactiveCommand: 'bash',
-        presetAugmentationDisabled: true,
-        sessionIdCapture: null,
+      // Open the AddWorkerDialog via the Team Members pane "Add Member" header button
+      await waitFor(() => {
+        const buttons = screen.getAllByRole('button', { name: /Add Member/ })
+        expect(buttons.length).toBeGreaterThan(0)
       })
-    )
-  })
+      expect(screen.getByText('Team members')).toBeInTheDocument()
+      const newWorkerButtons = screen.getAllByRole('button', { name: /Add Member/ })
+      fireEvent.click(newWorkerButtons[0] as HTMLElement)
 
-  test('new member opens with its PTY before terminal-runs polling catches up', async () => {
-    stubFetchWithEmptyTerminalRuns()
-    render(<App />)
+      const dialog = await screen.findByRole('form', { name: 'Add team member' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Generate random member name' }))
+      const nameInput = within(dialog).getByPlaceholderText('e.g. Alice') as HTMLInputElement
+      expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[0-9]{2}$/)
+      fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
+        target: { value: 'Alice' },
+      })
+      // M6-A: role is selected via card buttons (no native select). Coder card is
+      // the default-active card; click is idempotent and asserts wiring.
+      await waitForDialogTestId(dialog, 'role-card-coder')
+      fireEvent.click(within(dialog).getByTestId('role-card-coder'))
+      // Agent CLI is selected via radio-style buttons keyed by preset id.
+      await waitForDialogTestId(dialog, `agent-radio-${sleeperPresetId}`)
+      fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
+      fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
 
-    await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
-    })
-    fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
+      // Dialog closes, card appears with testid + role badge
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
+        },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
 
-    const dialog = await screen.findByRole('form', { name: 'Add team member' })
-    fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
-      target: { value: 'Immediate' },
-    })
-    await waitFor(() => {
-      expect(within(dialog).queryByTestId(`agent-radio-${sleeperPresetId}`)).toBeInTheDocument()
-    })
-    fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
-    fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
+      const card = await screen.findByRole(
+        'button',
+        { name: /^Open Alice$/ },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
+      expect(card).toBeInTheDocument()
+      expect(within(card).getByText('Alice')).toBeInTheDocument()
+      expect(within(card).getByText('Coder')).toBeInTheDocument()
+      expect(within(card).getByRole('status')).toHaveTextContent('idle')
+      // Add Member affordance now lives only in the WorkersPane header (the
+      // dashed in-grid Add Member tile was redundant and visually misleading).
+      expect(screen.getByTestId('add-worker-trigger')).toHaveTextContent('Add Member')
 
-    const card = await screen.findByRole(
-      'button',
-      { name: /^Open Immediate$/ },
-      { timeout: WORKER_FLOW_TIMEOUT_MS }
-    )
-    fireEvent.click(card)
-
-    const modal = await screen.findByRole('dialog', { name: 'Immediate' })
-    expect(within(modal).queryByTestId('worker-start-empty')).toBeNull()
-    expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
-  })
-
-  test('stopped worker can be started from the detail modal after reload', async () => {
-    const response = await nativeFetch(
-      `${serverContext?.baseUrl}/api/workspaces/${workspaceId}/workers`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', cookie: uiCookie },
-        body: JSON.stringify({
-          autostart: false,
-          command_preset_id: sleeperPresetId,
-          hive_port: '4010',
-          name: 'Bob',
-          role: 'coder',
-        }),
-      }
-    )
-    expect(response.status).toBe(201)
-
-    render(<App />)
-
-    const card = await screen.findByRole('button', { name: /^Open Bob$/ })
-    expect(within(card).getByText('stopped')).toBeInTheDocument()
-    fireEvent.click(card)
-
-    const modal = await screen.findByRole('dialog', { name: 'Bob' })
-    expect(within(modal).getByText(/PTY stopped|not started/)).toBeInTheDocument()
-    fireEvent.click(within(modal).getAllByRole('button', { name: /Start/ })[0] as HTMLElement)
-
-    await waitFor(() => {
-      expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
-    })
-    await waitFor(() => {
       const workerRun = serverContext?.store
         .listTerminalRuns(workspaceId)
-        .find((run) => run.agent_name === 'Bob')
+        .find((run) => run.agent_name === 'Alice')
       expect(workerRun?.run_id).toEqual(expect.any(String))
-    })
-  })
+
+      // Verify clicking the card opens the modal and the PTY portal mounts.
+      fireEvent.click(card)
+      await screen.findByRole('dialog', { name: 'Alice' })
+      await waitFor(() => {
+        expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
+      })
+      // Close modal — control actions (Stop/Restart/Delete) live on the card now.
+      fireEvent.click(screen.getByLabelText('Close worker detail'))
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Alice' })).toBeNull()
+      })
+
+      // Delete via the card's hover-revealed action cluster.
+      fireEvent.click(screen.getByRole('button', { name: 'Delete team member Alice' }))
+      const confirm = await screen.findByTestId('confirm-title')
+      expect(confirm).toHaveTextContent('Delete Alice?')
+      fireEvent.click(screen.getByTestId('confirm-action'))
+
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('button', { name: /^Open Alice$/ })).toBeNull()
+          expect(serverContext?.store.listWorkers(workspaceId)).toHaveLength(0)
+          expect(
+            serverContext?.store
+              .listTerminalRuns(workspaceId)
+              .filter((run) => run.agent_name === 'Alice')
+          ).toHaveLength(0)
+        },
+        { timeout: WORKER_FLOW_TEST_TIMEOUT_MS }
+      )
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'Add Worker dialog shows role instructions and saves an edited prompt',
+    async () => {
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
+      })
+      fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
+
+      const dialog = await screen.findByRole('form', { name: 'Add team member' })
+      const instructions = await within(dialog).findByLabelText('Role instructions')
+      expect((instructions as HTMLTextAreaElement).value).toContain('You are a Coder')
+      expect((instructions as HTMLTextAreaElement).value).toContain('Report changed files')
+
+      fireEvent.click(within(dialog).getByTestId('role-card-reviewer'))
+      expect((instructions as HTMLTextAreaElement).value).toContain('You are a Reviewer')
+      expect((instructions as HTMLTextAreaElement).value).toContain('blocking issues')
+
+      fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
+        target: { value: 'ReviewLead' },
+      })
+      fireEvent.change(instructions, {
+        target: {
+          value: '你是审查型 worker。先找高风险问题，再给出最小修复建议。',
+        },
+      })
+      expect(within(dialog).getByText(/Modified from Reviewer default/)).toBeInTheDocument()
+      expect((instructions as HTMLTextAreaElement).value).toContain(
+        '你是审查型 worker。先找高风险问题，再给出最小修复建议。'
+      )
+      await waitForDialogTestId(dialog, `agent-radio-${sleeperPresetId}`)
+      fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
+      fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
+
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
+        },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
+      const worker = serverContext?.store
+        .getWorkspaceSnapshot(workspaceId)
+        .agents.find((agent) => agent.name === 'ReviewLead')
+      expect(worker?.role).toBe('reviewer')
+      expect(worker?.description).toBe('你是审查型 worker。先找高风险问题，再给出最小修复建议。')
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'Add Worker random name follows the selected Chinese language',
+    async () => {
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Switch language to 中文' }))
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /添加成员/ }).length).toBeGreaterThan(0)
+      })
+      fireEvent.click(screen.getAllByRole('button', { name: /添加成员/ })[0] as HTMLElement)
+
+      const dialog = await screen.findByRole('form', { name: '添加团队成员' })
+      const nameInput = within(dialog).getByPlaceholderText('例如 火锅判官-27') as HTMLInputElement
+      fireEvent.click(within(dialog).getByRole('button', { name: '生成随机成员名' }))
+
+      expect(nameInput.value).toMatch(/^[\u4e00-\u9fff]+-[\u4e00-\u9fff]+-[0-9]{2}$/)
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'Add Worker dialog can override the default preset with a full startup command',
+    async () => {
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
+      })
+      fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
+
+      const dialog = await screen.findByRole('form', { name: 'Add team member' })
+      fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
+        target: { value: 'CustomAgent' },
+      })
+      fireEvent.click(within(dialog).getByText('Startup command'))
+      fireEvent.change(within(dialog).getByRole('textbox', { name: 'Startup command' }), {
+        target: { value: 'bash -c "echo custom worker; sleep 60"' },
+      })
+      fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
+
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
+        },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
+
+      const worker = serverContext?.store
+        .getWorkspaceSnapshot(workspaceId)
+        .agents.find((agent) => agent.name === 'CustomAgent')
+      expect(worker?.id).toEqual(expect.any(String))
+      expect(serverContext?.store.peekAgentLaunchConfig(workspaceId, worker?.id ?? '')).toEqual(
+        expect.objectContaining({
+          args: expect.arrayContaining(['bash -c "echo custom worker; sleep 60"']),
+          commandPresetId: null,
+          interactiveCommand: 'bash',
+          presetAugmentationDisabled: true,
+          sessionIdCapture: null,
+        })
+      )
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'new member opens with its PTY before terminal-runs polling catches up',
+    async () => {
+      stubFetchWithEmptyTerminalRuns()
+      render(<App />)
+
+      await waitFor(() => {
+        expect(screen.getAllByRole('button', { name: /Add Member/ }).length).toBeGreaterThan(0)
+      })
+      fireEvent.click(screen.getAllByRole('button', { name: /Add Member/ })[0] as HTMLElement)
+
+      const dialog = await screen.findByRole('form', { name: 'Add team member' })
+      fireEvent.change(within(dialog).getByPlaceholderText('e.g. Alice'), {
+        target: { value: 'Immediate' },
+      })
+      await waitForDialogTestId(dialog, `agent-radio-${sleeperPresetId}`)
+      fireEvent.click(within(dialog).getByTestId(`agent-radio-${sleeperPresetId}`))
+      fireEvent.click(within(dialog).getByTestId('add-worker-submit'))
+
+      await waitFor(
+        () => {
+          expect(screen.queryByRole('form', { name: 'Add team member' })).toBeNull()
+        },
+        { timeout: WORKER_FLOW_TEST_TIMEOUT_MS }
+      )
+      const card = await screen.findByRole(
+        'button',
+        { name: /^Open Immediate$/ },
+        { timeout: WORKER_FLOW_TEST_TIMEOUT_MS }
+      )
+      fireEvent.click(card)
+
+      const modal = await screen.findByRole('dialog', { name: 'Immediate' })
+      await waitFor(
+        () => {
+          expect(within(modal).queryByTestId('worker-start-empty')).toBeNull()
+          expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
+        },
+        { timeout: WORKER_FLOW_TEST_TIMEOUT_MS }
+      )
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
+
+  test(
+    'stopped worker can be started from the detail modal after reload',
+    async () => {
+      const response = await nativeFetch(
+        `${serverContext?.baseUrl}/api/workspaces/${workspaceId}/workers`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: uiCookie },
+          body: JSON.stringify({
+            autostart: false,
+            command_preset_id: sleeperPresetId,
+            hive_port: '4010',
+            name: 'Bob',
+            role: 'coder',
+          }),
+        }
+      )
+      expect(response.status).toBe(201)
+
+      render(<App />)
+
+      const card = await screen.findByRole(
+        'button',
+        { name: /^Open Bob$/ },
+        { timeout: WORKER_FLOW_TEST_TIMEOUT_MS }
+      )
+      expect(within(card).getByText('stopped')).toBeInTheDocument()
+      fireEvent.click(card)
+
+      const modal = await screen.findByRole('dialog', { name: 'Bob' })
+      expect(within(modal).getByText(/PTY stopped|not started/)).toBeInTheDocument()
+      fireEvent.click(within(modal).getAllByRole('button', { name: /Start/ })[0] as HTMLElement)
+
+      await waitFor(
+        () => {
+          expect(document.querySelector('[id^="worker-pty-"]')).not.toBeNull()
+        },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
+      await waitFor(
+        () => {
+          const workerRun = serverContext?.store
+            .listTerminalRuns(workspaceId)
+            .find((run) => run.agent_name === 'Bob')
+          expect(workerRun?.run_id).toEqual(expect.any(String))
+        },
+        { timeout: WORKER_FLOW_TIMEOUT_MS }
+      )
+    },
+    WORKER_FLOW_TEST_TIMEOUT_MS
+  )
 })

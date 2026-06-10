@@ -12,7 +12,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-
 import { resolveAgentLaunchRoots } from '../../src/server/agent-launch-roots.js'
 import { buildAgentRunBootstrap } from '../../src/server/agent-run-bootstrap.js'
 import type { CommandPresetRecord } from '../../src/server/command-preset-store.js'
@@ -21,6 +20,7 @@ import {
   NotAGitWorkTreeError,
   resolveWorkerWorktreePath,
 } from '../../src/server/worktree-manager.js'
+import type { AgentSummary } from '../../src/shared/types.js'
 
 // M32 Phase 1（钟馗 review 后返工 9874141b）：真 git 仓库，不 mock PTY/node-pty（§13）。测「决定 worker
 // cwd + 治理共享」的承重层（worktree-manager + resolveAgentLaunchRoots）+ session capture cwd 穿透。
@@ -275,17 +275,10 @@ describe('M32 resolveAgentLaunchRoots (backward compat / layering gate / fail-cl
 })
 
 describe('M32 BLOCKER 2 — session capture/resume uses the worker real cwd (codeRoot)', () => {
-  let savedHome: string | undefined
   let fakeHome: string
 
   beforeEach(() => {
-    savedHome = process.env.HOME
     fakeHome = mkTemp('hive-fakehome-')
-    process.env.HOME = fakeHome
-  })
-  afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME
-    else process.env.HOME = savedHome
   })
 
   const claudePreset: CommandPresetRecord = {
@@ -297,12 +290,22 @@ describe('M32 BLOCKER 2 — session capture/resume uses the worker real cwd (cod
     isBuiltin: true,
     resumeArgsTemplate: '--resume {session_id}',
     sessionIdCapture: {
-      pattern: '~/.claude/projects/{encoded_cwd}/*.jsonl',
+      pattern: '',
       source: 'claude_project_jsonl_dir',
     },
     yoloArgsTemplate: null,
   }
-  const presetLookup = (id: string) => (id === 'claude' ? claudePreset : undefined)
+  const claudeProjectsRoot = () => join(fakeHome, '.claude', 'projects')
+  const presetLookup = (id: string): CommandPresetRecord | undefined =>
+    id === 'claude'
+      ? {
+          ...claudePreset,
+          sessionIdCapture: {
+            pattern: `${claudeProjectsRoot()}/{encoded_cwd}/*.jsonl`,
+            source: 'claude_project_jsonl_dir',
+          },
+        }
+      : undefined
   const store = () => ({
     clearLastSessionId: () => {},
     getLastSessionId: () => undefined,
@@ -321,8 +324,16 @@ describe('M32 BLOCKER 2 — session capture/resume uses the worker real cwd (cod
       worktreesRoot,
     })
     const workspace = { id: 'ws', name: 'demo', path: canonical }
-    const agent = { id: 'ws:worker-1', name: '关羽', role: 'coder', status: 'idle' as const }
-    const globalProjects = join(fakeHome, '.claude', 'projects')
+    const agent: AgentSummary = {
+      description: '',
+      id: 'ws:worker-1',
+      name: '关羽',
+      pendingTaskCount: 0,
+      role: 'coder',
+      status: 'idle',
+      workspaceId: workspace.id,
+    }
+    const globalProjects = claudeProjectsRoot()
     const SID = '11111111-1111-4111-8111-111111111111'
     const DECOY = '22222222-2222-4222-9222-222222222222'
     // 真实 cwd（codeRoot）下有一份会话；旧 cwd（workspace.path）下放诱饵。
@@ -351,8 +362,16 @@ describe('M32 BLOCKER 2 — session capture/resume uses the worker real cwd (cod
   test('without launchCwd (unlayered) snapshot falls back to workspace.path (backward compat)', () => {
     const canonical = initCanonicalRepo()
     const workspace = { id: 'ws', name: 'demo', path: canonical }
-    const agent = { id: 'ws:worker-1', name: '关羽', role: 'coder', status: 'idle' as const }
-    const globalProjects = join(fakeHome, '.claude', 'projects')
+    const agent: AgentSummary = {
+      description: '',
+      id: 'ws:worker-1',
+      name: '关羽',
+      pendingTaskCount: 0,
+      role: 'coder',
+      status: 'idle',
+      workspaceId: workspace.id,
+    }
+    const globalProjects = claudeProjectsRoot()
     const SID = '33333333-3333-4333-8333-333333333333'
     mkdirSync(join(globalProjects, encodeCwd(canonical)), { recursive: true })
     writeFileSync(join(globalProjects, encodeCwd(canonical), `${SID}.jsonl`), '{}\n', 'utf8')

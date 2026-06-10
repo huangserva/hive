@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-
 import { buildAgentRunBootstrap } from '../../src/server/agent-run-bootstrap.js'
 import type { AgentSessionStore } from '../../src/server/agent-session-store.js'
 import {
@@ -18,6 +17,7 @@ import {
   resolveClaudeSessionEnvRoot,
 } from '../../src/server/provider-runtime-profile.js'
 import { snapshotClaudeSessionIds } from '../../src/server/session-capture-claude.js'
+import type { AgentSummary } from '../../src/shared/types.js'
 
 // M25 Phase 2：真 fs（tmp 目录）+ 真 buildAgentRunBootstrap + 真 session-capture-claude，零 PTY（§13）。
 // 测的是「decide claude managed HOME + session 隔离」的承重层：路径解析 / 物化投影 / env 注入 / capture
@@ -69,9 +69,6 @@ const codexPreset: CommandPresetRecord = {
   yoloArgsTemplate: null,
 }
 
-const presetLookup = (id: string) =>
-  id === 'claude' ? claudePreset : id === 'codex' ? codexPreset : undefined
-
 const sessionStore = (sessionId?: string): AgentSessionStore => ({
   clearLastSessionId: () => {},
   getLastSessionId: () => sessionId,
@@ -79,12 +76,36 @@ const sessionStore = (sessionId?: string): AgentSessionStore => ({
 })
 
 const workspace = { id: 'ws-1', name: 'WS', path: '/tmp/claude-iso-cwd' }
-const agent = { id: 'agent-a', name: '马超', role: 'coder', status: 'idle' as const }
+const agent: AgentSummary = {
+  description: '',
+  id: 'agent-a',
+  name: '马超',
+  pendingTaskCount: 0,
+  role: 'coder',
+  status: 'idle',
+  workspaceId: workspace.id,
+}
 
 // source claude home（~/.claude + ~/.claude.json）落到可控 tmp HOME，测试不依赖/不污染真实用户目录。
-let savedHome: string | undefined
-let savedManagedFlag: string | undefined
 let fakeHome: string
+
+const claudeProjectsRoot = () => join(fakeHome, '.claude', 'projects')
+
+const claudePresetForFakeHome = (): CommandPresetRecord => ({
+  ...claudePreset,
+  sessionIdCapture: {
+    pattern: `${claudeProjectsRoot()}/{encoded_cwd}/*.jsonl`,
+    source: 'claude_project_jsonl_dir',
+  },
+})
+
+const presetLookup = (id: string) =>
+  id === 'claude' ? claudePresetForFakeHome() : id === 'codex' ? codexPreset : undefined
+
+const managedClaudeOptions = () => ({
+  claudeSourceHome: fakeHome,
+  env: { ...process.env, HIVE_CLAUDE_MANAGED_HOME: '1' },
+})
 
 const seedSourceHome = () => {
   mkdirSync(join(fakeHome, '.claude'), { recursive: true })
@@ -94,18 +115,10 @@ const seedSourceHome = () => {
 }
 
 beforeEach(() => {
-  savedHome = process.env.HOME
-  savedManagedFlag = process.env.HIVE_CLAUDE_MANAGED_HOME
   fakeHome = makeTmp('hive-fakehome-')
-  process.env.HOME = fakeHome
-  delete process.env.HIVE_CLAUDE_MANAGED_HOME
 })
 
 afterEach(() => {
-  if (savedHome === undefined) delete process.env.HOME
-  else process.env.HOME = savedHome
-  if (savedManagedFlag === undefined) delete process.env.HIVE_CLAUDE_MANAGED_HOME
-  else process.env.HIVE_CLAUDE_MANAGED_HOME = savedManagedFlag
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
@@ -187,7 +200,6 @@ describe('两个 claude worker 物理隔离（不串 session）', () => {
   })
 
   test('bootstrap（门控开启）给每个 claude worker 钉死各自 HOME/CLAUDE_PROJECTS_ROOT，snapshot 读 managed 根', () => {
-    process.env.HIVE_CLAUDE_MANAGED_HOME = '1'
     const dataDir = makeTmp('hive-state-')
     const bootA = buildAgentRunBootstrap(
       workspace,
@@ -196,7 +208,9 @@ describe('两个 claude worker 物理隔离（不串 session）', () => {
       sessionStore(),
       presetLookup,
       { ...agent, id: 'agent-a' },
-      dataDir
+      dataDir,
+      undefined,
+      managedClaudeOptions()
     )
     const bootB = buildAgentRunBootstrap(
       workspace,
@@ -205,7 +219,9 @@ describe('两个 claude worker 物理隔离（不串 session）', () => {
       sessionStore(),
       presetLookup,
       { ...agent, id: 'agent-b', name: '黄忠' },
-      dataDir
+      dataDir,
+      undefined,
+      managedClaudeOptions()
     )
 
     const homeA = resolveClaudeManagedHome(dataDir, 'agent-a')
@@ -223,7 +239,6 @@ describe('两个 claude worker 物理隔离（不串 session）', () => {
 
 describe('resume 与重启：用 managed authority，不回落全局', () => {
   test('resume 路径仍注入 managed HOME/CLAUDE_PROJECTS_ROOT，且校验扫 managed 根（非全局）', () => {
-    process.env.HIVE_CLAUDE_MANAGED_HOME = '1'
     const dataDir = makeTmp('hive-state-')
     // 模拟上一轮：managed home 已物化，且 managed projects 根里有一份带 binding marker 的会话文件。
     // claude resume 会校验「会话存在 + 内容含本 agent 的 binding/identity marker」——校验必须扫 managed 根。
@@ -244,7 +259,9 @@ describe('resume 与重启：用 managed authority，不回落全局', () => {
       sessionStore(SID_A),
       presetLookup,
       agent,
-      dataDir
+      dataDir,
+      undefined,
+      managedClaudeOptions()
     )
 
     // resume 生效：args 带 --resume + id，且 snapshot 不再建（沿用持久化 authority）。
@@ -258,10 +275,9 @@ describe('resume 与重启：用 managed authority，不回落全局', () => {
   })
 
   test('resume 校验只认 managed 根：会话只存在于全局 ~/.claude/projects 时，managed agent 拒绝 resume', () => {
-    process.env.HIVE_CLAUDE_MANAGED_HOME = '1'
     const dataDir = makeTmp('hive-state-')
     // 全局（fakeHome）projects 根里放一份会话，但 managed 根里没有 → managed agent 不得 resume 它。
-    const globalProjects = join(fakeHome, '.claude', 'projects')
+    const globalProjects = claudeProjectsRoot()
     mkdirSync(join(globalProjects, encodeCwd(workspace.path)), { recursive: true })
     const marker = `${buildAgentSessionBindingMarker({ agent, workspace })}\n${buildAgentLegacyIdentityMarker({ agent, workspace })}`
     writeFileSync(
@@ -277,7 +293,9 @@ describe('resume 与重启：用 managed authority，不回落全局', () => {
       sessionStore(SID_A),
       presetLookup,
       agent,
-      dataDir
+      dataDir,
+      undefined,
+      managedClaudeOptions()
     )
 
     // managed 根里没有这份会话 → resume 被拒（隔离正确：不串全局历史）。
@@ -288,7 +306,6 @@ describe('resume 与重启：用 managed authority，不回落全局', () => {
 
 describe('provider 隔离边界 + 门控 + 向后兼容', () => {
   test('门控开启时 codex agent 不被注入 claude managed HOME，也不建 claude managed 目录', () => {
-    process.env.HIVE_CLAUDE_MANAGED_HOME = '1'
     const dataDir = makeTmp('hive-state-')
     const boot = buildAgentRunBootstrap(
       workspace,
@@ -297,7 +314,9 @@ describe('provider 隔离边界 + 门控 + 向后兼容', () => {
       sessionStore(),
       presetLookup,
       agent,
-      dataDir
+      dataDir,
+      undefined,
+      managedClaudeOptions()
     )
 
     // codex agent：HOME 不被重定位成 claude managed home，CLAUDE_PROJECTS_ROOT 不设。
@@ -325,23 +344,25 @@ describe('provider 隔离边界 + 门控 + 向后兼容', () => {
     expect(boot.startEnv.CLAUDE_PROJECTS_ROOT).toBeUndefined()
     expect(existsSync(join(dataDir, 'agents'))).toBe(false)
     // snapshot 仍走全局 projects 根（capture 行为不变）。
-    expect(boot.sessionCaptureSnapshot?.root).toBe(join(fakeHome, '.claude', 'projects'))
+    expect(boot.sessionCaptureSnapshot?.root).toBe(claudeProjectsRoot())
   })
 
   test('无 dataDir 时 claude 退回全局 ~/.claude（向后兼容，即使门控开启）', () => {
-    process.env.HIVE_CLAUDE_MANAGED_HOME = '1'
     const boot = buildAgentRunBootstrap(
       workspace,
       'agent-a',
       { args: [], command: 'claude', commandPresetId: 'claude' },
       sessionStore(),
       presetLookup,
-      agent
+      agent,
       // 不传 dataDir
+      undefined,
+      undefined,
+      managedClaudeOptions()
     )
 
     expect(boot.startEnv.HOME).toBeUndefined()
     expect(boot.startEnv.CLAUDE_PROJECTS_ROOT).toBeUndefined()
-    expect(boot.sessionCaptureSnapshot?.root).toBe(join(fakeHome, '.claude', 'projects'))
+    expect(boot.sessionCaptureSnapshot?.root).toBe(claudeProjectsRoot())
   })
 })

@@ -15,6 +15,7 @@ const originalGeminiHome = process.env.HIVE_GEMINI_HOME
 const originalOpenCodeDbPath = process.env.HIVE_OPENCODE_DB_PATH
 const CODEX_PLAYWRIGHT_MCP_ARGS =
   '-c mcp_servers.playwright.command="npx" -c mcp_servers.playwright.args=["-y","@playwright/mcp@0.0.75","--headless","--isolated","--viewport-size=1440x1000"] -c mcp_servers.playwright.startup_timeout_sec=30 -c mcp_servers.playwright.tool_timeout_sec=60'
+const PRESET_LAYER_A_TEST_TIMEOUT_MS = 15_000
 
 const waitFor = async (
   assertion: () => void | Promise<void>,
@@ -125,6 +126,7 @@ const sessionMetaLine = () => JSON.stringify({ type: 'session_meta', payload: { 
 const appendInputToSession = (chunk) => {
   pendingSessionInput += chunk
   try {
+    if (!existsSync(sessionPath)) return
     appendFileSync(sessionPath, JSON.stringify({ type: 'message', payload: { content: pendingSessionInput } }) + '\\n')
     pendingSessionInput = ''
   } catch {}
@@ -174,14 +176,14 @@ const projectDir = join(geminiHome, 'tmp', 'hive-test-project')
 mkdirSync(join(projectDir, 'chats'), { recursive: true })
 writeFileSync(join(projectDir, '.project_root'), process.cwd() + '\\n')
 const sessionPath = join(projectDir, 'chats', 'session-2026-04-30T00-00-29405746.json')
-writeFileSync(sessionPath, JSON.stringify({ sessionId }))
 process.stdout.write('ARGS:' + args.join(' ') + '\\n')
 if (existsSync(join(process.cwd(), '.expect-resume')) && !(args.includes('--resume') && args.includes(sessionId))) process.exit(2)
 if (existsSync(expectYoloMarker) && !args.includes('--yolo')) process.exit(4)
-process.stdout.write('Type your message\n')
 let transcript = ''
+const promptTimer = setInterval(() => process.stdout.write('Type your message\\n'), 100)
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
+  clearInterval(promptTimer)
   transcript += chunk
   writeFileSync(sessionPath, JSON.stringify({ messages: [{ content: transcript }], sessionId }))
 })
@@ -211,16 +213,17 @@ const sessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : 'ses_25c8f572effe
 const expectYoloMarker = process.cwd() + '/.expect-yolo'
 const db = new Database(process.env.HIVE_OPENCODE_DB_PATH)
 db.exec('CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, time_archived INTEGER); CREATE TABLE IF NOT EXISTS part (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, data TEXT NOT NULL)')
-db.prepare('INSERT OR REPLACE INTO session (id, directory, time_archived) VALUES (?, ?, NULL)').run(sessionId, process.cwd())
 db.close()
 process.stdout.write('ARGS:' + args.join(' ') + '\\n')
 if (existsSync(process.cwd() + '/.expect-resume') && !(args.includes('--session') && args.includes(sessionId))) process.exit(2)
 if (existsSync(expectYoloMarker) && args.includes('--dangerously-skip-permissions')) process.exit(4)
-process.stdout.write('Ask anything\n')
 let partIndex = 0
+const promptTimer = setInterval(() => process.stdout.write('Ask anything\\n'), 100)
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
+  clearInterval(promptTimer)
   const inputDb = new Database(process.env.HIVE_OPENCODE_DB_PATH)
+  inputDb.prepare('INSERT OR REPLACE INTO session (id, directory, time_archived) VALUES (?, ?, NULL)').run(sessionId, process.cwd())
   inputDb.prepare('INSERT OR REPLACE INTO part (id, session_id, data) VALUES (?, ?, ?)').run(
     'part-' + sessionId + '-' + (++partIndex),
     sessionId,
@@ -628,51 +631,55 @@ describe('preset-driven Layer A', () => {
       sessionId: 'ses_25c8f572efferzSV4Mgjo99WqB',
       writeCli: writeFakeOpenCode,
     },
-  ])('bound $presetId preset captures and reuses native session id on restart', async (input) => {
-    const homeDir = mkdtempSync(join(tmpdir(), `hive-${input.presetId}-resume-`))
-    const workspacePathRaw = join(homeDir, 'workspace')
-    tempDirs.push(homeDir)
-    mkdirSync(workspacePathRaw, { recursive: true })
-    const workspacePath = realpathSync(workspacePathRaw)
-    input.env(homeDir)
-    const fakeCli = input.writeCli(workspacePath)
+  ])(
+    'bound $presetId preset captures and reuses native session id on restart',
+    async (input) => {
+      const homeDir = mkdtempSync(join(tmpdir(), `hive-${input.presetId}-resume-`))
+      const workspacePathRaw = join(homeDir, 'workspace')
+      tempDirs.push(homeDir)
+      mkdirSync(workspacePathRaw, { recursive: true })
+      const workspacePath = realpathSync(workspacePathRaw)
+      input.env(homeDir)
+      const fakeCli = input.writeCli(workspacePath)
 
-    const server = await startTestServer()
-    try {
-      const cookie = await getUiCookie(server.baseUrl)
-      const workspace = await createWorkspaceViaHttp(server.baseUrl, cookie, workspacePath)
-      const worker = await createWorkerViaHttp(server.baseUrl, cookie, workspace.id)
+      const server = await startTestServer()
+      try {
+        const cookie = await getUiCookie(server.baseUrl)
+        const workspace = await createWorkspaceViaHttp(server.baseUrl, cookie, workspacePath)
+        const worker = await createWorkerViaHttp(server.baseUrl, cookie, workspace.id)
 
-      await configureWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id, {
-        command: fakeCli,
-        args: ['--session-id-test', input.sessionId],
-        command_preset_id: input.presetId,
-      })
-      expect(readConfiguredPresetId(server.dataDir, workspace.id, worker.id)).toBe(input.presetId)
-      writeFileSync(join(workspacePath, '.expect-yolo'), '1\n')
+        await configureWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id, {
+          command: fakeCli,
+          args: ['--session-id-test', input.sessionId],
+          command_preset_id: input.presetId,
+        })
+        expect(readConfiguredPresetId(server.dataDir, workspace.id, worker.id)).toBe(input.presetId)
+        writeFileSync(join(workspacePath, '.expect-yolo'), '1\n')
 
-      const firstRun = await startWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id)
-      await waitFor(() => {
-        expect(readLastSessionId(server.dataDir, workspace.id, worker.id)).toBe(input.sessionId)
-      })
+        const firstRun = await startWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id)
+        await waitFor(() => {
+          expect(readLastSessionId(server.dataDir, workspace.id, worker.id)).toBe(input.sessionId)
+        })
 
-      server.store.stopAgentRun(firstRun.runId)
-      await waitFor(async () => {
-        const state = await getRunViaHttp(server.baseUrl, cookie, firstRun.runId)
-        expect(state.status).toBe('exited')
-      })
+        server.store.stopAgentRun(firstRun.runId)
+        await waitFor(async () => {
+          const state = await getRunViaHttp(server.baseUrl, cookie, firstRun.runId)
+          expect(state.status).toBe('exited')
+        })
 
-      writeFileSync(join(workspacePath, '.expect-resume'), '1\n')
-      const secondRun = await startWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id)
-      await waitFor(async () => {
-        const state = await getRunViaHttp(server.baseUrl, cookie, secondRun.runId)
-        expect(state.status).toBe('running')
-        expect(state.output).toContain(input.expectedArgs(input.sessionId))
-      })
-    } finally {
-      await server.close()
-    }
-  })
+        writeFileSync(join(workspacePath, '.expect-resume'), '1\n')
+        const secondRun = await startWorkerViaHttp(server.baseUrl, cookie, workspace.id, worker.id)
+        await waitFor(async () => {
+          const state = await getRunViaHttp(server.baseUrl, cookie, secondRun.runId)
+          expect(state.status).toBe('running')
+          expect(state.output).toContain(input.expectedArgs(input.sessionId))
+        })
+      } finally {
+        await server.close()
+      }
+    },
+    PRESET_LAYER_A_TEST_TIMEOUT_MS
+  )
 
   test('bound codex preset trusts captured session id even when the session file is gone', async () => {
     const homeDir = mkdtempSync(join(tmpdir(), 'hive-codex-fast-resume-'))
