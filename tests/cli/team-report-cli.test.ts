@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { runHiveCommand } from '../../src/cli/hive.js'
 import { runTeamCommand } from '../../src/cli/team.js'
@@ -259,7 +259,12 @@ describe('team report cli', () => {
         HIVE_PORT: String(hive.port),
         HIVE_PROJECT_ID: workspace.id,
       }
+      const sendLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       await runTeamCommand(['send', 'Alice', 'Report this CLI task'])
+      const dispatch = JSON.parse(sendLogSpy.mock.calls[0]?.[0] ?? '{}') as {
+        dispatch_id: string
+      }
+      sendLogSpy.mockRestore()
       process.env = {
         ...originalEnv,
         HIVE_DATA_DIR: dataDir,
@@ -268,7 +273,14 @@ describe('team report cli', () => {
         HIVE_PORT: String(hive.port),
         HIVE_PROJECT_ID: workspace.id,
       }
-      await runTeamCommand(['report', 'Done via CLI', '--artifact', 'src/auth.ts'])
+      await runTeamCommand([
+        'report',
+        'Done via CLI',
+        '--artifact',
+        'src/auth.ts',
+        '--dispatch',
+        dispatch.dispatch_id,
+      ])
 
       await waitFor(async () => {
         const runResponse = await fetch(`${baseUrl}/api/runtime/runs/${run.runId}`, {
@@ -368,7 +380,12 @@ describe('team report cli', () => {
         HIVE_PORT: String(hive.port),
         HIVE_PROJECT_ID: workspace.id,
       }
+      const sendLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
       await runTeamCommand(['send', 'Alice', 'Pipe a long report back'])
+      const dispatch = JSON.parse(sendLogSpy.mock.calls[0]?.[0] ?? '{}') as {
+        dispatch_id: string
+      }
+      sendLogSpy.mockRestore()
 
       const multilineReport = [
         '## Bug fix summary',
@@ -382,7 +399,7 @@ describe('team report cli', () => {
       ].join('\n')
 
       const result = await runTeamBinaryWithStdin(
-        ['report', '--stdin'],
+        ['report', '--stdin', '--dispatch', dispatch.dispatch_id],
         {
           HIVE_DATA_DIR: dataDir,
           HIVE_AGENT_ID: worker.id,

@@ -4,7 +4,16 @@ import { getRequiredParam, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
-const DISPATCH_STATUSES = new Set<DispatchStatus>(['queued', 'submitted', 'reported'])
+const DISPATCH_STATUSES = new Set<DispatchStatus>([
+  'queued',
+  'submitted',
+  'running',
+  'report_overdue',
+  'completed',
+  'reported',
+  'cancelled',
+  'orphaned',
+])
 const MAX_DISPATCH_LIMIT = 100
 const MAX_DISPATCH_OFFSET = 100_000
 
@@ -54,7 +63,10 @@ export const dispatchRoutes: RouteDefinition[] = [
       }
       const state = url.searchParams.get('state')
       if (state !== null && !isDispatchStatus(state)) {
-        sendJson(response, 400, { error: 'state must be queued, submitted, or reported' })
+        sendJson(response, 400, {
+          error:
+            'state must be queued, submitted, running, report_overdue, completed, reported, cancelled, or orphaned',
+        })
         return
       }
       const limit = readBoundedInt(

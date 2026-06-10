@@ -248,6 +248,28 @@ export const parseCancelArgs = (args: string[]): ParsedCancelArgs => {
   return { dispatchId, reason }
 }
 
+const parseMobileReplyArgs = (args: string[]) => {
+  const textParts: string[] = []
+  let voiceLatencyTurnId: string | undefined
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+    if (arg === '--voice-latency-turn-id') {
+      const value = args[index + 1]
+      if (!value)
+        throw new Error('Usage: team mobile-reply [--voice-latency-turn-id <turn-id>] "<text>"')
+      voiceLatencyTurnId = value
+      index += 1
+      continue
+    }
+    textParts.push(arg)
+  }
+  return {
+    text: textParts.join(' ').trim(),
+    ...(voiceLatencyTurnId ? { voiceLatencyTurnId } : {}),
+  }
+}
+
 export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
   const positionals: string[] = []
   let chatId: string | undefined
@@ -487,8 +509,8 @@ export const runTeamCommand = async (argv: string[]) => {
   }
 
   if (command === 'mobile-reply') {
-    const text = args.join(' ').trim()
-    if (!text) {
+    const reply = parseMobileReplyArgs(args)
+    if (!reply.text) {
       throw new Error('Usage: team mobile-reply "<text>"')
     }
     const env = getHiveEnv()
@@ -496,8 +518,9 @@ export const runTeamCommand = async (argv: string[]) => {
     const response = await postJson(baseUrl, '/api/team/mobile-reply', {
       from_agent_id: env.HIVE_AGENT_ID,
       project_id: env.HIVE_PROJECT_ID,
-      text,
+      text: reply.text,
       token: env.HIVE_AGENT_TOKEN,
+      ...(reply.voiceLatencyTurnId ? { voice_latency_turn_id: reply.voiceLatencyTurnId } : {}),
     })
     if (!response.ok) {
       await throwHttpError(response)

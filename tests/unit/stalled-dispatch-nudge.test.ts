@@ -41,6 +41,7 @@ describe('stalled dispatch nudge (Fix B)', () => {
       listOpenDispatchesForWorkspace: (workspaceId) =>
         ledger.listOpenDispatchesForWorkspace(workspaceId),
       listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
       now: () => clock,
       staleMs: STALE_MS,
     })
@@ -58,6 +59,7 @@ describe('stalled dispatch nudge (Fix B)', () => {
       listOpenDispatchesForWorkspace: (workspaceId) =>
         ledger.listOpenDispatchesForWorkspace(workspaceId),
       listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
       now: () => clock,
       staleMs: STALE_MS,
     })
@@ -75,7 +77,7 @@ describe('stalled dispatch nudge (Fix B)', () => {
     db.close()
   })
 
-  test('nudges for a submitted dispatch past the threshold whose worker is still alive', () => {
+  test('nudges for an active dispatch past the threshold whose worker is still alive', () => {
     const dispatch = seedSubmitted('worker-1')
     aliveWorkers.add('worker-1')
     clock = dispatch.submittedAt + STALE_MS // exactly at threshold counts as stale
@@ -86,7 +88,8 @@ describe('stalled dispatch nudge (Fix B)', () => {
     expect(nudges[0]?.workspaceId).toBe(WS)
     expect(nudges[0]?.message).toContain(dispatch.id)
     // adversarial: a passing nudge must actually name the stalled dispatch, not be a generic ping.
-    expect(nudges[0]?.message).toContain('submitted')
+    expect(nudges[0]?.message).toContain('active/report_overdue')
+    expect(ledger.findOpenDispatch(WS, 'worker-1', dispatch.id)?.status).toBe('report_overdue')
   })
 
   test('does not nudge before the staleness threshold elapses', () => {
@@ -153,13 +156,13 @@ describe('stalled dispatch nudge (Fix B)', () => {
     nudge.tick()
     expect(nudges).toHaveLength(1)
 
-    // Still submitted, still alive, even more time passed → must NOT nudge again.
+    // Still active, still alive, even more time passed → must NOT nudge again.
     clock += 5 * 60_000
     nudge.tick()
     expect(nudges).toHaveLength(1)
   })
 
-  test('directly reminds an idle worker with a submitted dispatch after the prompt stays ready for the grace window', () => {
+  test('directly reminds an idle worker with an active dispatch after the prompt stays ready for the grace window', () => {
     const dispatch = seedSubmitted('worker-1')
     aliveWorkers.add('worker-1')
     workerOutput.set('worker-1', 'finished work\n❯ ')
@@ -181,6 +184,7 @@ describe('stalled dispatch nudge (Fix B)', () => {
     expect(workerNudges[0]?.message).toContain(dispatch.id)
     expect(workerNudges[0]?.message).toContain('team report')
     expect(workerNudges[0]?.message).toContain('写文字总结不算汇报')
+    expect(ledger.findOpenDispatch(WS, 'worker-1', dispatch.id)?.status).toBe('report_overdue')
     expect(nudges).toHaveLength(0)
   })
 

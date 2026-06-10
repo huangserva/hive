@@ -125,6 +125,7 @@ describe('team cli with real server', () => {
 
     const output = logSpy.mock.calls[0]?.[0] ?? ''
     const parsed = JSON.parse(output) as Array<{
+      capabilities: unknown
       command_preset_id: string | null
       id: string
       last_pty_line: string | null
@@ -137,6 +138,7 @@ describe('team cli with real server', () => {
 
     expect(parsed).toEqual([
       {
+        capabilities: null,
         command_preset_id: null,
         id: expect.any(String),
         last_pty_line: null,
@@ -225,10 +227,21 @@ describe('team cli with real server', () => {
     if (!serverStore) {
       throw new Error('Expected test server store')
     }
+    const workspaceId = process.env.HIVE_PROJECT_ID
+    const hivePort = process.env.HIVE_PORT
+    if (!workspaceId || !hivePort) {
+      throw new Error('Expected workspace id and Hive port')
+    }
+    const bob = serverStore.addWorker(workspaceId, { name: 'Bob', role: 'coder' })
+    serverStore.configureAgentLaunch(workspaceId, bob.id, {
+      args: ['-lc', `${process.execPath} -e "process.stdin.resume()"`],
+      command: '/bin/bash',
+    })
+    await serverStore.startAgent(workspaceId, bob.id, { hivePort })
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await runTeamCommand(['send', 'Alice', 'First task'])
-    await runTeamCommand(['send', 'Alice', 'Second task'])
+    await runTeamCommand(['send', 'Bob', 'Second task'])
     const firstDispatch = JSON.parse(logSpy.mock.calls[0]?.[0] ?? '{}') as {
       dispatch_id: string
     }
@@ -237,35 +250,33 @@ describe('team cli with real server', () => {
     }
     logSpy.mockRestore()
 
-    const workerToken = serverStore.peekAgentToken(workerId)
+    const workerToken = serverStore.peekAgentToken(bob.id)
     if (!workerToken) {
-      throw new Error('Expected worker token after start')
+      throw new Error('Expected Bob token after start')
     }
-    process.env.HIVE_AGENT_ID = workerId
+    process.env.HIVE_AGENT_ID = bob.id
     process.env.HIVE_AGENT_TOKEN = workerToken
 
     await runTeamCommand(['report', 'Second done', '--dispatch', secondDispatch.dispatch_id])
-
-    const workspaceId = process.env.HIVE_PROJECT_ID
-    if (!workspaceId) {
-      throw new Error('Expected workspace id')
-    }
 
     expect(serverStore.listDispatches(workspaceId)).toEqual([
       expect.objectContaining({
         id: firstDispatch.dispatch_id,
         reportText: null,
-        status: 'submitted',
+        status: 'running',
       }),
       expect.objectContaining({
         id: secondDispatch.dispatch_id,
         reportText: 'Second done',
-        status: 'reported',
+        status: 'completed',
       }),
     ])
     expect(serverStore.getWorker(workspaceId, workerId)).toMatchObject({
       pendingTaskCount: 1,
       status: 'working',
+    })
+    expect(serverStore.getWorker(workspaceId, bob.id)).toMatchObject({
+      pendingTaskCount: 0,
     })
   })
 

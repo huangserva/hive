@@ -187,7 +187,7 @@ describe('team protocol end to end', () => {
           workspace_id: workspace.id,
           from_agent_id: orchestratorId,
           to_agent_id: worker.id,
-          state: 'submitted',
+          state: 'running',
           text: '实现登录接口',
           report_text: null,
           artifacts: [],
@@ -197,6 +197,25 @@ describe('team protocol end to end', () => {
         `${baseUrl}/api/ui/workspaces/${workspace.id}/dispatches`
       )
       expect(anonymousDispatchesResponse.status).toBe(403)
+
+      const firstReportResponse = await fetch(`${baseUrl}/api/team/report`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: workspace.id,
+          from_agent_id: worker.id,
+          token: hive.store.peekAgentToken(worker.id),
+          result: '已完成登录接口',
+          dispatch_id: sendBody.dispatch_id,
+          artifacts: ['src/auth.ts'],
+        }),
+      })
+      expect(firstReportResponse.status).toBe(202)
+      const firstReportBody = (await firstReportResponse.json()) as {
+        dispatch_id: string
+        ok: true
+      }
+      expect(firstReportBody.dispatch_id).toBe(sendBody.dispatch_id)
 
       const secondSendResponse = await fetch(`${baseUrl}/api/team/send`, {
         method: 'POST',
@@ -245,13 +264,13 @@ describe('team protocol end to end', () => {
       expect(reportedDispatches).toEqual([
         expect.objectContaining({
           id: sendBody.dispatch_id,
-          state: 'submitted',
-          report_text: null,
-          artifacts: [],
+          state: 'completed',
+          report_text: '已完成登录接口',
+          artifacts: ['src/auth.ts'],
         }),
         expect.objectContaining({
           id: secondSendBody.dispatch_id,
-          state: 'reported',
+          state: 'completed',
           report_text: '补充测试已完成',
           artifacts: ['tests/auth.test.ts'],
         }),
@@ -266,7 +285,7 @@ describe('team protocol end to end', () => {
       expect(pagedDispatches).toEqual([expect.objectContaining({ id: secondSendBody.dispatch_id })])
 
       const submittedDispatchesResponse = await fetch(
-        `${baseUrl}/api/ui/workspaces/${workspace.id}/dispatches?state=submitted`,
+        `${baseUrl}/api/ui/workspaces/${workspace.id}/dispatches?state=completed`,
         { headers: { cookie } }
       )
       expect(submittedDispatchesResponse.status).toBe(200)
@@ -275,7 +294,8 @@ describe('team protocol end to end', () => {
         state: string
       }>
       expect(submittedDispatches).toEqual([
-        expect.objectContaining({ id: sendBody.dispatch_id, state: 'submitted' }),
+        expect.objectContaining({ id: sendBody.dispatch_id, state: 'completed' }),
+        expect.objectContaining({ id: secondSendBody.dispatch_id, state: 'completed' }),
       ])
 
       const invalidStateResponse = await fetch(
@@ -301,25 +321,6 @@ describe('team protocol end to end', () => {
         { headers: { cookie } }
       )
       expect(hugeOffsetResponse.status).toBe(400)
-
-      const secondReportResponse = await fetch(`${baseUrl}/api/team/report`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          project_id: workspace.id,
-          from_agent_id: worker.id,
-          token: hive.store.peekAgentToken(worker.id),
-          result: '已完成登录接口',
-          dispatch_id: sendBody.dispatch_id,
-          artifacts: ['src/auth.ts'],
-        }),
-      })
-      expect(secondReportResponse.status).toBe(202)
-      const secondReportBody = (await secondReportResponse.json()) as {
-        dispatch_id: string
-        ok: true
-      }
-      expect(secondReportBody.dispatch_id).toBe(sendBody.dispatch_id)
 
       await waitFor(async () => {
         const teamResponse = await fetch(`${baseUrl}/api/ui/workspaces/${workspace.id}/team`, {
@@ -347,12 +348,12 @@ describe('team protocol end to end', () => {
         expect.objectContaining({
           id: sendBody.dispatch_id,
           reportText: '已完成登录接口',
-          status: 'reported',
+          status: 'completed',
         }),
         expect.objectContaining({
           id: secondSendBody.dispatch_id,
           reportText: '补充测试已完成',
-          status: 'reported',
+          status: 'completed',
         }),
       ])
       const messages = runtimeStore.listMessagesForRecovery(workspace.id, 0)

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import type { DispatchRecord } from '../../src/server/dispatch-ledger-store.js'
 import { createTasksFileService } from '../../src/server/tasks-file.js'
 import { createTeamOperations } from '../../src/server/team-operations.js'
 import type { AgentSummary } from '../../src/shared/types.js'
@@ -33,21 +34,22 @@ const setupWorkspacePath = () => {
   return dir
 }
 
-const createDispatch = (workspaceId: string, workerId: string, text: string) => ({
-  artifacts: [],
-  createdAt: Date.now(),
-  deliveredAt: null,
-  fromAgentId: null,
-  id: '12345678-aaaa-bbbb-cccc-dddddddddddd',
-  reportedAt: null,
-  reportText: null,
-  sequence: null,
-  status: 'queued' as const,
-  submittedAt: null,
-  text,
-  toAgentId: workerId,
-  workspaceId,
-})
+const createDispatch = (workspaceId: string, workerId: string, text: string) =>
+  ({
+    artifacts: [],
+    createdAt: Date.now(),
+    deliveredAt: null,
+    fromAgentId: null,
+    id: '12345678-aaaa-bbbb-cccc-dddddddddddd',
+    reportedAt: null,
+    reportText: null,
+    sequence: 1,
+    status: 'queued' as const,
+    submittedAt: null,
+    text,
+    toAgentId: workerId,
+    workspaceId,
+  }) satisfies DispatchRecord
 
 const setupOps = (input: { role?: AgentSummary['role'] } = {}) => {
   const workspacePath = setupWorkspacePath()
@@ -81,6 +83,7 @@ const setupOps = (input: { role?: AgentSummary['role'] } = {}) => {
     findOpenDispatch: vi.fn(),
     findOpenDispatchById: vi.fn(),
     insertMessage: vi.fn(() => ({ sequence: 1 })),
+    listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
     markDispatchCancelled: vi.fn(),
     markDispatchReportedByWorker: vi.fn(),
     markDispatchSubmitted: vi.fn(),

@@ -56,6 +56,76 @@ describe('dispatch ledger — cancel', () => {
     expect(found).toBeUndefined()
   })
 
+  test('markSubmitted moves an injected dispatch into running, not completed', () => {
+    const dispatch = store.createDispatch({
+      text: 'task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+
+    store.markSubmitted(dispatch.id)
+
+    const found = store.findOpenDispatch('ws-1', 'worker-1', dispatch.id)
+    expect(found?.status).toBe('running')
+    expect(found?.reportedAt).toBeNull()
+  })
+
+  test('markReportOverdue flags active unreported dispatch without completing it', () => {
+    const dispatch = store.createDispatch({
+      text: 'task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+    store.markSubmitted(dispatch.id)
+
+    const overdue = store.markReportOverdue(dispatch.id)
+
+    expect(overdue?.status).toBe('report_overdue')
+    expect(overdue?.reportedAt).toBeNull()
+    expect(store.findOpenDispatch('ws-1', 'worker-1', dispatch.id)?.status).toBe('report_overdue')
+  })
+
+  test('explicit report is the only path that completes an active dispatch', () => {
+    const dispatch = store.createDispatch({
+      text: 'task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+    store.markSubmitted(dispatch.id)
+    store.markReportOverdue(dispatch.id)
+
+    const completed = store.markReportedByWorker({
+      artifacts: [],
+      dispatchId: dispatch.id,
+      reportText: 'done',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+
+    expect(completed?.status).toBe('completed')
+    expect(completed?.reportText).toBe('done')
+    expect(store.findOpenDispatch('ws-1', 'worker-1', dispatch.id)).toBeUndefined()
+  })
+
+  test('markOrphaned closes active dispatch without treating it as completed', () => {
+    const dispatch = store.createDispatch({
+      text: 'task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+    store.markSubmitted(dispatch.id)
+
+    const orphaned = store.markOrphaned({
+      dispatchId: dispatch.id,
+      reason: 'worker stopped',
+      workspaceId: 'ws-1',
+    })
+
+    expect(orphaned?.status).toBe('orphaned')
+    expect(orphaned?.reportText).toBe('worker stopped')
+    expect(store.findOpenDispatch('ws-1', 'worker-1', dispatch.id)).toBeUndefined()
+  })
+
   test('findOpenDispatchById returns undefined for cancelled dispatch', () => {
     const dispatch = store.createDispatch({
       text: 'task',
@@ -68,7 +138,7 @@ describe('dispatch ledger — cancel', () => {
     expect(found).toBeUndefined()
   })
 
-  test('markCancelled on already reported dispatch returns undefined', () => {
+  test('markCancelled on already completed dispatch returns undefined', () => {
     const dispatch = store.createDispatch({
       text: 'task',
       toAgentId: 'worker-1',

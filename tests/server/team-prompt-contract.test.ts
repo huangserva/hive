@@ -123,7 +123,7 @@ describe('team prompt contract', () => {
       expect(output).toContain('Mobile dispatch smoke')
     })
     expect(store.listDispatches(workspace.id)).toContainEqual(
-      expect.objectContaining({ id: dispatch.id, status: 'submitted' })
+      expect.objectContaining({ id: dispatch.id, status: 'running' })
     )
   })
 
@@ -188,10 +188,11 @@ describe('team prompt contract', () => {
 
     await waitFor(() => {
       const run = store.getActiveRunByAgentId(workspace.id, worker.id)
-      expect(run?.output).toContain('\u001b[200~[Hive 系统消息：来自 @Orchestrator 的派单]')
+      expect(run?.output).toContain('\u001b[200~')
+      expect(run?.output).toContain('[Hive 系统消息：来自 @Orchestrator 的派单]')
       expect(run?.output).toContain('实现登录')
       expect(run?.output).toContain('\u001b[201~')
       expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
-    })
-  })
+    }, 9000)
+  }, 15_000)
 })

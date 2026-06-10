@@ -20,6 +20,14 @@ const HIPPO_DISCIPLINE = [
   '- 推进 milestone、发现 drift 或需 user 拍板时，维护对应 PM 文档。',
 ].join('\n')
 
+const SENTINEL_DISCIPLINE = [
+  'HippoTeam Sentinel 纪律：',
+  '- 巡检发现、阻塞或风险用 team status 汇报给 Orchestrator。',
+  '- 不要调用 dispatch-less team report；sentinel 不承接派单完成汇报。',
+  '- 不要启动内置 subagent；需要并行审查时由 Orchestrator 派单。',
+  '- 调研/技术选型/深读源码必须双产出 .hive/reports/*.html + .hive/research/*.md。',
+].join('\n')
+
 const tddQuality = [
   '质量标准：',
   '- TDD 优先：先补失败测试，再实现最小正确改动。',
@@ -85,9 +93,9 @@ export const SENTINEL_ROLE_DESCRIPTION = [
   '工作方式：',
   '- 只观察和提醒，不修改文件、不派单、不通知 user。',
   '- 阅读 runtime 注入的 Cockpit snapshot、git summary 和项目上下文。',
-  '- 发现 drift、阻塞或风险时，用 team report 汇报给 Orchestrator。',
+  '- 发现 drift、阻塞或风险时，用 team status 汇报给 Orchestrator。',
   '- 没有问题时保持简短汇报或静默等待下一次巡检。',
-  HIPPO_DISCIPLINE,
+  SENTINEL_DISCIPLINE,
 ].join('\n')
 
 export const FRONTEND_EXPERT_ROLE_DESCRIPTION = [

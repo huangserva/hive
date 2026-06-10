@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import {
+  type DispatchRecord,
+  isCompletedDispatchStatus,
+} from '../../src/server/dispatch-ledger-store.js'
+import { buildMobileWorkspaceTasks } from '../../src/server/routes-mobile.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 import { createTeamOperations } from '../../src/server/team-operations.js'
 
@@ -33,7 +38,10 @@ describe('team atomicity', () => {
       deleteDispatch,
       deleteMessage,
       findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
       insertMessage,
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker: vi.fn(),
       markDispatchSubmitted: vi.fn(),
       workspaceStore: {
@@ -89,12 +97,13 @@ describe('team atomicity', () => {
       id: 'dispatch-1',
       reportedAt: null,
       reportText: null,
+      sequence: 1,
       status: 'queued',
       submittedAt: null,
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } as const
+    } satisfies DispatchRecord
     const deleteDispatch = vi.fn()
     const deleteMessage = vi.fn()
 
@@ -110,7 +119,10 @@ describe('team atomicity', () => {
       deleteDispatch,
       deleteMessage,
       findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker: vi.fn(),
       markDispatchSubmitted: vi.fn(),
       workspaceStore: {
@@ -151,12 +163,13 @@ describe('team atomicity', () => {
       id: 'dispatch-1',
       reportedAt: null,
       reportText: null,
+      sequence: 1,
       status: 'queued',
       submittedAt: null,
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } as const
+    } satisfies DispatchRecord
     const deleteDispatch = vi.fn()
     const deleteMessage = vi.fn()
     const markDispatchSubmitted = vi.fn()
@@ -178,7 +191,10 @@ describe('team atomicity', () => {
       deleteDispatch,
       deleteMessage,
       findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker: vi.fn(),
       markDispatchSubmitted,
       workspaceStore: {
@@ -226,13 +242,58 @@ describe('team atomicity', () => {
     expect(store.listMessagesForRecovery(workspace.id, 0).length).toBe(beforeMessages + 1)
     expect(store.listDispatches(workspace.id)).toContainEqual(
       expect.objectContaining({
-        status: 'reported',
+        status: 'completed',
         text: 'Implement login',
         reportText: 'Done',
       })
     )
     expect(result.forwarded).toBe(false)
     expect(result.forwardError).toContain('Orchestrator PTY inactive')
+  })
+
+  test('legacy reported dispatch rows are still read as completed/done', () => {
+    const legacyReported = {
+      artifacts: [],
+      createdAt: Date.now(),
+      deliveredAt: null,
+      fromAgentId: null,
+      id: 'legacy-reported',
+      reportedAt: Date.now(),
+      reportText: 'Done',
+      sequence: 1,
+      status: 'reported',
+      submittedAt: Date.now(),
+      text: 'Legacy report row',
+      toAgentId: 'worker-1',
+      workspaceId: 'workspace-1',
+    } satisfies DispatchRecord
+    const completed = {
+      ...legacyReported,
+      id: 'completed',
+      sequence: 2,
+      status: 'completed',
+      text: 'Completed row',
+      toAgentId: 'worker-2',
+    } satisfies DispatchRecord
+
+    expect(isCompletedDispatchStatus('reported')).toBe(true)
+    expect(isCompletedDispatchStatus('completed')).toBe(true)
+
+    const tasks = buildMobileWorkspaceTasks(
+      {
+        getWorker: (_workspaceId: string, workerId: string) => ({
+          id: workerId,
+          name: workerId === 'worker-1' ? 'Alice' : 'Bob',
+        }),
+        listDispatches: () => [legacyReported, completed],
+      } as never,
+      'workspace-1'
+    )
+
+    expect(tasks.dispatches).toEqual([
+      expect.objectContaining({ id: 'legacy-reported', status: 'done', worker_name: 'Alice' }),
+      expect.objectContaining({ id: 'completed', status: 'done', worker_name: 'Bob' }),
+    ])
   })
 
   test('reportTask does not write orchestrator stdin when dispatch ledger update fails', () => {
@@ -253,7 +314,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } as const
+    } satisfies DispatchRecord
     const deleteMessage = vi.fn()
     const markTaskReported = vi.fn()
     const writeReportPrompt = vi.fn()
@@ -269,7 +330,10 @@ describe('team atomicity', () => {
       deleteDispatch: vi.fn(),
       deleteMessage,
       findOpenDispatch: vi.fn(() => dispatch),
+      findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker: vi.fn(() => {
         throw new Error('dispatch ledger failed')
       }),
@@ -311,9 +375,11 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } as const
+    } satisfies DispatchRecord
     const deleteMessage = vi.fn()
-    const markDispatchReportedByWorker = vi.fn(() => ({ ...dispatch, status: 'reported' }))
+    const markDispatchReportedByWorker = vi.fn(
+      (): DispatchRecord => ({ ...dispatch, status: 'completed' })
+    )
     const markTaskReported = vi.fn()
     const reportForwardError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -330,7 +396,10 @@ describe('team atomicity', () => {
       deleteDispatch: vi.fn(),
       deleteMessage,
       findOpenDispatch: vi.fn(() => dispatch),
+      findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker,
       markDispatchSubmitted: vi.fn(),
       workspaceStore: {
@@ -358,7 +427,7 @@ describe('team atomicity', () => {
       expect.any(Error)
     )
     expect(result).toEqual({
-      dispatch: { ...dispatch, status: 'reported' },
+      dispatch: { ...dispatch, status: 'completed' },
       forwardError: 'stdin write failed',
       forwarded: false,
     })
@@ -382,7 +451,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } as const
+    } satisfies DispatchRecord
     const notifyWorkerDone = vi.fn(async () => {})
 
     const ops = createTeamOperations({
@@ -396,16 +465,20 @@ describe('team atomicity', () => {
       deleteDispatch: vi.fn(),
       deleteMessage: vi.fn(),
       findOpenDispatch: vi.fn(() => dispatch),
+      findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
-      markDispatchReportedByWorker: vi.fn(() => ({
-        ...dispatch,
-        reportedAt: Date.now(),
-        reportText: 'Done',
-        status: 'reported',
-      })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchReportedByWorker: vi.fn(
+        (): DispatchRecord => ({
+          ...dispatch,
+          reportedAt: Date.now(),
+          reportText: 'Done',
+          status: 'completed',
+        })
+      ),
       markDispatchSubmitted: vi.fn(),
       mobilePushService: {
-        notifyHighAiAction: vi.fn(),
         notifyWorkerDone,
       },
       workspaceStore: {

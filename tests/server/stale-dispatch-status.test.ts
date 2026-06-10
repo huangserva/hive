@@ -24,9 +24,9 @@ const dispatch = (over: Partial<DispatchRecord> & { id: string; status: Dispatch
 const THRESHOLDS = { escalatedMs: 8 * 60 * 1000, staleMs: 4 * 60 * 1000 }
 
 describe('summarizeStaleDispatches', () => {
-  test('counts a submitted dispatch unreported past the stale threshold', () => {
+  test('counts a running dispatch unreported past the stale threshold', () => {
     const summary = summarizeStaleDispatches(
-      [dispatch({ id: 'd1', status: 'submitted', submittedAt: NOW - 5 * 60 * 1000 })],
+      [dispatch({ id: 'd1', status: 'running', submittedAt: NOW - 5 * 60 * 1000 })],
       NOW,
       THRESHOLDS
     )
@@ -35,9 +35,9 @@ describe('summarizeStaleDispatches', () => {
     expect(summary.stale[0]).toMatchObject({ dispatchId: 'd1', escalated: false, minutesAgo: 5 })
   })
 
-  test('a freshly submitted dispatch (under threshold) is NOT stale', () => {
+  test('a freshly running dispatch (under threshold) is NOT stale', () => {
     const summary = summarizeStaleDispatches(
-      [dispatch({ id: 'd1', status: 'submitted', submittedAt: NOW - 60 * 1000 })],
+      [dispatch({ id: 'd1', status: 'running', submittedAt: NOW - 60 * 1000 })],
       NOW,
       THRESHOLDS
     )
@@ -62,7 +62,9 @@ describe('summarizeStaleDispatches', () => {
       [
         dispatch({ id: 'q', status: 'queued', submittedAt: null }),
         dispatch({ id: 'r', status: 'reported', submittedAt: old }),
+        dispatch({ id: 'done', status: 'completed', submittedAt: old }),
         dispatch({ id: 'c', status: 'cancelled', submittedAt: old }),
+        dispatch({ id: 'o', status: 'orphaned', submittedAt: old }),
       ],
       NOW,
       THRESHOLDS
@@ -83,16 +85,21 @@ describe('summarizeStaleDispatches', () => {
   test('mixes: only the stale submitted ones are surfaced, escalated is a subset', () => {
     const summary = summarizeStaleDispatches(
       [
-        dispatch({ id: 'fresh', status: 'submitted', submittedAt: NOW - 30 * 1000 }),
-        dispatch({ id: 'stale', status: 'submitted', submittedAt: NOW - 5 * 60 * 1000 }),
+        dispatch({ id: 'fresh', status: 'running', submittedAt: NOW - 30 * 1000 }),
+        dispatch({ id: 'stale', status: 'running', submittedAt: NOW - 5 * 60 * 1000 }),
+        dispatch({ id: 'overdue', status: 'report_overdue', submittedAt: NOW - 6 * 60 * 1000 }),
         dispatch({ id: 'escal', status: 'submitted', submittedAt: NOW - 12 * 60 * 1000 }),
-        dispatch({ id: 'done', status: 'reported', submittedAt: NOW - 20 * 60 * 1000 }),
+        dispatch({ id: 'done', status: 'completed', submittedAt: NOW - 20 * 60 * 1000 }),
       ],
       NOW,
       THRESHOLDS
     )
-    expect(summary.staleCount).toBe(2)
+    expect(summary.staleCount).toBe(3)
     expect(summary.escalatedCount).toBe(1)
-    expect(summary.stale.map((entry) => entry.dispatchId).sort()).toEqual(['escal', 'stale'])
+    expect(summary.stale.map((entry) => entry.dispatchId).sort()).toEqual([
+      'escal',
+      'overdue',
+      'stale',
+    ])
   })
 })

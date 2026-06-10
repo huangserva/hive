@@ -107,7 +107,7 @@ const writeFakeCodex = (workspacePath: string) => {
   writeFileSync(
     cliPath,
     `#!/usr/bin/env node
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -119,15 +119,26 @@ const writeDelayMs = delayIndex >= 0 ? Number.parseInt(args[delayIndex + 1] ?? '
 const expectYoloMarker = join(process.cwd(), '.expect-yolo')
 const codexHome = process.env.CODEX_HOME ?? join(homedir(), '.codex')
 const sessionDir = join(codexHome, 'sessions', '2026', '04', '30')
+const sessionPath = join(sessionDir, 'rollout-2026-04-30T00-00-00-' + sessionId + '.jsonl')
+let pendingSessionInput = ''
+const sessionMetaLine = () => JSON.stringify({ type: 'session_meta', payload: { id: sessionId, cwd: process.cwd() } }) + '\\n'
+const appendInputToSession = (chunk) => {
+  pendingSessionInput += chunk
+  try {
+    appendFileSync(sessionPath, JSON.stringify({ type: 'message', payload: { content: pendingSessionInput } }) + '\\n')
+    pendingSessionInput = ''
+  } catch {}
+}
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', (chunk) => {
   process.stdout.write('STDIN:' + chunk)
+  appendInputToSession(chunk)
   if (chunk.includes('\\u001b[201~')) process.stdout.write('\\n[Pasted text #1 +1 lines]\\n')
 })
 mkdirSync(sessionDir, { recursive: true })
 const writeSession = () => writeFileSync(
-    join(sessionDir, 'rollout-2026-04-30T00-00-00-' + sessionId + '.jsonl'),
-    JSON.stringify({ type: 'session_meta', payload: { id: sessionId, cwd: process.cwd() } }) + '\\n'
+    sessionPath,
+    sessionMetaLine() + (pendingSessionInput ? JSON.stringify({ type: 'message', payload: { content: pendingSessionInput } }) + '\\n' : '')
   )
 if (writeDelayMs > 0) setTimeout(writeSession, writeDelayMs)
 else writeSession()
@@ -162,10 +173,18 @@ const geminiHome = process.env.HIVE_GEMINI_HOME ?? join(homedir(), '.gemini')
 const projectDir = join(geminiHome, 'tmp', 'hive-test-project')
 mkdirSync(join(projectDir, 'chats'), { recursive: true })
 writeFileSync(join(projectDir, '.project_root'), process.cwd() + '\\n')
-writeFileSync(join(projectDir, 'chats', 'session-2026-04-30T00-00-29405746.json'), JSON.stringify({ sessionId }))
+const sessionPath = join(projectDir, 'chats', 'session-2026-04-30T00-00-29405746.json')
+writeFileSync(sessionPath, JSON.stringify({ sessionId }))
 process.stdout.write('ARGS:' + args.join(' ') + '\\n')
 if (existsSync(join(process.cwd(), '.expect-resume')) && !(args.includes('--resume') && args.includes(sessionId))) process.exit(2)
 if (existsSync(expectYoloMarker) && !args.includes('--yolo')) process.exit(4)
+process.stdout.write('Type your message\n')
+let transcript = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  transcript += chunk
+  writeFileSync(sessionPath, JSON.stringify({ messages: [{ content: transcript }], sessionId }))
+})
 setInterval(() => {}, 1000)
 `
   )
@@ -191,12 +210,24 @@ const sessionIndex = args.indexOf('--session-id-test')
 const sessionId = sessionIndex >= 0 ? args[sessionIndex + 1] : 'ses_25c8f572efferzSV4Mgjo99WqB'
 const expectYoloMarker = process.cwd() + '/.expect-yolo'
 const db = new Database(process.env.HIVE_OPENCODE_DB_PATH)
-db.exec('CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, time_archived INTEGER)')
+db.exec('CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, directory TEXT NOT NULL, time_archived INTEGER); CREATE TABLE IF NOT EXISTS part (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, data TEXT NOT NULL)')
 db.prepare('INSERT OR REPLACE INTO session (id, directory, time_archived) VALUES (?, ?, NULL)').run(sessionId, process.cwd())
 db.close()
 process.stdout.write('ARGS:' + args.join(' ') + '\\n')
 if (existsSync(process.cwd() + '/.expect-resume') && !(args.includes('--session') && args.includes(sessionId))) process.exit(2)
 if (existsSync(expectYoloMarker) && args.includes('--dangerously-skip-permissions')) process.exit(4)
+process.stdout.write('Ask anything\n')
+let partIndex = 0
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  const inputDb = new Database(process.env.HIVE_OPENCODE_DB_PATH)
+  inputDb.prepare('INSERT OR REPLACE INTO part (id, session_id, data) VALUES (?, ?, ?)').run(
+    'part-' + sessionId + '-' + (++partIndex),
+    sessionId,
+    JSON.stringify({ text: chunk, type: 'text' })
+  )
+  inputDb.close()
+})
 setInterval(() => {}, 1000)
 `
   )

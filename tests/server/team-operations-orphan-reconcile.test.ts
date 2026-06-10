@@ -37,8 +37,8 @@ const readTasks = (workspacePath: string) => {
   return existsSync(path) ? readFileSync(path, 'utf8') : null
 }
 
-// 把一条 dispatch 推到 submitted 态：先经 teamOps.dispatchTask（写 tasks.md sent 行 + queued），
-// 再用真实 ledger 的 markSubmitted 翻成 submitted。worker 从未启动，status 维持 'stopped'。
+// 把一条 dispatch 推到 running 态：先经 teamOps.dispatchTask（写 tasks.md sent 行 + queued），
+// 再用真实 ledger 的 markSubmitted 翻成 running。worker 从未启动，status 维持 'stopped'。
 const seedSubmittedDispatch = async (
   services: ReturnType<typeof createRuntimeStoreServices>,
   workspaceId: string,
@@ -51,13 +51,13 @@ const seedSubmittedDispatch = async (
   return dispatch
 }
 
-describe('cancelTask supports submitted dispatches', () => {
-  test('cancelTask cancels a submitted dispatch (not only queued)', async () => {
+describe('cancelTask supports active dispatches', () => {
+  test('cancelTask cancels a running dispatch (not only queued)', async () => {
     const { services, worker, workspace, workspacePath } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Stuck task')
     expect(
       services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
-    ).toBe('submitted')
+    ).toBe('running')
 
     const result = services.teamOps.cancelTask(workspace.id, dispatch.id, {
       fromAgentId: worker.id,
@@ -75,7 +75,7 @@ describe('cancelTask supports submitted dispatches', () => {
 })
 
 describe('reconcileOrphanedDispatches', () => {
-  test('cancels a stale submitted dispatch whose worker is stopped, syncing tasks.md', async () => {
+  test('marks a stale running dispatch orphaned when the worker is stopped, syncing tasks.md', async () => {
     const { services, worker, workspace, workspacePath } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Orphan task')
 
@@ -83,7 +83,7 @@ describe('reconcileOrphanedDispatches', () => {
     const reconciled = services.teamOps.reconcileOrphanedDispatches({ staleMs: 0 })
 
     expect(reconciled.map((d) => d.id)).toEqual([dispatch.id])
-    expect(reconciled[0]?.status).toBe('cancelled')
+    expect(reconciled[0]?.status).toBe('orphaned')
     expect(reconciled[0]?.reportText).toContain('orphan-submitted')
     expect(services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)).toBe(
       undefined
@@ -93,7 +93,7 @@ describe('reconcileOrphanedDispatches', () => {
     expect(content).toContain('orphan-submitted')
   })
 
-  test('leaves an in-flight submitted dispatch alone when the worker is not stopped', async () => {
+  test('leaves an in-flight running dispatch alone when the worker is not stopped', async () => {
     const { services, worker, workspace } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Active task')
 
@@ -106,10 +106,10 @@ describe('reconcileOrphanedDispatches', () => {
     expect(reconciled).toEqual([])
     expect(
       services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
-    ).toBe('submitted')
+    ).toBe('running')
   })
 
-  test('does not cancel a fresh submitted dispatch within the staleness window', async () => {
+  test('does not orphan a fresh running dispatch within the staleness window', async () => {
     const { services, worker, workspace } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Fresh task')
 
@@ -119,7 +119,7 @@ describe('reconcileOrphanedDispatches', () => {
     expect(reconciled).toEqual([])
     expect(
       services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
-    ).toBe('submitted')
+    ).toBe('running')
   })
 
   test('ignores queued (never-submitted) dispatches', async () => {
@@ -169,7 +169,7 @@ describe('reconcileOrphanedDispatches', () => {
     // 另一 workspace 的孤儿不受影响。
     expect(
       services.dispatchLedgerStore.findOpenDispatchById(otherWorkspace.id, otherDispatch.id)?.status
-    ).toBe('submitted')
+    ).toBe('running')
     expect(readTasks(workspacePath)).toContain('orphan-submitted')
   })
 })

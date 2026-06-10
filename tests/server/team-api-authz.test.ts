@@ -369,6 +369,19 @@ describe('team API authz (R1.4)', () => {
           text: 'task A',
         }),
       })
+      const [dispatch] = ctx.hive.store.listDispatches(ctx.workspaceId)
+      if (!dispatch) {
+        throw new Error('Expected dispatch after team send')
+      }
+      const bob = ctx.hive.store.addWorker(ctx.workspaceId, {
+        name: 'Bob',
+        role: 'coder',
+      })
+      const bobDispatch = await ctx.hive.store.dispatchTask(
+        ctx.workspaceId,
+        bob.id,
+        'independent queued task'
+      )
       expect(ctx.hive.store.getWorker(ctx.workspaceId, ctx.worker.id).pendingTaskCount).toBe(1)
 
       const workerToken = ctx.hive.store.peekAgentToken(ctx.worker.id)
@@ -382,19 +395,32 @@ describe('team API authz (R1.4)', () => {
           project_id: ctx.workspaceId,
           from_agent_id: ctx.worker.id,
           token: workerToken,
+          dispatch_id: dispatch.id,
           result: 'done',
           status: 'success',
           artifacts: [],
         }),
       })
       expect(response.status).toBe(202)
+      await expect(response.json()).resolves.toEqual({
+        dispatch_id: dispatch.id,
+        forward_error: null,
+        forwarded: true,
+        ok: true,
+      })
       expect(ctx.hive.store.getWorker(ctx.workspaceId, ctx.worker.id).pendingTaskCount).toBe(0)
+      expect(
+        ctx.hive.store.listDispatches(ctx.workspaceId).find((item) => item.id === bobDispatch.id)
+      ).toMatchObject({
+        id: bobDispatch.id,
+        status: 'queued',
+      })
     } finally {
       await ctx.hive.close()
     }
   })
 
-  test('worker report without an open dispatch is rejected and records no report', async () => {
+  test('worker report without dispatch_id is rejected and records no report', async () => {
     const ctx = await setupHive()
     try {
       const workerToken = ctx.hive.store.peekAgentToken(ctx.worker.id)
@@ -414,9 +440,9 @@ describe('team API authz (R1.4)', () => {
         }),
       })
 
-      expect(response.status).toBe(409)
+      expect(response.status).toBe(400)
       await expect(response.json()).resolves.toEqual({
-        error: 'No open dispatch for worker: Alice',
+        error: 'Missing dispatch_id for worker report',
       })
       expect(ctx.hive.store.getWorker(ctx.workspaceId, ctx.worker.id).pendingTaskCount).toBe(0)
       expect(
@@ -566,6 +592,83 @@ describe('team API authz (R1.4)', () => {
       expect(messages.some((item) => item.type === 'send' && item.text === 'Implement login')).toBe(
         true
       )
+    } finally {
+      await ctx.hive.close()
+    }
+  })
+
+  test('rejects a second submitted dispatch for the same worker until the first is cancelled', async () => {
+    const ctx = await setupHive()
+    try {
+      const orchToken = ctx.hive.store.peekAgentToken(ctx.orchestratorId)
+      if (!orchToken) {
+        throw new Error('Expected orchestrator token after start')
+      }
+      const firstResponse = await fetch(`${ctx.baseUrl}/api/team/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: ctx.workspaceId,
+          from_agent_id: ctx.orchestratorId,
+          token: orchToken,
+          to: 'Alice',
+          text: 'First submitted task',
+        }),
+      })
+      expect(firstResponse.status).toBe(202)
+      const firstBody = (await firstResponse.json()) as { dispatch_id: string }
+
+      const secondResponse = await fetch(`${ctx.baseUrl}/api/team/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: ctx.workspaceId,
+          from_agent_id: ctx.orchestratorId,
+          token: orchToken,
+          to: 'Alice',
+          text: 'Second submitted task',
+        }),
+      })
+      expect(secondResponse.status).toBe(409)
+      await expect(secondResponse.json()).resolves.toEqual({
+        error: `Worker Alice already has active dispatch ${firstBody.dispatch_id}; cancel it before sending another task`,
+      })
+      expect(
+        ctx.hive.store
+          .listDispatches(ctx.workspaceId)
+          .filter((dispatch) => dispatch.status === 'running')
+      ).toHaveLength(1)
+
+      const cancelResponse = await fetch(`${ctx.baseUrl}/api/team/cancel`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: ctx.workspaceId,
+          from_agent_id: ctx.orchestratorId,
+          token: orchToken,
+          dispatch_id: firstBody.dispatch_id,
+          reason: 'superseded by corrected task',
+        }),
+      })
+      expect(cancelResponse.status).toBe(202)
+
+      const thirdResponse = await fetch(`${ctx.baseUrl}/api/team/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          project_id: ctx.workspaceId,
+          from_agent_id: ctx.orchestratorId,
+          token: orchToken,
+          to: 'Alice',
+          text: 'Replacement task',
+        }),
+      })
+      expect(thirdResponse.status).toBe(202)
+      const submitted = ctx.hive.store
+        .listDispatches(ctx.workspaceId)
+        .filter((dispatch) => dispatch.status === 'running')
+      expect(submitted).toHaveLength(1)
+      expect(submitted[0]?.text).toBe('Replacement task')
     } finally {
       await ctx.hive.close()
     }

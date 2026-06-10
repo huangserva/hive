@@ -1,4 +1,4 @@
-import type { DispatchRecord } from './dispatch-ledger-store.js'
+import { type DispatchRecord, isActiveDispatchStatus } from './dispatch-ledger-store.js'
 import { route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
@@ -36,7 +36,8 @@ export const dashboardRoutes: RouteDefinition[] = [
         id: workspace.id,
         lastActivityAt: lastDispatchActivity,
         name: workspace.name,
-        openDispatchCount: dispatches.filter((dispatch) => dispatch.status === 'submitted').length,
+        openDispatchCount: dispatches.filter((dispatch) => isActiveDispatchStatus(dispatch.status))
+          .length,
         recentDispatchCount: dispatches.filter((dispatch) => dispatch.createdAt >= recentCutoff)
           .length,
         workerCount: workers.length,

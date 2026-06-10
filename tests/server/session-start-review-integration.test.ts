@@ -21,6 +21,7 @@ const WORKSPACE = {
 const PROMPT_READY_OUTPUT = '\n❯ '
 const makeAgentManagerMock = () => {
   const writtenInputs: Array<{ runId: string; text: string }> = []
+  const getRunCalls = new Map<string, number>()
   const mock = {
     startAgent: vi.fn().mockResolvedValue({
       runId: 'run-test-1',
@@ -32,12 +33,16 @@ const makeAgentManagerMock = () => {
     writeInput: vi.fn((runId: string, text: string | Buffer) => {
       writtenInputs.push({ runId, text: String(text) })
     }),
-    getRun: vi.fn().mockReturnValue({
-      runId: 'run-test-1',
-      status: 'running',
-      output: PROMPT_READY_OUTPUT,
-      pid: 1234,
-      exitCode: null,
+    getRun: vi.fn((runId = 'run-test-1') => {
+      const calls = getRunCalls.get(runId) ?? 0
+      getRunCalls.set(runId, calls + 1)
+      return {
+        runId,
+        status: 'running',
+        output: calls === 0 ? '' : PROMPT_READY_OUTPUT,
+        pid: 1234,
+        exitCode: null,
+      }
     }),
     stopRun: vi.fn(),
   }
@@ -191,12 +196,6 @@ describe('session-start-review via agent-run-starter', () => {
       exitCode: null,
       errorTail: null,
     })
-    agentManager.getRun.mockReturnValue({
-      runId: 'run-2',
-      status: 'running',
-      output: PROMPT_READY_OUTPUT,
-      pid: 200,
-    })
     await startLiveRun(
       { id: WORKSPACE.id, name: WORKSPACE.summary.name, path: WORKSPACE.summary.path },
       ORCHESTRATOR_AGENT_ID,
@@ -263,12 +262,6 @@ describe('session-start-review via agent-run-starter', () => {
       status: 'running',
       exitCode: null,
       errorTail: null,
-    })
-    agentManager.getRun.mockReturnValue({
-      runId: 'run-ws2',
-      status: 'running',
-      output: PROMPT_READY_OUTPUT,
-      pid: 200,
     })
     await startLiveRun(
       { id: 'ws-2', name: 'WS2', path: '/tmp/ws-2' },

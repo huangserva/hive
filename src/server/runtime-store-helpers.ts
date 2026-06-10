@@ -257,6 +257,7 @@ export const createRuntimeStoreServices = (
     listOpenDispatchesForWorkspace: (workspaceId) =>
       dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
     listWorkspaces: () => workspaceStore.listWorkspaces(),
+    markDispatchReportOverdue: dispatchLedgerStore.markReportOverdue,
     // 派单超时未汇报 → 直接 surface 给 user（除 LLM nudge 外的硬兜底，绝不静默）。
     notifyUserOfStaleDispatch: (workspaceId, dispatch, notice) => {
       let workerName = dispatch.toAgentId
@@ -327,6 +328,7 @@ export const createRuntimeStoreServices = (
     insertMessage: messageLogStore.insertMessage,
     listOpenDispatchesForWorkspace: dispatchLedgerStore.listOpenDispatchesForWorkspace,
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
+    markDispatchOrphaned: dispatchLedgerStore.markOrphaned,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
     onMobileUserInput: (workspaceId) =>

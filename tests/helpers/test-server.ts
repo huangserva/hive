@@ -6,6 +6,7 @@ import { createAgentManager } from '../../src/server/agent-manager.js'
 import { createApp } from '../../src/server/app.js'
 import { probeDirectory } from '../../src/server/fs-browse.js'
 import type { PickFolderResponse } from '../../src/server/fs-pick-folder.js'
+import type { HiveLogger } from '../../src/server/logger.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 
 interface TestServerContext {
@@ -18,6 +19,7 @@ interface TestServerContext {
 export const startTestServer = async (
   input: {
     dataDir?: string
+    logger?: HiveLogger
     pickFolderPath?: string
     pickFolderService?: () => Promise<PickFolderResponse>
     webRtcRuntime?: {
@@ -42,6 +44,7 @@ export const startTestServer = async (
       : undefined)
   const app = createApp({
     ...(pickFolderService ? { pickFolderService } : {}),
+    ...(input.logger ? { logger: input.logger } : {}),
     store,
     ...(input.webRtcRuntime ? { webRtcRuntime: input.webRtcRuntime } : {}),
   })

@@ -1,6 +1,6 @@
 import type { WorkerRole } from '../shared/types.js'
 import type { AIAction } from './cockpit-doc.js'
-import type { DispatchRecord } from './dispatch-ledger-store.js'
+import { type DispatchRecord, isCompletedDispatchStatus } from './dispatch-ledger-store.js'
 
 // M34 Phase 1：未审代码改动看板兜底。
 //
@@ -90,7 +90,7 @@ export const summarizeUnreviewedCodeDispatches = (
 
   const unreviewed: UnreviewedCodeEntry[] = []
   for (const dispatch of dispatches) {
-    if (dispatch.status !== 'reported') continue
+    if (!isCompletedDispatchStatus(dispatch.status)) continue
     if (dispatch.reportedAt === null) continue
     // role 主门：Phase 1 限 claude coder。
     if (!isClaudeCoder(getWorkerRole(dispatch.toAgentId))) continue

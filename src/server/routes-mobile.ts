@@ -30,6 +30,7 @@ import {
   type MobileCapability,
   type MobileDeviceRecord,
 } from './mobile-auth.js'
+import { startMobileReplyObligation } from './mobile-reply-obligation.js'
 import { answerQuestionInFile } from './pm-questions-doc.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
@@ -153,10 +154,7 @@ export const buildMobileDashboard = (
   }))
 
   // 「派单超时未汇报」醒目计数：worker 干完不报 / 卡住时，user 在看板直接看见，不靠 LLM nudge。
-  const staleDispatches = summarizeStaleDispatches(
-    store.listDispatches(workspaceId, { status: 'submitted' }),
-    Date.now()
-  )
+  const staleDispatches = summarizeStaleDispatches(store.listDispatches(workspaceId), Date.now())
 
   // M34「未审代码改动」醒目计数 + 合并进 aiActions（DB 派生，在边界合并，不污染 parseCockpit）。
   // 经 resolveCockpitUnreviewedCode 统一解析 commandPresetId（BLOCKER 返工：rawWorkers 不含 preset）。
@@ -236,8 +234,10 @@ export const buildMobileWorkerTranscript = async (
 }
 
 const mobileDispatchStatus = (status: DispatchRecord['status']) => {
-  if (status === 'reported') return 'done'
+  if (status === 'completed' || status === 'reported') return 'done'
   if (status === 'cancelled') return 'cancelled'
+  if (status === 'orphaned') return 'orphaned'
+  if (status === 'report_overdue') return 'report_overdue'
   return 'pending'
 }
 
@@ -790,11 +790,15 @@ export const mobileRoutes: RouteDefinition[] = [
         sendJson(response, 200, { ok: true, workspace_id: workspaceId })
         return
       }
-      store.insertMobileChatMessage(
+      const inboundMessage = store.insertMobileChatMessage(
         workspaceId,
         'inbound',
         'user_text',
-        JSON.stringify(source === 'voice' ? { source, text } : { text })
+        JSON.stringify(
+          source === 'voice'
+            ? { reply_sink: 'mobile', source, text }
+            : { reply_sink: 'mobile', source: 'mobile', text }
+        )
       )
       const gatekeeperHandled =
         isGlmGatekeeperEnabled() &&
@@ -813,6 +817,15 @@ export const mobileRoutes: RouteDefinition[] = [
       if (gatekeeperHandled) {
         store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
       } else {
+        startMobileReplyObligation({
+          activeRunId: activeRun.runId,
+          fromAgentId: orchId,
+          insertMobileChatMessage: store.insertMobileChatMessage,
+          ...(logger ? { logger } : {}),
+          outputBus: store.getPtyOutputBus(),
+          userMessageId: inboundMessage.id,
+          workspaceId,
+        })
         store.recordUserInput(workspaceId, orchId, promptForOrchestrator)
       }
       sendJson(response, 200, { ok: true, workspace_id: workspaceId })

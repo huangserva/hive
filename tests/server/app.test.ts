@@ -485,6 +485,7 @@ describe('runtime http app', () => {
     })
 
     expect(sendResponse.status).toBe(202)
+    const sendBody = (await sendResponse.json()) as { dispatch_id: string }
     expect(store.getWorker(workspace.id, worker.id).status).toBe('working')
 
     const reportResponse = await fetch(`${baseUrl}/api/team/report`, {
@@ -494,6 +495,7 @@ describe('runtime http app', () => {
         project_id: workspace.id,
         from_agent_id: worker.id,
         token: workerToken,
+        dispatch_id: sendBody.dispatch_id,
         result: 'Done',
         status: 'success',
         artifacts: [],

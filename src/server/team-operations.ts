@@ -3,7 +3,7 @@ import { existsSync, statSync } from 'node:fs'
 import type { AgentRuntime } from './agent-runtime.js'
 import { buildWorkerCockpitSnapshot } from './agent-stdin-dispatcher.js'
 import { parseCockpit } from './cockpit-doc.js'
-import type { DispatchRecord } from './dispatch-ledger-store.js'
+import { type DispatchRecord, isActiveDispatchStatus } from './dispatch-ledger-store.js'
 import { ConflictError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
 import type {
@@ -55,6 +55,11 @@ export interface TeamOperationsInput {
     reason: string
     workspaceId: string
   }) => DispatchRecord | undefined
+  markDispatchOrphaned?: (input: {
+    dispatchId: string
+    reason: string
+    workspaceId: string
+  }) => DispatchRecord | undefined
   markDispatchReportedByWorker: (input: {
     artifacts: string[]
     dispatchId?: string
@@ -83,6 +88,7 @@ export interface ReportTaskInput {
   artifacts?: string[]
   dispatchId?: string
   requireActiveRun?: boolean
+  requireDispatchId?: boolean
   status?: string
   text?: string
 }
@@ -161,6 +167,7 @@ export const createTeamOperations = ({
   insertMobileChatMessage,
   listOpenDispatchesForWorkspace,
   markDispatchCancelled,
+  markDispatchOrphaned,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
   mobilePushService,
@@ -264,6 +271,24 @@ export const createTeamOperations = ({
     text: string,
     input: DispatchTaskInput = {}
   ) => {
+    const worker = workspaceStore.getWorker(workspaceId, workerId)
+    const existingSubmittedDispatch = listOpenDispatchesForWorkspace(workspaceId).find(
+      (dispatch) => dispatch.toAgentId === workerId && isActiveDispatchStatus(dispatch.status)
+    )
+    if (existingSubmittedDispatch) {
+      console.warn(
+        [
+          'team dispatch rejected: worker already has active dispatch',
+          `worker=${worker.name}`,
+          `worker_id=${workerId}`,
+          `existing_dispatch_id=${existingSubmittedDispatch.id}`,
+          `attempt_summary=${text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? ''}`,
+        ].join(' ')
+      )
+      throw new ConflictError(
+        `Worker ${worker.name} already has active dispatch ${existingSubmittedDispatch.id}; cancel it before sending another task`
+      )
+    }
     const message = createSendMessage(workspaceId, workerId, text, input.fromAgentId)
     const messageHandle = insertMessage(message)
     let dispatch: DispatchRecord | undefined
@@ -282,7 +307,6 @@ export const createTeamOperations = ({
       if (input.fromAgentId) dispatchInput.fromAgentId = input.fromAgentId
       dispatch = createDispatch(dispatchInput)
 
-      const worker = workspaceStore.getWorker(workspaceId, workerId)
       const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, workerId)
       const hasLaunchConfig = !!agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
       if (input.fromAgentId || hasActiveRun || hasLaunchConfig) {
@@ -341,7 +365,7 @@ export const createTeamOperations = ({
   }
 
   // 判定一条 open dispatch 是否是「可安全收尾」的孤儿。只收明确孤儿：
-  // submitted + 已过 staleness 阈值 + 无 active run + （worker 已删 或 status==='stopped'）。
+  // running/report_overdue + 已过 staleness 阈值 + 无 active run + （worker 已删 或 status==='stopped'）。
   // worker 还在 working/idle（在途，可能正在做或马上 report）一律不动。
   const isReconcilableOrphan = (
     workspaceId: string,
@@ -349,7 +373,7 @@ export const createTeamOperations = ({
     now: number,
     staleMs: number
   ) => {
-    if (dispatch.status !== 'submitted' || dispatch.submittedAt === null) return false
+    if (!isActiveDispatchStatus(dispatch.status) || dispatch.submittedAt === null) return false
     if (now - dispatch.submittedAt < staleMs) return false
     // 在途保护：worker 还有 active run = 合法在途，绝不收尾。
     if (agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)) return false
@@ -403,7 +427,7 @@ export const createTeamOperations = ({
       for (const workspaceId of workspaceIds) {
         for (const dispatch of listOpenDispatchesForWorkspace(workspaceId)) {
           if (!isReconcilableOrphan(workspaceId, dispatch, now, staleMs)) continue
-          const cancelled = markDispatchCancelled({
+          const cancelled = (markDispatchOrphaned ?? markDispatchCancelled)({
             dispatchId: dispatch.id,
             reason: ORPHAN_DISPATCH_CANCEL_REASON,
             workspaceId,
@@ -480,6 +504,9 @@ export const createTeamOperations = ({
       const status = input.status
       const artifacts = input.artifacts ?? []
       const worker = workspaceStore.getWorker(workspaceId, workerId)
+      if (input.requireDispatchId && !input.dispatchId) {
+        throw new ConflictError(`Missing dispatch_id for worker report: ${worker.name}`)
+      }
       const openDispatch = findOpenDispatch(workspaceId, workerId, input.dispatchId)
       if (!openDispatch && input.dispatchId) {
         throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
