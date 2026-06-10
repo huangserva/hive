@@ -18,6 +18,7 @@ export type WebRtcVoiceLatencyTurn = {
   gatekeeperAt?: number
   glmRequestAt?: number
   glmResponseAt?: number
+  intentGeneration?: number
   intentVerdictAt?: number
   segment: number
   speechStartAt?: number
@@ -76,6 +77,16 @@ const claimPendingTurn = (
   }
   return turnId ? (turnsById.get(turnId) ?? null) : null
 }
+
+const scopedCallIds = (callIds?: readonly string[] | ReadonlySet<string>) => {
+  if (Array.isArray(callIds) || callIds instanceof Set) return new Set(callIds)
+  return null
+}
+
+const isPendingHandoffTurnInScope = (
+  turn: WebRtcVoiceLatencyTurn,
+  callIds: ReadonlySet<string> | null
+) => turn.branch === 'escalate' && turn.forwardPm === true && (!callIds || callIds.has(turn.callId))
 
 export const startWebRtcVoiceLatencyTurn = ({
   callId,
@@ -147,16 +158,39 @@ export const claimOldestPendingWebRtcVoiceHandoffTurn = (
   workspaceId: string,
   scope: { callIds?: readonly string[] | ReadonlySet<string> } = {}
 ) => {
-  const callIds =
-    Array.isArray(scope.callIds) || scope.callIds instanceof Set ? new Set(scope.callIds) : null
+  const callIds = scopedCallIds(scope.callIds)
   if (callIds && callIds.size === 0) return null
-  return claimPendingTurn(
-    workspaceId,
-    (turn) =>
-      turn.branch === 'escalate' &&
-      turn.forwardPm === true &&
-      (!callIds || callIds.has(turn.callId))
-  )
+  return claimPendingTurn(workspaceId, (turn) => isPendingHandoffTurnInScope(turn, callIds))
+}
+
+export const countPendingWebRtcVoiceHandoffTurns = (
+  workspaceId: string,
+  scope: { callIds?: readonly string[] | ReadonlySet<string> } = {}
+) => {
+  const callIds = scopedCallIds(scope.callIds)
+  if (callIds && callIds.size === 0) return 0
+  const pending = pendingTurnsByWorkspaceId.get(workspaceId) ?? []
+  return pending.reduce((count, turnId) => {
+    const turn = turnsById.get(turnId)
+    return turn && isPendingHandoffTurnInScope(turn, callIds) ? count + 1 : count
+  }, 0)
+}
+
+export const claimPendingWebRtcVoiceHandoffTurnForId = (
+  workspaceId: string,
+  turnId: string | undefined,
+  scope: { callIds?: readonly string[] | ReadonlySet<string> } = {}
+) => {
+  if (!turnId) return null
+  const callIds = scopedCallIds(scope.callIds)
+  if (callIds && callIds.size === 0) return null
+  const pending = pendingTurnsByWorkspaceId.get(workspaceId) ?? []
+  if (!pending.includes(turnId)) return null
+  const turn = turnsById.get(turnId)
+  if (!turn || turn.workspaceId !== workspaceId) return null
+  if (!isPendingHandoffTurnInScope(turn, callIds)) return null
+  removePendingTurnId(turnId)
+  return turn
 }
 
 export const bindWebRtcVoiceLatencyTurnToMessage = (

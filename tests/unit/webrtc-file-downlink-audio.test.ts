@@ -205,6 +205,59 @@ describe('WebRTC file downlink audio', () => {
     await session.close()
   })
 
+  test('logs current file downlink state when interrupting playback', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const infoLogs: string[] = []
+    const sent: VoiceFileDownlinkFrame[] = []
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async () => ({
+          audio: Buffer.from('audio'),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts' as const,
+        }),
+      }),
+      logger: { info: (message) => infoLogs.push(message), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+    })
+    const session = await downlink.startCall({
+      callId: 'call-state',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+
+    emitMessage(listener, 'workspace-1', { ...createMessage('正在播放'), id: 'message-state' })
+    await session.flush()
+
+    expect(session.getPlaybackState?.()).toEqual(
+      expect.objectContaining({
+        generation: 0,
+        messageId: 'message-state',
+        state: 'sent',
+        textPreview: '正在播放',
+      })
+    )
+
+    session.interrupt?.()
+
+    expect(infoLogs.join('\n')).toContain('file downlink reply queued: call_id=call-state')
+    expect(infoLogs.join('\n')).toContain('message_id=message-state')
+    expect(infoLogs.join('\n')).toContain('file downlink interrupted: call_id=call-state')
+    expect(infoLogs.join('\n')).toContain('state=sent')
+    expect(infoLogs.join('\n')).toContain('message_id=message-state')
+    await session.close()
+  })
+
   test('serializes voice intent front and PM replies so they do not play at the same time', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const sent: VoiceFileDownlinkFrame[] = []
@@ -377,7 +430,7 @@ describe('WebRTC file downlink audio', () => {
     await session.close()
   })
 
-  test('does not retract a speculative generation after it has started playing', async () => {
+  test('sends retract for a newer intent generation without removing already-sent older audio', async () => {
     let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
     const sent: VoiceFileDownlinkFrame[] = []
     const downlink = createWebRtcFileDownlinkAudio({
@@ -418,11 +471,118 @@ describe('WebRTC file downlink audio', () => {
     })
     await session.flush()
 
-    expect(sent).not.toEqual(expect.arrayContaining([expect.objectContaining({ op: 'retract' })]))
     expect(sent).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ turn_id: 'front-playing', type: 'voice_downlink_segment' }),
+        expect.objectContaining({
+          generation: 1,
+          op: 'retract',
+          retract_generation: 0,
+          type: 'voice_downlink_segment',
+        }),
         expect.objectContaining({ turn_id: 'front-next', type: 'voice_downlink_segment' }),
+      ])
+    )
+    await session.close()
+  })
+
+  test('drops stale PM replies bound to an older intent generation after a newer generation takes over', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    const sent: VoiceFileDownlinkFrame[] = []
+    const turn1 = startWebRtcVoiceLatencyTurn({
+      callId: 'call-1',
+      now: 1_000,
+      segment: 1,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn1.turnId, {
+      branch: 'escalate',
+      decisionAt: 1_100,
+      forwardPm: true,
+      intentGeneration: 1,
+      intentVerdictAt: 1_050,
+      textLen: 4,
+    })
+    const turn2 = startWebRtcVoiceLatencyTurn({
+      callId: 'call-1',
+      now: 2_000,
+      segment: 2,
+      workspaceId: 'workspace-1',
+    })
+    markWebRtcVoiceLatency(turn2.turnId, {
+      branch: 'escalate',
+      decisionAt: 2_100,
+      forwardPm: true,
+      intentGeneration: 2,
+      intentVerdictAt: 2_050,
+      textLen: 4,
+    })
+    const downlink = createWebRtcFileDownlinkAudio({
+      chunkSize: 64,
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: async (text) => ({
+          audio: Buffer.from(`${text}-audio`),
+          format: 'mp3',
+          mime: 'audio/mpeg',
+          provider: 'edge-tts' as const,
+        }),
+      }),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {
+            listener = null
+          }
+        },
+      },
+    })
+    const session = await downlink.startCall({
+      callId: 'call-1',
+      send: (frame) => sent.push(frame),
+      workspaceId: 'workspace-1',
+    })
+
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('第一代前台', 1),
+      id: 'front-1',
+    })
+    await session.flush()
+    emitMessage(listener, 'workspace-1', {
+      ...createVoiceIntentFrontMessage('第二代前台', 2),
+      id: 'front-2',
+    })
+    await session.flush()
+    emitMessage(
+      listener,
+      'workspace-1',
+      createCorrelatedPmMessage('旧 PM 补充', turn1.turnId, 'pm-old')
+    )
+    emitMessage(
+      listener,
+      'workspace-1',
+      createCorrelatedPmMessage('新 PM 补充', turn2.turnId, 'pm-new')
+    )
+    await session.flush()
+
+    expect(sent).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ turn_id: 'pm-old', type: 'voice_downlink_segment' }),
+      ])
+    )
+    expect(sent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          generation: 1,
+          turn_id: 'front-2',
+          type: 'voice_downlink_segment',
+        }),
+        expect.objectContaining({
+          generation: 1,
+          turn_id: 'pm-new',
+          type: 'voice_downlink_segment',
+        }),
       ])
     )
     await session.close()

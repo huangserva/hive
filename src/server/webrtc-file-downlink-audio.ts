@@ -38,7 +38,19 @@ export type WebRtcDownlinkMode = 'file_segments' | 'webrtc_track'
 export interface WebRtcFileDownlinkAudioSession {
   close(): Promise<void> | void
   flush(): Promise<void>
+  getPlaybackState?: () => WebRtcFileDownlinkPlaybackState
   interrupt?: () => void
+}
+
+export interface WebRtcFileDownlinkPlaybackState {
+  bytes?: number
+  frames?: number
+  generation: number
+  messageId?: string
+  state: 'closed' | 'idle' | 'interrupted' | 'sending' | 'sent' | 'synthesizing'
+  textPreview?: string
+  turnId?: string
+  updatedAtMs: number
 }
 
 export interface WebRtcFileDownlinkAudio {
@@ -105,10 +117,68 @@ const parseVoiceIntentGeneration = (message: MobileChatMessage) => {
   }
 }
 
+const resolveQueuedGeneration = ({
+  currentGeneration,
+  generationByIntentGeneration,
+  latestVoiceIntentGeneration,
+  voiceIntentGeneration,
+}: {
+  currentGeneration: number
+  generationByIntentGeneration: Map<number, number>
+  latestVoiceIntentGeneration: number | null
+  voiceIntentGeneration: number | null
+}) => {
+  if (voiceIntentGeneration === null) {
+    return {
+      latestVoiceIntentGeneration,
+      nextGeneration: currentGeneration,
+      queuedGeneration: currentGeneration,
+      retractGeneration: null,
+    }
+  }
+
+  if (latestVoiceIntentGeneration !== null && voiceIntentGeneration < latestVoiceIntentGeneration) {
+    return {
+      latestVoiceIntentGeneration,
+      nextGeneration: currentGeneration,
+      queuedGeneration: null,
+      retractGeneration: null,
+    }
+  }
+
+  const mappedGeneration = generationByIntentGeneration.get(voiceIntentGeneration)
+  if (mappedGeneration !== undefined) {
+    return {
+      latestVoiceIntentGeneration:
+        latestVoiceIntentGeneration === null
+          ? voiceIntentGeneration
+          : Math.max(latestVoiceIntentGeneration, voiceIntentGeneration),
+      nextGeneration: currentGeneration,
+      queuedGeneration: mappedGeneration,
+      retractGeneration: null,
+    }
+  }
+
+  const shouldAdvanceGeneration = latestVoiceIntentGeneration !== null
+  const nextGeneration = shouldAdvanceGeneration ? currentGeneration + 1 : currentGeneration
+  generationByIntentGeneration.set(voiceIntentGeneration, nextGeneration)
+  return {
+    latestVoiceIntentGeneration: voiceIntentGeneration,
+    nextGeneration,
+    queuedGeneration: nextGeneration,
+    retractGeneration: shouldAdvanceGeneration ? currentGeneration : null,
+  }
+}
+
 const logDiagnostic = (logger: Pick<HiveLogger, 'info' | 'warn'> | undefined, message: string) => {
   logger?.info?.(message)
   process.stderr.write(`[webrtc-file-downlink ${new Date().toISOString()}] ${message}\n`)
 }
+
+const summarizeDownlinkText = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 80)
+
+const formatPlaybackStateForLog = (state: WebRtcFileDownlinkPlaybackState) =>
+  `state=${state.state} generation=${state.generation} message_id=${state.messageId ?? 'none'} turn_id=${state.turnId ?? 'none'} frames=${state.frames ?? 'na'} bytes=${state.bytes ?? 'na'} text=${JSON.stringify(state.textPreview ?? '')}`
 
 export const createWebRtcFileDownlinkAudio = ({
   chunkSize = DEFAULT_CHUNK_SIZE,
@@ -120,8 +190,13 @@ export const createWebRtcFileDownlinkAudio = ({
     let closed = false
     let generation = 0
     let latestVoiceIntentGeneration: number | null = null
+    const generationByIntentGeneration = new Map<number, number>()
     let queue = Promise.resolve()
-    const startedPlaybackGenerations = new Set<number>()
+    let playbackState: WebRtcFileDownlinkPlaybackState = {
+      generation,
+      state: 'idle',
+      updatedAtMs: Date.now(),
+    }
     const callStateSender = createVoiceCallStateSender<VoiceDownlinkSegmentFrame>({
       callId,
       logger,
@@ -155,6 +230,14 @@ export const createWebRtcFileDownlinkAudio = ({
         return
       }
       try {
+        playbackState = {
+          generation: queuedGeneration,
+          messageId: message.id,
+          state: 'synthesizing',
+          textPreview: summarizeDownlinkText(sanitizedText),
+          turnId: message.id,
+          updatedAtMs: Date.now(),
+        }
         markWebRtcVoiceLatency(latencyTurn?.turnId, { ttsStartAt: Date.now() })
         const result = await createTtsProvider().synthesize(sanitizedText, {
           voice: WEBRTC_FILE_DOWNLINK_TTS_VOICE,
@@ -173,12 +256,21 @@ export const createWebRtcFileDownlinkAudio = ({
           text: sanitizedText,
           turnId: message.id,
         })
+        playbackState = {
+          bytes: result.audio.byteLength,
+          frames: frames.length,
+          generation: queuedGeneration,
+          messageId: message.id,
+          state: 'sending',
+          textPreview: summarizeDownlinkText(sanitizedText),
+          turnId: message.id,
+          updatedAtMs: Date.now(),
+        }
         for (const frame of frames) {
           if (closed || queuedGeneration !== generation) break
           send(frame)
           if (!sentAudioFrame) {
             sentAudioFrame = true
-            startedPlaybackGenerations.add(queuedGeneration)
             sendCallState('responding', callStateTurnId)
           }
           if (!latencyTurnCompleted && latencyTurn) {
@@ -199,6 +291,16 @@ export const createWebRtcFileDownlinkAudio = ({
           }
         }
         if (sentAudioFrame && !closed && queuedGeneration === generation) {
+          playbackState = {
+            bytes: result.audio.byteLength,
+            frames: frames.length,
+            generation: queuedGeneration,
+            messageId: message.id,
+            state: 'sent',
+            textPreview: summarizeDownlinkText(sanitizedText),
+            turnId: message.id,
+            updatedAtMs: Date.now(),
+          }
           sendCallState('listening', callStateTurnId)
           shouldResetCallState = false
         }
@@ -222,30 +324,7 @@ export const createWebRtcFileDownlinkAudio = ({
       const text = parseReplyText(message)
       if (!text) return
       const voiceIntentGeneration = parseVoiceIntentGeneration(message)
-      if (
-        isVoiceIntentFrontReply(message) &&
-        voiceIntentGeneration !== null &&
-        (latestVoiceIntentGeneration === null ||
-          voiceIntentGeneration > latestVoiceIntentGeneration)
-      ) {
-        const hasPreviousVoiceIntentGeneration = latestVoiceIntentGeneration !== null
-        latestVoiceIntentGeneration = voiceIntentGeneration
-        if (hasPreviousVoiceIntentGeneration && !startedPlaybackGenerations.has(generation)) {
-          const retractedGeneration = generation
-          generation += 1
-          queue = Promise.resolve()
-          send(
-            createVoiceDownlinkSegmentFrame('retract', {
-              callId,
-              generation,
-              retractGeneration: retractedGeneration,
-              segmentId: 0,
-              seq: 0,
-              turnId: `retract-${generation}`,
-            })
-          )
-        }
-      }
+      const voiceIntentReply = isVoiceIntentFrontReply(message)
       const correlatedTurnId = parseVoiceLatencyTurnId(message)
       const exactLatencyTurn = claimWebRtcVoiceLatencyTurnForMessage(message.id)
       const correlatedLatencyTurn = claimWebRtcVoiceLatencyTurnForId(correlatedTurnId, {
@@ -255,10 +334,49 @@ export const createWebRtcFileDownlinkAudio = ({
       const latencyTurn =
         exactLatencyTurn ??
         correlatedLatencyTurn ??
-        (isVoiceIntentFrontReply(message)
-          ? null
-          : claimPendingLegacyWebRtcVoiceLatencyTurn(workspaceId))
-      const queuedGeneration = generation
+        (voiceIntentReply ? null : claimPendingLegacyWebRtcVoiceLatencyTurn(workspaceId))
+      const resolvedIntentGeneration =
+        voiceIntentGeneration ?? latencyTurn?.intentGeneration ?? null
+      const resolvedGeneration = resolveQueuedGeneration({
+        currentGeneration: generation,
+        generationByIntentGeneration,
+        latestVoiceIntentGeneration,
+        voiceIntentGeneration: resolvedIntentGeneration,
+      })
+      latestVoiceIntentGeneration = resolvedGeneration.latestVoiceIntentGeneration
+      if (resolvedGeneration.retractGeneration !== null) {
+        generation = resolvedGeneration.nextGeneration
+        queue = Promise.resolve()
+        send(
+          createVoiceDownlinkSegmentFrame('retract', {
+            callId,
+            generation,
+            retractGeneration: resolvedGeneration.retractGeneration,
+            segmentId: 0,
+            seq: 0,
+            turnId: `retract-${generation}`,
+          })
+        )
+        logDiagnostic(
+          logger,
+          `file downlink retract sent: call_id=${callId} retract_generation=${resolvedGeneration.retractGeneration} next_generation=${generation} message_id=${message.id} voice_intent_generation=${resolvedIntentGeneration ?? 'none'}`
+        )
+      } else {
+        generation = resolvedGeneration.nextGeneration
+      }
+      if (resolvedGeneration.queuedGeneration === null) {
+        logDiagnostic(
+          logger,
+          `file downlink stale reply dropped: call_id=${callId} message_id=${message.id} current_generation=${generation} voice_intent_generation=${resolvedIntentGeneration ?? 'none'}`
+        )
+        discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
+        return
+      }
+      const queuedGeneration = resolvedGeneration.queuedGeneration
+      logDiagnostic(
+        logger,
+        `file downlink reply queued: call_id=${callId} message_id=${message.id} generation=${queuedGeneration} source=${voiceIntentReply ? 'voice_intent_front' : 'orch_reply'} voice_intent_generation=${resolvedIntentGeneration ?? 'none'} text_len=${text.length} text=${JSON.stringify(summarizeDownlinkText(text))}`
+      )
       // TODO(M40): route PM results back through the intent front for a true single-voice persona.
       // This queue only guarantees front and PM audio never play at the same time.
       queue = queue.then(() => processReply(message, text, latencyTurn, queuedGeneration))
@@ -268,6 +386,11 @@ export const createWebRtcFileDownlinkAudio = ({
       async close() {
         if (closed) return
         closed = true
+        playbackState = {
+          ...playbackState,
+          state: 'closed',
+          updatedAtMs: Date.now(),
+        }
         callStateSender.close()
         unsubscribe()
         await queue
@@ -275,9 +398,19 @@ export const createWebRtcFileDownlinkAudio = ({
       async flush() {
         await queue
       },
+      getPlaybackState() {
+        return { ...playbackState }
+      },
       interrupt() {
         if (closed) return
+        const previousState = { ...playbackState }
         generation += 1
+        playbackState = {
+          ...previousState,
+          generation,
+          state: 'interrupted',
+          updatedAtMs: Date.now(),
+        }
         queue = Promise.resolve()
         send(
           createVoiceDownlinkSegmentFrame('interrupt', {
@@ -289,7 +422,10 @@ export const createWebRtcFileDownlinkAudio = ({
           })
         )
         sendCallState('listening', `interrupt-${generation}`)
-        logDiagnostic(logger, `file downlink interrupted: call_id=${callId}`)
+        logDiagnostic(
+          logger,
+          `file downlink interrupted: call_id=${callId} ${formatPlaybackStateForLog(previousState)} next_generation=${generation}`
+        )
       },
     }
   },

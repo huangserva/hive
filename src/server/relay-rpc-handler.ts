@@ -12,6 +12,11 @@ import {
 import { createLocalSttProvider } from './local-stt.js'
 import { createLocalTtsProvider } from './local-tts.js'
 import type { MobileCapability, MobileDeviceRecord } from './mobile-auth.js'
+import {
+  type MobileReplyObligationLogger,
+  recordMobileReplyObligationUnavailable,
+  startMobileReplyObligation,
+} from './mobile-reply-obligation.js'
 import { answerQuestionInFile } from './pm-questions-doc.js'
 import type { RuntimeInfo } from './route-types.js'
 import {
@@ -40,6 +45,7 @@ export type RelayRpcHandler = (
 
 interface RelayRpcHandlerDeps {
   fastVoiceReplyProvider?: FastVoiceReplyProvider
+  logger?: MobileReplyObligationLogger
   runtimeInfo: RuntimeInfo
   store: Pick<
     RuntimeStore,
@@ -366,11 +372,15 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       if (source === 'voice' && uploadPaths.length === 0 && fastReply.gatekeeper === 'drop') {
         return { ok: true, workspace_id: workspaceId }
       }
-      deps.store.insertMobileChatMessage(
+      const inboundMessage = deps.store.insertMobileChatMessage(
         workspaceId,
         'inbound',
         'user_text',
-        JSON.stringify(source === 'voice' ? { source, text } : { text })
+        JSON.stringify(
+          source === 'voice'
+            ? { reply_sink: 'mobile', source, text }
+            : { reply_sink: 'mobile', source: 'mobile', text }
+        )
       )
       const gatekeeperHandled =
         isGlmGatekeeperEnabled() &&
@@ -389,6 +399,28 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       if (gatekeeperHandled) {
         deps.store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
       } else {
+        const outputBus = deps.store.getPtyOutputBus?.()
+        if (outputBus) {
+          startMobileReplyObligation({
+            activeRunId: activeRun.runId,
+            fromAgentId: orchId,
+            insertMobileChatMessage: deps.store.insertMobileChatMessage,
+            ...(deps.logger ? { logger: deps.logger } : {}),
+            outputBus,
+            userMessageId: inboundMessage.id,
+            workspaceId,
+          })
+        } else {
+          recordMobileReplyObligationUnavailable({
+            activeRunId: activeRun.runId,
+            fromAgentId: orchId,
+            insertMobileChatMessage: deps.store.insertMobileChatMessage,
+            ...(deps.logger ? { logger: deps.logger } : {}),
+            reason: 'missing_output_bus',
+            userMessageId: inboundMessage.id,
+            workspaceId,
+          })
+        }
         deps.store.recordUserInput(workspaceId, orchId, promptForOrchestrator)
       }
       return { ok: true, workspace_id: workspaceId }

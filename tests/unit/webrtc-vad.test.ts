@@ -237,4 +237,36 @@ describe('WebRTC utterance VAD', () => {
 
     expect(utterance?.pcm.byteLength).toBe(2 * 160 * 2)
   })
+
+  test('passes RMS context to speech-start callbacks for echo diagnostics', () => {
+    const speechStarts: Array<{ consecutiveSpeechFrames: number; rms: number; threshold: number }> =
+      []
+    const vad = createWebRtcUtteranceVad({
+      minSpeechMs: 20,
+      onSpeechStart: (event) => {
+        speechStarts.push({
+          consecutiveSpeechFrames: event.consecutiveSpeechFrames,
+          rms: event.rms,
+          threshold: event.threshold,
+        })
+      },
+      silenceMs: 40,
+      speechRmsThreshold: 0.03,
+      speechStartConfirmationFrames: 3,
+    })
+
+    for (let index = 0; index < 3; index += 1) {
+      vad.push({
+        bitsPerSample: 16,
+        channelCount: 1,
+        pcm: frameWithRms(0.08),
+        sampleRate: 16_000,
+      })
+    }
+
+    expect(speechStarts).toHaveLength(1)
+    expect(speechStarts[0]?.consecutiveSpeechFrames).toBe(3)
+    expect(speechStarts[0]?.rms).toBeGreaterThan(0.079)
+    expect(speechStarts[0]?.threshold).toBe(0.03)
+  })
 })

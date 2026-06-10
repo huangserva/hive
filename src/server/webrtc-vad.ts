@@ -1,9 +1,18 @@
 export interface WebRtcUtteranceVadConfig {
   minSpeechMs: number
-  onSpeechStart?: () => void
+  onSpeechStart?: (event: WebRtcSpeechStartEvent) => void
   silenceMs: number
   speechStartConfirmationFrames: number
   speechRmsThreshold: number
+}
+
+export interface WebRtcSpeechStartEvent {
+  bitsPerSample: number
+  channelCount: number
+  consecutiveSpeechFrames: number
+  rms: number
+  sampleRate: number
+  threshold: number
 }
 
 export interface WebRtcPcmVadFrame {
@@ -123,7 +132,14 @@ export const createWebRtcUtteranceVad = (
           consecutiveSpeechFrames >= resolved.speechStartConfirmationFrames
         ) {
           speechStartFired = true
-          resolved.onSpeechStart?.()
+          resolved.onSpeechStart?.({
+            bitsPerSample: frame.bitsPerSample,
+            channelCount: frame.channelCount,
+            consecutiveSpeechFrames,
+            rms,
+            sampleRate: frame.sampleRate,
+            threshold: resolved.speechRmsThreshold,
+          })
         }
         if (activeFrames.length <= 0) {
           activeBitsPerSample = frame.bitsPerSample

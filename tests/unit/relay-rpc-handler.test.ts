@@ -3,9 +3,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
+import type {
+  MobileChatDirection,
+  MobileChatMessage,
+  MobileChatMessageType,
+} from '../../src/server/mobile-chat-store.js'
+import {
+  fulfillMobileReplyObligation,
+  resetMobileReplyObligationsForTests,
+} from '../../src/server/mobile-reply-obligation.js'
 import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 import { __resetVoiceUnderstandingBuffersForTests } from '../../src/server/voice-understanding-buffer.js'
+import type { AgentSummary, TeamListItem } from '../../src/shared/types.js'
 
 const localTtsMock = vi.hoisted(() => ({
   detect: vi.fn(),
@@ -21,84 +30,152 @@ const tempDirs: string[] = []
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllEnvs()
+  resetMobileReplyObligationsForTests()
   __resetVoiceUnderstandingBuffersForTests()
   localTtsMock.detect.mockReset()
   localTtsMock.synthesize.mockReset()
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
-const createBaseStore = (overrides: Record<string, unknown> = {}) => ({
-  approvalLedger: {
-    get: vi.fn(),
-    resolve: vi.fn(),
-  },
-  addWorker: vi.fn(() => ({ id: 'worker-2', name: 'Bob', role: 'coder', status: 'idle' })),
-  dispatchTask: vi.fn(),
-  configureAgentLaunch: vi.fn(),
-  deleteWorker: vi.fn(),
-  getActiveRunByAgentId: vi.fn(),
-  getAgent: vi.fn(),
-  getLastPtyLineForAgent: vi.fn(() => null),
-  getPtySnapshotForAgent: vi.fn(),
-  getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: '/tmp/hive-workspace' } })),
-  getWorker: vi.fn(() => ({ id: 'worker-1', name: 'Alice', status: 'working' })),
-  getWorkerConfig: vi.fn(() => ({})),
-  insertMobileChatMessage: vi.fn(),
-  listDispatches: vi.fn(() => []),
-  listMobileChatMessages: vi.fn(() => []),
-  listTerminalRuns: vi.fn(() => []),
-  listWorkspaces: vi.fn(() => [{ id: 'ws-1', name: 'Demo', path: '/tmp/demo' }]),
-  listWorkers: vi.fn(() => [{ id: 'worker-1', name: 'Alice', role: 'worker', status: 'working' }]),
-  peekAgentLaunchConfig: vi.fn(() => undefined),
-  notifyQuestionAnswered: vi.fn(),
-  recordUserInput: vi.fn(),
-  requireMobileCapability: vi.fn((device: unknown) => device),
-  settings: {
-    getCommandPreset: vi.fn((id: string) =>
-      id === 'codex'
-        ? {
-            args: ['-lc'],
-            command: 'codex',
-            displayName: 'Codex',
-            env: {},
-            id: 'codex',
-            isBuiltin: true,
-            resumeArgsTemplate: null,
-            sessionIdCapture: null,
-            yoloArgsTemplate: null,
-          }
-        : undefined
-    ),
-    listCommandPresets: vi.fn(() => [
-      {
-        args: ['-lc'],
-        command: 'codex',
-        displayName: 'Codex',
-        env: {},
-        id: 'codex',
-        isBuiltin: true,
-        resumeArgsTemplate: null,
-        sessionIdCapture: null,
-        yoloArgsTemplate: null,
-      },
-    ]),
-  },
-  startAgent: vi.fn(),
-  stopAgentRun: vi.fn(),
-  updateMobilePushToken: vi.fn(),
+type RelayHandlerDeps = Parameters<typeof createRelayRpcHandler>[0]
+type RelayTestStore = RelayHandlerDeps['store']
+
+const agentSummary = (overrides: Partial<AgentSummary> = {}): AgentSummary => ({
+  description: '',
+  id: 'worker-1',
+  name: 'Alice',
+  pendingTaskCount: 0,
+  role: 'coder',
+  status: 'working',
+  workspaceId: 'ws-1',
   ...overrides,
 })
+
+const teamListItem = (overrides: Partial<TeamListItem> = {}): TeamListItem => ({
+  description: '',
+  id: 'worker-1',
+  name: 'Alice',
+  pendingTaskCount: 0,
+  role: 'coder',
+  status: 'working',
+  ...overrides,
+})
+
+const createBaseStore = (overrides: Record<string, unknown> = {}) => {
+  const base = {
+    approvalLedger: {
+      get: vi.fn(),
+      resolve: vi.fn(),
+    },
+    addWorker: vi.fn(() => agentSummary({ id: 'worker-2', name: 'Bob', status: 'idle' })),
+    dispatchTask: vi.fn(),
+    configureAgentLaunch: vi.fn(),
+    deleteWorker: vi.fn(),
+    getActiveRunByAgentId: vi.fn(),
+    getAgent: vi.fn(() => agentSummary()),
+    getLastPtyLineForAgent: vi.fn(() => null),
+    getPtySnapshotForAgent: vi.fn(),
+    getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: '/tmp/hive-workspace' } })),
+    getWorker: vi.fn(() => agentSummary()),
+    getWorkerConfig: vi.fn(() => ({})),
+    insertMobileChatMessage: createInsertMobileChatMessageMock('base-message'),
+    listDispatches: vi.fn(() => []),
+    listMobileChatMessages: vi.fn(() => []),
+    listTerminalRuns: vi.fn(() => []),
+    listWorkspaces: vi.fn(() => [{ id: 'ws-1', name: 'Demo', path: '/tmp/demo' }]),
+    listWorkers: vi.fn(() => [teamListItem()]),
+    peekAgentLaunchConfig: vi.fn(() => undefined),
+    notifyQuestionAnswered: vi.fn(),
+    recordUserInput: vi.fn(),
+    requireMobileCapability: vi.fn((device: unknown) => device),
+    settings: {
+      getCommandPreset: vi.fn((id: string) =>
+        id === 'codex'
+          ? {
+              args: ['-lc'],
+              command: 'codex',
+              displayName: 'Codex',
+              env: {},
+              id: 'codex',
+              isBuiltin: true,
+              resumeArgsTemplate: null,
+              sessionIdCapture: null,
+              yoloArgsTemplate: null,
+            }
+          : undefined
+      ),
+      listCommandPresets: vi.fn(() => [
+        {
+          args: ['-lc'],
+          command: 'codex',
+          displayName: 'Codex',
+          env: {},
+          id: 'codex',
+          isBuiltin: true,
+          resumeArgsTemplate: null,
+          sessionIdCapture: null,
+          yoloArgsTemplate: null,
+        },
+      ]),
+    },
+    startAgent: vi.fn(),
+    stopAgentRun: vi.fn(),
+    updateMobilePushToken: vi.fn(),
+  }
+  return { ...base, ...overrides } as typeof base & RelayTestStore
+}
+
+const createFakeOutputBus = () => {
+  const listeners = new Map<string, (chunk: string) => void>()
+  return {
+    bus: {
+      clear: vi.fn(),
+      publish: vi.fn((runId: string, chunk: string) => {
+        listeners.get(runId)?.(chunk)
+      }),
+      subscribe: vi.fn((runId: string, listener: (chunk: string) => void) => {
+        listeners.set(runId, listener)
+        return () => listeners.delete(runId)
+      }),
+    },
+  }
+}
+
+const insertedEventNames = (insertMobileChatMessage: ReturnType<typeof vi.fn>) =>
+  insertMobileChatMessage.mock.calls
+    .filter((call) => call[2] === 'system_event')
+    .map((call) => JSON.parse(String(call[3])) as { event?: string })
+    .map((event) => event.event)
+
+const createInsertMobileChatMessageMock = (idPrefix: string) => {
+  let count = 0
+  return vi.fn(
+    (
+      _workspaceId: string,
+      direction: MobileChatDirection,
+      messageType: MobileChatMessageType,
+      contentJson: string
+    ): MobileChatMessage => ({
+      content_json: contentJson,
+      created_at: Date.now(),
+      direction,
+      id: `${idPrefix}-${count++}`,
+      message_type: messageType,
+      workspace_id: _workspaceId,
+    })
+  )
+}
 
 describe('relay RPC handler', () => {
   it('requires read_dashboard for dashboard reads', async () => {
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
-      store: {
+      store: createBaseStore({
         listWorkspaces: () => [{ id: 'ws-1', name: 'Demo', path: '/tmp/demo' }],
         requireMobileCapability: (_device: unknown, capability: string) => {
           if (capability !== 'read_dashboard') throw new Error(`wrong capability ${capability}`)
         },
-      },
+      }),
     })
 
     await expect(handler('workspaces.list', {}, 'device-1', ['read_dashboard'])).resolves.toEqual([
@@ -109,11 +186,11 @@ describe('relay RPC handler', () => {
   it('rejects dispatch RPC without send_prompt capability', async () => {
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
-      store: {
+      store: createBaseStore({
         requireMobileCapability: () => {
           throw new Error('Missing mobile capability: send_prompt')
         },
-      },
+      }),
     })
 
     await expect(
@@ -129,14 +206,14 @@ describe('relay RPC handler', () => {
   it('serves worker transcript RPC with read_terminal capability', async () => {
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
-      store: {
-        getAgent: () => ({ id: 'worker-1', name: 'Alice', status: 'working' }),
+      store: createBaseStore({
+        getAgent: () => agentSummary({ id: 'worker-1', name: 'Alice', status: 'working' }),
         getPtySnapshotForAgent: async () => '\u001b[32mfirst\u001b[0m\nsecond\n',
-        getWorker: () => ({ id: 'worker-1', name: 'Alice', status: 'working' }),
+        getWorker: () => agentSummary({ id: 'worker-1', name: 'Alice', status: 'working' }),
         requireMobileCapability: (_device: unknown, capability: string) => {
           if (capability !== 'read_terminal') throw new Error(`wrong capability ${capability}`)
         },
-      },
+      }),
     })
 
     await expect(
@@ -155,8 +232,8 @@ describe('relay RPC handler', () => {
   it('serves workspace task RPC with read_dashboard capability', async () => {
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
-      store: {
-        getWorker: () => ({ id: 'worker-1', name: 'Alice', status: 'stopped' }),
+      store: createBaseStore({
+        getWorker: () => agentSummary({ id: 'worker-1', name: 'Alice', status: 'stopped' }),
         listDispatches: () => [
           {
             artifacts: [],
@@ -177,7 +254,7 @@ describe('relay RPC handler', () => {
         requireMobileCapability: (_device: unknown, capability: string) => {
           if (capability !== 'read_dashboard') throw new Error(`wrong capability ${capability}`)
         },
-      },
+      }),
     })
 
     await expect(
@@ -201,12 +278,12 @@ describe('relay RPC handler', () => {
     const updateMobilePushToken = vi.fn()
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
-      store: {
+      store: createBaseStore({
         requireMobileCapability: (_device: unknown, capability: string) => {
           if (capability !== 'read_dashboard') throw new Error(`wrong capability ${capability}`)
         },
         updateMobilePushToken,
-      },
+      }),
     })
 
     await expect(
@@ -266,7 +343,7 @@ describe('relay RPC handler', () => {
       getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
       getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: workspacePath } })),
       getPtySnapshotForAgent: vi.fn(async () => '\u001b[32mhello\u001b[0m\n'),
-      insertMobileChatMessage: vi.fn(),
+      insertMobileChatMessage: createInsertMobileChatMessageMock('all-method-message'),
       listMobileChatMessages: vi.fn(() => []),
       notifyQuestionAnswered: vi.fn(),
       recordUserInput: vi.fn(),
@@ -568,7 +645,7 @@ describe('relay RPC handler', () => {
     tempDirs.push(dataDir)
 
     const recordUserInput = vi.fn()
-    const insertMobileChatMessage = vi.fn()
+    const insertMobileChatMessage = createInsertMobileChatMessageMock('upload-message')
     const handler = createRelayRpcHandler({
       runtimeInfo: { dataDir, port: 4010 },
       store: createBaseStore({
@@ -809,6 +886,52 @@ describe('relay RPC handler', () => {
     )
   })
 
+  it('forces operation-like continuous voice prompts to orchestrator even if GLM gatekeeper says handled', async () => {
+    vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
+    const store = createBaseStore({
+      getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
+    })
+    const fastVoiceReplyProvider = {
+      generate: vi.fn().mockResolvedValue('HIVE_GLM_GATEKEEPER: handled\n我直接答。'),
+    }
+    const handler = createRelayRpcHandler({
+      fastVoiceReplyProvider,
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'workspace.prompt',
+        { source: 'voice', text: '让关羽重启 4010 服务', workspace_id: 'ws-1' },
+        'device-1',
+        ['send_prompt']
+      )
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(store.recordUserInput).toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.stringContaining('[来自手机 Mobile App]\n---\n让关羽重启 4010 服务')
+    )
+    expect(store.recordUserInput).not.toHaveBeenCalledWith(
+      'ws-1',
+      'ws-1:orchestrator',
+      expect.any(String),
+      { forwardToOrchestrator: false }
+    )
+    expect(
+      store.insertMobileChatMessage.mock.calls.some(
+        ([workspaceId, direction, messageType, contentJson]) =>
+          workspaceId === 'ws-1' &&
+          direction === 'outbound' &&
+          messageType === 'orch_reply' &&
+          JSON.parse(contentJson as string).source === 'voice_fast_reply'
+      )
+    ).toBe(false)
+  })
+
   it('forwards handled voice prompts when the fast reply cannot be recorded', async () => {
     vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
@@ -1009,6 +1132,121 @@ describe('relay RPC handler', () => {
     )
   })
 
+  it('records relay mobile reply obligation stdout and stalled events', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('HIVE_MOBILE_REPLY_WATCHDOG_MS', '50')
+    const { bus } = createFakeOutputBus()
+    const warnLogs: string[] = []
+    const insertMobileChatMessage = createInsertMobileChatMessageMock('message')
+    const handler = createRelayRpcHandler({
+      logger: { warn: (message) => warnLogs.push(message) },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: createBaseStore({
+        getActiveRunByAgentId: vi.fn(() => ({ agentId: 'ws-1:orchestrator', runId: 'run-1' })),
+        getPtyOutputBus: vi.fn(() => bus),
+        insertMobileChatMessage,
+      }),
+    })
+
+    await expect(
+      handler('workspace.prompt', { text: '普通文字', workspace_id: 'ws-1' }, 'device-1', [
+        'send_prompt',
+      ])
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    bus.publish('run-1', 'PM 只往 stdout 写了，没调用 team mobile-reply')
+    await vi.advanceTimersByTimeAsync(50)
+
+    expect(warnLogs.some((message) => message.includes('stdout without mobile-reply'))).toBe(true)
+    expect(warnLogs.some((message) => message.includes('mobile reply obligation stalled'))).toBe(
+      true
+    )
+    expect(insertedEventNames(insertMobileChatMessage)).toEqual(
+      expect.arrayContaining([
+        'mobile_reply_plain_output_without_mobile_reply',
+        'mobile_reply_obligation_stalled',
+      ])
+    )
+  })
+
+  it('fulfills relay mobile reply obligations through explicit reply correlation', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('HIVE_MOBILE_REPLY_WATCHDOG_MS', '50')
+    const { bus } = createFakeOutputBus()
+    const infoLogs: string[] = []
+    const warnLogs: string[] = []
+    const insertMobileChatMessage = createInsertMobileChatMessageMock('relay-message')
+    const handler = createRelayRpcHandler({
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: (message) => warnLogs.push(message),
+      },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: createBaseStore({
+        getActiveRunByAgentId: vi.fn(() => ({ agentId: 'ws-1:orchestrator', runId: 'run-1' })),
+        getPtyOutputBus: vi.fn(() => bus),
+        insertMobileChatMessage,
+      }),
+    })
+
+    await expect(
+      handler('workspace.prompt', { text: '请 PM 回手机', workspace_id: 'ws-1' }, 'device-1', [
+        'send_prompt',
+      ])
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    const inbound = insertMobileChatMessage.mock.results[0]?.value
+    expect(inbound).toMatchObject({ id: 'relay-message-0' })
+    fulfillMobileReplyObligation({
+      fromAgentId: 'ws-1:orchestrator',
+      insertMobileChatMessage,
+      logger: {
+        info: (message) => infoLogs.push(message),
+        warn: (message) => warnLogs.push(message),
+      },
+      replyToUserMessageId: 'relay-message-0',
+      workspaceId: 'ws-1',
+    })
+    await vi.advanceTimersByTimeAsync(60)
+
+    expect(infoLogs.some((message) => message.includes('mobile reply obligation fulfilled'))).toBe(
+      true
+    )
+    expect(warnLogs.some((message) => message.includes('mobile reply obligation stalled'))).toBe(
+      false
+    )
+    expect(insertedEventNames(insertMobileChatMessage)).not.toContain(
+      'mobile_reply_obligation_stalled'
+    )
+  })
+
+  it('surfaces relay mobile reply obligation unavailable when output bus is missing', async () => {
+    const warnLogs: string[] = []
+    const insertMobileChatMessage = createInsertMobileChatMessageMock('relay-message')
+    const handler = createRelayRpcHandler({
+      logger: { warn: (message) => warnLogs.push(message) },
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store: createBaseStore({
+        getActiveRunByAgentId: vi.fn(() => ({ agentId: 'ws-1:orchestrator', runId: 'run-1' })),
+        getPtyOutputBus: vi.fn(() => undefined),
+        insertMobileChatMessage,
+      }),
+    })
+
+    await expect(
+      handler('workspace.prompt', { text: 'relay 缺 bus', workspace_id: 'ws-1' }, 'device-1', [
+        'send_prompt',
+      ])
+    ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
+
+    expect(
+      warnLogs.some((message) => message.includes('mobile reply obligation unavailable'))
+    ).toBe(true)
+    expect(insertedEventNames(insertMobileChatMessage)).toContain(
+      'mobile_reply_obligation_unavailable'
+    )
+  })
+
   it('does not call the fast voice layer for ordinary text prompts', async () => {
     const store = createBaseStore({
       getActiveRunByAgentId: vi.fn(() => ({ agentId: 'orch', runId: 'run-1' })),
@@ -1033,7 +1271,7 @@ describe('relay RPC handler', () => {
       'ws-1',
       'inbound',
       'user_text',
-      JSON.stringify({ text: '普通文字' })
+      JSON.stringify({ reply_sink: 'mobile', source: 'mobile', text: '普通文字' })
     )
   })
 })

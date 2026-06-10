@@ -4,6 +4,7 @@ import {
 } from './voice-call-state-protocol.js'
 import type { VoiceDownlinkSegmentFrame } from './voice-downlink-segment-protocol.js'
 import type { WebRtcIceCandidateInit, WebRtcSignalFrame } from './webrtc-signal-protocol.js'
+import type { WebRtcSpeechStartEvent } from './webrtc-vad.js'
 
 export type WebRtcDataFrame = VoiceCallStateFrame | VoiceDownlinkSegmentFrame
 
@@ -59,6 +60,7 @@ export interface WebRtcLocalAudioTrack {
 
 export interface WebRtcDownlinkAudioSession {
   close(): Promise<void> | void
+  getPlaybackState?: () => unknown
   interrupt?: () => void
   track: WebRtcLocalAudioTrack
 }
@@ -76,6 +78,7 @@ export interface WebRtcDownlinkAudio {
 
 export interface WebRtcFileDownlinkAudioSession {
   close(): Promise<void> | void
+  getPlaybackState?: () => unknown
   interrupt?: () => void
 }
 
@@ -100,7 +103,7 @@ export interface WebRtcRemoteAudioSink {
     callId: string
     receiver?: unknown
     sendCallState?: (frame: VoiceCallStateFrame) => void
-    onSpeechStart?: () => void
+    onSpeechStart?: (event?: WebRtcSpeechStartEvent) => void
     streams?: unknown[] | undefined
     track: NonNullable<WebRtcTrackEvent['track']>
     workspaceId: string
@@ -151,6 +154,18 @@ const log = (message: string, error?: unknown) => {
   const ts = new Date().toISOString()
   const suffix = error ? ` error=${error instanceof Error ? error.message : String(error)}` : ''
   process.stderr.write(`[webrtc-callee ${ts}] ${message}${suffix}\n`)
+}
+
+const formatOptionalNumber = (value: number | undefined) =>
+  typeof value === 'number' && Number.isFinite(value) ? value.toFixed(5) : 'na'
+
+const safeStringifyPlaybackState = (state: unknown) => {
+  if (!state) return 'none'
+  try {
+    return JSON.stringify(state)
+  } catch {
+    return '"unserializable"'
+  }
 }
 
 const normalizeIceCandidate = (candidate: unknown): WebRtcIceCandidateInit | null => {
@@ -388,7 +403,12 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         try {
           startedSession = options.audioSink.start({
             callId: frame.call_id,
-            onSpeechStart: () => {
+            onSpeechStart: (event) => {
+              const downlinkState = call.downlinkSession?.getPlaybackState?.()
+              const fileDownlinkState = call.fileDownlinkSession?.getPlaybackState?.()
+              log(
+                `upstream speech-start interrupt: call_id=${frame.call_id} rms=${formatOptionalNumber(event?.rms)} threshold=${formatOptionalNumber(event?.threshold)} consecutive=${event?.consecutiveSpeechFrames ?? 'na'} downlink_state=${safeStringifyPlaybackState(downlinkState)} file_downlink_state=${safeStringifyPlaybackState(fileDownlinkState)}`
+              )
               call.downlinkSession?.interrupt?.()
               call.fileDownlinkSession?.interrupt?.()
             },

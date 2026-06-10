@@ -674,6 +674,75 @@ describe('WebRTC callee', () => {
     expect(interrupts).toEqual(['interrupt'])
   })
 
+  test('logs speech-start RMS together with file downlink state before interrupting', async () => {
+    const stderr: string[] = []
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk))
+      return true
+    })
+    const peers: FakePeerConnection[] = []
+    let onSpeechStart: ((event: { rms: number; threshold: number }) => void) | undefined
+    const callee = createWebRtcCallee({
+      audioSink: {
+        start: (input) => {
+          onSpeechStart = input.onSpeechStart as typeof onSpeechStart
+          return { close: () => {} }
+        },
+      },
+      fileDownlinkAudio: {
+        startCall: () => ({
+          close: () => {},
+          getPlaybackState: () => ({
+            generation: 7,
+            messageId: 'message-playing',
+            state: 'sent',
+            turnId: 'turn-playing',
+          }),
+          interrupt: () => {},
+        }),
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    try {
+      await callee.handleSignal(
+        {
+          call_id: 'call-echo',
+          kind: 'offer',
+          sdp: 'offer-sdp',
+          sdp_type: 'offer',
+          type: 'webrtc_signal',
+          workspace_id: 'workspace-1',
+        },
+        { send: () => {} }
+      )
+      peers[0]?.ontrack?.({
+        receiver: { id: 'receiver-1' },
+        streams: [],
+        track: { kind: 'audio' },
+      })
+
+      onSpeechStart?.({ rms: 0.08123, threshold: 0.03 })
+
+      const logs = stderr.join('')
+      expect(logs).toContain('upstream speech-start interrupt: call_id=call-echo')
+      expect(logs).toContain('rms=0.08123')
+      expect(logs).toContain('threshold=0.03000')
+      expect(logs).toContain('"messageId":"message-playing"')
+      expect(logs).toContain('"state":"sent"')
+    } finally {
+      writeSpy.mockRestore()
+    }
+  })
+
   test('closes and sends bye when audio sink start throws synchronously', async () => {
     const sent: WebRtcSignalFrame[] = []
     const peers: FakePeerConnection[] = []
