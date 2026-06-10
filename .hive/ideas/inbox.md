@@ -8,7 +8,7 @@
 
 - **idea-13 worker crash WIP 自动保全 + 可见**：2026-06-10 同一修红测试链上赵云、关羽两个 codex worker 先后 `status=error` 异常退出（非任务边界、report 前 crash），各自把 14→5、5→0 的修复 WIP 留在工作树没 report 就死，靠 PM 手动跑全量验证才收口。这不是任务难度问题，是 worker 运行时崩溃（疑 codex context 耗尽或 CLI crash，JS 层拦不住）。
 - **现状基础**：M30 stale-dispatch + 本轮 L1 report_overdue 已能把"有产出未 report"标红进 Cockpit；但 **crash 后的 WIP 既没自动验证也没明确告诉 user"这堆改动没人收"**，全靠 PM 在场手捞。
-- **方向（待评估 L1）**：①worker run `status=error` 退出时，若工作树有该 dispatch 相关 diff，自动把 dispatch 转 report_overdue 并在 Cockpit 高亮"crash 遗留 WIP 待 PM 收口"；②可选自动跑一次 targeted 验证给 PM 参考；③关联 idea-8 completion evidence（last 语义进展时间）判断 crash 前进度。
+- **方向（待评估 L1）**：①worker run `status=error` 退出时，若工作树有该 dispatch 相关 diff，自动把 dispatch 转 report_overdue 并在 Cockpit 高亮"crash 遗留 WIP 待 PM 收口"；②可选自动跑一次 targeted 验证给 PM 参考；③关联 idea-8 completion evidence（last 语义进展时间）判断 crash 前进度；④**orphaned-but-done 人工关闭**：活儿被 PM 验证收口后，orphaned 终态单应能被显式标记"已人工确认关闭"，免得在巡检/Cockpit 反复当悬案（6e19307b 实例：cancel 返 409 因 orphaned 非 open，当前只能靠 narrative 注明）。
 - **关联**：[[feedback_worker_reliability_systemic]]（要系统兜住不手捞）、idea-8。promote 前 scoping：agent_runs status=error 事件钩子 → dispatch 状态联动 → Cockpit 可见。
 
 ### 2026-06-07 app 内可调通话音量（设置页）— user 真机反复要求
