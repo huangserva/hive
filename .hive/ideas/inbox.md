@@ -4,6 +4,13 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-10 worker crash 中途死、report 前 orphaned 的系统性兜底 — PM 巡检发现
+
+- **idea-13 worker crash WIP 自动保全 + 可见**：2026-06-10 同一修红测试链上赵云、关羽两个 codex worker 先后 `status=error` 异常退出（非任务边界、report 前 crash），各自把 14→5、5→0 的修复 WIP 留在工作树没 report 就死，靠 PM 手动跑全量验证才收口。这不是任务难度问题，是 worker 运行时崩溃（疑 codex context 耗尽或 CLI crash，JS 层拦不住）。
+- **现状基础**：M30 stale-dispatch + 本轮 L1 report_overdue 已能把"有产出未 report"标红进 Cockpit；但 **crash 后的 WIP 既没自动验证也没明确告诉 user"这堆改动没人收"**，全靠 PM 在场手捞。
+- **方向（待评估 L1）**：①worker run `status=error` 退出时，若工作树有该 dispatch 相关 diff，自动把 dispatch 转 report_overdue 并在 Cockpit 高亮"crash 遗留 WIP 待 PM 收口"；②可选自动跑一次 targeted 验证给 PM 参考；③关联 idea-8 completion evidence（last 语义进展时间）判断 crash 前进度。
+- **关联**：[[feedback_worker_reliability_systemic]]（要系统兜住不手捞）、idea-8。promote 前 scoping：agent_runs status=error 事件钩子 → dispatch 状态联动 → Cockpit 可见。
+
 ### 2026-06-07 app 内可调通话音量（设置页）— user 真机反复要求
 
 - **idea-12 通话音量 app 内自调**：user 12h 真机马拉松反复卡在音量，原话"希望这个声音在设置页里面可以去调整，而不是每次重新安装/重启"。现状=下行音量靠服务端 env `HIVE_WEBRTC_DOWNLINK_GAIN`(改要重启 4010)；手机通话音量其实硬件(音量键/免提路由)主导，软件增益叠加感知有限。

@@ -5,12 +5,14 @@
 
 ## In progress
 
-> 🧹 **2026-06-10｜大批次收口 sprint — ✅ 完成**
+> 🧹 **2026-06-10｜大批次收口 sprint — ✅ 完成并 push（`3c91ca9`..`d449cbd`）**
 >
-> 挂 3 天的 ~60 文件 / +3.8k 行未提交改动已全部审查闭环并分 11 个逻辑 commit 收口（`3c91ca9`..`5efc986`）：pairing 统一规则 / aliyun hard cut / M40 手机端播放闸门+retract / relay-crypto dist / sentinel 契约 / GRM Turn Decision contract / PM 文档+ARCHITECTURE.md / 存量红测试修 / M40 服务端下行一致性 / L1 dispatch 状态机+report/mobile-reply 协议硬收口。
-> - 五条审查线全部放行（钟馗多轮 + 典韦验证）；L1 语义裁决：completed=收到明确 team report 关账，旧 reported 行兼容读取。
-> - 全量 root 套件 1765/1766 绿（1 个 tasks-flow flake 单跑 8/8 绿）+ mobile 390/390 绿。
-> - 🔧 **唯一在途尾项**：main 存量 14 个红测试（5 个 PTY/session 文件，基线 `0a83774` 即红，与本批无关），赵云查根因中（dispatch `b837709e`）。
+> 挂 3 天的 ~60 文件未提交改动 + main 存量红测试全部审查闭环、分 13 个逻辑 commit 收口并 push origin/main：pairing 统一规则 / aliyun hard cut / M40 手机端播放闸门+retract / relay-crypto dist / sentinel 契约 / GRM Turn Decision contract / PM 文档+ARCHITECTURE.md / M40 服务端下行一致性 / L1 dispatch 状态机+report/mobile-reply 协议硬收口 / 存量红测试修（17 个：3 测试过期 + 14 并行 env 污染&过期 fixture）。
+> - 全部审查线钟馗多轮 0 blocking + 典韦验证；L1 语义裁决：completed=收到明确 team report 关账，旧 reported 行兼容读取。
+> - **默认并行全量 1813/1813 全绿 + mobile 390/390 绿**（近几周首次完全干净全绿）。
+> - 🌐 **aliyun relay cutover 已执行**：relay 部署上阿里云 ECS（systemd + Let's Encrypt + nginx wss 反代）、daemon `relay.json` 已切 aliyun；wss 真握手验通；**待 user 重启 4010 激活** + 手机 4G 验证上线。
+
+> ⚠️ **2026-06-10｜worker 可靠性跟进（待立项）** — 今早同一修红测试链上赵云、关羽两个 codex worker 均 `status=error` 异常退出（非任务边界停），report 前 crash → 两次 orphaned，WIP 靠 PM 手动验证收口。符合 [[feedback_worker_reliability_systemic]]：要系统性兜住而非每次手捞。关联 idea-8 completion evidence。已落 ideas/inbox 待评估 L1 机制。
 
 > 🧠 **2026-06-08｜M40 GRM Turn Orchestrator 协议化重写**
 >
@@ -759,7 +761,11 @@
 - [x] **钟馗** dispatch `20aea55d` — 窄项最终确认：关羽已修你审 L1 dispatch 状态机报的 2 个 blocking，请只对这次增量做最终 verdict，可放行就明确写。语义裁决已定（PM 按原派单 spec）：completed = 收到明确 team repo…
 - [x] **赵云** dispatch `5b1fb459` — 查修 main 上 3 个存量红测试（已坐实在基线 commit 0a83774 就失败，与当前批次无关）。1）tests/unit/mobile-outbox.test.ts 两个失败：dedupes identical actions…
 - [x] **关羽** dispatch `245c5919` — 续修 L1/team 协议契约的测试同步——你修了 tests/unit/team-atomicity.test.ts 但同族失败还有 5 个文件漏掉，安静树全量跑铁证如下，逐个收口：1）tests/unit/team-operation…
-- [ ] **赵云** dispatch `b837709e` — 诊断+修 main 上另一批存量红测试（已用基线 worktree 在 commit 0a83774 复现，与当前未提交批次无关），共 14 个失败 5 个文件：tests/integration/preset-driven-layer-…
+- [~] **赵云** dispatch `b837709e` — 诊断+修 main 上另一批存量红测试（已用基线 worktree 在 commit 0a83774 复现，与当前未提交批次无关），共 14 个失败 5 个文件：tests/integration/preset-driven-layer-… ⊘ 赵云改到一半未 report 即 stopped（report_overdue 机制捕获）。14 红已降 5 红，半成品在工作树，带现状重派
+- [x] **吕布** dispatch `17ea0a60` — 诊断一个真实产品缺口：手机 app 存的 LAN host 失效时（今天真实案发：WiFi 网段从 192.168.110.x 变成 192.168.1.x，app 存的旧 IP 拨不通），app 显示永久离线，relay fallbac…
+- [x] **关羽** dispatch `627faeaa` — 接手赵云的半成品单（原 dispatch b837709e 已 cancel）：修 main 存量红测试。现状：赵云已把 14 红修到剩 5 红，他的半成品改动就在当前工作树（5 个测试文件 + tasks.md，+330/-214 未 …
+- [~] **关羽** dispatch `6e19307b` — 续上单收尾：你报全绿的 5 文件里有 2 个在【默认并行】全量跑仍红，只在 --no-file-parallelism 串行下绿——验证门槛必须是默认并行模式全量绿。铁证（pnpm exec vitest run 全量）：tests/se… ⊘ orphan-submitted: worker stopped without reporting
+- [x] **钟馗** dispatch `636687fa` — 审一批已全绿但含产品代码改动的 WIP（关羽修存量红测试时为根治并行 env 污染顺手改了产品代码，他 crash 在 report 前，未经审查），只审不改代码，blocking-first。背景：14 个 main 存量红测试根因之一…
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
