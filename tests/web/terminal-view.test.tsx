@@ -14,6 +14,7 @@ let latestTerminal:
   | undefined
 let terminalScrollToBottomCount = 0
 let terminalWrites: string[] = []
+let terminalConstructCount = 0
 
 class MockWebSocket {
   static instances: MockWebSocket[] = []
@@ -59,6 +60,7 @@ vi.mock('@xterm/xterm', () => ({
     rows = 43
     unicode = { activeVersion: '' }
     constructor() {
+      terminalConstructCount += 1
       latestTerminal = this
     }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
@@ -91,12 +93,18 @@ vi.mock('@xterm/addon-fit', () => ({
 
 afterEach(() => {
   cleanup()
+  // 显式清 module-level singleton DOM (parking lot + portal slot leftovers)：
+  // cleanup() 只卸 React rendered roots，TerminalView 用的 portal target slots
+  // 和 parking lot 是 document.body 直挂 DOM，不会被 RTL 清。cold-start 跑得
+  // 慢、disposeTimer 时序漂移时如果残留 DOM，下条测会拿到 stale parking-lot。
+  document.body.innerHTML = ''
   MockWebSocket.instances = []
   MockResizeObserver.instances = []
   latestCustomKeyHandler = undefined
   latestTerminal = undefined
   terminalScrollToBottomCount = 0
   terminalWrites = []
+  terminalConstructCount = 0
   vi.unstubAllGlobals()
 })
 
@@ -266,5 +274,76 @@ describe('TerminalView', () => {
     expect(keydownHandled).toBe(false)
     expect(keypressHandled).toBe(false)
     expect(MockWebSocket.instances[0]?.sent).toEqual(['\u001b[13;2u'])
+  })
+
+  test('reparents terminal to a new slot without reconstructing xterm or reopening sockets', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+
+    const slot1 = addPortalSlot('run-parking')
+    const { rerender } = render(<TerminalView runId="run-parking" title="Parking" />)
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances).toHaveLength(2)
+      expect(slot1.querySelector('[data-testid="terminal-run-parking"]')).not.toBeNull()
+    })
+    expect(terminalConstructCount).toBe(1)
+    const wsCountAfterFirstMount = MockWebSocket.instances.length
+
+    slot1.remove()
+
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    rerender(<TerminalView runId="run-parking" title="Parking" />)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const parkingLot = document.getElementById('hive-terminal-parking-lot')
+    expect(parkingLot).not.toBeNull()
+    expect(parkingLot?.querySelector('[data-testid="terminal-run-parking"]')).not.toBeNull()
+
+    const slot2 = document.createElement('div')
+    slot2.id = 'orch-pty-run-parking'
+    document.body.appendChild(slot2)
+
+    await waitFor(
+      () => {
+        expect(slot2.querySelector('[data-testid="terminal-run-parking"]')).not.toBeNull()
+      },
+      { timeout: 3000 }
+    )
+
+    expect(terminalConstructCount).toBe(1)
+    expect(MockWebSocket.instances).toHaveLength(wsCountAfterFirstMount)
+  })
+
+  test('disposes and reconstructs terminal after parking timeout elapses', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket as never)
+
+    const slot1 = addPortalSlot('run-timeout')
+    const { rerender } = render(<TerminalView runId="run-timeout" title="Timeout" />)
+
+    await waitFor(() => {
+      expect(terminalConstructCount).toBe(1)
+      expect(MockWebSocket.instances).toHaveLength(2)
+    })
+
+    slot1.remove()
+
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    rerender(<TerminalView runId="run-timeout" title="Timeout" />)
+    await new Promise((resolve) => setTimeout(resolve, 700))
+
+    expect(document.querySelector('[data-testid="terminal-run-timeout"]')).toBeNull()
+
+    const slot2 = addPortalSlot('run-timeout')
+    rerender(<TerminalView runId="run-timeout" title="Timeout" />)
+
+    await waitFor(
+      () => {
+        expect(slot2.querySelector('[data-testid="terminal-run-timeout"]')).not.toBeNull()
+      },
+      { timeout: 3000 }
+    )
+
+    expect(terminalConstructCount).toBe(2)
+    expect(MockWebSocket.instances.length).toBeGreaterThanOrEqual(4)
   })
 })
