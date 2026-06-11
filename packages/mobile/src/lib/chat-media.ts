@@ -13,6 +13,20 @@ export interface PendingChatAttachment {
   uri: string
 }
 
+export interface PickedMediaAssetInput {
+  base64?: null | string
+  fileName?: null | string
+  mimeType?: null | string
+  type?: null | string
+  uri: string
+}
+
+export interface StagedChatAttachment extends PendingChatAttachment {
+  base64: string
+}
+
+export const CHAT_VIDEO_UPLOAD_LIMIT_BYTES = 100 * 1024 * 1024
+
 interface ChatMediaEnvelope {
   attachments?: unknown
   media?: unknown
@@ -57,6 +71,37 @@ export const extractChatMediaItems = (json: string): ChatMediaItem[] => {
   const mediaItems = normalizeItems(parsed.media_items)
   if (mediaItems.length > 0) return mediaItems
   return normalizeItems(parsed.media)
+}
+
+const normalizeMimeType = (mimeType: string | undefined) => mimeType?.trim().toLowerCase() ?? ''
+
+export const isChatMediaImage = (media: Pick<ChatMediaItem, 'mime_type'> | null | undefined) =>
+  normalizeMimeType(media?.mime_type).startsWith('image/')
+
+export const isChatMediaVideo = (media: Pick<ChatMediaItem, 'mime_type'> | null | undefined) =>
+  normalizeMimeType(media?.mime_type).startsWith('video/')
+
+export const isPickedMediaVideo = (asset: PickedMediaAssetInput) =>
+  asset.type === 'video' || normalizeMimeType(asset.mimeType).startsWith('video/')
+
+export const isPickedVideoOverLimit = (
+  asset: PickedMediaAssetInput,
+  size: number | null | undefined,
+  limitBytes = CHAT_VIDEO_UPLOAD_LIMIT_BYTES
+) => isPickedMediaVideo(asset) && typeof size === 'number' && size > limitBytes
+
+export const normalizePickedMediaAttachment = async (
+  asset: PickedMediaAssetInput,
+  readBase64: (uri: string) => Promise<string>
+): Promise<StagedChatAttachment> => {
+  const isVideo = isPickedMediaVideo(asset)
+  const fallbackExt = isVideo ? 'mp4' : 'jpg'
+  return {
+    base64: asset.base64 ?? (await readBase64(asset.uri)),
+    filename: asset.fileName ?? `media_${Date.now()}.${fallbackExt}`,
+    mimeType: asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg'),
+    uri: asset.uri,
+  }
 }
 
 export const buildChatMediaEnvelopeJson = ({

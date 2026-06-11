@@ -692,6 +692,70 @@ describe('relay RPC handler', () => {
     expect(existsSync(join(dataDir, 'uploads'))).toBe(true)
   })
 
+  it('accepts relay workspace uploads above 50MB up to the 100MB video limit', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-large-upload-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(join(workspacePath, '.hive'), { recursive: true })
+    tempDirs.push(dataDir)
+
+    const insertMobileChatMessage = createInsertMobileChatMessageMock('large-upload-message')
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir, port: 4010 },
+      store: createBaseStore({
+        getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: workspacePath } })),
+        insertMobileChatMessage,
+      }),
+    })
+
+    await expect(
+      handler(
+        'workspace.upload',
+        {
+          data: Buffer.alloc(51 * 1024 * 1024, 1).toString('base64'),
+          filename: 'clip.mp4',
+          mime_type: 'video/mp4',
+          workspace_id: 'ws-1',
+        },
+        'device-large-upload',
+        ['send_prompt']
+      )
+    ).resolves.toMatchObject({
+      filename: 'clip.mp4',
+      mime_type: 'video/mp4',
+      ok: true,
+      size: 51 * 1024 * 1024,
+    })
+    expect(existsSync(join(dataDir, 'uploads'))).toBe(true)
+  })
+
+  it('rejects relay workspace uploads over the 100MB video limit with the shared message', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-oversized-upload-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(join(workspacePath, '.hive'), { recursive: true })
+    tempDirs.push(dataDir)
+
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir, port: 4010 },
+      store: createBaseStore({
+        getWorkspaceSnapshot: vi.fn(() => ({ summary: { path: workspacePath } })),
+      }),
+    })
+
+    await expect(
+      handler(
+        'workspace.upload',
+        {
+          data: Buffer.alloc(101 * 1024 * 1024, 1).toString('base64'),
+          filename: 'too-big.mp4',
+          mime_type: 'video/mp4',
+          workspace_id: 'ws-1',
+        },
+        'device-1',
+        ['send_prompt']
+      )
+    ).rejects.toThrow('File too large (max 100MB)')
+  })
+
   it('expires stale uploaded media before prompting the orchestrator over relay RPC', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-01T00:00:00.000Z'))

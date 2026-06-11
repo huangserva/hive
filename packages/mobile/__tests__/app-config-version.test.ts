@@ -59,4 +59,13 @@ describe('mobile app config version', () => {
 
     expect(config.autolinking?.exclude ?? []).not.toContain('react-native-webrtc')
   })
+
+  test('keeps expo-video registered for prebuild native autolinking', async () => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+
+    const { default: config } = await import('../app.config')
+
+    expect(config.plugins).toContain('expo-video')
+  })
 })

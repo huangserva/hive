@@ -1714,6 +1714,54 @@ fs.writeFileSync(outputPath, 'audio')
     }
   })
 
+  test('accepts mobile uploads above 50MB up to the 100MB video limit', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Large Upload')
+      const sender = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Sender')
+      const upload = await fetch(`${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`, {
+        body: JSON.stringify({
+          data: Buffer.alloc(51 * 1024 * 1024, 1).toString('base64'),
+          filename: 'clip.mp4',
+          mime_type: 'video/mp4',
+        }),
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token: sender.token }),
+        method: 'POST',
+      })
+      const uploaded = (await upload.json()) as { size: number; url: string }
+      expect(upload.status).toBe(200)
+      expect(uploaded.size).toBe(51 * 1024 * 1024)
+      expect(uploaded.url).toMatch(/^\/api\/mobile\/uploads\//)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('rejects mobile uploads over the 100MB video limit after accepting the enlarged JSON body', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Oversized Upload')
+      const sender = await createMobileTokenForTest(server.baseUrl, ['send_prompt'], 'Sender')
+      const upload = await fetch(`${server.baseUrl}/api/mobile/workspaces/${workspace.id}/upload`, {
+        body: JSON.stringify({
+          data: Buffer.alloc(101 * 1024 * 1024, 1).toString('base64'),
+          filename: 'too-big.mp4',
+          mime_type: 'video/mp4',
+        }),
+        headers: jsonHeaders({ host: '192.168.1.44:4010', token: sender.token }),
+        method: 'POST',
+      })
+      expect(upload.status).toBe(400)
+      await expect(upload.json()).resolves.toMatchObject({
+        error: 'File too large (max 100MB)',
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
   test('keeps pending mobile uploads isolated per device before prompt submission', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()

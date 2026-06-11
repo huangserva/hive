@@ -30,6 +30,7 @@ import {
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { sanitizeForSpeech } from './speech-text-sanitizer.js'
+import { MOBILE_UPLOAD_MAX_BYTES } from './upload-limits.js'
 import {
   enqueueVoiceUnderstandingInput,
   resolveVoiceUnderstandingWindowMs,
@@ -84,7 +85,6 @@ type PendingUploadPath = {
 
 const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
 const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
-const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024
 const DEFAULT_WEBRTC_ICE_SERVERS = [
   { urls: 'stun:openrelay.metered.ca:80' },
   {
@@ -465,8 +465,8 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
           ? params.mime_type.trim()
           : 'application/octet-stream'
       const dataBuffer = Buffer.from(data, 'base64')
-      if (dataBuffer.length > MAX_UPLOAD_SIZE_BYTES) {
-        throw new Error('File too large (max 50MB)')
+      if (dataBuffer.length > MOBILE_UPLOAD_MAX_BYTES) {
+        throw new Error('File too large (max 100MB)')
       }
       const dataDir = deps.runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
       const uploadsDir = join(dataDir, 'uploads')

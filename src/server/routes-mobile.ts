@@ -41,6 +41,7 @@ import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
 import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import { MOBILE_UPLOAD_JSON_BODY_LIMIT_BYTES, MOBILE_UPLOAD_MAX_BYTES } from './upload-limits.js'
 import {
   enqueueVoiceUnderstandingInput,
   resolveVoiceUnderstandingWindowMs,
@@ -1031,7 +1032,7 @@ export const mobileRoutes: RouteDefinition[] = [
         data?: unknown
         filename?: unknown
         mime_type?: unknown
-      }>(request, { limitBytes: 50 * 1024 * 1024 })
+      }>(request, { limitBytes: MOBILE_UPLOAD_JSON_BODY_LIMIT_BYTES })
       if (typeof body.data !== 'string' || !body.data.trim()) {
         throw new BadRequestError('data (base64) is required')
       }
@@ -1039,8 +1040,8 @@ export const mobileRoutes: RouteDefinition[] = [
       const mimeType =
         typeof body.mime_type === 'string' ? body.mime_type.trim() : 'application/octet-stream'
       const dataBuffer = Buffer.from(body.data, 'base64')
-      if (dataBuffer.length > 50 * 1024 * 1024) {
-        throw new BadRequestError('File too large (max 50MB)')
+      if (dataBuffer.length > MOBILE_UPLOAD_MAX_BYTES) {
+        throw new BadRequestError('File too large (max 100MB)')
       }
       const dataDir = runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
       const uploadsDir = join(dataDir, 'uploads')

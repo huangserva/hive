@@ -6,6 +6,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   Image,
@@ -13,7 +14,6 @@ import {
   KeyboardAvoidingView,
   type KeyboardEvent,
   type LayoutChangeEvent,
-  Modal,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
   Platform,
@@ -30,12 +30,19 @@ import {
 } from '../../src/api/client'
 import { useMobileRuntime } from '../../src/api/mobile-runtime-context'
 import { ConnectionModeBadge } from '../../src/components/ConnectionModeBanner'
+import { ImagePreviewModal, type PreviewImageSource } from '../../src/components/ImagePreviewModal'
 import { Screen } from '../../src/components/Screen'
+import { VideoPreviewModal } from '../../src/components/VideoPreviewModal'
 import { type TFunction, useT } from '../../src/i18n'
 import {
   buildChatMediaEnvelopeJson,
   type ChatMediaItem,
   extractChatMediaItems,
+  isChatMediaImage,
+  isChatMediaVideo,
+  isPickedVideoOverLimit,
+  normalizePickedMediaAttachment,
+  type StagedChatAttachment,
 } from '../../src/lib/chat-media'
 import { filterPendingOptimisticMessages } from '../../src/lib/chat-message-dedupe'
 import { resolveChatSendOutcome } from '../../src/lib/chat-send-status'
@@ -61,12 +68,7 @@ type OptimisticMessage = {
 
 type DisplayMessage = ChatMessage | OptimisticMessage
 
-interface StagedAttachment {
-  uri: string
-  base64: string
-  filename: string
-  mimeType: string
-}
+type StagedAttachment = StagedChatAttachment
 
 interface UploadedMediaPromptItem {
   file_id: string
@@ -80,11 +82,6 @@ type MarkdownSegment =
   | { text: string; type: 'listItem' }
   | { type: 'spacer' }
   | { text: string; type: 'paragraph' }
-
-type PreviewImageSource = {
-  headers?: Record<string, string>
-  uri: string
-}
 
 const AUTO_SCROLL_THRESHOLD_PX = 80
 const DEDUPE_MESSAGE_TYPES = new Set<DisplayMessage['message_type']>([
@@ -213,7 +210,12 @@ export default function ChatTab() {
   const [optimistic, setOptimistic] = useState<OptimisticMessage[]>([])
   const [sending, setSending] = useState(false)
   const [attachments, setAttachments] = useState<StagedAttachment[]>([])
+  const [readingMedia, setReadingMedia] = useState(false)
   const [previewImage, setPreviewImage] = useState<{
+    label: string
+    source: PreviewImageSource
+  } | null>(null)
+  const [previewVideo, setPreviewVideo] = useState<{
     label: string
     source: PreviewImageSource
   } | null>(null)
@@ -282,16 +284,34 @@ export default function ChatTab() {
       base64: true,
     })
     if (result.canceled || !result.assets) return
-    const newAttachments: StagedAttachment[] = result.assets
-      .filter((a): a is typeof a & { base64: string } => Boolean(a.base64))
-      .map((a) => ({
-        uri: a.uri,
-        base64: a.base64,
-        filename: a.fileName ?? `media_${Date.now()}.${a.type === 'video' ? 'mp4' : 'jpg'}`,
-        mimeType: a.mimeType ?? (a.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-      }))
-    setAttachments((prev) => [...prev, ...newAttachments])
-  }, [])
+    const newAttachments: StagedAttachment[] = []
+    setReadingMedia(true)
+    try {
+      for (const asset of result.assets) {
+        const info = await FileSystem.getInfoAsync(asset.uri)
+        if (isPickedVideoOverLimit(asset, info.exists ? info.size : undefined)) {
+          Alert.alert(t('chat.media.videoTooLargeTitle'), t('chat.media.videoTooLargeBody'))
+          continue
+        }
+        try {
+          newAttachments.push(
+            await normalizePickedMediaAttachment(asset, (uri) =>
+              FileSystem.readAsStringAsync(uri, {
+                encoding: FileSystem.EncodingType.Base64,
+              })
+            )
+          )
+        } catch {
+          Alert.alert(t('chat.media.readFailedTitle'), t('chat.media.readFailedBody'))
+        }
+      }
+      if (newAttachments.length > 0) {
+        setAttachments((prev) => [...prev, ...newAttachments])
+      }
+    } finally {
+      setReadingMedia(false)
+    }
+  }, [t])
 
   const pickDocument = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -300,19 +320,39 @@ export default function ChatTab() {
     })
     if (result.canceled || !result.assets) return
     const newAttachments: StagedAttachment[] = []
-    for (const asset of result.assets) {
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      })
-      newAttachments.push({
-        uri: asset.uri,
-        base64,
-        filename: asset.name,
-        mimeType: asset.mimeType ?? 'application/octet-stream',
-      })
+    setReadingMedia(true)
+    try {
+      for (const asset of result.assets) {
+        const pickedAsset = {
+          fileName: asset.name,
+          mimeType: asset.mimeType ?? null,
+          type: asset.mimeType?.startsWith('video/') ? 'video' : null,
+          uri: asset.uri,
+        }
+        const info = await FileSystem.getInfoAsync(asset.uri)
+        if (isPickedVideoOverLimit(pickedAsset, info.exists ? info.size : asset.size)) {
+          Alert.alert(t('chat.media.videoTooLargeTitle'), t('chat.media.videoTooLargeBody'))
+          continue
+        }
+        try {
+          newAttachments.push(
+            await normalizePickedMediaAttachment(pickedAsset, (uri) =>
+              FileSystem.readAsStringAsync(uri, {
+                encoding: FileSystem.EncodingType.Base64,
+              })
+            )
+          )
+        } catch {
+          Alert.alert(t('chat.media.readFailedTitle'), t('chat.media.readFailedBody'))
+        }
+      }
+      if (newAttachments.length > 0) {
+        setAttachments((prev) => [...prev, ...newAttachments])
+      }
+    } finally {
+      setReadingMedia(false)
     }
-    setAttachments((prev) => [...prev, ...newAttachments])
-  }, [])
+  }, [t])
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index))
@@ -463,6 +503,14 @@ export default function ChatTab() {
 
   const closeImagePreview = useCallback(() => {
     setPreviewImage(null)
+  }, [])
+
+  const openVideoPreview = useCallback((source: PreviewImageSource, label: string) => {
+    setPreviewVideo({ label, source })
+  }, [])
+
+  const closeVideoPreview = useCallback(() => {
+    setPreviewVideo(null)
   }, [])
 
   const scrollToLatestMessage = useCallback(
@@ -750,6 +798,7 @@ export default function ChatTab() {
               }
               onApprove={approveRequest}
               onPreviewImage={openImagePreview}
+              onPreviewVideo={openVideoPreview}
               runtimeHost={host}
               token={token}
               workers={dashboard?.workers ?? []}
@@ -783,6 +832,14 @@ export default function ChatTab() {
                   >
                     <Image source={{ uri: att.uri }} style={styles.thumb} />
                   </Pressable>
+                ) : att.mimeType.startsWith('video/') ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => openVideoPreview({ uri: att.uri }, att.filename)}
+                    style={styles.videoThumb}
+                  >
+                    <Ionicons color="#fff" name="play-circle" size={30} />
+                  </Pressable>
                 ) : (
                   <Image source={{ uri: att.uri }} style={styles.thumb} />
                 )}
@@ -795,10 +852,26 @@ export default function ChatTab() {
         )}
 
         <View style={styles.composer}>
-          <Pressable accessibilityRole="button" onPress={pickImages} style={styles.attachButton}>
-            <Ionicons color={colors.textSoft} name="image-outline" size={22} />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ busy: readingMedia, disabled: readingMedia }}
+            disabled={readingMedia}
+            onPress={pickImages}
+            style={[styles.attachButton, readingMedia ? styles.buttonDisabled : null]}
+          >
+            {readingMedia ? (
+              <ActivityIndicator color={colors.textSoft} size="small" />
+            ) : (
+              <Ionicons color={colors.textSoft} name="image-outline" size={22} />
+            )}
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={pickDocument} style={styles.attachButton}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ busy: readingMedia, disabled: readingMedia }}
+            disabled={readingMedia}
+            onPress={pickDocument}
+            style={[styles.attachButton, readingMedia ? styles.buttonDisabled : null]}
+          >
             <Ionicons color={colors.textSoft} name="attach-outline" size={22} />
           </Pressable>
           <TextInput
@@ -839,35 +912,22 @@ export default function ChatTab() {
           />
         ) : null}
 
-        <Modal
-          animationType="fade"
-          transparent
-          visible={previewImage !== null}
-          onRequestClose={closeImagePreview}
-        >
-          <Pressable style={styles.previewBackdrop} onPress={closeImagePreview}>
-            <Pressable
-              accessibilityLabel={t('common.close')}
-              accessibilityRole="button"
-              onPress={closeImagePreview}
-              style={styles.previewClose}
-            >
-              <Ionicons color={colors.text} name="close" size={22} />
-            </Pressable>
-            {previewImage ? (
-              <View style={styles.previewFrame}>
-                <Image
-                  resizeMode="contain"
-                  source={previewImage.source}
-                  style={styles.previewImage}
-                />
-                <Text numberOfLines={2} style={styles.previewCaption}>
-                  {previewImage.label}
-                </Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </Modal>
+        {previewImage ? (
+          <ImagePreviewModal
+            label={previewImage.label}
+            onClose={closeImagePreview}
+            source={previewImage.source}
+            visible
+          />
+        ) : null}
+        {previewVideo ? (
+          <VideoPreviewModal
+            label={previewVideo.label}
+            onClose={closeVideoPreview}
+            source={previewVideo.source}
+            visible
+          />
+        ) : null}
       </KeyboardAvoidingView>
     </Screen>
   )
@@ -1071,6 +1131,7 @@ type MessageCardProps = {
   onApprove: (approvalId: string, decision: 'allow' | 'deny') => Promise<boolean>
   onOpenApproval: (approvalId: string) => void
   onPreviewImage: (source: PreviewImageSource, label: string) => void
+  onPreviewVideo: (source: PreviewImageSource, label: string) => void
   runtimeHost: string
   token: string
   workers: MobileDashboardWorker[]
@@ -1081,6 +1142,7 @@ const MessageCard = ({
   onApprove,
   onOpenApproval,
   onPreviewImage,
+  onPreviewVideo,
   runtimeHost,
   token,
   workers,
@@ -1112,6 +1174,7 @@ const MessageCard = ({
                 key={`${item.url}:${item.filename}`}
                 media={item}
                 onPreviewImage={onPreviewImage}
+                onPreviewVideo={onPreviewVideo}
                 runtimeHost={runtimeHost}
                 tint="outbound"
               />
@@ -1293,6 +1356,7 @@ const MessageCard = ({
                 key={`${item.url}:${item.filename}`}
                 media={item}
                 onPreviewImage={onPreviewImage}
+                onPreviewVideo={onPreviewVideo}
                 runtimeHost={runtimeHost}
                 tint="inbound"
               />
@@ -1324,6 +1388,7 @@ const MediaContent = ({
   compact = false,
   media,
   onPreviewImage,
+  onPreviewVideo,
   runtimeHost,
   tint,
 }: {
@@ -1331,13 +1396,14 @@ const MediaContent = ({
   compact?: boolean
   media: ChatMediaItem
   onPreviewImage: (source: PreviewImageSource, label: string) => void
+  onPreviewVideo: (source: PreviewImageSource, label: string) => void
   runtimeHost: string
   tint: 'outbound' | 'inbound'
 }) => {
   const t = useT()
   const [imageFailed, setImageFailed] = useState(false)
-  const isImage = media.mime_type.startsWith('image/')
-  const isVideo = media.mime_type.startsWith('video/')
+  const isImage = isChatMediaImage(media)
+  const isVideo = isChatMediaVideo(media)
   const uri = resolveMediaUrl(media.url, runtimeHost)
   const isRemoteHttp = /^https?:\/\//iu.test(uri)
   const imageSource =
@@ -1364,8 +1430,13 @@ const MediaContent = ({
   }
   if (isVideo) {
     return (
-      <View style={mediaStyles.fileCard}>
-        <Ionicons color={colors.accent} name="videocam-outline" size={24} />
+      <Pressable
+        accessibilityLabel={media.filename}
+        accessibilityRole="button"
+        onPress={() => onPreviewVideo(imageSource, media.filename)}
+        style={mediaStyles.fileCard}
+      >
+        <Ionicons color={colors.accent} name="play-circle-outline" size={24} />
         <View style={mediaStyles.fileMeta}>
           <Text
             numberOfLines={1}
@@ -1378,7 +1449,7 @@ const MediaContent = ({
             {meta ? t('chat.media.videoWithSize', { size: meta }) : t('chat.media.video')}
           </Text>
         </View>
-      </View>
+      </Pressable>
     )
   }
   return (
@@ -1838,45 +1909,6 @@ const styles = StyleSheet.create({
     width: 10,
   },
   titleRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
-  previewBackdrop: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.94)',
-    flex: 1,
-    justifyContent: 'center',
-    padding: spacing.lg,
-  },
-  previewCaption: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: spacing.sm,
-    textAlign: 'center',
-  },
-  previewClose: {
-    alignItems: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 999,
-    height: 40,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: spacing.lg,
-    top: Platform.OS === 'ios' ? 72 : 44,
-    width: 40,
-    zIndex: 2,
-  },
-  previewFrame: {
-    alignItems: 'center',
-    gap: spacing.sm,
-    maxHeight: '88%',
-    maxWidth: '100%',
-    width: '100%',
-  },
-  previewImage: {
-    flex: 1,
-    minHeight: 220,
-    minWidth: '100%',
-    width: '100%',
-  },
   buttonDisabled: {
     opacity: 0.5,
   },
@@ -2033,6 +2065,14 @@ const styles = StyleSheet.create({
   },
   thumb: { borderRadius: 8, height: 60, width: 60 },
   thumbWrap: { position: 'relative' },
+  videoThumb: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 8,
+    height: 60,
+    justifyContent: 'center',
+    width: 60,
+  },
   thumbRemove: {
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.6)',

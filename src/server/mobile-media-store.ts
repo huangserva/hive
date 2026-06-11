@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { homedir } from 'node:os'
-import type { IncomingMessage } from 'node:http'
+import { join } from 'node:path'
 
 import type { Database } from 'better-sqlite3'
 
@@ -45,7 +44,9 @@ export const createMediaUploadStore = (db: Database) => {
     ): MediaUploadRecord {
       ensureUploadsDir()
       const id = randomUUID()
-      const ext = originalName.includes('.') ? originalName.slice(originalName.lastIndexOf('.')) : ''
+      const ext = originalName.includes('.')
+        ? originalName.slice(originalName.lastIndexOf('.'))
+        : ''
       const storageName = `${id}${ext}`
       const storagePath = join(UPLOADS_DIR, storageName)
       writeFileSync(storagePath, data)
@@ -59,7 +60,16 @@ export const createMediaUploadStore = (db: Database) => {
         storage_path: storagePath,
         created_at: Date.now(),
       }
-      insert.run(id, workspaceId, deviceId, originalName, mimeType, data.length, storagePath, record.created_at)
+      insert.run(
+        id,
+        workspaceId,
+        deviceId,
+        originalName,
+        mimeType,
+        data.length,
+        storagePath,
+        record.created_at
+      )
       return record
     },
     getUpload(id: string): MediaUploadRecord | null {
@@ -70,55 +80,4 @@ export const createMediaUploadStore = (db: Database) => {
       return readFileSync(record.storage_path)
     },
   }
-}
-
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024
-
-export const parseMultipartUpload = async (
-  request: IncomingMessage
-): Promise<{ fileName: string; mimeType: string; data: Buffer } | null> => {
-  const contentType = request.headers['content-type'] ?? ''
-  const boundaryMatch = contentType.match(/boundary=([^\s;]+)/)
-  if (!boundaryMatch) return null
-  const boundary = boundaryMatch[1]
-
-  const chunks: Buffer[] = []
-  let totalSize = 0
-  for await (const chunk of request) {
-    totalSize += (chunk as Buffer).length
-    if (totalSize > MAX_UPLOAD_SIZE) return null
-    chunks.push(chunk as Buffer)
-  }
-  const body = Buffer.concat(chunks)
-  const boundaryBuf = Buffer.from(`--${boundary}`)
-  const parts = splitBuffer(body, boundaryBuf).slice(1)
-
-  for (const part of parts) {
-    const headerEnd = part.indexOf('\r\n\r\n')
-    if (headerEnd === -1) continue
-    const headers = part.slice(0, headerEnd).toString('utf8')
-    if (!headers.includes('filename=')) continue
-    const nameMatch = headers.match(/filename="([^"]*)"/)
-    const typeMatch = headers.match(/Content-Type:\s*([^\r\n]+)/i)
-    const fileName = nameMatch?.[1] ?? 'upload'
-    const mimeType = typeMatch?.[1]?.trim() ?? 'application/octet-stream'
-    const data = part.slice(headerEnd + 4, part.length - 2)
-    return { fileName, mimeType, data }
-  }
-  return null
-}
-
-const splitBuffer = (buf: Buffer, delimiter: Buffer): Buffer[] => {
-  const parts: Buffer[] = []
-  let start = 0
-  while (true) {
-    const idx = buf.indexOf(delimiter, start)
-    if (idx === -1) {
-      parts.push(buf.slice(start))
-      break
-    }
-    parts.push(buf.slice(start, idx))
-    start = idx + delimiter.length
-  }
-  return parts
 }

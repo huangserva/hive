@@ -89,6 +89,7 @@ const config: ExpoConfigWithSplash = {
         cameraPermission: 'HippoTeam needs access to your camera to take photos.',
       },
     ],
+    'expo-video',
     [
       'expo-build-properties',
       {

@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildChatMediaEnvelopeJson,
+  CHAT_VIDEO_UPLOAD_LIMIT_BYTES,
   extractChatMediaItems,
+  isChatMediaImage,
+  isChatMediaVideo,
+  isPickedVideoOverLimit,
+  normalizePickedMediaAttachment,
   type PendingChatAttachment,
 } from '../src/lib/chat-media'
 
@@ -60,5 +65,98 @@ describe('chat-media multi-image round-trip (#24)', () => {
       ],
     })
     expect(extractChatMediaItems(mixed)).toHaveLength(1)
+  })
+
+  it('classifies video attachments separately from images and generic files', () => {
+    expect(
+      isChatMediaVideo({ filename: 'clip.mp4', mime_type: 'video/mp4', url: 'file:///clip.mp4' })
+    ).toBe(true)
+    expect(
+      isChatMediaImage({ filename: 'clip.mp4', mime_type: 'video/mp4', url: 'file:///clip.mp4' })
+    ).toBe(false)
+    expect(
+      isChatMediaVideo({ filename: 'photo.jpg', mime_type: 'image/jpeg', url: 'file:///photo.jpg' })
+    ).toBe(false)
+  })
+
+  it('preserves picked video mime through the optimistic media envelope', () => {
+    const json = buildChatMediaEnvelopeJson({
+      attachments: [
+        {
+          filename: 'demo.mp4',
+          mimeType: 'video/mp4',
+          uri: 'file:///local/demo.mp4',
+        },
+      ],
+      text: '看这个视频',
+    })
+
+    const [item] = extractChatMediaItems(json)
+    expect(item?.filename).toBe('demo.mp4')
+    expect(item?.mime_type).toBe('video/mp4')
+    expect(isChatMediaVideo(item)).toBe(true)
+  })
+
+  it('keeps picked videos uploadable when ImagePicker does not provide base64 inline', async () => {
+    const readUris: string[] = []
+    const staged = await normalizePickedMediaAttachment(
+      {
+        fileName: 'library.mov',
+        mimeType: 'video/quicktime',
+        type: 'video',
+        uri: 'file:///library.mov',
+      },
+      async (uri) => {
+        readUris.push(uri)
+        return 'video-base64'
+      }
+    )
+
+    expect(readUris).toEqual(['file:///library.mov'])
+    expect(staged).toEqual({
+      base64: 'video-base64',
+      filename: 'library.mov',
+      mimeType: 'video/quicktime',
+      uri: 'file:///library.mov',
+    })
+  })
+
+  it('keeps picked images on the inline-base64 path without reading the file again', async () => {
+    const staged = await normalizePickedMediaAttachment(
+      {
+        base64: 'image-base64',
+        type: 'image',
+        uri: 'file:///camera-roll/photo',
+      },
+      async () => {
+        throw new Error('image with inline base64 should not be read from disk')
+      }
+    )
+
+    expect(staged.base64).toBe('image-base64')
+    expect(staged.filename).toMatch(/^media_\d+\.jpg$/u)
+    expect(staged.mimeType).toBe('image/jpeg')
+    expect(staged.uri).toBe('file:///camera-roll/photo')
+  })
+
+  it('flags only videos over 100MB before base64 reading', () => {
+    expect(
+      isPickedVideoOverLimit(
+        { mimeType: 'video/mp4', type: 'video', uri: 'file:///large.mp4' },
+        CHAT_VIDEO_UPLOAD_LIMIT_BYTES + 1
+      )
+    ).toBe(true)
+    expect(
+      isPickedVideoOverLimit(
+        { mimeType: 'video/mp4', type: 'video', uri: 'file:///limit.mp4' },
+        CHAT_VIDEO_UPLOAD_LIMIT_BYTES
+      )
+    ).toBe(false)
+    expect(
+      isPickedVideoOverLimit(
+        { mimeType: 'image/jpeg', type: 'image', uri: 'file:///large.jpg' },
+        CHAT_VIDEO_UPLOAD_LIMIT_BYTES + 1
+      )
+    ).toBe(false)
   })
 })
