@@ -46,7 +46,9 @@ export const markAgentStarted = (
   agentId: string
 ) => {
   const agent = getAgentRecord(workspaces, workspaceId, agentId)
-  agent.status = getStatusFromPendingCount(agent.pendingTaskCount)
+  // Starting a fresh PTY means the agent is available, not already working.
+  // pendingTaskCount stays intact so backlog/recovery UI can still surface it.
+  agent.status = 'idle'
 }
 
 export const markAgentStopped = (

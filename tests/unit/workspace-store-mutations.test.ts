@@ -32,7 +32,7 @@ const createWorkspaceMap = () => {
 }
 
 describe('workspace store mutations', () => {
-  test('markAgentStarted preserves queued pending tasks for a stopped worker', () => {
+  test('markAgentStarted resets a stopped worker with queued pending tasks to idle', () => {
     const workspaces = createWorkspaceMap()
 
     markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
@@ -46,7 +46,25 @@ describe('workspace store mutations', () => {
 
     expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
       pendingTaskCount: 2,
+      status: 'idle',
+    })
+  })
+
+  test('markAgentStarted resets a running worker with backlog to idle without clearing count', () => {
+    const workspaces = createWorkspaceMap()
+
+    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
+    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
+    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
+      pendingTaskCount: 1,
       status: 'working',
+    })
+
+    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
+
+    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
+      pendingTaskCount: 1,
+      status: 'idle',
     })
   })
 

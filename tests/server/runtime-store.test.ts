@@ -177,7 +177,7 @@ describe('runtime store', () => {
     expect(store.getWorker(workspace.id, worker.id).status).toBe('idle')
   })
 
-  test('startAgent success preserves queued pending tasks for a stopped worker', async () => {
+  test('startAgent success preserves queued pending tasks but resets status to idle', async () => {
     const store = createRuntimeStore({ agentManager: createFakeAgentManager() })
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, {
@@ -192,7 +192,7 @@ describe('runtime store', () => {
 
     const restartedWorker = store.getWorker(workspace.id, worker.id)
     expect(restartedWorker.pendingTaskCount).toBe(2)
-    expect(restartedWorker.status).toBe('working')
+    expect(restartedWorker.status).toBe('idle')
 
     store.reportTask(workspace.id, worker.id, { status: 'success', text: 'First done' })
     const partiallyDrainedWorker = store.getWorker(workspace.id, worker.id)
