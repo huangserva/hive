@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>上游 tt-a1i/hive 更新 triage — 哪些值得拿进 HippoTeam (2026-06-11)</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --panel2:#1d2129; --border:#2a2f3a; --fg:#e6e8ec; --mut:#9aa3b2; --acc:#6ea8fe; --good:#4ade80; --warn:#fbbf24; --bad:#f87171; --strat:#c084fc; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 80px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  .sub { color:var(--mut); margin:0 0 24px; }
+  h2 { font-size:18px; margin:32px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:14px 0; }
+  .tldr { background:linear-gradient(135deg,#1a2230,#171a21); border-color:#2f3a4d; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:13.5px; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; }
+  code { background:var(--panel2); padding:1px 6px; border-radius:5px; font-size:12.5px; color:#cbd5e1; }
+  .tag { display:inline-block; font-size:11.5px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .t-take { background:rgba(74,222,128,.15); color:var(--good); }
+  .t-redo { background:rgba(251,191,36,.15); color:var(--warn); }
+  .t-strat { background:rgba(192,132,252,.15); color:var(--strat); }
+  .t-skip { background:rgba(154,163,178,.15); color:var(--mut); }
+  .verdict { border-left:3px solid var(--acc); padding:10px 14px; margin:12px 0; background:var(--panel2); border-radius:0 8px 8px 0; }
+  .conflict { border-left-color:var(--warn); }
+  ul { margin:6px 0 6px 4px; padding-left:18px; } li { margin:3px 0; }
+  .mut { color:var(--mut); } .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .pill { font-size:11px; color:var(--mut); border:1px solid var(--border); border-radius:6px; padding:1px 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>上游 tt-a1i/hive 更新 triage</h1>
+  <p class="sub">哪些值得拿进 HippoTeam · 2026-06-11 · 3-bucket 并行调研（马超 / 关羽 / 赵云）+ PM 汇总裁决</p>
+
+  <div class="card tldr">
+    <strong>一句话结论</strong>
+    <p style="margin:8px 0 0">上游分叉点 <code>9363632</code>(2026-05-17) 至今 <strong>117 commit</strong>。HippoTeam fork 改动巨大，<strong>绝大多数候选要么"我们早已吸收"、要么"架构分叉没法直接 cherry-pick"</strong>。真正值得动手的极少：<span class="good">1 个立刻该拿的 bug 修</span> + <span class="good">2 个低风险小拿</span> + <span class="warn">2 个中等工作量重做（你拍）</span> + <span class="strat">1 个 marketplace 战略待拍</span>。docs/release/changelog 那约 30 个全忽略。</p>
+  </div>
+
+  <h2>① 立刻该拿（小、低风险，PM 推荐）</h2>
+
+  <div class="verdict conflict">
+    <strong>⚖️ <code>535cfca</code> Reset worker status to idle when starting agent — <span class="tag t-take">TAKE · 高价值</span></strong>
+    <p style="margin:8px 0">两个独立 bucket 在这条上<strong>打架</strong>，PM 读真 diff 裁决：</p>
+    <ul>
+      <li><span class="good">马超(A)：拿</span> — 命中 idea-13 "状态错"。我们 <code>workspace-store-mutations.ts:49</code> 仍 <code>status=getStatusFromPendingCount(pendingTaskCount)</code> → worker restart 后 pending&gt;0 就假显示 "working"，但 PTY 刚启动其实 idle。<strong>正是 6/10 赵云/关羽 crash 后"看着像在工作"的假象根因。</strong></li>
+      <li><span class="bad">赵云(C)：跳过</span> — 理由"会丢队列计数 / 回滚已审 pending 行为"。<strong>❌ 此反对不成立</strong>：535cfca 真 diff <strong>只把 status 改成 'idle'，<code>pendingTaskCount</code> 原样保留</strong>（注释明写 "pendingTaskCount stays so WorkerModal/recovery summary can still surface the backlog"）。它根本不动 count。</li>
+    </ul>
+    <p style="margin:8px 0 0"><strong>裁决：拿（重做测试版）。</strong> 产品 2 行（status 改 'idle'），pendingTaskCount 不动；测试断言对齐我们 L1 dispatch 状态机 + 补一条 idea-13 case 回归（跑着 dispatch、4010 重启、未 markTaskDispatched 时 status==='idle' 且 pendingTaskCount&gt;0 仍保留）。工作量 <span class="pill">S ~半天</span>。</p>
+  </div>
+
+  <table>
+    <tr><th>commit</th><th>做什么</th><th>拿法</th><th>量</th><th>价值</th></tr>
+    <tr><td><code>eac529f</code> shell label 回收</td><td>关闭 shell 后新 shell 用最小可用编号，不跳号(Shell 1/Shell 3)</td><td>可直接抄/cherry-pick；<span class="warn">别连带拿 aa05a6e（unnumbered 改产品语义）</span></td><td class="pill">S</td><td>中</td></tr>
+    <tr><td><code>ed042e2</code> silentReload 自动重载修复</td><td>PWA service worker 更新 / offline retry 走 silentReload，避开 beforeunload guard 拦截</td><td>重做（按我们当前 PWA/useBeforeUnloadGuard）</td><td class="pill">S-M</td><td>中-高</td></tr>
+  </table>
+
+  <h2>② 值得重做（中等工作量，你拍要不要做）</h2>
+  <p class="mut" style="margin-top:0">这两簇真有价值，但<strong>上游已迁到 TerminalBottomPanel/launcher hook，我们还是 WorkspaceShellDialog+WorkspaceTerminalPanels</strong> → 不能整包 cherry-pick，只能挑关键子集在我们架构上重做。</p>
+  <table>
+    <tr><th>簇</th><th>做什么 / 为什么对我们有用</th><th>关键子集</th><th>量</th></tr>
+    <tr><td>shell 启动<strong>防竞态</strong><br><span class="mut">cfe23ad/69ed956/7539acd/55ca040…</span></td><td>防双击 startShell 跳号、防切 workspace 后旧 promise 串台回写、未确认 optimistic shell 长期占位。<span class="warn">我们现在确实有双击/切 workspace 串台风险</span></td><td>同步 in-flight lock + requestSeq token + workspace-scoped optimistic TTL（先做最小三件套）</td><td class="pill">M</td></tr>
+    <tr><td>terminal <strong>性能/滚动</strong><br><span class="mut">4c34bf6 + 30ea1e5</span></td><td>滚动卡顿、切 tab 重建、长输出 ack/backpressure</td><td>optional addon async 懒加载 + TerminalView parking/复用 + agent-launch-cache missing 缓存（<span class="mut">onBinary 默认禁用我们已吸收，跳过</span>）</td><td class="pill">M/L</td></tr>
+    <tr><td><code>c920110</code> CLI logos in agent picker</td><td>picker 里显示 Claude/Codex/Gemini logo</td><td>从我们已有 CliAgentAvatar 抽 CliAgentLogo 接 picker</td><td class="pill">S</td></tr>
+  </table>
+
+  <h2>③ marketplace / 模板市场 — <span class="tag t-strat">战略待拍</span></h2>
+  <div class="card">
+    <p style="margin:0 0 8px">上游 <code>99d3821</code> 起 11 commit 引入<strong>整套模板市场</strong>：<code>vendor/marketplace/{en,zh}</code> 大型 agent 库(10万+行) + sync 脚本 + marketplace-store/routes + web drawer + AddWorkerDialog 导入链。</p>
+    <p style="margin:0 0 8px"><strong>跟我们体系的关系</strong>：我们已有 DB-backed <code>command_presets</code>（用什么 CLI/参数/能力跑）+ <code>role_templates</code>（角色/默认 prompt）。上游 marketplace 更像"模板发现+批量导入目录"。<span class="warn">直接 cherry-pick = 两套模板真源并存（vendor JSON vs DB），冲突。</span></p>
+    <p style="margin:0"><strong>推荐（若要做）走 HippoTeam-native 重做</strong>：marketplace 只当 read-only catalog → 导入时转成现有 role_templates/command_presets → vendor 不一次性进 10万行，先选少量或远程索引 → 入口放 Settings/Role templates 而非照搬 upstream drawer。<strong>不推荐 cherry-pick。这是产品边界决策，待 user 拍。</strong></p>
+  </div>
+
+  <h2>④ 已吸收 / 跳过（不用动）</h2>
+  <table>
+    <tr><th>commit</th><th>原因</th></tr>
+    <tr><td><code>a2945fe</code> dispatch cancellation</td><td><span class="good">已吸收</span>：team.ts + routes-team.ts 已对齐（马超 audit）</td></tr>
+    <tr><td><code>53e3645</code> tasks WS guard</td><td><span class="good">已吸收</span>：tasks-websocket-server.ts:84-96 已有 try/catch fallback</td></tr>
+    <tr><td><code>b34cfe4</code> task drawer width</td><td><span class="good">已吸收</span>：TaskGraphDrawer 已用 DEFAULT_WORKERS_PANE_WIDTH</td></tr>
+    <tr><td><code>71fdaaf</code> port-in-use 报错</td><td><span class="mut">大概率已吸收</span>：马超找到 hive.ts:166-184 formatPortInUseMessage（赵云建议拿，落地前核一眼）</td></tr>
+    <tr><td>OpenCode mouse <code>e57c6be/7bda143</code></td><td><span class="good">已吸收</span>：normalizeTerminalInput + sendBinaryInput + legacy→SGR 都在，只补测试核对</td></tr>
+    <tr><td>TerminalBottomPanel 整套 / Cmd+W</td><td>依赖我们没走的底部面板架构，跳过</td></tr>
+    <tr><td>0f229f4 历史人物命名 / aa05a6e unnumbered tabs</td><td>产品口味，我们已有自己的角色语义，跳过</td></tr>
+    <tr><td>8c3184b Node24 / 32e3d9d hive update / PWA 大块</td><td>私有 fork 交付链不同（repo+本地+APK），跳过</td></tr>
+  </table>
+
+  <h2>推荐落地顺序</h2>
+  <div class="card">
+    <ol style="margin:0">
+      <li><span class="tag t-take">先做</span> <code>535cfca</code> worker status idle（idea-13 bug，S，立刻有用）</li>
+      <li><span class="tag t-take">小拿</span> <code>eac529f</code> shell label + <code>ed042e2</code> auto-reload 修复（各 S）</li>
+      <li><span class="tag t-redo">你拍</span> shell 防竞态最小三件套（M，治真实串台风险）</li>
+      <li><span class="tag t-redo">你拍</span> terminal 性能子集（M/L）+ c920110 logos（S，polish）</li>
+      <li><span class="tag t-strat">战略拍</span> marketplace：做不做 + native 重做边界</li>
+    </ol>
+  </div>
+
+  <p class="mut" style="margin-top:28px;font-size:13px">方法：3 worker 各读 <code>git show</code> 真 diff（非只看 title）对照 fork 现状评估；PM 汇总并裁决 bucket 间分歧（535cfca）。索引笔记见 <code>.hive/research/2026-06-11-upstream-hive-triage.md</code>。</p>
+</div>
+</body>
+</html>
