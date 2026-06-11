@@ -60,7 +60,7 @@ export const AppWorkspaceContent = ({
         onOrchestratorResult={recordOrchestratorResult}
         onRequestAddWorkspace={onRequestAddWorkspace}
         onTryDemo={onTryDemo}
-        welcomeDisabledReason={bootstrapError ?? undefined}
+        {...(bootstrapError ? { welcomeDisabledReason: bootstrapError } : {})}
         orchestratorAutostartError={
           activeId ? (orchestratorAutostartErrors[activeId] ?? null) : null
         }

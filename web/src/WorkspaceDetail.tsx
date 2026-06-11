@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TeamListItem, WorkspaceSummary } from '../../src/shared/types.js'
 import {
@@ -18,6 +18,7 @@ import { usePaneSplit } from './usePaneSplit.js'
 import { AddWorkerDialog } from './worker/AddWorkerDialog.js'
 import { OrchestratorPane } from './worker/OrchestratorPane.js'
 import { useOrchestratorPaneState } from './worker/useOrchestratorPaneState.js'
+import type { WorkerActions } from './worker/useWorkerActions.js'
 import { useWorkerComposer } from './worker/useWorkerComposer.js'
 import { WelcomePane } from './worker/WelcomePane.js'
 import { WorkerModal } from './worker/WorkerModal.js'
@@ -39,6 +40,8 @@ type WorkspaceDetailProps = {
   workers: TeamListItem[]
   workspace: WorkspaceSummary | undefined
 }
+
+const REMEMBERED_SHELL_RUN_TTL_MS = 3000
 
 export const WorkspaceDetail = ({
   onCreateWorker,
@@ -67,6 +70,13 @@ export const WorkspaceDetail = ({
   const [startWorkerError, setStartWorkerError] = useState<string | null>(null)
   const [startingWorkerId, setStartingWorkerId] = useState<string | null>(null)
   const [stoppingWorkerId, setStoppingWorkerId] = useState<string | null>(null)
+  const shellStartInFlightRef = useRef(false)
+  const shellStartRequestSeqRef = useRef(0)
+  const shellStartWorkspaceIdRef = useRef<string | null>(workspace?.id ?? null)
+  const shellRememberTimersRef = useRef(new Map<string, ReturnType<typeof window.setTimeout>>())
+  const [rememberedShellRunsByWorkspaceId, setRememberedShellRunsByWorkspaceId] = useState<
+    Record<string, TerminalRunSummary | undefined>
+  >({})
   const toast = useToast()
   // Always derive the modal's worker from the latest workers prop so the
   // 500ms poll keeps it fresh — we never freeze a stale snapshot.
@@ -90,17 +100,67 @@ export const WorkspaceDetail = ({
 
   // B2: when the user switches workspace, clear local error state so we don't
   // surface a stale error from the previous workspace as a fresh toast.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: effect intentionally fires only on workspace switch
   useEffect(() => {
     setDeleteWorkerError(null)
     setShellError(null)
     setShellOpen(false)
     setShellRunId(null)
     setShellStarting(false)
+    shellStartInFlightRef.current = false
+    shellStartRequestSeqRef.current += 1
+    shellStartWorkspaceIdRef.current = workspace?.id ?? null
     setStartWorkerError(null)
     setStartingWorkerId(null)
     setStoppingWorkerId(null)
   }, [workspace?.id])
+
+  const forgetRememberedShellRun = useCallback((workspaceId: string) => {
+    const timer = shellRememberTimersRef.current.get(workspaceId)
+    if (timer) window.clearTimeout(timer)
+    shellRememberTimersRef.current.delete(workspaceId)
+    setRememberedShellRunsByWorkspaceId((current) => {
+      if (!current[workspaceId]) return current
+      const next = { ...current }
+      delete next[workspaceId]
+      return next
+    })
+  }, [])
+
+  const rememberShellRun = useCallback(
+    (workspaceId: string, run: TerminalRunSummary) => {
+      forgetRememberedShellRun(workspaceId)
+      setRememberedShellRunsByWorkspaceId((current) => ({ ...current, [workspaceId]: run }))
+      const timer = window.setTimeout(() => {
+        setRememberedShellRunsByWorkspaceId((current) => {
+          if (current[workspaceId]?.run_id !== run.run_id) return current
+          const next = { ...current }
+          delete next[workspaceId]
+          return next
+        })
+        shellRememberTimersRef.current.delete(workspaceId)
+      }, REMEMBERED_SHELL_RUN_TTL_MS)
+      shellRememberTimersRef.current.set(workspaceId, timer)
+    },
+    [forgetRememberedShellRun]
+  )
+
+  useEffect(
+    () => () => {
+      for (const timer of shellRememberTimersRef.current.values()) window.clearTimeout(timer)
+      shellRememberTimersRef.current.clear()
+    },
+    []
+  )
+
+  useEffect(() => {
+    if (!workspace) return
+    const remembered = rememberedShellRunsByWorkspaceId[workspace.id]
+    if (!remembered) return
+    if (terminalRuns.some((run) => run.run_id === remembered.run_id)) {
+      forgetRememberedShellRun(workspace.id)
+    }
+  }, [forgetRememberedShellRun, rememberedShellRunsByWorkspaceId, terminalRuns, workspace])
+
   const orchestrator = useOrchestratorPaneState({
     workspaceId: workspace?.id ?? '',
     terminalRuns,
@@ -127,7 +187,15 @@ export const WorkspaceDetail = ({
   }
 
   const activeWorkerRun = activeWorker ? findRunByAgentId(terminalRuns, activeWorker.id) : undefined
-  const shellRuns = terminalRuns.filter((run) => isWorkspaceShellRun(run, workspace.id))
+  const actualShellRuns = terminalRuns.filter((run) => isWorkspaceShellRun(run, workspace.id))
+  const rememberedShellRun = rememberedShellRunsByWorkspaceId[workspace.id]
+  const hasUnconfirmedRememberedShellRun = Boolean(
+    rememberedShellRun && !actualShellRuns.some((run) => run.run_id === rememberedShellRun.run_id)
+  )
+  const shellRuns =
+    rememberedShellRun && hasUnconfirmedRememberedShellRun
+      ? [...actualShellRuns, rememberedShellRun]
+      : actualShellRuns
   const activeShellRun = shellRuns.find((run) => run.run_id === shellRunId) ?? shellRuns[0] ?? null
   const activeShellRunId = activeShellRun?.run_id ?? null
 
@@ -223,14 +291,32 @@ export const WorkspaceDetail = ({
   }
 
   const startShell = () => {
+    if (shellStartInFlightRef.current) return
+    if (hasUnconfirmedRememberedShellRun) return
+    shellStartInFlightRef.current = true
+    const requestWorkspaceId = workspace.id
+    const requestSeq = shellStartRequestSeqRef.current + 1
+    shellStartRequestSeqRef.current = requestSeq
+    const isCurrentShellStart = () =>
+      shellStartWorkspaceIdRef.current === requestWorkspaceId &&
+      shellStartRequestSeqRef.current === requestSeq
     setShellError(null)
     setShellStarting(true)
-    void startWorkspaceShell(workspace.id)
-      .then((run) => setShellRunId(run.run_id))
+    void startWorkspaceShell(requestWorkspaceId)
+      .then((run) => {
+        if (!isCurrentShellStart()) return
+        rememberShellRun(requestWorkspaceId, run)
+        setShellRunId(run.run_id)
+      })
       .catch((error) => {
+        if (!isCurrentShellStart()) return
         setShellError(error instanceof Error ? error.message : String(error))
       })
-      .finally(() => setShellStarting(false))
+      .finally(() => {
+        if (!isCurrentShellStart()) return
+        shellStartInFlightRef.current = false
+        setShellStarting(false)
+      })
   }
 
   const openShell = () => {
@@ -242,6 +328,9 @@ export const WorkspaceDetail = ({
   const closeShellTab = (runId: string) => {
     const fallbackRun = shellRuns.find((run) => run.run_id !== runId) ?? null
     if (activeShellRunId === runId) setShellRunId(fallbackRun?.run_id ?? null)
+    if (rememberedShellRunsByWorkspaceId[workspace.id]?.run_id === runId) {
+      forgetRememberedShellRun(workspace.id)
+    }
     void closeWorkspaceShell(workspace.id, runId).catch((error) => {
       const message = error instanceof Error ? error.message : String(error)
       toast.show({ kind: 'error', message: t('shellTerminal.closeFailed', { message }) })

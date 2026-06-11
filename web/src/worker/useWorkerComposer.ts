@@ -37,7 +37,7 @@ export interface WorkerComposerState {
   creating: boolean
   roleDescription: string
   roleDescriptionDefault: string
-  roleTemplates: RoleTemplate[]
+  roleTemplates: Array<RoleTemplate & { roleType: WorkerRole }>
   startupCommand: string
   thinkingLevel: string
   workerName: string
