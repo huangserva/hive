@@ -63,10 +63,24 @@ interface AgentManager {
 
 const createRunId = () => randomUUID()
 
-const createSpawnEnv = (inputEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+const NESTED_CLAUDE_CODE_ENV_KEYS = new Set([
+  'AI_AGENT',
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_EFFORT',
+])
+
+const isNestedClaudeCodeEnvKey = (key: string) => NESTED_CLAUDE_CODE_ENV_KEYS.has(key)
+
+/** Builds the child agent env and strips only nested Claude Code session markers. */
+export const createAgentSpawnEnv = (
+  inputEnv?: Record<string, string | undefined>
+): NodeJS.ProcessEnv => {
   const env = { ...process.env, ...inputEnv }
   for (const key of Object.keys(env)) {
-    if (env[key] === undefined) delete env[key]
+    if (env[key] === undefined || isNestedClaudeCodeEnvKey(key)) delete env[key]
   }
   return env
 }
@@ -94,7 +108,7 @@ export const createAgentManager = ({
       getRunRecord(runId).process.pause()
     },
     async startAgent(input) {
-      const env = createSpawnEnv(input.env)
+      const env = createAgentSpawnEnv(input.env)
       const spawnCommand = resolveSpawnCommand(input.command, input.cwd, env, input.args ?? [])
 
       const runId = createRunId()
