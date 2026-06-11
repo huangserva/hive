@@ -20,6 +20,31 @@ export interface TasksFileWatcher {
   stop: (workspaceId: string) => Promise<void>
 }
 
+/**
+ * 监听路径白名单 —— 只 watch 文本文档（.md/.html），绝不递归 watch 二进制资产。
+ *
+ * 历史事故（2026-06）：`reports/**` 递归 glob 把视频逐帧 jpg 海一起 watch 进去 →
+ * 文件描述符耗尽 ENFILE → 随后 node-pty 启 CLI worker 分不到正常 TTY → worker
+ * 启动 ~2s exit 1。任何 `assets/` 等二进制目录必须排除在 watch 之外，只认 .md/.html。
+ * 改动这里务必保持"只文本文档"不变量，并跑 tasks-file-watcher.test.ts。
+ */
+export const buildWatchedPaths = (
+  tasksPath: string,
+  planPath: string,
+  hiveDir: string
+): string[] => [
+  tasksPath,
+  planPath,
+  `${hiveDir}/open-questions.md`,
+  `${hiveDir}/ideas/**/*.md`,
+  `${hiveDir}/research/**/*.md`,
+  `${hiveDir}/reports/*.html`,
+  `${hiveDir}/reports/*.md`,
+  `${hiveDir}/baseline/**/*.md`,
+  `${hiveDir}/decisions/**/*.md`,
+  `${hiveDir}/archive/**/*.md`,
+]
+
 export const createTasksFileWatcher = ({
   onCockpitUpdated,
   onPlanUpdated,
@@ -86,23 +111,9 @@ export const createTasksFileWatcher = ({
       const tasksPath = getTasksFilePath(workspacePath)
       const planPath = getPlanFilePath(workspacePath)
       const hiveDir = `${workspacePath}/${HIVE_DIR_NAME}`
-      const watcher = chokidar.watch(
-        [
-          tasksPath,
-          planPath,
-          `${hiveDir}/open-questions.md`,
-          `${hiveDir}/ideas/**`,
-          `${hiveDir}/research/**`,
-          `${hiveDir}/reports`,
-          `${hiveDir}/reports/**`,
-          `${hiveDir}/baseline/**`,
-          `${hiveDir}/decisions/**`,
-          `${hiveDir}/archive/**`,
-        ],
-        {
-          ignoreInitial: true,
-        }
-      )
+      const watcher = chokidar.watch(buildWatchedPaths(tasksPath, planPath, hiveDir), {
+        ignoreInitial: true,
+      })
       const scheduleKind = (kind: 'cockpit' | 'plan' | 'tasks') => {
         const key = timerKey(workspaceId, kind)
         const timer = timers.get(key)
