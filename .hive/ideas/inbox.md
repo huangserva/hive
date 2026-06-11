@@ -4,12 +4,35 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-10 app 内视频传输 + 内置播放 + 缩放 — user 手机端口述立项
+
+- **idea-15 app 视频收发 + 内置可缩放播放器**：user 手机语音口述、明确要求**立项**。现状=文件传输双向已通，但**视频不能在 app 内播放**。诉求三段：①能把视频传给 app（上行，复用现有文件 upload）②app 接收并在**内置播放器**里播（下行 + player）③播放时能**放大缩小**（双指 pinch-zoom）。
+- **✅ PM scoping（2026-06-10，已查实代码）**——比预想小，缺口集中在播放器：
+  - **上行**：`POST /api/mobile/workspaces/:id/upload`（routes-mobile.ts:1019）mime 无关、**50MB 限制**、存 `~/.config/hive/uploads/` 返 `/api/mobile/uploads/<id>` URL 并塞进 chat `media` 字段。→ **视频 ≤50MB 今天就能传**，无需新管线。
+  - **缩放**：`ImagePreviewModal.tsx` 已有完整 pinch-zoom/pan（`image-preview-gesture`）→ 视频缩放**复用同一手势容器**，不用从零做。
+  - **唯一真缺口 = 视频播放器**：`chat-media.ts` 解析 media，但渲染只有 `Image`（ImagePreviewModal），无 Video 组件 → 需按 mime `video/*` 分流到播放器。
+  - **编码兼容低风险**：H.264 硬解 = AOSP/硬件能力，与华为无 GMS（谷歌服务）无关；ExoPlayer 原生支持 H.264/HEVC。推荐 H.264 主、HEVC 尽力。
+  - **播放器选型**：推荐 **expo-video**（Expo 现行推荐，替代旧 expo-av；纯原生 ExoPlayer 无 GMS 依赖）。
+- **方案分期**：
+  - **Phase 1（快，先 ship）**：chat media 按 `video/*` 分流 → expo-video 播放器套进可缩放 modal（复用 ImagePreviewModal 手势）。覆盖核心诉求：传视频(已通)+app 内播+双指缩放。约束=单文件 ≤100MB（user 2026-06-10 拍板，含服务端 upload 限制 50MB→100MB；base64 膨胀 limitBytes≥140MB）。**派单已拆两小单并行（关羽崩/马超 wedged 后周瑜建议降 context 压力）：服务端 50→100MB → 赵云 `1cfcd0b2`；移动端 expo-video 播放器+缩放 → 关羽 `6ceb7e83`**。
+  - **Phase 2**：大视频分片上传 + 抬限制 +（可选）服务端首帧缩略图；评估 relay/4G 大文件带宽与超时。
+  - **⚠️ device-verify 必查（赵云 flag）**：100MB 上传走 4G/relay 时，可能被**部署侧 body 限制**卡住——relay nginx 若无 `client_max_body_size`（默认 1MB）会 413（若上传走 nginx HTTP 代理而非 relay WS 帧隧道）；或撞 relay server/daemon 的 WS 单帧/单消息大小上限。张飞真机发大视频时重点验这条，失败则按"上传路径=nginx 代理 还是 relay WS 帧"分别修（加 client_max_body_size / 抬 WS 帧上限）。
+- **下一步**：user 已立项，方案已成 → 待 user 拍 Phase 1 即派关羽（coder）实现，钟馗审 + 张飞真机验。
+
+### 2026-06-10 dispatch 超期阈值对长任务过紧 = overdue 假阳性"狼来了" — 周瑜巡检发现
+
+- **idea-14 dispatch long-task 阈值 / 预期时长标记**：周瑜巡检观察，今天 amy 的两单视频生产任务（`af9f281b`、`c8170214`，memos 出片）**全程都顶着 report_overdue 跑完**——`c8170214` 派出仅 ~6 分钟就被标超期。视频渲染/出片本就是 10+ 分钟级长任务，当前统一 overdue 阈值对这类明显过紧，**每单必假阳性**。
+- **风险**：长期下去把 overdue 信号训练成"狼来了"——真异常（worker 卡死/crash）的红条被淹没在常态误报里，PM/user 学会无视，反而漏掉真卡死（与 [[feedback_worker_reliability_systemic]] 要的"系统兜住真异常"背道而驰）。
+- **方向（待评估 L1）**：①给 `team send` 加可选 `--expected-duration` / `--long-task` 标记，dispatch 携带后 overdue 计时按标记放宽；②或按 worker preset 区分默认阈值（视频/渲染类 preset 天然长）；③overdue 只在"超过该单自己的预期 + 无语义进展"时才亮（结合 idea-8 completion evidence 的 last 进展时间，已有产物持续更新就不算超期）。
+- **关联**：M30 stale-dispatch / 本轮 L1 report_overdue（阈值持有方）、idea-8（completion evidence 可作"真进展"判据）、[[feedback_worker_reliability_systemic]]。promote 前 scoping：阈值来源（per-dispatch 标记 vs per-preset）+ 是否复用 idea-8 进展时间做兜底判据。
+
 ### 2026-06-10 worker crash 中途死、report 前 orphaned 的系统性兜底 — PM 巡检发现
 
 - **idea-13 worker crash WIP 自动保全 + 可见**：2026-06-10 同一修红测试链上赵云、关羽两个 codex worker 先后 `status=error` 异常退出（非任务边界、report 前 crash），各自把 14→5、5→0 的修复 WIP 留在工作树没 report 就死，靠 PM 手动跑全量验证才收口。这不是任务难度问题，是 worker 运行时崩溃（疑 codex context 耗尽或 CLI crash，JS 层拦不住）。
 - **现状基础**：M30 stale-dispatch + 本轮 L1 report_overdue 已能把"有产出未 report"标红进 Cockpit；但 **crash 后的 WIP 既没自动验证也没明确告诉 user"这堆改动没人收"**，全靠 PM 在场手捞。
 - **方向（待评估 L1）**：①worker run `status=error` 退出时，若工作树有该 dispatch 相关 diff，自动把 dispatch 转 report_overdue 并在 Cockpit 高亮"crash 遗留 WIP 待 PM 收口"；②可选自动跑一次 targeted 验证给 PM 参考；③关联 idea-8 completion evidence（last 语义进展时间）判断 crash 前进度；④**orphaned-but-done 人工关闭**：活儿被 PM 验证收口后，orphaned 终态单应能被显式标记"已人工确认关闭"，免得在巡检/Cockpit 反复当悬案（6e19307b 实例：cancel 返 409 因 orphaned 非 open，当前只能靠 narrative 注明）。
-- **关联**：[[feedback_worker_reliability_systemic]]（要系统兜住不手捞）、idea-8。promote 前 scoping：agent_runs status=error 事件钩子 → dispatch 状态联动 → Cockpit 可见。
+- **2026-06-10 夜补充（idea-15 视频功能批次踩到）**：codex worker"首次注入 dispatch 即崩"反复发作——关羽(`8455ce08`)、钟馗(`7d6eda13`)启动即崩，重启/恢复后第二次才成功；疑 worker 坐在 "Press enter to continue" 待输入态时被 dispatch 注入冲突。⑤**reviewer preset 必须纳入兜底**：钟馗(唯一 codex reviewer)崩掉**直接断审查链**，本次靠临时改派 马超(claude，跨 provider 仍独立)补审才没卡死，但若无空闲 claude 就彻底阻塞 ship。兜底应覆盖 reviewer 崩溃 → 自动提示 PM 改派替代独立 reviewer 或 [Restart]。⑥codex 崩"首次注入即崩"若可复现，考虑 dispatch 注入前先探测 worker 是否处于待输入态、或注入前发一个 no-op 唤醒。
+- **关联**：[[feedback_worker_reliability_systemic]]（要系统兜住不手捞）、idea-8、[[feedback_no_self_review_claude_code]]（reviewer 崩时跨 provider 改派要保持独立性）。promote 前 scoping：agent_runs status=error 事件钩子 → dispatch 状态联动 → Cockpit 可见。
 
 ### 2026-06-07 app 内可调通话音量（设置页）— user 真机反复要求
 

@@ -5,6 +5,11 @@
 
 ## In progress
 
+> 🎬📡 **2026-06-10 下午｜relay 4G 真机修通 + app 视频功能立项开工**（当前活跃）
+>
+> - **relay 4G 上线 ✅ 真机验证**：手机连不上的真根因 = 昨日切的 `aliyun.servasyy.com` **未 ICP 备案**，被阿里云按 SNI 对 443 TLS 做 RST（**非** nginx/宝塔/证书，内部回环 WS=101 健康）。已迁到 **`relay.yunzhong2020.com`**（user 已备案子域，同台阿里云机，延迟更低）— DNS A 记录 + acme.sh LE 证书 + nginx 443 反代→:8787 + `relay.json` 改域 + user 重启 4010。手机裸 4G（**关 Clash**，它会把境内域名劫持成 fake-IP）→中继→「Orchestrator 在线」，工作区+聊天满血加载。**此口径取代下方 aliyun.servasyy.com hard cut 块**（servasyy 未备案走不通）。详见记忆 project_relay_aliyun_443_sni_reset。
+> - **idea-15 app 视频功能 Phase 1 开工**：user 手机端立项（传视频 + app 内播放 + 双指缩放，单文件 ≤100MB）。PM scoping 已查实代码（上行 upload 已通 / 图片缩放手势现成 / 唯一缺口=视频播放器，选 expo-video）。派单波折：关羽 codex 启动即崩（`8455ce08` cancel）→ 改派马超 `56aa83f4`，但马超被旧单 e5134140 占住、挂 2h 零 WIP（周瑜升级），cancel。拆两小单并行：服务端 50→100MB → 赵云 `1cfcd0b2` ✅completed；移动端 expo-video 播放器+缩放 → 关羽 `6ceb7e83` ✅completed。**独立审**：钟馗 codex 启动即崩+不自愈，改用**马超(claude)审 codex 码=跨provider独立**（`54ee1a07`）——审出 1 个 **blocking B1**（PM sanity 漏的真 bug）：`relay-rpc-handler.ts` 的 relay/4G 上传路径**还是 50MB**，赵云只升了 routes-mobile 的 LAN 路径 → 4G 传大视频会被拒+误导文案。修复均 ✅completed + PM 复验：B1+N2 → 赵云 `360a9c3e`（upload-limits.ts 抽公共常量、relay-rpc 路径升 100MB、新 relay-rpc 测试 51过/101拒红绿齐、死代码删净，28/28+47/47 绿）；N1+N4 → 关羽 `bdee962f`（size 预检+try/catch+loading，11 tests 绿）。N3(缩放黑边)留 Phase 2。**代码全到位+独立审+blocking 修复+全绿**。下一步：commit → 本地出 APK（expo-video 原生须重打）→ 张飞真机验 4 场景（LAN/4G 大视频上传走通验 B1、原生播放、缩放手势）。钟馗 down 待 user [Restart]（idea-13 同源）。
+
 > 🧹 **2026-06-10｜大批次收口 sprint — ✅ 完成并 push（`3c91ca9`..`d449cbd`）**
 >
 > 挂 3 天的 ~60 文件未提交改动 + main 存量红测试全部审查闭环、分 13 个逻辑 commit 收口并 push origin/main：pairing 统一规则 / aliyun hard cut / M40 手机端播放闸门+retract / relay-crypto dist / sentinel 契约 / GRM Turn Decision contract / PM 文档+ARCHITECTURE.md / M40 服务端下行一致性 / L1 dispatch 状态机+report/mobile-reply 协议硬收口 / 存量红测试修（17 个：3 测试过期 + 14 并行 env 污染&过期 fixture）。
@@ -767,6 +772,14 @@
 - [~] **关羽** dispatch `6e19307b` — 续上单收尾：你报全绿的 5 文件里有 2 个在【默认并行】全量跑仍红，只在 --no-file-parallelism 串行下绿——验证门槛必须是默认并行模式全量绿。铁证（pnpm exec vitest run 全量）：tests/se… ⊘ orphan-submitted: worker stopped without reporting
 > ↑ **已收口（非悬案）**：关羽 crash 在 report 前，但活儿实际改完——PM 默认并行全量验证 1813/1813 全绿 + 钟馗 `636687fa` 审产品代码 0 blocking，已 commit `d449cbd`。orphaned 是准确终态（worker 异常退出未 report），cancel 返 409 符合 L1 语义。此类"orphaned 但活儿已完成"需可人工标记关闭 → 归入 [[idea-13]]。
 - [x] **钟馗** dispatch `636687fa` — 审一批已全绿但含产品代码改动的 WIP（关羽修存量红测试时为根治并行 env 污染顺手改了产品代码，他 crash 在 report 前，未经审查），只审不改代码，blocking-first。背景：14 个 main 存量红测试根因之一…
+- [~] **关羽** dispatch `8455ce08` — 【Phase 1 视频功能：app 内传视频 + 播放 + 双指缩放，单文件 ≤100MB】立项见 .hive/ideas/inbox.md 的 idea-15（含 PM scoping，先读它）。 ⊘ 关羽 worker 启动后立即崩溃退出(codex crash, idea-13 模式)，无 WIP，改派赵云
+- [~] **马超** dispatch `56aa83f4` — 【Phase 1 视频功能：app 内传视频 + 播放 + 双指缩放，单文件 ≤100MB】（原派关羽因 codex worker 崩溃退出改派你，无 WIP，从头做）。立项见 .hive/ideas/inbox.md 的 idea-15… ⊘ 挂 2h 零 WIP，马超被旧单 e5134140 占住没真做；拆成服务端/移动端两小单重派降 context 压力(周瑜建议)
+- [x] **赵云** dispatch `1cfcd0b2` — 【小任务·服务端，idea-15 视频功能 Phase 1 的服务端部分】把 mobile 上传大小限制从 50MB 抬到 100MB（支持视频）。只改 src/server/routes-mobile.ts 的 upload 路由（约 …
+- [x] **关羽** dispatch `6ceb7e83` — 【移动端·视频播放器+双指缩放，idea-15 视频功能 Phase 1 的移动端部分】服务端 100MB 限制是赵云另做，你别碰 src/server。先读 .hive/ideas/inbox.md 的 idea-15。
+- [~] **钟馗** dispatch `7d6eda13` — 【独立审查·idea-15 视频功能 Phase 1，两个 dispatch 的合并改动】两个 coder 已交付，PM 已 sanity 过，需要你独立审（PM 不替代审查）。审完 team report 结构化 review，bloc… ⊘ 钟馗 codex 启动即崩(同关羽 8455ce08 模式)，无 WIP，待恢复后重派
+- [x] **马超** dispatch `54ee1a07` — 【独立审查·idea-15 视频功能 Phase 1，合并改动】钟馗(codex reviewer)崩了不自愈，你(claude)审 关羽/赵云(codex)写的码=独立（你不是作者、跨 provider），按纪律补这次审。审完 team…
+- [x] **赵云** dispatch `360a9c3e` — 【修复·idea-15 Phase 1 服务端 blocking B1 + N2】马超独立审抓到 blocking：你上单只升了 routes-mobile.ts 的 50→100MB，但**外网/4G 上传走的是 relay JSON-…
+- [x] **关羽** dispatch `bdee962f` — 【修复·idea-15 Phase 1 移动端 N1 + N4，小改动】马超审建议 Phase 1 内补：
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
