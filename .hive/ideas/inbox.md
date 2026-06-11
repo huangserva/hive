@@ -17,7 +17,8 @@
   - **Phase 1（快，先 ship）**：chat media 按 `video/*` 分流 → expo-video 播放器套进可缩放 modal（复用 ImagePreviewModal 手势）。覆盖核心诉求：传视频(已通)+app 内播+双指缩放。约束=单文件 ≤100MB（user 2026-06-10 拍板，含服务端 upload 限制 50MB→100MB；base64 膨胀 limitBytes≥140MB）。**派单已拆两小单并行（关羽崩/马超 wedged 后周瑜建议降 context 压力）：服务端 50→100MB → 赵云 `1cfcd0b2`；移动端 expo-video 播放器+缩放 → 关羽 `6ceb7e83`**。
   - **Phase 2**：大视频分片上传 + 抬限制 +（可选）服务端首帧缩略图；评估 relay/4G 大文件带宽与超时。
   - **⚠️ device-verify 必查（赵云 flag）**：100MB 上传走 4G/relay 时，可能被**部署侧 body 限制**卡住——relay nginx 若无 `client_max_body_size`（默认 1MB）会 413（若上传走 nginx HTTP 代理而非 relay WS 帧隧道）；或撞 relay server/daemon 的 WS 单帧/单消息大小上限。张飞真机发大视频时重点验这条，失败则按"上传路径=nginx 代理 还是 relay WS 帧"分别修（加 client_max_body_size / 抬 WS 帧上限）。
-- **下一步**：user 已立项，方案已成 → 待 user 拍 Phase 1 即派关羽（coder）实现，钟馗审 + 张飞真机验。
+- **✅ 2026-06-11 Phase 1 SHIPPED + 真机验**：代码 push origin/main、APK 2.8.15 装机、PM adb 全链路 device-verify 通过（详见 tasks.md narrative）。
+- **⚠️ 发现下行发送缺口（idea-15 立项原话"你也可以传视频给 app 上去播放"未落地）**：Phase 1 只建了 **app 渲染 + 上行（user→app 选发）+ 播放**，**没建"PM/orchestrator 主动发视频给 app"的发送通道**——`team mobile-reply` 只发 text、无媒体 CLI/endpoint，出站插入全是 `{text}`。2026-06-11 user 手机要"你直接发个视频给我看看"，PM 只能从后台手动 sqlite 插一条 outbound media 消息（`f8c12c11` pm-demo.mp4）+ adb 强制 app re-fetch 才显示（raw 插入不触发 app.ts:218 relayConnector.pushEvent 实时推）。渲染端 OK（index.tsx outbound 也走 MediaContent，验证可播）。**Phase 1.5 待建**：`team mobile-send-media`（或 mobile-reply 扩 `--media <path>`）= 把文件存 uploads + 插 outbound media 消息 + 触发 pushEvent 实时推。小活，渲染端现成。
 
 ### 2026-06-10 dispatch 超期阈值对长任务过紧 = overdue 假阳性"狼来了" — 周瑜巡检发现
 

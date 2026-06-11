@@ -5,6 +5,14 @@
 
 ## In progress
 
+> 🔧 **2026-06-11｜Hive 启动健壮性 — 两个启动根因修复**（当前活跃）
+>
+> user 跨机复盘定位 Hive worker 启动即静默退出的根因，PM 在 hive-serva 落两修复（均 push origin/main，**生效需重启 4010**）：
+> 1. **ENFILE watcher**（`e4d1bc1`）：tasks-file-watcher 递归 watch `.hive/reports/**` 把视频帧海 watch 进去 → fd 耗尽 ENFILE → node-pty 无 TTY → worker 崩。收窄 glob 只 watch `*.md`/`*.html` + 锁死测试。本机 macOS fsevents 未爆（fd 75/reports 26 图），serva/Linux 机已复现。详见记忆 project_hive_enfile_watcher_crash。
+> 2. **嵌套 Claude Code env 泄漏**（`bed6ebc`）：从 Claude Code 会话跑 `pnpm dev` 时 4010 继承的 CLAUDECODE/CLAUDE_CODE_SESSION_ID 等 marker 传给 spawned orch/worker → 嵌套检测异常致 orch 不能派单（此前靠 `env -u` 手动兜）。`createAgentSpawnEnv` 在 orch+worker 统一 spawn 边界显式删 6 个 nested marker。**独立审(马超 claude 审 codex)抓出 blocking B1**：原前缀守卫 `startsWith('CLAUDE_CODE_')` 误删 OAuth/Bedrock/Vertex 鉴权 env → 那些用户 worker 反起不来(自相矛盾)；改只匹配显式 set + 真实 process.env 路径回归测试。**第二次独立审救场**(视频 B1 / 此 env B1 都 PM-sanity 漏、马超逮到)。
+> 待办：① user `git pull`(serva 对齐) + 重启 4010(两台)激活两修复 ② env-strip 真机验(普通 API key + OAuth 模式各起一次 worker) ③ 钟馗 codex reviewer 仍 down 待 [Restart]。
+> **idea-15 视频功能下行缺口**：立项"你也可以传视频给 app"的发送端没建(只建渲染+上行+播放)，2026-06-11 PM 手动 sqlite 注入 + adb 演示能播；Phase 1.5 待建 `team mobile-send-media`(渲染端现成)。
+
 > 🎬📡 **2026-06-10 下午｜relay 4G 真机修通 + app 视频功能立项开工**（当前活跃）
 >
 > - **relay 4G 上线 ✅ 真机验证**：手机连不上的真根因 = 昨日切的 `aliyun.servasyy.com` **未 ICP 备案**，被阿里云按 SNI 对 443 TLS 做 RST（**非** nginx/宝塔/证书，内部回环 WS=101 健康）。已迁到 **`relay.yunzhong2020.com`**（user 已备案子域，同台阿里云机，延迟更低）— DNS A 记录 + acme.sh LE 证书 + nginx 443 反代→:8787 + `relay.json` 改域 + user 重启 4010。手机裸 4G（**关 Clash**，它会把境内域名劫持成 fake-IP）→中继→「Orchestrator 在线」，工作区+聊天满血加载。**此口径取代下方 aliyun.servasyy.com hard cut 块**（servasyy 未备案走不通）。详见记忆 project_relay_aliyun_443_sni_reset。
@@ -780,6 +788,9 @@
 - [x] **马超** dispatch `54ee1a07` — 【独立审查·idea-15 视频功能 Phase 1，合并改动】钟馗(codex reviewer)崩了不自愈，你(claude)审 关羽/赵云(codex)写的码=独立（你不是作者、跨 provider），按纪律补这次审。审完 team…
 - [x] **赵云** dispatch `360a9c3e` — 【修复·idea-15 Phase 1 服务端 blocking B1 + N2】马超独立审抓到 blocking：你上单只升了 routes-mobile.ts 的 50→100MB，但**外网/4G 上传走的是 relay JSON-…
 - [x] **关羽** dispatch `bdee962f` — 【修复·idea-15 Phase 1 移动端 N1 + N4，小改动】马超审建议 Phase 1 内补：
+- [x] **关羽** dispatch `50f54c3f` — 【Hive 启动健壮性·永久修第二启动根因：runtime spawn agent 时 strip 嵌套 Claude Code env markers】
+- [x] **马超** dispatch `3581c32e` — 【独立审查·Hive 启动健壮性 env-strip 修复，关羽 dispatch 50f54c3f】钟馗(codex)崩，你(claude)审关羽(codex)写的码=跨 provider 独立。只审不改代码，team report 结…
+- [x] **关羽** dispatch `617b48fc` — 【修复·env-strip blocking B1（马超独立审抓出）】你上单的前缀守卫过度防御，必须收口。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
