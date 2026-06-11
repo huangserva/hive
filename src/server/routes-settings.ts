@@ -1,6 +1,12 @@
 import { getThinkingLevelsForPreset } from '../shared/thinking-levels.js'
 import { resolveCommandPath } from './agent-command-resolver.js'
 import { getSerializedCommandPresetCapabilities } from './command-preset-capabilities.js'
+import { BadRequestError } from './http-errors.js'
+import {
+  catalogEntryToRoleTemplateInput,
+  findMarketplaceCatalogEntry,
+  MARKETPLACE_CATALOG_ENTRIES,
+} from './marketplace-catalog.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
 import type { SessionIdCaptureConfig } from './session-capture.js'
@@ -198,6 +204,42 @@ export const settingsRoutes: RouteDefinition[] = [
       response.end()
     }
   ),
+  route('GET', '/api/settings/marketplace/catalog', ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    sendJson(
+      response,
+      200,
+      MARKETPLACE_CATALOG_ENTRIES.map((entry) => ({
+        slug: entry.slug,
+        name: entry.name,
+        role_type: entry.roleType,
+        tagline: entry.tagline,
+        description: entry.description,
+        default_command: entry.defaultCommand,
+        default_args: entry.defaultArgs,
+        default_env: entry.defaultEnv,
+        source: entry.source,
+      }))
+    )
+  }),
+  route('POST', '/api/settings/marketplace/import', async ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    const body = await readJsonBody<{ slug?: unknown; override_name?: unknown }>(request)
+    const slug = typeof body.slug === 'string' ? body.slug.trim() : ''
+    if (!slug) throw new BadRequestError('slug is required')
+    const entry = findMarketplaceCatalogEntry(slug)
+    if (!entry) throw new BadRequestError(`Unknown catalog slug: ${slug}`)
+    const overrideName =
+      typeof body.override_name === 'string' && body.override_name.trim()
+        ? body.override_name.trim()
+        : undefined
+    const input = catalogEntryToRoleTemplateInput(entry, overrideName)
+    const created = store.settings.createRoleTemplate(input)
+    sendJson(response, 201, {
+      slug: entry.slug,
+      template: serializeRoleTemplate(created),
+    })
+  }),
   route('GET', '/api/settings/app-state/:key', ({ params, request, response, store }) => {
     requireUiTokenFromRequest(request, store.validateUiToken)
     const key = getRequiredParam(response, params, 'key', 'App state key is required')

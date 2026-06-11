@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>模板市场 HippoTeam-native 重做 · 设计 + Phase1 · 2026-06-12</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0d1117; color: #e6edf3; font: 15px/1.65 -apple-system, "Segoe UI", "PingFang SC", sans-serif; padding: 32px 20px 64px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 25px; margin: 0 0 4px; }
+  .sub { color: #8b949e; font-size: 13px; margin-bottom: 22px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; border-left: 3px solid #58a6ff; padding-left: 10px; }
+  h3 { font-size: 14.5px; margin: 18px 0 6px; color: #adbac7; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid #30363d; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #161b22; font-weight: 700; }
+  code, pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #79c0ff; }
+  code { padding: 1px 5px; font-size: 12.5px; }
+  pre { padding: 12px 14px; overflow-x: auto; font-size: 12.5px; line-height: 1.5; color: #c9d1d9; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px 18px; margin: 13px 0; }
+  .tldr { border-color: #d29922; background: #1c1813; }
+  .ok { color: #3fb950; font-weight: 700; } .bad { color: #f85149; font-weight: 700; } .warn { color: #d29922; font-weight: 700; }
+  ul, ol { margin: 8px 0; padding-left: 22px; } li { margin: 5px 0; color: #c9d1d9; }
+  .small { color: #8b949e; font-size: 12.5px; }
+  a { color: #58a6ff; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; }
+  .pill-shipped { background: rgba(63,185,80,0.12); border: 1px solid #3fb950; color: #3fb950; }
+  .pill-design { background: rgba(88,166,255,0.12); border: 1px solid #58a6ff; color: #58a6ff; }
+  .pill-later { background: rgba(210,153,34,0.12); border: 1px solid #d29922; color: #d29922; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>模板市场 — HippoTeam-native 重做（设计 + Phase1）</h1>
+  <div class="sub">2026-06-12 · 马超 (claude coder) · dispatch 3ad6c3b1 · 配套 <code>.hive/research/2026-06-12-template-marketplace.md</code> + ADR draft <code>.hive/decisions/draft-2026-06-12-template-marketplace-native.md</code></div>
+
+  <div class="card tldr">
+    <strong>一句话结论</strong>
+    <p style="margin:8px 0 0">上游 99d3821 起 11 commit 模板市场单条 <b>114,235 行 vendor 污染</b>，5 个 Web 组件 + 1 个 hook 同时绕开我们 <code>role_templates</code> schema 并存两套真源。<b>本单按 PM 推荐边界 native 重做</b>：catalog 是 read-only TS 数组、导入即落 <code>role_templates</code> 表、Phase1 只服务端 + 3 段精选 + 0 UI 改动；Web 入口推到 Phase2。</p>
+    <p style="margin:8px 0 0"><span class="pill pill-shipped">Phase1 ✅</span> 服务端 catalog + 2 个 REST 路由 + 5 个 BUILTIN 缺位的 sample + 13 条 TDD 集成测试全绿。改 3 文件 / +260 行 / 0 vendor / 0 schema 变更。</p>
+  </div>
+
+  <h2>1 · 上游 vs HippoTeam-native 对照</h2>
+  <table>
+    <thead><tr><th>维度</th><th>上游 99d3821 (1.4.0)</th><th>HippoTeam-native (本单)</th></tr></thead>
+    <tbody>
+      <tr><td>数据源</td><td>vendor/marketplace/{en,zh}/*.md ~400 文件</td><td>内置 TS 数组 5 条精选；后续按需扩</td></tr>
+      <tr><td>仓库膨胀</td><td>114,235 insertions（单 commit）</td><td>~260 行（catalog + 路由 + tests）</td></tr>
+      <tr><td>schema 影响</td><td>并存 vendor + role_templates 两套真源</td><td>catalog 不是真源；导入即落 role_templates，is_builtin=0</td></tr>
+      <tr><td>Web 入口</td><td>新 Drawer / Card / Preview / CategoryTree / hook 共 5 文件</td><td>Phase1 无 UI；Phase2 在 AddWorkerDialog 加按钮 + 简单 modal</td></tr>
+      <tr><td>同步策略</td><td><code>pnpm sync:marketplace</code> 拉新版（持续 vendor 增量）</td><td>代码 PR + 发版；Phase3 才考虑远程 catalog.json</td></tr>
+      <tr><td>分类 / 搜索</td><td>EN/ZH 双语 + 分类树 + 预览</td><td>Phase1 平铺；Phase2 看用量再加</td></tr>
+      <tr><td>命名阵容</td><td>EN/ZH historical figures（agency-agents 库）</td><td>跟 HippoTeam 三国阵容并存不冲突</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2 · Phase1 改动清单 <span class="pill pill-shipped">已完成</span></h2>
+  <div class="card">
+    <ul>
+      <li><code>src/server/marketplace-catalog.ts</code> <span class="small">(新增 ~150 行)</span> — catalog 数据模型 + 5 sample + slug 查询 + RoleTemplateInput 映射</li>
+      <li><code>src/server/routes-settings.ts</code> <span class="small">(+44 行)</span> — <code>GET /api/settings/marketplace/catalog</code> + <code>POST /api/settings/marketplace/import</code>（body: <code>{ slug, override_name? }</code>）</li>
+      <li><code>tests/server/marketplace-catalog.test.ts</code> <span class="small">(新增 ~200 行 / 13 条 test)</span> — unit catalog + 真集成 HTTP 路由覆盖落库 / 401 / 400 / 重名 / 多实例</li>
+    </ul>
+    <p><b>未动文件</b>：sqlite schema、role-template-store.ts、Web UI、AddWorkerDialog、useWorkerComposer、useMarketplace（不存在不引入）</p>
+  </div>
+
+  <h2>3 · Phase1 sample 列表（5 条，BUILTIN 缺位的 niche role）</h2>
+  <table>
+    <thead><tr><th>slug</th><th>名称</th><th>role_type</th><th>默认 CLI</th><th>定位</th></tr></thead>
+    <tbody>
+      <tr><td><code>security-auditor</code></td><td>安全审计专员</td><td>reviewer</td><td>codex</td><td>OWASP Top 10 / 供应链 / 凭据泄漏，blocking 优先</td></tr>
+      <tr><td><code>api-designer</code></td><td>API 契约设计师</td><td>coder</td><td>claude</td><td>REST/RPC 契约起草与评审，向后兼容、错误码语义</td></tr>
+      <tr><td><code>k8s-sre</code></td><td>Kubernetes SRE</td><td>coder</td><td>claude</td><td>资源/探针/HPA/Ingress + 可观测性，跟 builtin DevOps 互补不重复</td></tr>
+      <tr><td><code>db-migration-engineer</code></td><td>数据库迁移工程师</td><td>coder</td><td>claude</td><td>online schema 变更 / 回填 / 回滚脚本</td></tr>
+      <tr><td><code>a11y-auditor</code></td><td>无障碍审查员</td><td>reviewer</td><td>claude</td><td>WCAG 2.2 AA — Web/Mobile 焦点/对比度/ARIA/屏读</td></tr>
+    </tbody>
+  </table>
+  <p class="small">所有 sample description 都尾追 HippoTeam 纪律段（team report / 不调内置 subagent / 调研双产出），跟 builtin 一致。</p>
+
+  <h2>4 · API 契约（Phase1）</h2>
+  <div class="card">
+    <h3>GET /api/settings/marketplace/catalog</h3>
+    <pre>200 OK
+[
+  {
+    "slug": "security-auditor",
+    "name": "安全审计专员",
+    "role_type": "reviewer",
+    "tagline": "专扫 OWASP Top 10 / 供应链 / 凭据泄漏，blocking 优先",
+    "description": "你是安全审计专员，...\n\nHippoTeam 纪律：...",
+    "default_command": "codex",
+    "default_args": [],
+    "default_env": {},
+    "source": "hippoteam-native"
+  },
+  ...
+]</pre>
+    <h3>POST /api/settings/marketplace/import</h3>
+    <pre>Request:  { "slug": "security-auditor", "override_name": "我的审计员" }   // override_name 可选
+Response 201:
+{
+  "slug": "security-auditor",
+  "template": {
+    "id": "&lt;uuid&gt;",
+    "name": "我的审计员",
+    "role_type": "reviewer",
+    "description": "...",
+    "default_command": "codex",
+    "default_args": [],
+    "default_env": {},
+    "is_builtin": false
+  }
+}
+
+Errors:
+  400 — slug 缺失或未知 catalog slug
+  403 — UI 凭证缺失（沿用 settings 路由统一鉴权）</pre>
+  </div>
+
+  <h2>5 · 验证</h2>
+  <div class="card">
+    <p><b>tests/server/marketplace-catalog.test.ts</b> 13 测试全绿 + tests/server/settings-api.test.ts 4 测试无回归（共 17 测试）。</p>
+    <p>关键真测路径：</p>
+    <ul>
+      <li>POST import 真发到 server → 落 sqlite role_templates 表 → 再 GET role-templates list 能读回；产品反就过不了</li>
+      <li>不同 slug 不撞 BUILTIN id/name（unit 测试自动锁，加 sample 撞了会立刻 fail）</li>
+      <li>每条 sample description 尾追 HippoTeam 纪律段（unit 测试锁，遗漏会 fail）</li>
+      <li>同一 slug 多次 import 落多条记录（id 不同）</li>
+      <li>override_name 生效且空白 trim</li>
+      <li>未知 slug / 缺 slug 都 400</li>
+    </ul>
+    <p>命令：</p>
+    <pre>pnpm exec vitest run tests/server/marketplace-catalog.test.ts tests/server/settings-api.test.ts
+# Test Files  2 passed (2)
+#      Tests  17 passed (17)</pre>
+  </div>
+
+  <h2>6 · 分期路线 <span class="pill pill-shipped">Phase1</span> <span class="pill pill-design">Phase2</span> <span class="pill pill-later">Phase3</span></h2>
+  <div class="card">
+    <h3>Phase 1（本单，已完成）</h3>
+    <ul>
+      <li>catalog 数据模型 + 2 REST 路由 + 5 sample + 13 TDD 测试。</li>
+      <li>无 Web UI 改动。curl 可走通：<code>curl -b "hive_ui_token=..." -XPOST -H content-type:application/json -d '{"slug":"k8s-sre"}' http://127.0.0.1:4010/api/settings/marketplace/import</code></li>
+    </ul>
+    <h3>Phase 2（user 拍后）</h3>
+    <ul>
+      <li>AddWorkerDialog 内"📚 模板库"按钮 → 极简 modal（列 sample + 一键导入）；不照搬 upstream Drawer。</li>
+      <li>i18n 中英；导入成功后立刻在 AddWorker 角色下拉刷新可见。</li>
+      <li>可能新增 confirm 提示如果重名（即使本单允许多实例，UX 上提示更友好）。</li>
+    </ul>
+    <h3>Phase 3（远期，看真实使用量）</h3>
+    <ul>
+      <li>远程索引（GitHub raw / 自托管 catalog.json），按需 fetch + 缓存。</li>
+      <li>分类树 / search / filter / preview。</li>
+      <li>社区贡献入口（如果 catalog 真的有人贡献）。</li>
+    </ul>
+  </div>
+
+  <h2>7 · PM 文档共维护</h2>
+  <div class="card">
+    <ul>
+      <li>✅ <b>调研类双产出</b>：本 HTML + <code>.hive/research/2026-06-12-template-marketplace.md</code></li>
+      <li>✅ <b>ADR draft</b>：<code>.hive/decisions/draft-2026-06-12-template-marketplace-native.md</code>（背景/决策/native 边界/已知代价/分期），等 user 拍 Phase2 后归档</li>
+      <li>❌ <b>plan.md</b>：本单未推 milestone（属上游 backport，不在当前 M40 主线）— 不更新</li>
+      <li>❌ <b>open-questions</b>：无 drift / 无需 user 拍板的 blocking 问题；ADR 草稿本身就是 Phase 1 → Phase 2 的拍板入口</li>
+      <li>❌ <b>tasks.md</b>：worker 不直接编辑 tasks.md narrative（runtime 维护 dispatch 行；PM 在 sprint 收口时统一加 narrative）</li>
+    </ul>
+  </div>
+
+  <h2>8 · 剩余风险 / 阻塞</h2>
+  <div class="card">
+    <ul>
+      <li><b>无 UI 用户感知</b>：Phase1 只能 curl 导入，普通 user 看不到；这是 PM 推荐的"先做最小"策略，用 ADR 锁住承诺 Phase2 上 UI。</li>
+      <li><b>sample 覆盖窄</b>：5 条远不及上游 ~400；如果真的有用户要长尾 niche，Phase3 走远程索引最经济。</li>
+      <li><b>catalog 是代码不是配置</b>：每加 sample 要发版；Phase3 起远程后此约束消失。</li>
+      <li><b>导入策略允许同 slug 多实例</b>：测试已锁；UX 上可能让用户困惑（同名两条）。Phase2 加 confirm。</li>
+      <li><b>钟馗 review 待审</b>：本单按派单顺序应该走 reviewer 审，配合 user 拍 Phase2 范围。</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>
