@@ -5,6 +5,10 @@
 
 ## In progress
 
+> 📦 **2026-06-12 通宵｜上游 tt-a1i/hive triage 4 项 backport — ✅ 全 ship**（当前活跃）
+>
+> user 拍板把 triage（[reports/2026-06-11-upstream-hive-triage.html]）里值得拿的全做，每件不同人 + 钟馗独立审。一夜 4/4 收口 push origin/main：① **535cfca** worker 状态错(idea-13) 关羽 `5527a8a` ② **shell 防竞态**(in-flight lock+workspace token+optimistic TTL) 赵云 `4ea95da` ③ **terminal 性能**(addon async+parking 复用切 tab 不重建 xterm) 吕布→马超接力 `17c29ac` ④ **marketplace catalog Phase1**(native, read-only→role_templates, 无 UI) 马超 `6bae080`(+ADR draft+设计报告)。共抓修 5 blocking(钟馗串行审,terminal 2/shell 1/marketplace 1)。中途吕布(opencode)崩→马超接力(idea-13 又一例)。**待 user 拍**：marketplace Phase2 UI 范围(ADR draft `decisions/draft-2026-06-12-template-marketplace-native.md`)；未拿的小项 eac529f/ed042e2/c920110。
+
 > 🔧 **2026-06-11｜Hive 启动健壮性 — 两个启动根因修复**（当前活跃）
 >
 > user 跨机复盘定位 Hive worker 启动即静默退出的根因，PM 在 hive-serva 落两修复（均 push origin/main，**生效需重启 4010**）：
@@ -795,6 +799,22 @@
 - [x] **马超** dispatch `da91fd72` — 【上游 triage·Bucket A：worker 可靠性 / dispatch / agent 状态机】背景：HippoTeam 是 tt-a1i/hive 的 fork，上游已 fetch 为 remote 分支 upstream-…
 - [x] **关羽** dispatch `de0d66ac` — 【上游 triage·Bucket B：终端 / shell / PTY / 性能】背景：HippoTeam 是 tt-a1i/hive 的 fork，上游已 fetch 为 remote 分支 upstream-tta1i/main，分…
 - [x] **赵云** dispatch `35d8e3df` — 【上游 triage·Bucket C：marketplace 战略 + 小 UI + misc + 补漏全扫】背景：HippoTeam 是 tt-a1i/hive 的 fork，上游已 fetch 为 remote 分支 upstrea…
+- [~] **关羽** dispatch `af20e655` — 【实现·535cfca worker restart 状态错修复（命中 idea-13 '状态错'，user 已拍可做）】 ⊘ 提示词被 shell 反引号转义弄坏,重派干净版
+- [x] **关羽** dispatch `d8778e06` — 【实现·535cfca worker restart 状态错修复(命中 idea-13,user 已拍)。注意:上条同任务 af20e655 提示词被 shell 转义弄坏已撤,以此条为准】
+- [x] **赵云** dispatch `f2af0e02` — 【实现·上游 triage #2a:shell 启动防竞态最小三件套(user 已拍)】
+- [x] **吕布** dispatch `ede59490` — 【实现·上游 triage #2b:terminal 性能关键子集(user 已拍)】
+- [x] **马超** dispatch `3ad6c3b1` — 【设计+Phase1·上游 triage #3:marketplace 模板市场 HippoTeam-native 重做(user 已拍按 PM 推荐做)】
+- [x] **钟馗** dispatch `004876b9` — 【独立审·535cfca worker restart 状态错修复(关羽 d8778e06)】只审不改,team report 结构化 blocking 优先中文。
+- [x] **钟馗** dispatch `c89bf41e` — 【独立审·terminal 性能子集(吕布 ede59490, opencode 写)】只审不改,team report blocking 优先中文。
+- [~] **吕布** dispatch `d140ad45` — 【修复·terminal 性能 2 个 blocking(钟馗审出)】 ⊘ 吕布 opencode worker 崩停 64 分钟,terminal 修停在 8/10(2 parking 测试红),WIP 保留,接力重派收尾
+- [x] **钟馗** dispatch `d1ab3fdb` — 【独立审·shell 启动防竞态(赵云 f2af0e02, codex 写)】只审不改,team report blocking 优先中文。注意工作树有 terminal(吕布)+marketplace(马超)并行脏改,本单只审 shel…
+- [x] **赵云** dispatch `ecb13e29` — 【修复·shell 防竞态 1 blocking(钟馗审出)】
+- [x] **钟馗** dispatch `167df593` — 【独立审·marketplace Phase1 HippoTeam-native(马超 3ad6c3b1, claude 写)】只审不改,team report blocking 优先中文。注意工作树有 shell(赵云修中)+termi…
+- [x] **马超** dispatch `b84db139` — 【修复·marketplace 1 blocking(钟馗审出)】
+- [x] **钟馗** dispatch `76e34c2b` — 【复审·shell 防竞态 blocking 修复(赵云 ecb13e29)】只审不改,team report 中文。上轮你审出 1 blocking(startShell 没检查 remembered run → TTL 没真防重复 +…
+- [x] **钟馗** dispatch `7a97f5e9` — 【复审·marketplace blocking 修复(马超 b84db139)】只审不改 team report 中文。上轮你审出 1 blocking(缺 POST import 未授权写红绿测试)。马超已补:tests/server…
+- [x] **马超** dispatch `b3983ac3` — 【接力收尾·terminal 性能修复(吕布 opencode 崩停,你接力,claude 最稳)】
+- [x] **钟馗** dispatch `8e298a0b` — 【复审·terminal 性能修复全量(吕布 impl + 马超接力修测试 isolation)】只审不改 team report 中文。经历:吕布 implement(addon async + parking 复用)→你审出 2 bl…
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假

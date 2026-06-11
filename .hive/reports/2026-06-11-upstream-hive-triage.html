@@ -40,6 +40,18 @@
     <p style="margin:8px 0 0">上游分叉点 <code>9363632</code>(2026-05-17) 至今 <strong>117 commit</strong>。HippoTeam fork 改动巨大，<strong>绝大多数候选要么"我们早已吸收"、要么"架构分叉没法直接 cherry-pick"</strong>。真正值得动手的极少：<span class="good">1 个立刻该拿的 bug 修</span> + <span class="good">2 个低风险小拿</span> + <span class="warn">2 个中等工作量重做（你拍）</span> + <span class="strat">1 个 marketplace 战略待拍</span>。docs/release/changelog 那约 30 个全忽略。</p>
   </div>
 
+  <div class="card" style="border-color:var(--good);background:linear-gradient(135deg,#16241a,#171a21)">
+    <strong class="good">✅ 通宵完成（2026-06-12，user 拍板的 4 项全部 ship + 钟馗独立审 + push origin/main）</strong>
+    <table style="margin-top:8px">
+      <tr><th>项</th><th>worker / 审</th><th>commit</th></tr>
+      <tr><td>535cfca worker 状态错修复（idea-13）</td><td>关羽 · 钟馗 0 blocking</td><td><code>5527a8a</code></td></tr>
+      <tr><td>shell 启动防竞态（in-flight lock + workspace token + optimistic TTL）</td><td>赵云 · 钟馗 2 轮</td><td><code>4ea95da</code></td></tr>
+      <tr><td>terminal 性能（addon async + parking 复用切 tab 不重建 xterm）</td><td>吕布→马超接力 · 钟馗 2 轮</td><td><code>17c29ac</code></td></tr>
+      <tr><td>marketplace 模板 catalog Phase 1（HippoTeam-native）</td><td>马超 · 钟馗 2 轮</td><td><code>6bae080</code></td></tr>
+    </table>
+    <p style="margin:8px 0 0" class="mut">每项都走 实现 → 钟馗独立审 → 抓 blocking → 修 → 复审 → 选提 commit（共发现并修复 5 个 blocking：terminal 2、shell 1、marketplace 1，535cfca 一把过）。中途吕布(opencode)崩停、马超接力收尾（idea-13 worker 崩又一例，已记）。<br><strong>未做（你可后续挑）</strong>：① 小拿 eac529f(shell 标号) / ed042e2(auto-reload) / c920110(CLI logos polish)。<strong>待你拍</strong>：marketplace <strong>Phase 2</strong>（UI 入口形态 + 重名 confirm），ADR draft 已起草见 <code>decisions/draft-2026-06-12-template-marketplace-native.md</code>，设计报告见 <code>reports/2026-06-12-template-marketplace.html</code>。</p>
+  </div>
+
   <h2>① 立刻该拿（小、低风险，PM 推荐）</h2>
 
   <div class="verdict conflict">
