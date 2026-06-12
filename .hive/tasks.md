@@ -5,7 +5,15 @@
 
 ## In progress
 
-> 📦 **2026-06-12 通宵｜上游 tt-a1i/hive triage 4 项 backport — ✅ 全 ship**（当前活跃）
+> 🎥 **2026-06-12 下午｜视频功能 4G 可用化 — 媒体走 relay（当前活跃）**
+>
+> 视频/图片真机暴露架构 gap：**4G 下放不了（只 LAN 能播）**——app `resolveMediaUrl` 直连 HTTP 取媒体字节只 LAN 通，4G 走 relay 而 relay-rpc 无 media serve（只 upload+控制）。影响整个视频/图片显示在 4G 下都不工作（user 上传的也一样）。Phase1 device-verify(6/11)在 LAN 做的漏了——教训：**device-verify 必须覆盖 user 真实 4G/relay 路径**。user 远程没 WiFi 拍板修。马超建中（`5b91b080`）：服务端 relay-rpc `media.get` 分块下载 + 移动端经 relay 拉缓存播放 + 进度。→ 钟馗审 → commit → **出新 APK → 张飞 4G 真机验**。
+>
+> **今日已 ship（归档）**：① 下行发送端 `team mobile-send-media`（`f393997`，主管发视频/图片到 app、走 store 自动实时推；立项漏的 Phase1.5 补齐，真机发真视频验过卡片+播放器，4G 播放=上面 gap） ② 上游 triage 4 backport（535cfca/shell/terminal/marketplace `5527a8a`..`6bae080`，每件不同人+钟馗审） ③ 两启动修复（watcher ENFILE + env-strip，4010 重启已激活，不用再 env -u） ④ relay 固化进 repo（`de75d73`） ⑤ PM 维护（module-map 刷新/Q15 park/格式告警清）。
+>
+> **下方 6/07~6/12 各 "当前活跃" 块均已 shipped，留作 build 史。**
+
+> 📦 **2026-06-12 通宵｜上游 tt-a1i/hive triage 4 项 backport — ✅ 全 ship**（已归档）
 >
 > user 拍板把 triage（[reports/2026-06-11-upstream-hive-triage.html]）里值得拿的全做，每件不同人 + 钟馗独立审。一夜 4/4 收口 push origin/main：① **535cfca** worker 状态错(idea-13) 关羽 `5527a8a` ② **shell 防竞态**(in-flight lock+workspace token+optimistic TTL) 赵云 `4ea95da` ③ **terminal 性能**(addon async+parking 复用切 tab 不重建 xterm) 吕布→马超接力 `17c29ac` ④ **marketplace catalog Phase1**(native, read-only→role_templates, 无 UI) 马超 `6bae080`(+ADR draft+设计报告)。共抓修 5 blocking(钟馗串行审,terminal 2/shell 1/marketplace 1)。中途吕布(opencode)崩→马超接力(idea-13 又一例)。**待 user 拍**：marketplace Phase2 UI 范围(ADR draft `decisions/draft-2026-06-12-template-marketplace-native.md`)；未拿的小项 eac529f/ed042e2/c920110。
 
@@ -820,6 +828,7 @@
 - [x] **钟馗** dispatch `d0bf4371` — 【独立审·relay.yunzhong2020.com 固化进 repo(关羽 01f39363, codex 写)】只审不改 team report blocking 优先中文。
 - [x] **马超** dispatch `d922f87e` — 【急·建 idea-15 Phase 1.5:主管发视频给 app(下行发送端)——user 立项要的就是这个,之前漏建,user 很不满,优先】
 - [x] **钟馗** dispatch `e51e59f5` — 【独立审·主管发视频给 app 下行发送端(马超 d922f87e, claude 写)——user 暴怒的功能,必须审对】只审不改 team report blocking 优先中文。
+- [ ] **马超** dispatch `5b91b080` — 【实现·媒体走 relay:让视频/图片在 4G 下能下载播放(user 急等,远程没 WiFi,优先)】
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
