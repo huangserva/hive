@@ -367,7 +367,7 @@ last_review: 2026-06-12
 - **build #19 含全部**：M27 Part A/B + cockpit 一致性批次（milestone 编号 `e4f8106`、Ideas 编号 `b2f4dea`、Tasks 内容对齐 web `8aecdb8`、cockpit 标签页实时 `2956b14`）。Part A/编号/Tasks 装上即生效；Part B 推送 + cockpit 实时需 4010 重启。Action 文案 i18n（后端发 key）单列待 user 拍。
 - 关联：本次 4G relay 连接攻坚（5+1 层 bug 全修，commit `9289919`→`dbbb640`，全过程记于 tasks.md 📡🔥 narrative + `.hive/research/2026-05-30-relay-deployment-kit.md`；polished HTML 报告吕布写时 opencode context 超限止损未成，可后续重派）；cockpit 一致性审计 `.hive/reports/2026-05-30-mobile-cockpit-consistency-audit.html`
 
-### M28 · 手机端追平 Web（mobile-vs-web UI 一致性） · in_progress (审查 2026-05-31，63 条确认)
+### M28 · 手机端追平 Web（mobile-vs-web UI 一致性） · ✅ Phase 1 + Phase 2 主体 shipped 2026-05-31~06-01（#20~#24：Track A 服务端扩字段 5a07730 / Track B 前端降级保留 05fb52d / 多图卡片 chat-media / i18n 全收口，钟馗多轮审）；零星 P2 polish（删/编辑 Worker、Actions targetTab 跳转）滚动收
 > 依据：workflow 全量审查 `.hive/reports/2026-05-31-mobile-vs-web-ui-audit.html` + `.hive/research/2026-05-31-mobile-vs-web-ui-audit.md`（82 agent / 2.5M tok，0 critical / 10 high / 28 medium / 25 low）。
 > 根因不在 UI：**服务端 `routes-mobile.ts` 的 mobile API 只暴露 5 字段**（plan/tasks/questions/ideas/actions），baseline/decisions/research/reports/timeline 源头没输出；且错误处理「清空」而非「降级」。**修服务端一处、多页受益。**
 > ⚠️ drift：M24 Phase 5「orch_reply 自动回灌」、Phase 7「审批推送通道」标 done 实则坏了（见 Phase 1 P0/P1）。
@@ -415,7 +415,7 @@ last_review: 2026-06-12
 - 关联：修完用本地构建出 build（`.hive/research/2026-05-31-local-build-setup` 路线）；改完必须真机验（非 proxy 指标）
 - [x] Track B P0 已在当前 workspace 落地：`thinking_levels` 类型修正、非 silent 重连失败保留旧 dashboard、ConnectionModeBanner 重连态、Cockpit/Tasks/Actions/Worker detail 死按钮收口（`05fb52d`）
 
-### M29 · 推送通知打通（后台也能收提醒） · in_progress (user 拍板 2026-05-31)
+### M29 · 推送通知打通（后台也能收提醒） · 🚧 BLOCKED on Q16（Phase 1 spike done；Phase 2+ 卡 user 决策：是否注册华为开发者账号实名——HMS Push 硬前置，无 GMS 华为机 FCM 物理不可达）
 > 触发：user 问"app 切后台后谁收消息、微信怎么做到的"。讲清=微信靠**系统推送服务**(APNs/FCM/厂商推送)非"后台常连"；user 拍板立此 milestone。目标：app 不在前台也能收到 worker 完成 / 审批请求 / orch 回复的系统推送，点通知进对应页（微信式体验）。
 > 现状：M24 Phase7 做了一半（Expo push 注册真 token + 通知点击 deep-link 路由 approval/worker_done/high_ai_action），**缺实际投递通道**。难点：自建本地构建（已弃 EAS）后推送配置要手动接；国内安卓 FCM 常被墙→可能需厂商推送。
 - [x] **Phase 1 = 调研 spike（马超 2026-05-31，代码未改、纯调研）**：产出 `.hive/reports/2026-05-31-push-notification-spike.html` + `.hive/research/2026-05-31-push-notification-spike.md` + ADR draft `draft-2026-05-31-push-channel.md`。**核心结论**：user 华为折叠屏无 GMS → FCM（含现有 exp.host→FCM 链）从根上投递不了，不是缺凭据是选错通道；华为机后台推送唯一可靠系统通道 = HMS Push Kit。三档方案 A 前台服务保活 relay WS（最小、复用 M28、需电池白名单非 100%）→ B HMS Push（华为本命、被杀也唤醒、需华为实名账号+AGC+Expo HMS 坑）→ C 极光/个推聚合（最广最贵）。推荐 A→B 渐进。待 user 拍：①A→B 还是直接 B ②是否注册华为开发者账号（实名，HMS 硬前置）③是否上 C 兼容非华为。
@@ -434,7 +434,7 @@ last_review: 2026-06-12
 - [~] 修"working 假信号"：用 stale/escalated 时长分档近似；per-dispatch idle 布尔需 per-request PTY snapshot（性能成本）留 Phase2
 - 强 TDD 禁 mock PTY：stale-status 6 + user-surface 5（真 ledger+可控时钟）+ mobile-routes +1，全绿。⚠️ push 投递半边受 M29 制约（华为无 GMS）→ **可靠 user 可见兜底落在看板计数**，push 待 M29 接通 HMS。关联 [[feedback_worker_reliability_systemic]] [[feedback_verify_dispatch_started_after_restart]]。
 
-### M31 · Worker 模型可见 + 可配置（治本 worker 可靠性） · in_progress (user 拍板 2026-05-31)
+### M31 · Worker 模型可见 + 可配置（治本 worker 可靠性） · 🅿️ PARKED 2026-06-12（Q15，user 同意：worker 崩真因=ENFILE/进程崩非模型质量[[project_hive_enfile_watcher_crash]]，reliability 驱动弱化；模型可见价值仍在但不紧急。Phase 1 spike done。revisit 触发见 open-questions Q15）
 > 触发：**user 洞察一针见血**——赵云反复不守规则/不 report/dedup 修 3 次没对的根因是**模型**（codex preset 跑 gpt-5.4-mini，弱，工具纪律差）；马超=claude 可靠。这正是本轮我一直把硬活从赵云转马超的隐性规律，user 把它点破。
 > 现状：worker 数据有 preset/provider_family/thinking_level，但**没有具体模型结构字段**；真实模型（gpt-5.4-mini 等）只在 CLI 状态栏 last_pty 看得到。
 > 核心：把"哪个 worker 靠谱"从隐藏变成 **user 能看见 + 能调**。
@@ -451,7 +451,7 @@ last_review: 2026-06-12
 - [ ] **Phase 2**：PM review/commit 流程（主树查 N worktree diff → apply/cherry-pick → 主树验证 commit；worker worktree 绝不直接 commit）+ 冷重启/残留 ensure（参考 OpenTeams 建失败回滚）。
 - 关键约束：**与 M25 都动 launch 路径，必须串行实施避免冲突**（M32 改 cwd，M25 改 env/session）；保留 PM 主树唯一整合点，刻意不做对手的重合并门/per-worker PR。
 
-### M33 · 远程可诊断性 + provider 活动证据（双竞品三角合成 idea-8） · in progress (user 2026-06-01 经手机 Cockpit promote idea-8→milestone)
+### M33 · 远程可诊断性 + provider 活动证据（双竞品三角合成 idea-8） · 📋 roadmap-only / 未开工（2026-06-01 promote 成里程碑但未实现，连 spike 都没派；hive doctor --json/--bundle + provider activity evidence 三项全 open。待视频 4G 收口后排）
 > 触发：双竞品三角合成（[[idea-8]] in `.hive/ideas/inbox.md`）——OpenTeams（全 SQLite 事件流）+ CCB（doctor/support bundle/completion evidence）独立印证。HippoTeam 是三方唯一"远程优先"却最缺"user 手机看底层证据"。拆"假矛盾"：我们卡死**探测**强（M26/M30/哨兵 never-silent），但缺"活着的 agent 此刻在干嘛"的**可解释性证据**。探测≠可解释。
 > 现状基础：M25 line 251 已标"可单列 M25b：hive doctor/support bundle"；本 milestone = 因双竞品印证升格独立。
 - [ ] 只读 `hive doctor --json`（runtime/schema_version/agents status+pending/dispatches open/relay+mobile+feishu/PM docs orphan）
@@ -459,7 +459,7 @@ last_review: 2026-06-12
 - [ ] **provider activity evidence**（采 provider hook/session log 的 last 语义进展/last tool/last assistant chunk → 手机+Cockpit 显示"working, last progress 8m ago, evidence: tool_call"；**不改三态、不自动 kill，只触发 ActionBar 软提醒**）
 - ✅ user 2026-06-01 经手机 promote idea-8→正式 milestone（idea-8 归 ideas promoted 段）。下一步：派设计 spike 摸 ①hive doctor --json/--bundle 字段+导出边界（排 secrets）②provider activity evidence 怎么采（hook/session log）+ 怎么 surface 到手机/Cockpit 不改三态。待 user 拍是否现在开 spike 还是只上 roadmap。
 
-### M34 · 未审代码改动看板兜底（"claude 必审"从靠记性→系统拦） · in progress (user 拍板 2026-06-01 "立")
+### M34 · 未审代码改动看板兜底（"claude 必审"从靠记性→系统拦） · ✅ Phase 1 shipped 2026-06-01（实现 ff6f29f，钟馗复审 e382b71c 0 blocking，真 store 集成测试穿透 RuntimeStore 抓回旧 bug）；Phase 2（reviews_dispatch_id 精确配对 / 扩全 coder）deferred
 > 触发：本 session **PM 自己演示了这个洞**——审查靠 PM 手动记得派钟馗，结果 PM 图省事自审了 9 行 i18n（`538d004`）漏派钟馗，被 user 当场戳穿"claude 审 claude 不靠谱"。靠人记性会漏，连 PM 自己都漏。
 > 目标：coder（尤其 claude preset）report 了**代码改动**、但没有对应 reviewer dispatch 跟上时 → Cockpit **硬亮"⚠️未审"**，never-silent（同构 M30 stale-dispatch 看板兜底，不靠 push/LLM/PM 记性）。
 > 关联：[[feedback_no_self_review_claude_code]]（本条根因）；M30 stale-dispatch（同构兜底范式，复用其纯函数 + aiAction 模式）；[[feedback_worker_reliability_systemic]]（治本不靠手动）。
@@ -535,7 +535,7 @@ last_review: 2026-06-12
 >   - 快=项目上下文读取全异步（钟馗抓出 execFileSync 同步冻结事件循环→改 fs.promises+promisify，热路径零同步 IO）
 > - ✅ **真机验通**：user 测 "快准狠前台真对话成了"，回复全是项目认知+直接利落
 
-### M37 · 语音对讲治本（GLM 门卫 + STT 守卫 + 神经人声 VAD）· in_progress 2026-06-03~04
+### M37 · 语音对讲治本（GLM 门卫 + STT 守卫 + 神经人声 VAD）· ✅ shipped 2026-06-03~04（GLM 门卫 a62fbd5 + STT 拦截 8c189fd 在 routes-mobile live 默认开；神经 VAD Phase1/2 f67197c/77bf39e shadow 真机验过 2.6.15；Phase3 gate barge-in 代码生效 talk.tsx:821 真打断。唯一未正式收=生效神经 barge-in 一次专门真机复验，并入下次通话）
 > M36 暴露的根本问题的治本线，user 拍板。
 > - ✅ **idea-9 GLM 门卫化 `a62fbd5`（待 4010 重启激活）**：纯状态/进度问题 GLM 答完不注入 orchestrator（不再 GLM+orch 双回复），带操作的仍转交。钟馗死磕"绝不丢消息"+抓到消息黑洞 blocking（handled+insert失败）已闭环；所有不确定路径默认 escalate；flag=0 回退。
 > - ✅ **STT 团队名回吐拦截 `8c189fd`（待重启）**：拦 whisper 在噪声上吐"词:张飞吕布…"团队名垃圾，钟馗抓到误杀真短指令 blocking（动作词白名单）已闭环。
