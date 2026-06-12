@@ -50,7 +50,9 @@ import {
   COMPOSER_INPUT_MIN_HEIGHT,
   resolveComposerInputHeight,
 } from '../../src/lib/composer-height'
+import { deriveMediaContentImageState } from '../../src/lib/media-content-image-state'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
+import { useRelayMediaSource } from '../../src/lib/use-relay-media-source'
 import { colors, radius, spacing } from '../../src/theme'
 
 type OptimisticMessage = {
@@ -1404,13 +1406,66 @@ const MediaContent = ({
   const [imageFailed, setImageFailed] = useState(false)
   const isImage = isChatMediaImage(media)
   const isVideo = isChatMediaVideo(media)
-  const uri = resolveMediaUrl(media.url, runtimeHost)
+  const lanUri = resolveMediaUrl(media.url, runtimeHost)
+  // relay 模式下经 media.get 分块拉到本地缓存；LAN 模式下保持直连 URI（headers + token）。
+  const relaySource = useRelayMediaSource({
+    lanFallbackUri: lanUri,
+    mediaUrl: media.url,
+    totalSize: media.size ?? null,
+  })
+  const uri = relaySource.uri
   const isRemoteHttp = /^https?:\/\//iu.test(uri)
   const imageSource =
     isRemoteHttp && authToken ? { headers: { Authorization: `Bearer ${authToken}` }, uri } : { uri }
   const meta = mediaSizeLabel(media.size)
+  const downloadProgressLabel = relaySource.isDownloading
+    ? relaySource.progress && relaySource.progress.totalBytes > 0
+      ? `${Math.min(
+          100,
+          Math.round((relaySource.progress.bytesDownloaded / relaySource.progress.totalBytes) * 100)
+        )}%`
+      : '…'
+    : null
 
-  if (isImage && !imageFailed) {
+  // 钟馗 blocking #2：把"render Image / 显示下载占位 / reset failed flag"集中到
+  // 纯函数 deriveMediaContentImageState 做决策（见 media-content-image-state.ts 决策表）。
+  // 旧 bug：LAN onError → imageFailed=true，relay 下完切到 file:// URI 后没人 reset，
+  // 图片永久挡。新逻辑：uri 一变就 reset failed；下载中根本不渲染 Image（避免 LAN
+  // URI 闪红）。
+  const previousUriRef = useRef<string | null>(null)
+  const imageRenderState = isImage
+    ? deriveMediaContentImageState({
+        uri,
+        previousUri: previousUriRef.current,
+        imageFailed,
+        isDownloading: relaySource.isDownloading,
+      })
+    : null
+  useEffect(() => {
+    if (imageRenderState?.shouldResetImageFailed) setImageFailed(false)
+    previousUriRef.current = uri
+  }, [imageRenderState?.shouldResetImageFailed, uri])
+
+  if (imageRenderState?.shouldShowDownloadingPlaceholder) {
+    return (
+      <View
+        accessibilityLabel={`${media.filename} · 4G 下载中`}
+        style={compact ? mediaStyles.imageContainerCompact : mediaStyles.imageContainer}
+      >
+        <View style={mediaStyles.fileCard}>
+          <Ionicons color={colors.accent} name="cloud-download-outline" size={24} />
+          <View style={mediaStyles.fileMeta}>
+            <Text numberOfLines={1} style={mediaStyles.fileNameOut}>
+              {media.filename}
+            </Text>
+            <Text style={mediaStyles.fileSize}>{`4G 下载 ${downloadProgressLabel ?? '…'}`}</Text>
+          </View>
+        </View>
+      </View>
+    )
+  }
+
+  if (imageRenderState?.shouldRenderImage) {
     return (
       <View style={compact ? mediaStyles.imageContainerCompact : mediaStyles.imageContainer}>
         <Pressable
@@ -1429,10 +1484,19 @@ const MediaContent = ({
     )
   }
   if (isVideo) {
+    const videoSizeText = meta
+      ? t('chat.media.videoWithSize', { size: meta })
+      : t('chat.media.video')
+    const sublabel = downloadProgressLabel
+      ? `${videoSizeText} · 4G 下载 ${downloadProgressLabel}`
+      : relaySource.error
+        ? `${videoSizeText} · 4G 下载失败`
+        : videoSizeText
     return (
       <Pressable
         accessibilityLabel={media.filename}
         accessibilityRole="button"
+        disabled={relaySource.isDownloading}
         onPress={() => onPreviewVideo(imageSource, media.filename)}
         style={mediaStyles.fileCard}
       >
@@ -1446,7 +1510,7 @@ const MediaContent = ({
             {media.filename}
           </Text>
           <Text selectable style={mediaStyles.fileSize}>
-            {meta ? t('chat.media.videoWithSize', { size: meta }) : t('chat.media.video')}
+            {sublabel}
           </Text>
         </View>
       </Pressable>

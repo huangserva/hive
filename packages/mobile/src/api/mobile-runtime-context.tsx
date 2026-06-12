@@ -99,7 +99,7 @@ import {
 } from './mobile-runtime-context-logic'
 import { generateDeviceKeypair } from './relay-device-keys'
 import { resolveRelayEventActions } from './relay-event-actions'
-import type { RelayTransportEvent } from './relay-transport'
+import type { RelayTransport, RelayTransportEvent } from './relay-transport'
 import { createRelayTransportRegistry } from './relay-transport-registry'
 import type { VoiceCallStateFrame, VoiceCallStatePhase } from './voice-call-state-protocol'
 import {
@@ -221,6 +221,12 @@ interface MobileRuntimeContextValue {
     filename: string,
     mimeType: string
   ) => Promise<{ file_id: string; url: string } | null>
+  /**
+   * 拿当前 relay transport 引用，让 relay 模式下的媒体下载（media.get 分块）
+   * 直接 call RPC，不重复走 client.ts 那套 LAN-first 探测（媒体走 relay 必须）。
+   * relay 没连上时返回 null；调方应据此走 LAN 直连兜底。
+   */
+  getActiveRelayTransport: () => RelayTransport | null
   webRtcTestCall: WebRtcTestCallState
   webRtcCallPhase: VoiceCallStatePhase
   webRtcDownlinkVolume: number
@@ -1092,6 +1098,12 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
     [client]
   )
 
+  const getActiveRelayTransport = useCallback((): RelayTransport | null => {
+    const transport = observedRelayTransportRef.current
+    if (!transport) return null
+    return transport.status() === 'ready' ? transport : null
+  }, [])
+
   const measureRelayVoiceStreamLatency = useCallback(
     async (options?: VoiceStreamLatencyOptions) => {
       const transport = observedRelayTransportRef.current
@@ -1942,6 +1954,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       disconnect,
       dispatchTask,
       enableDemoMode,
+      getActiveRelayTransport,
       listCommandPresets,
       measureRelayVoiceStreamLatency,
       error,
@@ -2001,6 +2014,7 @@ export const MobileRuntimeProvider = ({ children }: PropsWithChildren) => {
       enableDemoMode,
       error,
       fetchChatMessages,
+      getActiveRelayTransport,
       listCommandPresets,
       measureRelayVoiceStreamLatency,
       getCockpit,

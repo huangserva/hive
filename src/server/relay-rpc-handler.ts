@@ -1,5 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  closeSync as syncCloseFd,
+  writeFileSync,
+} from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { parseCockpit } from './cockpit-doc.js'
@@ -85,6 +97,73 @@ type PendingUploadPath = {
 
 const PENDING_UPLOAD_TTL_MS = 5 * 60 * 1000
 const pendingUploadPaths = new Map<string, PendingUploadPath[]>()
+
+// chunk 大小：256KB（base64 后约 350KB），足够小不撞 relay 单帧上限，又
+// 不至于让 54MB 视频太多 round-trip（54MB → 约 211 chunk）。客户端可显式
+// 传 length 覆盖（钳到 [1KB, 1MB] 安全窗口）。
+const MEDIA_GET_DEFAULT_CHUNK_BYTES = 256 * 1024
+const MEDIA_GET_MIN_CHUNK_BYTES = 1024
+const MEDIA_GET_MAX_CHUNK_BYTES = 1024 * 1024
+const MEDIA_UPLOAD_URL_PREFIX = '/api/mobile/uploads/'
+// safe basename：UUID + 可选扩展名。禁 '/' / '..' / 控制字符等所有 path-traversal 载体。
+const SAFE_UPLOAD_BASENAME = /^[A-Za-z0-9_.-]+$/u
+const MEDIA_GET_PATH_TRAVERSAL_ERROR = 'Resolved media path escapes uploads directory'
+
+/**
+ * 把 client 传来的 `url=/api/mobile/uploads/<basename>` 映射到磁盘 path，
+ * 并对 path-traversal + symlink 逃逸做严格防护。
+ *
+ * - 字符串层：前缀强制 `/api/mobile/uploads/`，basename 只允许 [A-Za-z0-9_.-]+，
+ *   显式拒 `/` `\\` `..` 等所有载体。
+ * - resolve 层：`path.resolve(uploadsDir/basename)` 必须 startsWith resolve(uploadsDir)。
+ * - **symlink 层（钟馗 blocking #3）**：调用方可经 `verifyNotSymlink + verifyRealpath`
+ *   再做一次真实文件类型与真实路径校验，防有人 `ln -s /etc/passwd uploads/<uuid>.mp4`。
+ *   字符串校验在文件存在前就能跑（用于早拒非法 URL）；symlink 校验需要文件已存在。
+ */
+export const resolveSafeUploadPath = (
+  uploadsDir: string,
+  url: string
+): { basename: string; diskPath: string } => {
+  if (!url.startsWith(MEDIA_UPLOAD_URL_PREFIX)) {
+    throw new Error('Unsupported media url prefix')
+  }
+  const basename = url.slice(MEDIA_UPLOAD_URL_PREFIX.length)
+  if (!basename || basename.includes('/') || basename.includes('\\') || basename === '..') {
+    throw new Error('Invalid media basename')
+  }
+  if (!SAFE_UPLOAD_BASENAME.test(basename)) {
+    throw new Error('Media basename contains disallowed characters')
+  }
+  const resolvedUploadsDir = resolve(uploadsDir)
+  const diskPath = resolve(join(uploadsDir, basename))
+  if (diskPath !== resolvedUploadsDir && !diskPath.startsWith(`${resolvedUploadsDir}${sep}`)) {
+    throw new Error(MEDIA_GET_PATH_TRAVERSAL_ERROR)
+  }
+  return { basename, diskPath }
+}
+
+/**
+ * symlink 真实路径校验（钟馗 blocking #3）：
+ *
+ * - `lstatSync` 拒任何 symbolic link（包含指向 uploads 内的也拒，硬规则；upload
+ *   写入路径用 `writeFileSync` 不会创建 symlink，只可能被外部 `ln -s` 注入）。
+ * - `realpathSync(diskPath)` 必须仍位于 `realpathSync(uploadsDir)` 之下；防 uploadsDir
+ *   本身被父目录 symlink 间接逃逸（极端场景但便宜防）。
+ *
+ * 必须在 `existsSync` 之后调用，否则 lstat 会抛 ENOENT（让调用方区分"文件不存在"
+ * 与"是 symlink"两类错）。
+ */
+export const verifyUploadPathNotSymlink = (uploadsDir: string, diskPath: string): void => {
+  const lstat = lstatSync(diskPath)
+  if (lstat.isSymbolicLink()) {
+    throw new Error('Media path is a symbolic link')
+  }
+  const realUploadsDir = realpathSync(resolve(uploadsDir))
+  const realDiskPath = realpathSync(diskPath)
+  if (realDiskPath !== realUploadsDir && !realDiskPath.startsWith(`${realUploadsDir}${sep}`)) {
+    throw new Error(MEDIA_GET_PATH_TRAVERSAL_ERROR)
+  }
+}
 const DEFAULT_WEBRTC_ICE_SERVERS = [
   { urls: 'stun:openrelay.metered.ca:80' },
   {
@@ -495,6 +574,68 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         ok: true,
         size: dataBuffer.length,
         url,
+      }
+    }
+
+    if (method === 'media.get') {
+      requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
+      const url = readStringParam(params, 'url')
+      const rawOffset = params.offset
+      const offset =
+        typeof rawOffset === 'number' && Number.isFinite(rawOffset) && rawOffset >= 0
+          ? Math.floor(rawOffset)
+          : 0
+      const rawLength = params.length
+      const requestedLength =
+        typeof rawLength === 'number' && Number.isFinite(rawLength) && rawLength > 0
+          ? Math.floor(rawLength)
+          : MEDIA_GET_DEFAULT_CHUNK_BYTES
+      const length = Math.min(
+        MEDIA_GET_MAX_CHUNK_BYTES,
+        Math.max(MEDIA_GET_MIN_CHUNK_BYTES, requestedLength)
+      )
+      const dataDir = deps.runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
+      const uploadsDir = join(dataDir, 'uploads')
+      const { diskPath } = resolveSafeUploadPath(uploadsDir, url)
+      if (!existsSync(diskPath)) {
+        throw new Error('Media file not found')
+      }
+      // 钟馗 blocking #3：在 statSync/openSync 之前用 lstat 拒 symlink，并用 realpath
+      // 校验真实路径仍在 uploadsDir 下（否则 `ln -s /etc/passwd uploads/<uuid>.mp4`
+      // 可让 statSync/openSync 跟随 symlink 读 uploads 外文件）。
+      verifyUploadPathNotSymlink(uploadsDir, diskPath)
+      const stat = statSync(diskPath)
+      if (!stat.isFile()) {
+        throw new Error('Media path is not a regular file')
+      }
+      const totalSize = stat.size
+      if (offset > totalSize) {
+        throw new Error('Media offset out of range')
+      }
+      const remaining = Math.max(0, totalSize - offset)
+      const actualLength = Math.min(length, remaining)
+      let dataBase64 = ''
+      if (actualLength > 0) {
+        const fd = openSync(diskPath, 'r')
+        try {
+          const buffer = Buffer.allocUnsafe(actualLength)
+          let bytesRead = 0
+          while (bytesRead < actualLength) {
+            const n = readSync(fd, buffer, bytesRead, actualLength - bytesRead, offset + bytesRead)
+            if (n <= 0) break
+            bytesRead += n
+          }
+          dataBase64 = buffer.subarray(0, bytesRead).toString('base64')
+        } finally {
+          syncCloseFd(fd)
+        }
+      }
+      return {
+        data: dataBase64,
+        eof: offset + actualLength >= totalSize,
+        length: actualLength,
+        offset,
+        total_size: totalSize,
       }
     }
 
