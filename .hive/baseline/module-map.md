@@ -1,7 +1,7 @@
 # Module Map
 
 > 代码模块职责边界。受 200 行限制：高风险/入口文件逐项列，同构小文件按 family 合并。
-> **DRAFT 2026-05-31（马超刷新，待 user 校对）** — 对照 ~3 天 git log（M23 timeline / M25 provider 隔离 / M26+M30 汇报可靠性 / M27 relay 4G / M28 mobile 追平 web / M29 push 调研 / 自建本地构建）刷新。
+> **DRAFT 2026-06-12（马超 refresh，待 user 校对）** — 对照 2026-05-31 至今 41 次代码变更刷新：upload-limits 抽常量、marketplace catalog、worker 状态机修 535cfca、嵌套 Claude Code env strip、tasks watcher ENFILE 修、mobile upload 100MB、web TerminalView reparent/parking + shell 防竞态、relay aliyun hard cut、mobile 视频功能。
 
 ## 后端 (src/server/)
 
@@ -16,12 +16,12 @@
 - runtime-store-helpers.ts — 创建 stores/watcher/agentRuntime/lifecycle；接线 stalled-dispatch-nudge 的 user-surface 回调（M30）。
 - runtime-database.ts / sqlite-schema.ts — 打开 runtime.sqlite；**当前 schema v32**，迁移调度。
 - sqlite-schema-v*.ts — 增量迁移；近期 v28 mobile_chat_messages、v29 device.source、v30 删 pairing code、v31 mobile_media_uploads、v32 agent_run_timeline_events。
-- workspace-store*.ts — workspace/worker 内存状态 facade + 契约 + hydration + 三态/pending mutation + support/路径校验。
+- workspace-store*.ts — workspace/worker 内存状态 facade + 契约 + hydration + 三态/pending mutation + support/路径校验。**workspace-store-mutations.markAgentStarted 强制 status='idle'**（535cfca 修复 idea-13 状态错：restart 后不假显示 working；pendingTaskCount 仍保留 backlog 给 WorkerModal/recovery 看，下一次 markTaskDispatched 才转 working）。
 - app-state-store.ts / settings-store.ts — app_state 表；command preset/app settings 持久化。
 
 ### Agent lifecycle / PTY
 - agent-runtime.ts (+ agent-runtime-*.ts/-types.ts) — agent runtime facade、active run/list/stop/ports/close 细分、LiveAgentRun 类型。
-- agent-manager.ts / agent-manager-support.ts — node-pty process manager；spawn/onData/onExit/onError/finish。
+- agent-manager.ts / agent-manager-support.ts — node-pty process manager；spawn/onData/onExit/onError/finish。**createAgentSpawnEnv 显式 strip 嵌套 Claude Code env marker**（`AI_AGENT/CLAUDECODE/CLAUDE_CODE_ENTRYPOINT/CLAUDE_CODE_EXECPATH/CLAUDE_CODE_SESSION_ID/CLAUDE_EFFORT`）防从 Claude Code 会话里启动 4010 时父会话 marker 串入子 PTY 导致 orch 不能正常派单；钟馗审后改用 explicit set，无 prefix 守卫（避免误删 `CLAUDE_CODE_OAUTH_TOKEN` 等用户 env）。
 - agent-run-bootstrap.ts / -starter.ts / -start-context.ts / -exit-handler.ts — 组装启动命令+PATH+env+thinking、start context、post-start 注入、exit 落盘。
 - agent-run-store.ts / -sync.ts / live-run-registry.ts — agent_runs 表 CRUD、live↔persisted 同步、live registry。
 - provider-runtime-profile.ts — **M25 provider session 隔离**：per-agent managed CODEX_HOME + session root（config/auth 投影），消除多 codex worker 串线；fresh+resume 都钉死。
@@ -54,7 +54,7 @@
 - workspace-shell-runtime.ts — workspace shell terminal live runs（含 started_at）。
 
 ### PM / .hive docs
-- tasks-file.ts / tasks-file-watcher.ts — seed/读写 .hive 文件；chokidar watch tasks/plan/cockpit。
+- tasks-file.ts / tasks-file-watcher.ts — seed/读写 .hive 文件；chokidar watch tasks/plan/cockpit。**watch glob 收窄到 `reports/*.html` / `reports/*.md` 等具体扩展名，不再递归 `reports/**`**（idea-13 2026-06 ENFILE 根因：视频逐帧 jpg 海塞 reports/ 会把 fd 耗尽 → node-pty 分不到 TTY → worker 启动 2s exit）。
 - plan-doc.ts / cockpit-doc.ts — plan.md parser；ParsedCockpit 聚合 + aiActions（reports 聚合、playbook 建议）。
 - pm-questions/ideas/baseline/decisions/archive/reports/research/tasks-doc.ts — 各 PM 文档 parser；baseline-doc 含 git staleness 检测；reports-orphan-detector 检测缺 research 的孤儿。
 - pm-reports-orphan-detector.ts / pm-templates.ts — 孤儿报告检测；plan/ADR/handoff/research/baseline + 5 playbook 模板。
@@ -81,7 +81,7 @@
 - webrtc-vad.ts — 服务端能量 VAD；切 utterance 给上行 STT。
 
 ### Mobile backend（src/server）
-- routes-mobile.ts — mobile API：token/device CRUD、push-token、dashboard（含 runs.started_at + stale/escalated_dispatches 计数）、tasks、transcript、voice、cockpit（plan/tasks/questions/ideas/actions + baseline/decisions/reports/research/archive）、dispatch/approve/worker controls。
+- routes-mobile.ts — mobile API：token/device CRUD、push-token、dashboard（含 runs.started_at + stale/escalated_dispatches 计数）、tasks、transcript、voice、cockpit（plan/tasks/questions/ideas/actions + baseline/decisions/reports/research/archive）、dispatch/approve/worker controls。**upload 限制经 `upload-limits.ts` 共用常量升 50→100MB**（视频）。
 - mobile-auth.ts — capability model、permanent token CRUD、device revoke/delete、push_token。
 - mobile-chat-store.ts — mobile_chat_messages CRUD（user_text/orch_reply/worker_report/approval_request/system_event）。
 - mobile-orchestrator-reply-capture.ts — **M24/M28** 捕获 orch PTY 对话回复→mobile_chat_messages（mobile 轮开窗、10s 静默 flush、过滤系统/工具/思考行；team mobile-reply 显式写时去重）。
@@ -91,11 +91,13 @@
 
 ### Relay backend（daemon 侧，src/server）
 - relay-connector.ts — daemon→relay outbound WS connector；E2E 加密握手、room join、auto-reconnect、pushEvent（dashboard_update/chat_message 实时推 M27）。
-- relay-rpc-handler.ts — relay inbound JSON-RPC handler：dashboard/tasks/transcript/voice/dispatch/approve/create-worker 等代理到本地 runtime API（M27 补齐 6 个缺失方法）。
+- relay-rpc-handler.ts — relay inbound JSON-RPC handler：dashboard/tasks/transcript/voice/dispatch/approve/create-worker 等代理到本地 runtime API（M27 补齐 6 个缺失方法）；`voice.webrtc.iceConfig` 返回 `resolveWebRtcIceServers()`（`HIVE_WEBRTC_ICE_SERVERS_JSON` 注入 TURN）；**upload 共用 `upload-limits.MOBILE_UPLOAD_MAX_BYTES=100MB`**（与 LAN HTTP 路径常量统一）。
 - relay-config.ts — ~/.config/hive/relay.json keypair + relay URL 配置。
 
 ### File system / routes / 启动
-- routes-workspaces/runtime/team/dispatches/tasks/plan/cockpit/fs/settings/ui/version.ts — 各 HTTP endpoint（cockpit 含 report-file 同浏览器 serve + path-traversal 防护）。
+- routes-workspaces/runtime/team/dispatches/tasks/plan/cockpit/fs/settings/ui/version.ts — 各 HTTP endpoint（cockpit 含 report-file 同浏览器 serve + path-traversal 防护）；**routes-settings 新增 `GET /api/settings/marketplace/catalog` + `POST /api/settings/marketplace/import`**（marketplace catalog 读取 + 导入落 role_templates）。
+- upload-limits.ts — **mobile upload 体积公共常量**（`MOBILE_UPLOAD_MAX_BYTES=100MB` + `MOBILE_UPLOAD_JSON_BODY_LIMIT_BYTES=140MB`，base64 ~33% 膨胀容差）；routes-mobile + relay-rpc-handler 共用，避免一处升另一处漏（钟馗 B1 修法）。
+- marketplace-catalog.ts — **read-only 模板 catalog**（5 个 BUILTIN 缺位的 niche sample：security-auditor / api-designer / k8s-sre / db-migration-engineer / a11y-auditor）；`catalogEntryToRoleTemplateInput` 映射到 RoleTemplateInput → `store.settings.createRoleTemplate` 落 role_templates 表（不并存两套真源）；ADR draft `decisions/draft-2026-06-12-template-marketplace-native.md`。
 - fs-browse.ts / fs-pick-folder.ts / fs-sandbox.ts / open-file.ts — 文件浏览/原生选择器/路径 guard/跨平台 open。
 - role-template-store.ts / role-templates.ts — role_templates 表 + 内置模板。
 - orchestrator-launch.ts / orchestrator-autostart.ts — 默认 orch launch config seed + 创建 autostart。
@@ -105,7 +107,7 @@
 - app.tsx / main.tsx / AppProviders/AppOverlays/AppWorkspaceContent.tsx / WorkspaceDetail/WorkspaceTerminalPanels.tsx — root 组合、entrypoint、providers、drawers、active workspace 内容、terminal 布局。
 - api.ts / reconnecting-websocket.ts / preload-recovery.ts — fetch/WS client + 类型；WS backoff 重连；Vite dynamic-import 失败自动 reload。
 - cockpit/* — Cockpit drawer + tabs（Questions/Ideas/Baseline/Decisions/Archive/Reports/Research/Tasks/Timeline）、action bar、文档 viewer、useCockpit。
-- plan/* tasks/* terminal/* worker/* workspace/* — Plan drawer；task graph+parser；xterm client+shell；Add Worker/cards/Sentinel/orch pane；Add Workspace/settings/MobileDevicesSection（含 QR 查看）。
+- plan/* tasks/* terminal/* worker/* workspace/* — Plan drawer；task graph+parser；xterm client+shell；Add Worker/cards/Sentinel/orch pane；Add Workspace/settings/MobileDevicesSection（含 QR 查看）。**terminal/TerminalView.tsx：`useStablePortalHost` + `#hive-terminal-parking-lot` singleton DOM**（切 tab 时把 host node reparent 到新 portal slot 不重建 xterm 不重连 WebSocket；目标丢失 500ms 后才 dispose）。**terminal/useTerminalRun.ts：xterm + addon 异步懒加载**（顶级 `Promise.all([@xterm/xterm, addon-fit, addon-unicode11, addon-clipboard])`，二级 `import('@xterm/addon-web-links' | '@xterm/addon-webgl')` 不阻塞挂载）。**WorkspaceDetail.tsx：shell 启动防竞态**（`shellStartInFlightRef` 同步锁防双击 + workspace token 防切换错挂 + optimistic run TTL 防 stuck）。
 - sidebar/* layout/* feishu/* notifications/* demo/* wizard/* ui/* lib/* — sidebar、Topbar/RuntimeStatusStrip、Feishu 灯、通知、demo、首启 wizard、共享 primitives、工具。
 - i18n.tsx/uiLanguage.ts + use*.ts(x) — EN/ZH copy、语言状态、shortcuts/panes/version/workspace hooks。
 
@@ -115,17 +117,19 @@
 - src/api/client.ts — LAN-first HTTP/WS client（LAN cooldown 跳死探、relay fallback）。
 - src/api/relay-transport.ts / relay-transport-registry.ts / relay-device-keys.ts / relay-event-actions.ts — 单例 relay E2E transport（base64 明文握手帧）、注册表防双 transport、设备 keypair、event→action 路由。
 - src/api/mobile-runtime-context.tsx / -context-logic.ts / mobile-outbox.ts / mobile-reconnect-policy.ts / mobile-dispatch-history.ts / mobile-diagnostics.ts — runtime context + 纯逻辑、离线 outbox 队列、重连策略、dispatch 历史、连接诊断面板。
-- src/lib/relay-config-store.ts / connection-qr.ts — relay 配置的持久化 schema、扫码/手填入参组装、SecureStore 读回校验，以及 **legacy `dmit.servasyy.com` → `aliyun.servasyy.com` 的移动端迁移**。
+- src/lib/relay-config-store.ts / connection-qr.ts — relay 配置的持久化 schema、扫码/手填入参组装、SecureStore 读回校验，以及 **legacy `dmit.servasyy.com` → `aliyun.servasyy.com` 的移动端 hydration 迁移**（`parseStoredRelayConfigWithMigration` 解析时拿到旧 host 改写并立即 secureSet 回写）。⚠️ PM 计划再迁 → `relay.yunzhong2020.com`（servasyy 未备案被阿里云 SNI RST，需迁已备案子域），代码尚未落地（待 ship）。
 - src/lib/neural-voice-vad.ts / neural-vad-pcm-probe.ts / silero-vad-shadow.ts — Silero ONNX neural VAD 三阶段：PCM probe、shadow scoring、takeover 判停/打断。
 - src/lib/voice-vad.ts — 统一 VAD 入口；音量 fallback + neural 状态机。
 - src/lib/webrtc-caller.ts / webrtc-audio-interlock.ts / webrtc-incall-manager.ts — WebRTC caller、expo-audio 互斥、Android InCallManager 音频模式。
+- src/lib/chat-media.ts — chat envelope 解析+组装、`isChatMediaImage/Video` 分流、`normalizePickedMediaAttachment`（视频 ImagePicker 没内联 base64 时从 uri 读取兜底）。
+- src/components/VideoPreviewModal.tsx — **expo-video 全屏视频预览**（`useVideoPlayer` + `VideoView`，复用 `image-preview-gesture` 双指缩放/双击/pan；headers 透传支持远端鉴权 URL）；idea-15 Phase 1 配套。
 - src/lib/webrtc-connection-probe.ts / webrtc-runtime-probe.ts / webrtc-signal-protocol.ts — WebRTC 连接探针、runtime API 可达性、mobile 信令协议。
 - src/cockpit/* / components/* / notifications.ts / config.ts / i18n / demo-data.ts — cockpit 视图（Plan/Tasks/Questions/Ideas/Actions）、RN primitives + offline banner、Expo push 注册、relay/版本配置、i18n、demo。
 - app.config.ts / eas.json / build-local.sh — Expo/EAS 配置（arm64-only ABI）；**自建本地 gradle 构建脚本（脱离 EAS）**。
 
 ## Relay packages
 
-- packages/relay/src — relay-server.ts（轻量 WebSocket room 中转，peer evict + singleton）、keygen.ts/keygen-cli.ts（**生成一套 aliyun hard cut 部署 secrets / Mac 侧 `relay.json` seed**）、index.ts；deploy/*（**checked-in Caddy/nginx/systemd/relay.json 模板，默认公网入口统一为 `aliyun.servasyy.com`**）。
+- packages/relay/src — relay-server.ts（轻量 WebSocket room 中转，peer evict + singleton）、keygen.ts/keygen-cli.ts（**生成一套 aliyun hard cut 部署 secrets / Mac 侧 `relay.json` seed**）、index.ts；deploy/*（**checked-in Caddy/nginx/systemd/relay.json 模板，默认公网入口统一为 `aliyun.servasyy.com`**）。⚠️ PM 计划改公网入口 → `relay.yunzhong2020.com`（servasyy 未备案被阿里云 SNI RST），模板尚未更新（待 ship 时一并改 deploy/*.example + README）。
 - packages/relay-crypto/src — tweetnacl keys/handshake/channel/encoding；daemon connector 与 mobile transport 共用 E2E 握手与会话加密。
 
 ## CLI / Shared
