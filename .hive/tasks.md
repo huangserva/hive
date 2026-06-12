@@ -7,7 +7,9 @@
 
 > 🎥 **2026-06-12 下午｜视频功能 4G 可用化 — 媒体走 relay（当前活跃）**
 >
-> 视频/图片真机暴露架构 gap：**4G 下放不了（只 LAN 能播）**——app `resolveMediaUrl` 直连 HTTP 取媒体字节只 LAN 通，4G 走 relay 而 relay-rpc 无 media serve（只 upload+控制）。影响整个视频/图片显示在 4G 下都不工作（user 上传的也一样）。Phase1 device-verify(6/11)在 LAN 做的漏了——教训：**device-verify 必须覆盖 user 真实 4G/relay 路径**。user 远程没 WiFi 拍板修。马超建中（`5b91b080`）：服务端 relay-rpc `media.get` 分块下载 + 移动端经 relay 拉缓存播放 + 进度。→ 钟馗审 → commit → **出新 APK → 张飞 4G 真机验**。
+> 视频/图片真机暴露架构 gap：**4G 下放不了（只 LAN 能播）**——app `resolveMediaUrl` 直连 HTTP 取媒体字节只 LAN 通，4G 走 relay 而 relay-rpc 无 media serve（只 upload+控制）。影响整个视频/图片显示在 4G 下都不工作（user 上传的也一样）。Phase1 device-verify(6/11)在 LAN 做的漏了——教训：**device-verify 必须覆盖 user 真实 4G/relay 路径**。user 远程没 WiFi 拍板修。
+> **代码已 ship（`bc96876` push origin/main）**：服务端 relay-rpc `media.get` 分块下载（流式 readSync + path-traversal 三层 guard 含 lstat/realpath 拒 symlink）；移动端 relay-media-cache 逐 chunk 真 decode（复用 relay-crypto 的 atob/Uint8Array，**零 Buffer 依赖**，Hermes 真机可用）+ 真 length 校验拒非法 base64 + 缓存去重 + 下载进度；图片状态机抽纯函数避免 LAN 失败永久挡。马超两轮（建 `5b91b080`→修 `0a5bb754`），钟馗两审：**首审 4 blocking 全真机会崩**（Hermes 无 Buffer/图片永久挡/symlink 逃逸/length 假校验，正是"单测绿真机崩"那类）→ 马超修 → **复审 0 blocking 全闭环**。服务端 12 + 移动端 18 字节级真测试。
+> **待激活**：① 服务端 `media.get` 要 **user 重启 4010** 才生效（PM 是 4010 子进程没法自重启）② 移动端要 **新 APK**（构建中）③ **张飞 4G 真机验**（watch logcat OOM，54MB 视频内存峰值~130MB；这次必覆盖 user 真实 4G 路径，不再只 LAN）。
 >
 > **今日已 ship（归档）**：① 下行发送端 `team mobile-send-media`（`f393997`，主管发视频/图片到 app、走 store 自动实时推；立项漏的 Phase1.5 补齐，真机发真视频验过卡片+播放器，4G 播放=上面 gap） ② 上游 triage 4 backport（535cfca/shell/terminal/marketplace `5527a8a`..`6bae080`，每件不同人+钟馗审） ③ 两启动修复（watcher ENFILE + env-strip，4010 重启已激活，不用再 env -u） ④ relay 固化进 repo（`de75d73`） ⑤ PM 维护（module-map 刷新/Q15 park/格式告警清）。
 >
@@ -828,7 +830,10 @@
 - [x] **钟馗** dispatch `d0bf4371` — 【独立审·relay.yunzhong2020.com 固化进 repo(关羽 01f39363, codex 写)】只审不改 team report blocking 优先中文。
 - [x] **马超** dispatch `d922f87e` — 【急·建 idea-15 Phase 1.5:主管发视频给 app(下行发送端)——user 立项要的就是这个,之前漏建,user 很不满,优先】
 - [x] **钟馗** dispatch `e51e59f5` — 【独立审·主管发视频给 app 下行发送端(马超 d922f87e, claude 写)——user 暴怒的功能,必须审对】只审不改 team report blocking 优先中文。
-- [ ] **马超** dispatch `5b91b080` — 【实现·媒体走 relay:让视频/图片在 4G 下能下载播放(user 急等,远程没 WiFi,优先)】
+- [x] **马超** dispatch `5b91b080` — 【实现·媒体走 relay:让视频/图片在 4G 下能下载播放(user 急等,远程没 WiFi,优先)】
+- [x] **钟馗** dispatch `14368180` — 【独立审·媒体走 relay 让 4G 能下载播放视频/图片(马超 5b91b080, claude 写)——user 急等的 4G 视频,必须审对】只审不改 team report blocking 优先中文。
+- [x] **马超** dispatch `0a5bb754` — 【修钟馗 4 blocking·媒体走 relay——全是真机会崩的,单测在 Node 上跑掩盖了,必须 RN-safe】改完 team report,带文件行号,中文。
+- [x] **钟馗** dispatch `6efc6cc5` — 【复审·媒体走 relay 的 4 blocking 修复(马超改完)——这是你上一审揪出的真机会崩项,复审必须确认真闭合,过了就出 APK + 张飞 4G 真机验】只审不改 team report blocking 优先中文。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
