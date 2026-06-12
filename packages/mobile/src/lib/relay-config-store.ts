@@ -5,18 +5,18 @@ import type { RelayPairingInput } from './connection-qr'
 // 持久化到 SecureStore 的 relay 配置 = relay-transport 所需的全套，减去每次连接才拼上的 device_token。
 export type StoredRelayConfig = Omit<RelayTransportConfig, 'device_token'>
 
-const LEGACY_RELAY_HOST = 'dmit.servasyy.com'
-const CURRENT_RELAY_HOST = 'aliyun.servasyy.com'
+const LEGACY_RELAY_HOSTS = new Set(['dmit.servasyy.com', 'aliyun.servasyy.com'])
+const CURRENT_RELAY_HOST = 'relay.yunzhong2020.com'
 
 export const normalizeRelayUrl = (relayUrl: string) => {
   try {
     const parsed = new URL(relayUrl)
-    if (parsed.hostname.toLowerCase() !== LEGACY_RELAY_HOST) return relayUrl
+    if (!LEGACY_RELAY_HOSTS.has(parsed.hostname.toLowerCase())) return relayUrl
     parsed.hostname = CURRENT_RELAY_HOST
     return parsed.toString()
   } catch {
     return relayUrl.replace(
-      /(^[a-z][a-z0-9+.-]*:\/\/)(dmit\.servasyy\.com)(?=[:/?#]|$)/iu,
+      /(^[a-z][a-z0-9+.-]*:\/\/)((?:dmit|aliyun)\.servasyy\.com)(?=[:/?#]|$)/iu,
       `$1${CURRENT_RELAY_HOST}`
     )
   }

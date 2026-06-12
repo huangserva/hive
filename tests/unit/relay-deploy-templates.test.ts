@@ -10,7 +10,7 @@ const deployDir = join(repoRoot, 'packages', 'relay', 'deploy')
 const readDeployFile = (filename: string) => readFileSync(join(deployDir, filename), 'utf8')
 
 describe('relay deploy templates', () => {
-  test('checked-in relay deploy templates default to aliyun public entrypoint', () => {
+  test('checked-in relay deploy templates default to yunzhong public entrypoint', () => {
     const files = [
       'Caddyfile.example',
       'nginx-relay.conf.example',
@@ -21,7 +21,8 @@ describe('relay deploy templates', () => {
     for (const filename of files) {
       const content = readDeployFile(filename)
 
-      expect(content, filename).toContain('aliyun.servasyy.com')
+      expect(content, filename).toContain('relay.yunzhong2020.com')
+      expect(content, filename).not.toContain('aliyun.servasyy.com')
       expect(content, filename).not.toContain('dmit.servasyy.com')
       expect(content, filename).not.toContain('relay.example.com')
     }

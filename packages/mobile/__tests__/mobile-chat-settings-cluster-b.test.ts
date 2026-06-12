@@ -23,11 +23,47 @@ vi.mock('react-native', () => {
     Switch: component('Switch'),
     Text: component('Text'),
     TextInput: component('TextInput'),
+    TurboModuleRegistry: {
+      get: vi.fn(() => null),
+      getEnforcing: vi.fn(() => ({})),
+    },
     View: component('View'),
   }
 })
 
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Ionicons' }))
+vi.mock('react-native-reanimated', () => ({
+  cancelAnimation: vi.fn(),
+  default: { View: 'AnimatedView' },
+  Easing: { linear: vi.fn() },
+  useAnimatedStyle: () => ({}),
+  useSharedValue: (value: unknown) => ({ value }),
+  withDelay: (_delay: number, value: unknown) => value,
+  withRepeat: (value: unknown) => value,
+  withSpring: (value: unknown) => value,
+  withTiming: (value: unknown) => value,
+}))
+vi.mock('react-native-gesture-handler', () => {
+  const createGestureMock = () => {
+    const gesture = {
+      enabled: () => gesture,
+      numberOfTaps: () => gesture,
+      onBegin: () => gesture,
+      onEnd: () => gesture,
+      onUpdate: () => gesture,
+    }
+    return gesture
+  }
+  return {
+    Gesture: {
+      Pan: createGestureMock,
+      Pinch: createGestureMock,
+      Simultaneous: (...gestures: unknown[]) => gestures,
+      Tap: createGestureMock,
+    },
+    GestureDetector: 'GestureDetector',
+  }
+})
 vi.mock('expo-camera', () => ({
   CameraView: 'CameraView',
   useCameraPermissions: () => [{ granted: true }, vi.fn()],
@@ -36,6 +72,10 @@ vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }))
 vi.mock('expo-constants', () => ({ default: { expoConfig: {} } }))
 vi.mock('expo-document-picker', () => ({ getDocumentAsync: vi.fn() }))
 vi.mock('expo-file-system/legacy', () => ({ readAsStringAsync: vi.fn() }))
+vi.mock('expo-video', () => ({
+  useVideoPlayer: () => ({ pause: vi.fn(), play: vi.fn() }),
+  VideoView: 'VideoView',
+}))
 vi.mock('expo-image-manipulator', () => ({
   manipulateAsync: vi.fn(),
   SaveFormat: { PNG: 'png' },
@@ -176,14 +216,14 @@ describe('mobile chat and settings cluster B regressions', () => {
     expect(connect).not.toHaveBeenCalledWith('10.0.0.2:4010', 'new-token', oldConfig)
   })
 
-  test('connects a scanned relay QR with aliyun relay when QR still contains dmit host', async () => {
+  test('connects a scanned relay QR with yunzhong relay when QR still contains dmit host', async () => {
     const newConfig = {
       capabilities: ['read_runtime'],
       daemon_public_key: 'new-daemon',
       device_id: 'new-device',
       device_keypair: { publicKey: 'new-public', secretKey: 'new-secret' },
       relay_auth_token: 'new-auth',
-      relay_url: 'wss://aliyun.servasyy.com/relay',
+      relay_url: 'wss://relay.yunzhong2020.com/relay',
       room_id: 'new-room',
     }
     const configureRelay = vi.fn().mockResolvedValue(newConfig)

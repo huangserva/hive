@@ -223,7 +223,7 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
     expect(audioMock.player.pause).toHaveBeenCalledTimes(1)
   })
 
-  test('hydrates stored legacy dmit relay config, migrates it, and writes aliyun config back', async () => {
+  test('hydrates stored legacy relay config, migrates it, and writes yunzhong config back', async () => {
     const storedRelayConfig = JSON.stringify({
       capabilities: ['read_runtime'],
       daemon_public_key: 'daemon-public',
@@ -250,13 +250,13 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
 
     await waitFor(() =>
       expect(requireRuntime(runtime).relayConfig?.relay_url).toBe(
-        'wss://aliyun.servasyy.com:9443/relay/ws?room=1'
+        'wss://relay.yunzhong2020.com:9443/relay/ws?room=1'
       )
     )
     await waitFor(() =>
       expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
         'hippoteam.mobileRelayConfig',
-        expect.stringContaining('aliyun.servasyy.com')
+        expect.stringContaining('relay.yunzhong2020.com')
       )
     )
     expect(
@@ -266,7 +266,7 @@ describe('MobileRuntime WebRTC file downlink disconnect', () => {
           ([key, value]) =>
             key === 'hippoteam.mobileRelayConfig' &&
             typeof value === 'string' &&
-            value.includes('dmit.servasyy.com')
+            (value.includes('dmit.servasyy.com') || value.includes('aliyun.servasyy.com'))
         )
     ).toBe(false)
   })

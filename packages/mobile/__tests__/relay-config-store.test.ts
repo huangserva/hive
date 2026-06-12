@@ -38,9 +38,12 @@ describe('relay config store', () => {
     expect(reparsed).toEqual(built)
   })
 
-  test('normalizes legacy dmit relay urls to aliyun while preserving url parts', () => {
+  test('normalizes legacy dmit and aliyun relay urls to yunzhong while preserving url parts', () => {
     expect(normalizeRelayUrl('wss://dmit.servasyy.com:9443/relay/ws?room=1#frag')).toBe(
-      'wss://aliyun.servasyy.com:9443/relay/ws?room=1#frag'
+      'wss://relay.yunzhong2020.com:9443/relay/ws?room=1#frag'
+    )
+    expect(normalizeRelayUrl('wss://aliyun.servasyy.com/relay/ws?room=1#frag')).toBe(
+      'wss://relay.yunzhong2020.com/relay/ws?room=1#frag'
     )
   })
 
@@ -51,15 +54,18 @@ describe('relay config store', () => {
       keypair
     )
 
-    expect(built.relay_url).toBe('wss://aliyun.servasyy.com/relay?room=1')
+    expect(built.relay_url).toBe('wss://relay.yunzhong2020.com/relay?room=1')
   })
 
-  test('parseStoredRelayConfig migrates stored legacy relay url', () => {
+  test('parseStoredRelayConfig migrates stored legacy relay urls', () => {
     const built = buildStoredRelayConfig(pairing, generateDeviceKeypair())
     const stored = JSON.stringify({ ...built, relay_url: 'wss://dmit.servasyy.com/ws' })
+    const storedAliyun = JSON.stringify({ ...built, relay_url: 'wss://aliyun.servasyy.com/ws' })
 
-    expect(parseStoredRelayConfig(stored)?.relay_url).toBe('wss://aliyun.servasyy.com/ws')
+    expect(parseStoredRelayConfig(stored)?.relay_url).toBe('wss://relay.yunzhong2020.com/ws')
     expect(parseStoredRelayConfigWithMigration(stored)?.migrated).toBe(true)
+    expect(parseStoredRelayConfig(storedAliyun)?.relay_url).toBe('wss://relay.yunzhong2020.com/ws')
+    expect(parseStoredRelayConfigWithMigration(storedAliyun)?.migrated).toBe(true)
   })
 
   test('parseStoredRelayConfig rejects a config missing the device keypair', () => {
