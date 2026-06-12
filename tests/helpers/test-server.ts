@@ -47,6 +47,7 @@ export const startTestServer = async (
     ...(input.logger ? { logger: input.logger } : {}),
     store,
     ...(input.webRtcRuntime ? { webRtcRuntime: input.webRtcRuntime } : {}),
+    runtimeInfo: { dataDir },
   })
 
   await new Promise<void>((resolve) => {

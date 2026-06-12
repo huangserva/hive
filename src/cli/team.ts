@@ -24,6 +24,7 @@ export const TEAM_USAGE = [
   '  team cancel --dispatch <dispatch-id> "<reason>"',
   '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
   '  team mobile-reply "<text>"',
+  '  team mobile-send-media --file <path> [--text "<caption>"]',
   '  team feishu reply "<text>"',
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
@@ -246,6 +247,44 @@ export const parseCancelArgs = (args: string[]): ParsedCancelArgs => {
   }
 
   return { dispatchId, reason }
+}
+
+export const MOBILE_SEND_MEDIA_USAGE =
+  'Usage: team mobile-send-media --file <path> [--text "<caption>"]'
+
+export const parseMobileSendMediaArgs = (args: string[]) => {
+  let file: string | undefined
+  let text: string | undefined
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+    if (arg === '--file') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--file requires a value\n\n${MOBILE_SEND_MEDIA_USAGE}`)
+      }
+      file = next
+      index += 1
+      continue
+    }
+    if (arg === '--text') {
+      const next = args[index + 1]
+      if (next === undefined) {
+        throw new Error(`--text requires a value\n\n${MOBILE_SEND_MEDIA_USAGE}`)
+      }
+      text = next
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${MOBILE_SEND_MEDIA_USAGE}`)
+    }
+    throw new Error(`Unexpected positional argument: ${arg}\n\n${MOBILE_SEND_MEDIA_USAGE}`)
+  }
+  if (!file?.trim()) {
+    throw new Error(`Missing --file <path>\n\n${MOBILE_SEND_MEDIA_USAGE}`)
+  }
+  return { file: file.trim(), ...(text !== undefined ? { text } : {}) }
 }
 
 const parseMobileReplyArgs = (args: string[]) => {
@@ -505,6 +544,23 @@ export const runTeamCommand = async (argv: string[]) => {
       throw new Error('approval response missing approval_id')
     }
     console.log(payload.approval_id)
+    return
+  }
+
+  if (command === 'mobile-send-media') {
+    const parsed = parseMobileSendMediaArgs(args)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await postJson(baseUrl, '/api/team/mobile-send-media', {
+      file: parsed.file,
+      from_agent_id: env.HIVE_AGENT_ID,
+      project_id: env.HIVE_PROJECT_ID,
+      token: env.HIVE_AGENT_TOKEN,
+      ...(parsed.text !== undefined ? { text: parsed.text } : {}),
+    })
+    if (!response.ok) {
+      await throwHttpError(response)
+    }
     return
   }
 
