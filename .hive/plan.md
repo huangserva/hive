@@ -1,9 +1,9 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: M40 Phase 3 GRM Turn Orchestrator 协议化落地（user 已拍板：保留强前台，但把 turn contract / verdict contract / handled-escalate 决策表 / PM 回流单声道全部协议化，先做 contract+adapter+decision-table tests，再补统一观测，最后收 prompt/handoff）。前期 M38 快准狠前台 shipped `22d4224`；M39 流式ASR 崩溃修复 `4ffbb00` 真机验通；M40 Phase2-spec 投机+撤回已 ship `0fb4ab8`，当前改造重点从“会不会回”转为“按协议回、不胡说、不漏交 PM”
+current_phase: M41 app 视频/图片收发 + 4G relay 传输（idea-15）— Phase 1/1.5 shipped，Phase 2 媒体走 relay code shipped `bc96876`，待 user 重启 4010 激活 media.get + 装新 APK + 4G 真机验。并行 M42 启动健壮性 + 上游 triage backports shipped。语音线 M40 Phase 3 GRM Turn 协议化为较大在途线（06-07 后未再推进，待视频 4G 收口后回到）。
 status: active
-last_review: 2026-06-07
+last_review: 2026-06-12
 ---
 
 ## 目标
@@ -75,6 +75,20 @@ last_review: 2026-06-07
 > 4. 语音 line 全貌见 M35/M14b。**别重复 review，这是 firefight 接力不是新 session 完整 review。**
 
 ## 里程碑
+
+### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· Phase 1/1.5 shipped，Phase 2 待 4010 重启 + 4G 真机验 · 2026-06-11~12
+> **user 手机口述立项**：能把视频/图片传给 app、在内置播放器里播、双指缩放，单文件 ≤100MB；后续补"主管也能发媒体给 app"。
+> - ✅ **Phase 1 渲染 + 上行 + 内置播放器 + 缩放 `3d6b1a2`/`c3ff81f`**（2026-06-11，APK 2.8.15）：expo-video（无 GMS 依赖）播放器 + 图片 pinch-zoom 复用 + 上行 upload 50→100MB。PM adb 全链路 device-verify 通过。
+> - ✅ **Phase 1.5 下行发送端 `team mobile-send-media` `f393997`**（2026-06-12）：新 CLI + `POST /api/team/mobile-send-media`，文件入 uploads + `store.insertMobileChatMessage` 走 wrapper 自动实时推（不用刷新）。支持视频+图片。钟馗审 0 blocking，真机发真视频验过。立项"你也可以传视频给 app"被 PM scoping 漏成 Phase1.5 的教训：方向词歧义没跟 user 对清。
+> - 🚧 **Phase 2 媒体走 relay（4G 下载播放）code shipped `bc96876`**（2026-06-12，push origin/main）：服务端 relay-rpc `media.get` 分块下载（流式 readSync + path-traversal 三层 guard 含 lstat/realpath）；移动端逐 chunk 真 decode（复用 relay-crypto 的 atob/Uint8Array，零 Buffer 依赖 Hermes 可用）+ 真 length 校验 + 缓存去重 + 进度；图片状态机抽纯函数避免 LAN 失败永久挡。钟馗两审（首审 4 blocking 全真机会崩→修→复审 0 blocking）。服务端 12 + 移动端 18 字节级真测试。APK 已出（`hippoteam-bc96876-media-relay.apk`）投递 DMIT+飞书。**待 user 重启 4010 激活 media.get + 装新 APK + 4G 真机验**。
+> - **教训**：真机 device-verify 必须覆盖 user 真实 4G/relay 路径，不能只 LAN——Phase 1 在 LAN 验漏了 4G 取不到媒体字节这条架构 gap（[[feedback_verify_real_artifact_not_proxy_metric]]）。
+
+### M42 · 启动健壮性修复 + 上游 hive triage backports · shipped 2026-06-11~12
+> user 跨机根因分析 + "看看 hive 原版有哪些更新用得上"驱动。每件不同 worker 做 + 钟馗审。
+> - ✅ **ENFILE watcher 收窄 `e4d1bc1`**：tasks-file-watcher 递归 watch `reports/**` 把二进制帧海一起监听→fd 耗尽→node-pty 无 TTY→worker 启动 2s 崩。收窄成 `reports/*.html`/`*.md`，其余 `**/*.md`，加回归测试锁死（[[project_hive_enfile_watcher_crash]]）。
+> - ✅ **env-strip nested CLAUDE_CODE `bed6ebc`**：worker spawn 剥离 nested CLAUDE_CODE 环境变量（显式集合，保 OAUTH_TOKEN/USE_BEDROCK），治 env 泄漏。钟馗 B1 抓到前缀守卫过度剥离已修。
+> - ✅ **上游 4 backport**（每件不同人）：worker-status markAgentStarted 归 idle `5527a8a` / shell + terminal 改进 / marketplace Phase1 只读 catalog `6bae080`（`5527a8a`..`6bae080` 区间）。
+> - ✅ **relay 固化进 repo `de75d73`**：`relay.yunzhong2020.com` hard cut + mobile relay-config CURRENT/LEGACY 写死进仓。
 
 ### M1 · 稳定性强化（基础设施） · shipped 2026-05-20
 - [x] P0 logger（`~/.config/hive/logs/runtime-<port>.log` + uncaught hooks）
