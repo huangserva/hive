@@ -1,140 +1,115 @@
 # Risk Hotspots
 
-> Known risks, triggers, and current workaround. Keep this operational.
+> 代码里最易出 bug / 最脆弱的区域。每条带"为什么脆 + 踩过的坑 + 现有防护"，operational 取向。
+> **DRAFT 2026-06-12（马超 refresh，待 user 校对）** — 基于 06-09 至今 41 次 commit + 真实代码读核：新增 relay media.get / RN-safe base64 / tasks-watcher ENFILE / agent-spawn-env / markAgentStarted / L1 dispatch 状态机 / marketplace 7 个热点；aliyun→yunzhong2020 hard cut 已落地（旧 aliyun/dmit 降级为 legacy 迁移源）。
 
-## Mobile LAN auth / capability control
+## Relay media.get（媒体走 relay 服务端）
 
-- Risk: `mobile_devices` tokens now authorize dashboard reads and control actions; a scope bug can expose dispatch/stop/restart to the wrong device or workspace.
-- Trigger: schema v25+ migration, `routes-mobile.ts` control endpoints, `mobile-auth.ts` capability edits, device revoke/expiry changes.
-- Current mitigation: `mobile-token-integration.test.ts`, `mobile-routes.test.ts`, `mobile-auth.test.ts` cover HTTP+SQLite auth, capability denial, deletion/revoke behavior, and workspace isolation.
-- Watch: every new `/api/mobile/*` or `relay-rpc-handler.ts` method must name the required capability explicitly.
+- 为什么脆：用户给的 `url=/api/mobile/uploads/<basename>` 直接映射到本地文件读取，是典型 path-traversal + symlink 逃逸 + 协议错配三重攻击面；chunk 协议如果错配 offset/length 会让恶意/出错服务端把另一文件的字节伪造成"正常下载"。
+- 踩过的坑：钟馗审 bc96876 时挑出 `realpathSync` 缺失（`ln -s /etc/passwd uploads/<uuid>.mp4` 能让 statSync/openSync 跟随 symlink 读 uploads 外文件）；分块协议早期没用真 decode 的 length 校验，只按字符串长度估算 → `data='!!!!' length=3` 能骗过校验写坏缓存。
+- 现有防护（`src/server/relay-rpc-handler.ts:107-166,583-650`）：3 层路径校验（前缀强制 + `[A-Za-z0-9_.-]+` 白名单 + `resolve` startsWith） + `verifyUploadPathNotSymlink`（`lstatSync` 拒 symlink + `realpathSync` 双向比对）+ 鉴权 `read_dashboard`；chunk 流式 `openSync/readSync` 不读全文件入内存；length 钳 [1KB, 1MB]；offset 超 total_size 早拒。测试 `tests/unit/relay-rpc-media-get.test.ts`（12 条含 2 条真 `symlinkSync` 注入，Windows early-return 不假装通过）。
+- Watch：任何新 relay 文件 serve 方法必须复用 `resolveSafeUploadPath + verifyUploadPathNotSymlink`，不能各自实现一套字符串校验。
 
-## Mobile client transport split
+## Mobile RN-safe base64 / 分块重组（Hermes 真机命门）
 
-- Risk: mobile client behavior can diverge between LAN HTTP/WS and relay JSON-RPC fallback.
-- Trigger: edits to `packages/mobile/src/api/client.ts`, `mobile-runtime-context.tsx`, `relay-transport.ts`, or server endpoint response shapes.
-- Current mitigation: `mobile-api-client.test.ts` covers LAN client shapes; `packages/mobile/__tests__/relay-transport.test.ts` covers relay handshake/call/fallback.
-- Watch: adding a control endpoint must update both LAN route mapping and relay method mapping.
+- 为什么脆："单测 Node 上跑绿，真机 Hermes 崩"是典型陷阱——Node 全局有 `Buffer`，Hermes 没（RN 0.85 默认无 Buffer polyfill）；任何不小心引用 `Buffer.from/concat/equals` 的 mobile lib 在真机 ReferenceError 必崩。
+- 踩过的坑：bc96876 首版 `combineBase64Chunks` 用 `Buffer.from/Buffer.concat`，单测全绿（Node 跑），钟馗 blocking #1 标"真机必崩"；同时旧 `decodeBase64ToByteLength` 按字符串长度公式估算 base64 → `data='AAAAAA==' length=5` 假报告 4 字节 vs header 5 不一致都骗不出来（blocking #4）。
+- 现有防护（`packages/mobile/src/lib/relay-media-cache.ts:1-230`）：base64 走 `@huangserva/hippoteam-relay-crypto` 的 `decodeBase64/encodeBase64`（`atob/btoa + Uint8Array`，Hermes 标配已 proven 在生产 relay 路径用了几个月）；逐 chunk 真 decode 用 `decoded.length` 校验 `response.length`，恶意 base64 抛 `chunk base64 decode failed`；`concatChunks` 纯 JS `Uint8Array.set` 不依赖 Buffer。**静态护栏**：`packages/mobile/__tests__/relay-media-cache.test.ts` 末段 grep 模块源码去注释/字符串字面量后 `.not.toMatch(/\bBuffer\b/)`，防未来回归引入。
+- Watch：任何 mobile lib 改 base64/binary 必须复用同一组 util；新增 mobile npm 依赖时确认它不假设 Node 全局 Buffer。
 
-## Aliyun relay hard cut rollout
+## tasks-file-watcher（fd 耗尽 ENFILE）
 
-- Risk: **存量手机只有装到带迁移逻辑的新 APK，`SecureStore` 里的 relay 配置才会从 `dmit.servasyy.com` 迁到 `aliyun.servasyy.com`**；旧包会继续拿旧 host 连接。
-- Trigger: `packages/mobile/src/lib/relay-config-store.ts`, `packages/mobile/src/api/mobile-runtime-context.tsx`, `packages/mobile/app/(tabs)/settings.tsx`, 以及任何新的 pairing / relay config 写入路径。
-- Current mitigation: `relay-config-store.test.ts` 覆盖 build-time 与 read-time 迁移；`mobile-runtime-webrtc-disconnect.test.ts` 覆盖 hydration 后回写持久化；settings cluster tests 已覆盖旧 relay URL 在 UI/runtime 中的读写链路。
-- Watch: 线上切换时必须把 **新 APK、QR/pairing 原文、Mac `~/.config/hive/relay.json`、公网 relay deploy 模板、以及 WebRTC/TURN 对外口径** 一起切到 aliyun；否则会出现新旧 host 混跑。
-- Residual: **旧 QR 原始内容仍可能写着 dmit**；新 app 会迁移后再落盘，但旧 app 不会，且 user 如果长期不升级就不会触发迁移。
+- 为什么脆：chokidar 递归 watch glob 在每个匹配文件上消耗 1 个 fd；Linux inotify 上限默认 ~8192；如果 `.hive/reports/**` 被塞入视频逐帧 jpg 海/帧序列（外部项目把素材误放进 reports/assets/），fd 一次性耗尽 → node-pty `forkpty` 拿不到 TTY → worker 启动 ~2s exit 1。
+- 踩过的坑：idea-13 2026-06 user 跨机调研定位（serva CatVacuumGame amy 把逐帧 jpg 塞进 reports/assets 复现）；hive-serva 本机 macOS fsevents + reports/assets 空 + fd=75 健康，未爆——但平台差异（Linux inotify）下会爆，是真实潜伏雷。
+- 现有防护（`src/server/tasks-file-watcher.ts:26-115`）：watch glob 显式收窄到 `reports/*.html` / `reports/*.md`，不再 `reports/**`；非 markdown 资产（jpg/mp4/帧序列）永不进 watch 列表。测试 `tests/unit/tasks-file-watcher.test.ts` 锁死不再出现 `reports/**` 这条 glob。
+- Watch：新增 PM 文档类型（如 `decisions/screenshots/`）要在 glob 显式列出，不能加 `**`；reports/assets 类二进制资产必须放进 `.gitignore` 的子目录或独立 storage。
 
-## Push notifications
+## agent-spawn-env（嵌套 Claude Code env strip）
 
-- Risk: Expo push is best-effort; duplicate or stale tokens can spam users or silently drop worker-done/high-aiAction alerts.
-- Trigger: worker report path in `team-operations.ts`, Cockpit high action changes, `mobile-push.ts`, mobile `notifications.ts`.
-- Current mitigation: `mobile-push.test.ts` covers sends, invalid-token cleanup, and dedupe; push failure does not fail runtime work.
-- Watch: new high-priority aiAction types must use stable IDs/hashes before being pushed.
+- 为什么脆：4010 在 Claude Code 会话内启动时，Claude Code 自动注入 `CLAUDECODE/CLAUDE_CODE_ENTRYPOINT/CLAUDE_CODE_EXECPATH/CLAUDE_CODE_SESSION_ID/CLAUDE_EFFORT/AI_AGENT` 等嵌套 marker；如果原样传给 worker PTY，worker 启的 claude CLI 会以为自己 nested → session capture/resume 混乱、orch 派单失败。但 strip 太狠又会误删 user 主动 export 的 `CLAUDE_CODE_OAUTH_TOKEN / CLAUDE_CODE_USE_BEDROCK / CLAUDE_CODE_USE_VERTEX` 等运行时依赖 env，导致企业用户/OAuth 用户 worker 起不来——这是另一种"起不来"。
+- 踩过的坑：bed6ebc 首版用 `key.startsWith('CLAUDE_CODE_')` 一刀切，钟馗审挑出会误删 8+ 个用户主动 env；改用 explicit set 才闭合。
+- 现有防护（`src/server/agent-manager.ts:66-78`）：`NESTED_CLAUDE_CODE_ENV_KEYS` Set 显式列 6 个 marker，不再 prefix 守卫；`startAgent` 唯一入口经 `createAgentSpawnEnv` strip。测试 `tests/unit/agent-spawn-env.test.ts` 含 `CLAUDE_CODE_FUTURE_MARKER` 兜底测 + `CLAUDE_PROJECTS_ROOT / OAUTH_TOKEN` 保留断言。
+- Watch：Claude Code 未来版本加新 nested marker（如 `CLAUDE_CODE_PARENT_PID`）要显式补 set，不能恢复 prefix 守卫。
 
-## Voice / local STT
+## markAgentStarted 状态机（5527a8a worker restart）
 
-- Risk: voice control depends on local/native ASR/TTS binaries, Android audio session behavior, and mobile recording permissions; failures can look like dispatch bugs.
-- Trigger: `local-stt.ts`, `streaming-stt-online.ts`, `/api/mobile/voice/transcribe`, WebRTC upstream/downlink voice paths, `VoiceRecordButton.tsx`, Expo audio dependency changes.
-- Current mitigation: STT main path has moved from Whisper to Paraformer via `sherpa-onnx` 1.13.2; recognizer is module-level cached (`760ec6a`) instead of reloading the 78MB model per utterance. App side adds Silero `voice_prob` quality gate (`00adc92`) to drop low-quality segments locally. TTS defaults to edge-tts Xiaoxiao with piper/say fallback; `relay-voice-stream-tts.ts` is an independent relay TTS path.
-- Watch: M39 `streaming-stt-online.ts` is in progress; OnlineRecognizer endpoint parameters can inject too early/late. Verify Android recording, speech quality gating, and streaming ASR together before beta.
+- 为什么脆：worker 重启时（[Restart] 或 4010 重启后用户点 [Restart]），如果 status 从 pendingTaskCount derive，旧 dispatch 残留让 status 算成 'working' 但 PTY 实际刚启 idle 等 prompt → UI 误显示工作中，给 PM "看着像在工作"假象，崩 crash WIP 留工作树时尤其误导。
+- 踩过的坑：idea-13 user 原话"worker 起不来/状态错"——6/10 赵云/关羽 crash WIP 留工作树后，PM Restart 看 UI 显示 working = 假象，要手动 git diff 才能发现没人在做。上游 535cfca 同款修法 backport。
+- 现有防护（`src/server/workspace-store-mutations.ts:43-51`）：`markAgentStarted` 硬置 `agent.status = 'idle'`；下次 `markTaskDispatched` 才转 'working'。`pendingTaskCount` 不归零给 WorkerModal/recovery 看 backlog。测试 `tests/server/runtime-store.test.ts` 2 条新断言含 idea-13 case 回归。
+- Watch：dispatch 状态机的"working"语义现在严格等于"PTY 当前在跑 dispatch"，不是"有未完成 dispatch"——改 markTaskDispatched / markAgentStopped 时要保此契约。
 
-## WebRTC realtime call path
+## L1 dispatch 状态机扩展（5efc986 + 协议硬收口）
 
-- Risk: M37/M38 WebRTC is the highest-risk voice path: signaling/TURN, native audio, upstream STT, downlink TTS, and barge-in all interact.
-- Trigger: `webrtc-callee.ts`, `webrtc-upstream-audio.ts`, `webrtc-downlink-audio.ts`, `webrtc-signal-protocol.ts`, `webrtc-vad.ts`, and `src/cli/hive.ts` callee initialization.
-- External SPOF: Aliyun coturn `106.14.227.192` is the only TURN node; `@roamhq/wrtc` native binding is required server-side.
-- Current risk: no fallback if signaling/TURN disconnects mid-call; downlink drift compensation, gain (`HIVE_WEBRTC_DOWNLINK_GAIN`), and double-playback elimination are numeric-sensitive; Android InCallManager audio-mode switching and recorder interlock caused the 2.8.x crash chain.
-- Gap: server-side `webrtc-*.ts` family has no `tests/server/` dedicated coverage; much of the path is device-sensitive and verified on real phones.
-- Current mitigation: relay-only fallback flag; downlink gain is env-tunable; mobile path has multiple reviewer passes; barge-in/downlink drift have unit tests.
+- 为什么脆：dispatch_ledger 从旧 3 态（queued/submitted/reported）扩到 8 态（+ running / report_overdue / completed / cancelled / orphaned），状态迁移规则散在 team-operations / stalled-dispatch-nudge / sentinel / mobile-reply / mobile-send-media 多处；任意一处忘改状态判定 isOpenDispatchStatus 会让 stale dispatch 看上去仍 open，sentinel 误捅或 worker 拿到过期派单。
+- 踩过的坑：6e19307b orphaned 收口后 cancel 返 409 因 orphaned 非 open 状态——是预期行为，但旧 doc 描述 orph→close 用 cancel 的 UX 不再成立；narrative 注明已收口才闭环。
+- 现有防护：`dispatch-ledger-store.ts` 唯一状态转换函数、`isOpenDispatchStatus` 单一判定源；`team-operations.ts` 报错 400 缺 dispatch_id；`tests/server/team-report-atomicity.test.ts` + `tests/server/team-mobile-send-media.test.ts` + `tests/unit/dispatch-ledger-store.test.ts` 覆盖完整状态机。
+- Watch：新增状态时要回头检查 isOpenDispatchStatus / report_overdue 计算 / Cockpit stale 计数三个使用点。
 
-## Neural voice VAD (Silero ONNX, mobile)
+## Mobile LAN auth / capability 控制
 
-- Risk: Silero ONNX controls barge-in/speech-end sensitivity; native binding failures or threshold drift can break real-time talkback.
-- Trigger: `packages/mobile/src/lib/neural-voice-vad*`, `neural-vad-pcm-probe`, `silero-vad-shadow`, `voice-vad.ts`.
-- Current risk: `onnxruntime-react-native` native binding can crash (`.install()` FATAL happened before); skipping probe→shadow→takeover flag order can make barge-in regress; `voice_prob` thresholds directly affect interruption sensitivity.
-- Current mitigation: catch-before-import native probe, config plugin registers `OnnxruntimePackage`, feature flags isolate phases, and `[SILERODBG]` logs support true-device threshold tuning.
+- 为什么脆：`mobile_devices` token 既鉴权 dashboard 读又鉴权 dispatch/stop/restart 等控制动作；scope bug 可让错误设备/workspace 拿到控制权。
+- 现有防护（`src/server/mobile-auth.ts` + `routes-mobile.ts` + `relay-rpc-handler.ts:184-210`）：`requireCapability(read_dashboard/send_prompt/approve_risk/admin_runtime/read_terminal/control_worker/upload)` 每个 endpoint 必带；`tests/server/mobile-routes.test.ts` 含负向 403 测试。
+- Watch：每个新 `/api/mobile/*` 或 `relay-rpc` 方法必须 named capability；`media.get` 走 `read_dashboard`（已 audit）；marketplace `import` 走 UI cookie（admin 路径）。
 
-## GLM fast voice reply front desk
+## Mobile 客户端 LAN/relay 路径双重实现
 
-- Risk: fast replies depend on external GLM API and must not claim work that only orchestrator can do.
-- Trigger: `src/server/fast-voice-reply.ts`, GLM model changes (`glm-4-flash`, `glm-5.1`), prompt/history/status context changes.
-- Current risk: GLM outage/timeout must degrade to fixed confirmation; feeding history/status can hit the timeout wall (raised 2500→5000ms); front desk can over-claim dispatch/control actions if prompt regresses.
-- Current mitigation: `HIVE_GLM_GATEKEEPER=0` rollback switch; timeout/abort resolves to null then fixed short fallback; system prompt forbids over-claiming (`22d4224`); currently no server tests for this path.
+- 为什么脆：mobile client 行为可能在 LAN HTTP/WS 路径和 relay JSON-RPC fallback 路径之间分叉；新增控制端点要同时改 LAN route mapping 与 relay method mapping，漏一边就出现"WiFi 能做 4G 不能"的 user-visible bug。
+- 现有防护：`tests/unit/relay-rpc-handler.test.ts`（28 测）+ `tests/unit/relay-rpc-media-get.test.ts`（12 测）覆盖 relay 端；`tests/server/mobile-routes.test.ts` 覆盖 LAN 端；`packages/mobile/__tests__/relay-transport.test.ts` 覆盖握手/call/fallback。
+- Watch：新增 endpoint 必须 LAN + relay 双 mapping；现有缺口 → media.get **没有** LAN HTTP 对端（直连即可不需要 relay），但**反过来** mobile-send-media 当前只走 LAN（POST /api/team/mobile-send-media），relay 路径未补——这是 PM 已知 follow-up。
 
-## Sentinel / orphaned dispatch detection
+## Relay 域名 hard cut（yunzhong2020 已落地，aliyun/dmit legacy）
 
-- Risk: sentinel and worker-exit fallback can misclassify a slow worker as stale/orphaned, or miss a real stuck dispatch.
-- Trigger: `sentinel-heartbeat.ts`, `orphaned-dispatch-nudge.ts`, `workspace-store-mutations.ts`, dispatch ledger state changes.
-- Current mitigation: sentinel heartbeat tests and orphaned-dispatch-nudge unit tests cover stale age, worker exit, pending count reset; worker restart no longer clears `pendingTaskCount` (`cc52a87`) and frontend uses terminal runs to override stale fake-idle cache (`e924dd6`).
-- Watch: do not let sentinel role receive normal dispatch nudges; sentinel should observe, not become another worker backlog source.
+- 为什么脆：域名迁移必须**新 APK + QR/pairing + Mac `~/.config/hive/relay.json` + 公网 deploy 模板 + WebRTC/TURN 对外口径**一起切到 yunzhong2020；漏一项会出现新旧 host 混跑。旧 `aliyun.servasyy.com` 未备案被阿里云 SNI RST 是真踩过的坑，再迁错域名同样问题。
+- 现有防护（de75d73 落地）：`packages/mobile/src/lib/relay-config-store.ts:8` `LEGACY_RELAY_HOSTS = Set([dmit, aliyun])` + `CURRENT_RELAY_HOST = relay.yunzhong2020.com`；hydration 自动从两个 legacy host 迁移到 current；4 个 deploy 模板（Caddyfile / nginx / relay.json / README）全 yunzhong2020；`tests/unit/relay-deploy-templates.test.ts` 测试 legacy host 不再出现。
+- Residual：**旧 QR 原始内容仍可能写着 dmit 或 aliyun**；新 app 会迁移落盘，旧 app 不会触发迁移；user 长期不升级就续旧 host。
+- Watch：未来再迁要先备案再切，不要又踩 SNI RST；Mac 侧 `~/.config/hive/relay.json` 不在 repo 内，update 仍要 user 手动改。
 
-## PM nudge mechanisms
+## WebRTC realtime call path（M37/M38/M40）
 
-- Risk: L1 nudges are helpful but can become noisy or race with normal Cockpit watcher updates.
-- Trigger: `tasks-narrative-nudge.ts`, `milestone-completion-trigger.ts`, `runtime-store-helpers.ts` plan/tasks listeners.
-- Current mitigation: unit tests cover trigger rules, dedupe, no-action suppression; plan websocket/tasks watcher tests still pass.
-- Boundary: nudge injection is best-effort; inactive orchestrator PTY means no queued reminder.
+- 为什么脆：信令/TURN/native audio/上行 STT/下行 TTS/barge-in 多层互动；server `@roamhq/wrtc` native binding 必装；M40 加投机/撤回协议后 generation/intent_generation 一致性是新失败点。
+- 现有 SPOF：TURN 单节点 `106.14.227.192`（阿里云上海 coturn）；公共 openrelay 中国不可达。
+- 现有防护：`tests/unit/webrtc-callee.test.ts` + `webrtc-upstream-audio.test.ts` + `webrtc-file-downlink-audio.test.ts` + `webrtc-vad.test.ts` + `packages/mobile/__tests__/webrtc-file-downlink-playback.test.ts` 覆盖核心；`HIVE_WEBRTC_FORCE_RELAY=1` iceTransportPolicy:'relay' 兜底；`HIVE_WEBRTC_DOWNLINK_GAIN` env 调音；retract 不变量"未播可撤、在播不撤"由 generation 映射锁。
+- Watch：server-side `webrtc-*.ts` 没真 `@roamhq/wrtc + TURN + mobile` 端到端 CI 覆盖；ship 仍靠真机 + runtime log；M40 Phase 3 GRM Turn 协议仍在途。
 
-## Dispatch lifecycle / stdin forwarding
+## Neural voice VAD（Silero ONNX, mobile）
 
-- Risk: DB state, in-memory pending counts, and PTY stdin writes can diverge on start/stop/report/cancel edge cases.
-- Trigger: `team-operations.ts`, `dispatch-ledger-store.ts`, `agent-stdin-dispatcher.ts`, `agent-runtime*.ts`.
-- Current mitigation: team atomicity, team protocol e2e, authz, CLI side-effect, and lifecycle tests cover real HTTP+SQLite+PTY paths; pending-count/status recovery has been hardened by `cc52a87` / `e924dd6`.
-- Rule: DB/ledger mutations must succeed before in-memory state updates; failed stdin forwarding must not corrupt dispatch state.
+- 为什么脆：`onnxruntime-react-native` native binding 可 `.install()` FATAL 崩；threshold drift 会破 barge-in；probe→shadow→takeover flag 顺序漏一步真机回归。
+- 现有防护：catch-before-import native probe + config plugin 注册 `OnnxruntimePackage`；feature flag 分阶段隔离；`[SILERODBG]` log 真机调阈值；`packages/mobile/__tests__/silero-vad-shadow*.test.ts` 覆盖状态机。
+- Watch：升级 onnxruntime-react-native 或 OS 升级时要重跑真机回归。
 
-## Worker settings / startup command persistence
+## GLM 快嘴前台（fast-voice-reply + GRM Turn）
 
-- Risk: worker description/preset/startup command edits can desync UI, SQLite, `team list`, and PTY launch behavior.
-- Trigger: `WorkerSettingsDialog.tsx`, `routes-workspaces.ts`, schema v24, `team-list-serializer.ts`, `post-start-input-writer.ts`.
-- Current mitigation: runtime-store/runtime-rehydration/app tests cover listWorkers shape and OpenCode startup injection.
-- Watch: `TeamListItem` wire format is public CLI/API surface; preserve snake_case serialization.
+- 为什么脆：依赖外部 GLM API；超时/降级链不收敛会卡用户；prompt 漂移让前台 over-claim dispatch（其实只能 PM 做）。
+- 现有防护：`HIVE_GLM_GATEKEEPER=0` 回滚开关；timeout/abort → null fallback；`appendFastReplyCoordination` 限制前台不许冒充 PM；`tests/unit/fast-voice-reply.test.ts` + `tests/unit/voice-understanding-buffer.test.ts` + `tests/unit/grm-turn-decision*.test.ts` 覆盖决策表（handled/escalate/drop/incomplete）。
+- Watch：GLM 模型升级（glm-4-flash → glm-5.1 → 新版）prompt 兼容性要重测；M40 Phase 3 GRM Turn 协议落地后系统消息格式不能再变。
 
-## Web worker controls / terminal UI
+## Sentinel / orphaned dispatch 检测
 
-- Risk: start/stop controls and pinned terminal prompt can conflict with live PTY output, scrollback, and batch actions.
-- Trigger: `WorkersPane.tsx`, `WorkerCard.tsx`, `useTerminalRun.ts`, terminal mirror/flow-control code.
-- Current mitigation: web worker-flow, worker-status-display, terminal-view, terminal-flow-control, terminal-ws tests.
-- Watch: UI tests use real server for worker flows; avoid replacing with fetch-only mocks.
+- 为什么脆：sentinel 巡检/exit fallback 误分类可能把慢 worker 标 stale，或漏真卡死 dispatch。
+- 现有防护：sentinel 走 `team status` 不再被旧文案引导到 `team report` 400（db30351）；stalled-dispatch-nudge 在 worker 回 idle 提示符 + submitted 未报后才 nudge；M30 user-surface pass 把 stale/escalated 推 dashboard 不静默。
+- Watch：sentinel 角色不应接正常 dispatch（已 PROTOCOL 锁）；若新增 nudge channel 要复用同款判定源 `summarizeStaleDispatches`。
 
-## Terminal backpressure and websocket fan-out
+## Marketplace catalog（6bae080 Phase 1）
 
-- Risk: slow viewers can pause PTY output; watcher/WS snapshot races can cause flaky first messages.
-- Trigger: large terminal output, client not acking, concurrent full test suite, plan/cockpit/tasks watchers.
-- Current mitigation: terminal flow-control tests, guarded upgrade handlers, mirror scrollback, plan/cockpit/tasks websocket tests.
-- Watch: `/ws/plan`, `/ws/cockpit`, `/ws/tasks`, `/ws/mobile/*` should send one snapshot before updates.
+- 为什么脆：catalog 导入是 admin 路径，鉴权丢/越权会让任意 UI 凭证创建假 role_templates；catalog 是 read-only 内存数据，如果误改成可写 DB 会引入两套真源不一致。
+- 踩过的坑：钟馗审 6bae080 挑出 POST import 路径缺无授权红绿测试 → 补 mutation 实验（临时注释鉴权看真挂红）才闭环。
+- 现有防护（`src/server/marketplace-catalog.ts` + `routes-settings.ts:207-250`）：catalog 是 TS const array read-only；导入即 `roleTemplateStore.create`，不并存两套真源；`tests/server/marketplace-catalog.test.ts` 13 测含 4xx 未授权红绿 + 不会落进 role_templates 表的端到端断言。
+- Watch：未来如 Phase 2/3 拉远程 catalog.json，必须 immutable read 缓存，不能让远程数据直接污染 role_templates。
 
-## Feishu transport / approvals / local STT bridge
+## PM 文档 / baseline drift
 
-- Risk: Feishu is both remote-control surface and voice entry; inbound delays or approval restart gaps can block high-risk operations.
-- Trigger: Lark SDK reconnect, invalid credentials, app permission changes, runtime restart during approval.
-- Current mitigation: transport status indicator, in-memory approval ledger with expired/processed card responses, local STT graceful fallback.
-- Watch: production logs under `~/.config/hive/logs/runtime-<port>.log`; do not persist Feishu secrets in `.hive/`.
+- 为什么脆：schema 改、mobile/relay 大变、PM nudge 加项时，`.hive/baseline/*.md` 比代码更新更慢；老化的 risk-hotspot 让 PM 误判攻击面或维护成本。
+- 现有防护：baseline staleness git-log 检测（`baseline-doc-staleness` parser）+ Cockpit baseline aiAction 自动红条 + milestone completion nudge；pre-commit governance 检查 reports/research 双产出（不跑 biome/tsc/vitest）；每条 baseline ≤200 行硬规则。
+- Watch：≥30 commit drift 时 PM 必须派 refresh 单（本单就是触发点）；不能等 user 直接喷"baseline 又老了"。
 
-## Baseline and PM docs drift
+## Web 资产 / 端口混淆
 
-- Risk: `.hive/baseline/*.md`, plan, and tasks can stale faster than code during M19/M13 rollout.
-- Trigger: schema migrations, mobile/relay additions, PM nudge mechanisms, Done backlog growth.
-- Current mitigation: baseline staleness git-log detector, Cockpit baseline aiAction, milestone completion nudge.
-- Rule: keep each baseline file under 200 lines; refresh after milestone-scale changes, not only after user notices.
+- 为什么脆：dev 5180 Vite HMR vs prod 4010 用户访问端口；rebuild 后旧 tab chunk 失效；user 不知该看哪端口。
+- 现有防护：index.html no-cache + assets immutable + preload-recovery auto-reload；reconnecting WebSocket backoff；`tests/web/preload-recovery.test.ts` + `reconnecting-websocket.test.ts`。
+- Check：诊断 UI bug 前先确认 user 端口（4010 才是 runtime UI；5180 是 dev HMR），可省一半排查时间。
 
-## Web asset serving and port confusion
+## Local data / secrets
 
-- Risk: user sees stale UI, missing fonts, or broken chunks after rebuild; dev/prod ports can hide the real cause.
-- Trigger A: Vite dev 5180 HMR reloads while user works.
-- Trigger B: prod 4010 `pnpm build:web` changes content hashes; old tabs request removed assets.
-- Current mitigation: index no-cache / assets immutable, preload failure auto-reload, reconnecting websocket backoff.
-- Check: user should use 4010 for runtime UI; 5180 is dev HMR.
-
-## Package / beta distribution
-
-- Risk: mobile beta config can drift from actual runtime protocol or fail store builds late.
-- Trigger: `packages/mobile/app.config.ts`, `eas.json`, native permissions, Expo dependency changes.
-- Current mitigation: mobile README + EAS config + package typecheck; no real EAS build without Apple/Google credentials.
-- Watch: before TestFlight/internal release, run device smoke for token entry, push permission, voice record, relay fallback. The Expo SDK56 `expo-av`→`expo-audio` migration is a native-audio regression point and must be revalidated on SDK upgrades.
-
-## Local data and secrets
-
-- Risk: `.hive/` docs are workspace state; credentials and runtime DB/logs live under `~/.config/hive`.
-- Trigger: committing generated docs, reports, local config, runtime sqlite/logs, Expo credentials.
-- Current mitigation: `.hive/` mostly ignored after v2.0.0; pre-commit governance checks reports/research pairing.
-- Check: before commit, review `git status --short`; only force-add intentional baseline docs.
+- 为什么脆：`.hive/` 是 workspace state；credentials + runtime DB/logs 在 `~/.config/hive`；误 commit 会泄漏。
+- 现有防护：v2.0.0 后 `.hive/` 大多 .gitignore；pre-commit 治理检 reports/research pairing；secrets 只在 `~/.config/hive` 不在 repo。
+- Check：commit 前 review `git status --short`；只 force-add 显式 baseline 文档。
