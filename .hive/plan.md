@@ -515,7 +515,7 @@ last_review: 2026-06-12
 > 5. 再收 prompt / 分支 / PM 结果回流 GRM 单声道
 > **分工**：关羽=来源通路分离(`6eeb753c`,进行中,touches webrtc-upstream→Phase1集成要等它)；赵云=Phase1 核心 voice-intent-front.ts 模块(新文件无冲突)。钟馗串行复审，user 醒后真机验+拍后续。自我进化(④)后续阶段。
 
-### M39 · 流式 ASR + rolling session transcript · 核心打通+生产崩溃已修真机验通 2026-06-06（`5970988` + 崩溃修复 `4ffbb00`）
+### M39 · 流式 ASR + rolling session transcript · ✅ shipped 2026-06-06（核心打通 `5970988` + 生产崩溃修复 `4ffbb00` isReady 闸治来电 native exit；真机验通）
 > **🚨 生产事故+修复（2026-06-06 深夜）**：user 下载流式 paraformer 模型(`~/.config/hive/streaming-paraformer/`)激活 M39 路径后，每通 WebRTC 通话第一帧崩 daemon → 手机"webrtc/中继连不上"。根因=`streaming-stt-online.ts` decode 漏 `isReady` 闸 → sherpa-onnx native `features.cc GetFrames` → C++ `exit(-1)` 杀进程（JS catch 不住）。修复 `4ffbb00`（关羽 codex/钟馗 codex 0block）：`while(isReady) decode` drain + flush inputFinished + 流式出错通话级回退 VAD（不哑），17 测。**真机验通**：call `webrtc-1780761642531` streaming partial `8→12→17→19` 边说边出字 + final 注入 + 零崩溃。教训=native addon 可 `exit()` 杀进程不可 JS catch；流式 sherpa 必须 isReady 门控；"测试绿生产死"（旧 mock 无 isReady）；诊断曾被 relay 服务器带偏，daemon crash-loop 与 relay 中断症状相同要先查 daemon liveness。**剩余**：native 彻底隔离需子进程化（跟踪项）；rolling transcript 上下文回灌效果 + 下行念回顺滑待持续真机调。
 > **起源**：user 真机通话中指出：说 20 秒不停顿 = 20 秒白白浪费，VAD 等静音才处理是根本错误。同时提出 rolling transcript 避免重复处理已识别内容。
 > - 🔬 **关羽实施中（dispatch a0fa85da）**：
