@@ -816,7 +816,10 @@
 - [x] **马超** dispatch `b3983ac3` — 【接力收尾·terminal 性能修复(吕布 opencode 崩停,你接力,claude 最稳)】
 - [x] **钟馗** dispatch `8e298a0b` — 【复审·terminal 性能修复全量(吕布 impl + 马超接力修测试 isolation)】只审不改 team report 中文。经历:吕布 implement(addon async + parking 复用)→你审出 2 bl…
 - [x] **马超** dispatch `3b521214` — 【刷新 baseline/module-map.md（你上次 refresh 的,有连续性）】周瑜检出 2 天未更 + 41 次代码变更 drift,刷新它。git log 看 2026-05-31 至今变更,读文件核实再写。
-- [ ] **关羽** dispatch `01f39363` — 【固化·relay.yunzhong2020.com 迁移进 repo（user 已拍按推荐做）】
+- [x] **关羽** dispatch `01f39363` — 【固化·relay.yunzhong2020.com 迁移进 repo（user 已拍按推荐做）】
+- [x] **钟馗** dispatch `d0bf4371` — 【独立审·relay.yunzhong2020.com 固化进 repo(关羽 01f39363, codex 写)】只审不改 team report blocking 优先中文。
+- [x] **马超** dispatch `d922f87e` — 【急·建 idea-15 Phase 1.5:主管发视频给 app(下行发送端)——user 立项要的就是这个,之前漏建,user 很不满,优先】
+- [x] **钟馗** dispatch `e51e59f5` — 【独立审·主管发视频给 app 下行发送端(马超 d922f87e, claude 写)——user 暴怒的功能,必须审对】只审不改 team report blocking 优先中文。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
