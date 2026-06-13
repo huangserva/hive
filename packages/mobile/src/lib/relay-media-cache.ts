@@ -65,15 +65,29 @@ export interface RelayMediaCacheOptions {
 const DEFAULT_CHUNK_BYTES = 256 * 1024
 const RELAY_UPLOADS_URL_PREFIX = '/api/mobile/uploads/'
 const SAFE_BASENAME = /^[A-Za-z0-9_.-]+$/u
+const DOT_SEGMENT_BASENAME = /^\.\.?$/u
+const HAS_ALPHA_OR_DIGIT = /[A-Za-z0-9]/u
 
 /**
  * 把 chat-message 里的 `/api/mobile/uploads/<basename>` 映射成稳定 cache key。
  * 同一文件复用同一 key，重复点不重复下；不同 url（不同 basename）有独立 key。
+ *
+ * **path-traversal 焊死（钟馗 blocking 2026-06-14）**：SAFE_BASENAME 只挡含斜杠
+ * 的 `../etc/passwd`，但精确 `.` 和 `..`（无斜杠）原本被放行——一旦走进
+ * `resolveRelayMediaCachePath` 就拼成 `<cacheDir>/hippoteam-media/..` 或 `/.`
+ * 父目录/当前目录语义；LAN download 分支随后把它喂给
+ * `downloadAsync` / `getInfoAsync` / `deleteAsync` 就可能污染或删 cache 外层。
+ * 这里加两道闸：
+ *   ① 显式拒绝 dot-segment（`.` 或 `..`）
+ *   ② 同时要求 basename 含至少一个字母/数字（防 `...` `--` 这类纯符号变体）
+ * 任一不满足就返回 null，调用链一路收敛到 plan=skip / cache path=null。
  */
 export const buildRelayMediaCacheKey = (url: string): string | null => {
   if (!url.startsWith(RELAY_UPLOADS_URL_PREFIX)) return null
   const basename = url.slice(RELAY_UPLOADS_URL_PREFIX.length)
   if (!basename || !SAFE_BASENAME.test(basename)) return null
+  if (DOT_SEGMENT_BASENAME.test(basename)) return null
+  if (!HAS_ALPHA_OR_DIGIT.test(basename)) return null
   return basename
 }
 
@@ -91,6 +105,26 @@ const ensureCacheSubdir = async (fileSystem: RelayMediaCacheFileSystem, cacheDir
   }
   return subdir
 }
+
+/**
+ * 把 mediaUrl 映射成 `<cacheDir>/hippoteam-media/<basename>` 目标路径；
+ * mediaUrl 不在 /api/mobile/uploads/<safe-basename> 形态时返回 null。
+ *
+ * 让 use-relay-media-source 的 LAN 直接下载分支跟 relay media.get 分块下载共用同一
+ * 缓存文件——同一份图既 LAN 又 relay 命中后不会重下，basename(UUID) 不变就复用。
+ */
+export const resolveRelayMediaCachePath = (cacheDir: string, mediaUrl: string): string | null => {
+  const basename = buildRelayMediaCacheKey(mediaUrl)
+  if (!basename) return null
+  return joinCachePath(cacheDir, basename)
+}
+
+/**
+ * 确保 `<cacheDirectory>/hippoteam-media/` 目录存在；返回该目录的绝对 file://。
+ * use-relay-media-source 的 LAN download 分支在 FileSystem.downloadAsync 前要调一次。
+ */
+export const ensureRelayMediaCacheDir = (fileSystem: RelayMediaCacheFileSystem): Promise<string> =>
+  ensureCacheSubdir(fileSystem, fileSystem.cacheDirectory)
 
 /**
  * 真 decode 每个 chunk 到 Uint8Array — 不再按字符串长度估算（钟馗 blocking #4：

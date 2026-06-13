@@ -1408,7 +1408,11 @@ const MediaContent = ({
   const isVideo = isChatMediaVideo(media)
   const lanUri = resolveMediaUrl(media.url, runtimeHost)
   // relay 模式下经 media.get 分块拉到本地缓存；LAN 模式下保持直连 URI（headers + token）。
+  // 真修 2026-06-14：authToken 传给 hook 启用"LAN authed → JS 下载到 file:// 缓存"路径
+  // （RN Android 原生 Image 加载器对 http+Bearer header 不可靠，详见
+  // media-source-download-plan.ts 顶部注释）。relay 路径行为不变。
   const relaySource = useRelayMediaSource({
+    authToken,
     lanFallbackUri: lanUri,
     mediaUrl: media.url,
     totalSize: media.size ?? null,
@@ -1516,8 +1520,12 @@ const MediaContent = ({
       </Pressable>
     )
   }
-  return (
-    <View style={mediaStyles.fileCard}>
+  // 真修 2026-06-14：图片退到 fileCard fallback 时（onError → imageFailed=true → 不渲
+  // inline Image），过去没 onPress，user 点了没反应、连全屏预览都打不开。现给图片加
+  // onPress 走 onPreviewImage——全屏 ImagePreviewModal 用 Image.getSize/getSizeWithHeaders
+  // 独立取尺寸（支持 http+Bearer header），即便 inline 加载器挂了 user 也能进去看图。
+  const FileCardInner = (
+    <>
       <Ionicons
         color={colors.accent}
         name={isImage ? 'image-outline' : 'document-outline'}
@@ -1539,8 +1547,21 @@ const MediaContent = ({
             : (meta ?? t('chat.media.file'))}
         </Text>
       </View>
-    </View>
+    </>
   )
+  if (isImage) {
+    return (
+      <Pressable
+        accessibilityLabel={media.filename}
+        accessibilityRole="button"
+        onPress={() => onPreviewImage(imageSource, media.filename)}
+        style={mediaStyles.fileCard}
+      >
+        {FileCardInner}
+      </Pressable>
+    )
+  }
+  return <View style={mediaStyles.fileCard}>{FileCardInner}</View>
 }
 
 const MarkdownText = ({ text }: { text: string }) => {

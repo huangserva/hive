@@ -101,6 +101,22 @@ describe('relay-media-cache', () => {
     expect(buildRelayMediaCacheKey('/other/path.mp4')).toBeNull()
   })
 
+  it('钟馗 blocking 焊死: dot-segment basename `.` / `..`（无斜杠原本被现有正则放行）必须挡', () => {
+    // 触发场景：mediaUrl='/api/mobile/uploads/..' → 旧实现拼成 <cacheDir>/hippoteam-media/..
+    // = 父目录语义，LAN download 喂给 downloadAsync/getInfoAsync/deleteAsync 最坏污染 cache 外层。
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/.')).toBeNull()
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/..')).toBeNull()
+  })
+
+  it('钟馗 blocking 焊死: 纯符号 basename（`...` / `--` / `_-`）也挡——要求至少一个字母/数字', () => {
+    // 防 `...` `....` 这类 dot-segment 变体（POSIX/部分 fs 解析成当前/父目录）
+    // 以及纯连字符/下划线“占位名”——真实媒体 basename 永远含字母数字。
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/...')).toBeNull()
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/....')).toBeNull()
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/--')).toBeNull()
+    expect(buildRelayMediaCacheKey('/api/mobile/uploads/_-')).toBeNull()
+  })
+
   it('combineBase64Chunks 单段直接返回；多段 256KB 边界 RN-safe 重组等于原 base64', () => {
     expect(combineBase64Chunks([])).toBe('')
     expect(combineBase64Chunks(['QUJD'])).toBe('QUJD')
