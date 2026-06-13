@@ -76,12 +76,13 @@ last_review: 2026-06-12
 
 ## 里程碑
 
-### M44 · 飞书媒体收发（视频/图片双向，对齐 mobile media）· 🚧 实现中 2026-06-13（user 拍板"做这个"）
+### M44 · 飞书媒体收发（视频/图片双向，对齐 mobile media）· ✅ code shipped 2026-06-13（`38468e7`，待 4010 重启 + 真飞书联调）（user 拍板"做这个"）
 > user 2026-06-13 手机拍板：飞书也要支持视频/图片收发，跟 `team mobile-send-media` 那套对称。
-> **现状缺口**：入站图片部分支持（feishu-inbound-handler sourceType image + imagePath），但 `feishu-transport.ts:419` 有 `TODO Phase4+` 视频/文件入站没做完；出站 `sendMessage` 只发 `msg_type:text`，无任何媒体发送。
-> - [ ] **出站**（主缺口，orch→飞书）：`team feishu reply --file <path>` + transport `sendMedia`（图片 `im.v1.image.create`→image_key→msg_type image；视频 `im.v1.file.create`→file_key→msg_type media；文件→msg_type file）。马超 `2db62a4f`。
-> - [ ] **入站**（user→飞书→orch）：消息接收 handler 处理 image/file/media msg_type → `messageResource.get` 下载存 uploads → surface 路径给 orch（sourceType 扩 video/file）。
-> 关联：M41（mobile media，本里程碑对齐其能力到飞书渠道）、M4（飞书桥）。→ 马超实现 → 钟馗 codex 独立审。
+> - [x] **出站**（主缺口，orch→飞书）：`team feishu reply --file <path>` + transport `sendMedia`（图片 `im.v1.image.create`→image_key→msg_type image；`.mp4` `im.v1.file.create`→file_key→msg_type media；其它视频/文件→file_type stream→msg_type file，非 mp4 不伪装）。caption trim 非空才跟发 text。
+> - [x] **入站**（user→飞书→orch）：消息接收 handler 处理 image/file/media → `messageResource.get` 下载存 uploads（同 mobile 目录）→ surface 路径给 orch（sourceType 扩 video/file，`[来自飞书视频/文件]` 注入串带 media 路径）。入站 100MB。
+> - **质量**：Lark SDK API 对照 types 验证；钟馗 3 轮审 0 blocking——命门是穿透测试卡死 CLI→route→transport 整链（删任一层透传必红，马超反向验证）。52 feishu 测 + 208 回归绿，0 字节预拒 + file_key 缺失抛错。
+> - **待验**：4010 重启激活 + 真飞书联调（mock SDK 边界跑通，真飞书后端对 .mov→stream/大视频/caption 时序需真机验）。
+> 关联：M41（mobile media，本里程碑对齐其能力到飞书渠道）、M4（飞书桥）。
 
 ### M43 · dispatch accept gate + 显式 reviewer/verdict（汇报≠完成，硬化审查环）· ✅ Phase 1 shipped 2026-06-13（flag-gated opt-in `HIVE_ACCEPT_GATE=1`）（idea-16 #2+#3，user 拍板）
 > 借鉴 Rive 协议强点（报告 `2026-06-05-rive-vs-hive-serva.html`，idea-16）。user 2026-06-13 手机拍板 #2+#3 合并先做。
