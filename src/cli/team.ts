@@ -27,6 +27,7 @@ export const TEAM_USAGE = [
   '  team mobile-send-media --file <path> [--text "<caption>"]',
   '  team feishu reply "<text>"',
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
+  '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] --file <path> ["<caption>"]   # M44: 出站视频/图片/文件',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team report --stdin [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team report (...same as above) --reviews <coder-dispatch-id> --verdict accepted|rejected|waived --reason "..."  # M43 reviewer 主路径',
@@ -128,7 +129,7 @@ export const APPROVE_USAGE =
   'Usage: team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]'
 export const CANCEL_USAGE = 'Usage: team cancel --dispatch <dispatch-id> <reason>'
 export const FEISHU_REPLY_USAGE =
-  'Usage: team feishu reply [--chat <chat_id>] [--message-id <message_id>] <text>'
+  'Usage: team feishu reply [--chat <chat_id>] [--message-id <message_id>] [--file <path>] (<text> | <caption> | omit when --file given)'
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
 
@@ -195,6 +196,8 @@ export const parseAcceptArgs = (args: string[]): ParsedAcceptArgs => {
 
 export interface ParsedFeishuReplyArgs {
   chatId: string | undefined
+  /** M44: 出站媒体路径（可选）；存在时 text 当作 caption（可空）。 */
+  file: string | undefined
   messageId: string | undefined
   text: string
 }
@@ -367,6 +370,7 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
   const positionals: string[] = []
   let chatId: string | undefined
   let messageId: string | undefined
+  let file: string | undefined
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
@@ -392,6 +396,17 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
       continue
     }
 
+    // M44: --file <path>（媒体出站）；文件给了之后 positional text 当 caption（可空）。
+    if (arg === '--file') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--file requires a value\n\n${FEISHU_REPLY_USAGE}`)
+      }
+      file = next
+      index += 1
+      continue
+    }
+
     if (arg.startsWith('--')) {
       throw new Error(`Unknown argument: ${arg}\n\n${FEISHU_REPLY_USAGE}`)
     }
@@ -400,11 +415,12 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
   }
 
   const text = positionals.join(' ').trim()
-  if (!text) {
+  // M44: --file 没给时 text 必填（旧契约）；--file 给了时 text 是 caption，可空（飞书会只发媒体）。
+  if (!file && !text) {
     throw new Error(`Missing <text>\n\n${FEISHU_REPLY_USAGE}`)
   }
 
-  return { chatId, messageId, text }
+  return { chatId, file, messageId, text }
 }
 
 export const parseReportArgs = (args: string[], command = 'report'): ParsedReportArgs => {
@@ -708,6 +724,9 @@ export const runTeamCommand = async (argv: string[]) => {
       body: JSON.stringify({
         ...(reply.chatId ? { chatId: reply.chatId } : {}),
         ...(reply.messageId ? { messageId: reply.messageId } : {}),
+        // M44: --file 透传；text 当 caption（飞书侧紧跟一条 text 发出）。
+        ...(reply.file ? { file: reply.file } : {}),
+        // 普通 text 路径仍 require text；媒体路径 text 可为空字符串（caption 选填）。
         text: reply.text,
       }),
       headers: {

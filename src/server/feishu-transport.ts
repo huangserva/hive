@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { existsSync, statSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import type { EventHandles } from '@larksuiteoapi/node-sdk'
 import * as lark from '@larksuiteoapi/node-sdk'
@@ -45,8 +46,61 @@ export interface FeishuOutboundTransport {
   markReplyDelivered(messageId: string): Promise<void>
   removeReaction(messageId: string, reactionId: string): Promise<void>
   sendApprovalCard(input: SendApprovalCardInput): Promise<{ messageId: string }>
+  sendMedia(input: SendMediaInput): Promise<SendMediaResult>
   sendMessage(chatId: string, text: string): Promise<void>
   updateApprovalCard(input: UpdateApprovalCardInput): Promise<void>
+}
+
+// M44: 出站媒体发送（CLI `team feishu reply --file <path>`）。
+// 镜像现有 `team mobile-send-media`：CLI → routes-feishu → transport.sendMedia。
+export interface SendMediaInput {
+  caption?: string
+  chatId: string
+  filePath: string
+}
+
+export interface SendMediaResult {
+  /** 'image' | 'media'（视频）| 'file'（其它）—— 与飞书 msg_type 对齐。 */
+  category: 'file' | 'image' | 'media'
+  fileName: string
+  /** 视频/文件通过 file.create 拿到的 key；image 路径恒 null。 */
+  fileKey: string | null
+  /** image.create 拿到的 key；视频/文件路径恒 null。 */
+  imageKey: string | null
+  /** 是否同时跟了一条 caption text 消息。 */
+  sentCaption: boolean
+}
+
+// 飞书 SDK API 限制：image.create 10MB、file.create 30MB。失败时抛清晰错误。
+const FEISHU_IMAGE_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+const FEISHU_FILE_UPLOAD_MAX_BYTES = 30 * 1024 * 1024
+// 出站扩展名映射（图片走 image.create；其余按扩展名映射到 file.create 的 file_type）。
+const FEISHU_IMAGE_UPLOAD_EXTS = new Set([
+  '.bmp',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.tiff',
+  '.webp',
+])
+// 钟馗顺手 #1：仅 .mp4 走 file_type='mp4' + msg_type='media'。其它视频扩展（.mov/.mkv/.webm/.avi）
+// 强行声称 file_type='mp4' 会让飞书后端按 mp4 容器解析非 mp4 字节流——拒上传或视频播放花屏。
+// 故这些扩展走 msg_type='file' + file_type='stream'：飞书按通用文件处理，用户在飞书侧可下载播放。
+const FEISHU_NATIVE_VIDEO_EXT = '.mp4'
+// file.create 的 file_type 受 SDK 类型约束：'opus'|'mp4'|'pdf'|'doc'|'xls'|'ppt'|'stream'。
+// 我们按扩展名映射常见情况；剩余统一 'stream'（飞书后端按内容嗅探或当二进制处理）。
+const FEISHU_FILE_TYPE_BY_EXT: Record<string, 'doc' | 'mp4' | 'opus' | 'pdf' | 'ppt' | 'xls'> = {
+  '.doc': 'doc',
+  '.docx': 'doc',
+  '.mp4': 'mp4',
+  '.opus': 'opus',
+  '.pdf': 'pdf',
+  '.ppt': 'ppt',
+  '.pptx': 'ppt',
+  '.xls': 'xls',
+  '.xlsx': 'xls',
 }
 
 export interface SendApprovalCardInput {
@@ -153,7 +207,11 @@ export class FeishuTransport implements FeishuOutboundTransport {
   private readonly reactionStore = new FeishuReactionStore()
   private reconnectCount = 0
   private state: FeishuTransportState = 'disconnected'
-  private cleanupInterval: ReturnType<typeof setInterval> | null = null
+  // 钟馗第二轮 B2：tsconfig 同时引 ES2022 + DOM lib 让 setInterval overload 解析到 DOM 的 number 版本，
+  // ReturnType<typeof setInterval> 就成了 number 而非 NodeJS.Timeout，导致 .unref?.() 触发 TS2339。
+  // 收紧到 NodeJS.Timeout（Node 运行时真实类型）即可拿回 unref。clearInterval 接受 NodeJS.Timeout，
+  // 行为面不变。
+  private cleanupInterval: NodeJS.Timeout | null = null
   private wsClient: lark.WSClient | null = null
 
   constructor({
@@ -314,6 +372,108 @@ export class FeishuTransport implements FeishuOutboundTransport {
     }
   }
 
+  // M44: 出站媒体（CLI `team feishu reply --file <path>` 走 routes-feishu→此）。
+  // 按扩展名分流：图片走 image.create → msg_type='image'；视频走 file.create(file_type='mp4')
+  // → msg_type='media'；其它文件走 file.create(file_type=映射) → msg_type='file'。
+  // caption（text）若有，紧跟一条 text 消息发出（不内联到媒体卡片）。
+  async sendMedia(input: SendMediaInput): Promise<SendMediaResult> {
+    const { caption, chatId, filePath } = input
+    if (!existsSync(filePath)) {
+      throw new Error(`Source media file not found: ${filePath}`)
+    }
+    const stat = statSync(filePath)
+    if (!stat.isFile()) {
+      throw new Error(`Source path is not a regular file: ${filePath}`)
+    }
+    const fileName = basename(filePath)
+    const ext = extname(fileName).toLowerCase()
+    const buffer = await readFile(filePath)
+
+    // 钟馗顺手 #3：0 字节文件直接本地拒（飞书 file.create / image.create 会 400 "不允许上传空文件"，
+    // 本地预拒给出更清晰的错误而不是把 SDK 4xx 透回 CLI）。
+    if (buffer.length === 0) {
+      throw new Error(`Source media file is empty: ${filePath}`)
+    }
+
+    let category: 'file' | 'image' | 'media'
+    let imageKey: string | null = null
+    let fileKey: string | null = null
+
+    if (FEISHU_IMAGE_UPLOAD_EXTS.has(ext)) {
+      if (buffer.length > FEISHU_IMAGE_UPLOAD_MAX_BYTES) {
+        throw new Error(
+          `Feishu image upload exceeds 10MB limit: size=${buffer.length} path=${filePath}`
+        )
+      }
+      const response = await this.client.im.v1.image.create({
+        data: {
+          image: buffer,
+          image_type: 'message',
+        },
+      })
+      const key = response?.image_key
+      if (!key) {
+        throw new Error('Feishu image.create response missing image_key')
+      }
+      imageKey = key
+      await this.client.im.v1.message.create({
+        data: {
+          content: JSON.stringify({ image_key: key }),
+          msg_type: 'image',
+          receive_id: chatId,
+        },
+        params: { receive_id_type: 'chat_id' },
+      })
+      category = 'image'
+    } else {
+      if (buffer.length > FEISHU_FILE_UPLOAD_MAX_BYTES) {
+        throw new Error(
+          `Feishu file upload exceeds 30MB limit: size=${buffer.length} path=${filePath}`
+        )
+      }
+      // 钟馗顺手 #1：仅 .mp4 真用 file_type='mp4' + msg_type='media' 走飞书原生视频卡；
+      // 其它视频扩展（.mov/.mkv/.webm/.avi）按通用文件 file_type='stream' + msg_type='file' 发，
+      // 避免伪装 mp4 容器导致后端 400 或视频播放花屏。
+      const isNativeVideo = ext === FEISHU_NATIVE_VIDEO_EXT
+      const fileType: 'doc' | 'mp4' | 'opus' | 'pdf' | 'ppt' | 'stream' | 'xls' = isNativeVideo
+        ? 'mp4'
+        : (FEISHU_FILE_TYPE_BY_EXT[ext] ?? 'stream')
+      const response = await this.client.im.v1.file.create({
+        data: {
+          file: buffer,
+          file_name: fileName,
+          file_type: fileType,
+        },
+      })
+      const key = response?.file_key
+      if (!key) {
+        throw new Error('Feishu file.create response missing file_key')
+      }
+      fileKey = key
+      const msgType: 'file' | 'media' = isNativeVideo ? 'media' : 'file'
+      await this.client.im.v1.message.create({
+        data: {
+          content: JSON.stringify({ file_key: key }),
+          msg_type: msgType,
+          receive_id: chatId,
+        },
+        params: { receive_id_type: 'chat_id' },
+      })
+      category = isNativeVideo ? 'media' : 'file'
+    }
+
+    const trimmedCaption = caption?.trim()
+    let sentCaption = false
+    if (trimmedCaption) {
+      await this.sendMessage(chatId, trimmedCaption)
+      sentCaption = true
+    }
+    this.logger.info(
+      `feishu outbound media sent chat_id=${chatId} file_name=${fileName} category=${category} size=${buffer.length} caption=${sentCaption ? 'yes' : 'no'}`
+    )
+    return { category, fileKey, fileName, imageKey, sentCaption }
+  }
+
   async sendMessage(chatId: string, text: string): Promise<void> {
     const chunks = chunkFeishuText(text)
 
@@ -372,6 +532,8 @@ export class FeishuTransport implements FeishuOutboundTransport {
     const inboundEvent: FeishuInboundChatEvent = {
       chatId,
       ...(inboundText.imagePath ? { imagePath: inboundText.imagePath } : {}),
+      ...(inboundText.mediaPath ? { mediaPath: inboundText.mediaPath } : {}),
+      ...(inboundText.mediaFileName ? { mediaFileName: inboundText.mediaFileName } : {}),
       ...(messageId ? { messageId } : {}),
       senderName: senderUserId,
       sourceType: inboundText.sourceType,
@@ -416,7 +578,8 @@ export class FeishuTransport implements FeishuOutboundTransport {
   private extractText(event: MessageReceiveEvent): string | null {
     const { message } = event
     if (message.message_type !== 'text') {
-      // TODO Phase 4+: support Feishu image/file/audio/sticker payloads.
+      // M44 后：image / file / media / audio 已在 extractInboundText 上游分流，
+      // 这里 fallthrough 的剩余 message_type 是 sticker / system / interactive 等仍未支持的载荷。
       this.logger.info(
         `feishu inbound dropped reason=unsupported_message_type chat_id=${message.chat_id} message_type=${message.message_type}`
       )
@@ -452,9 +615,13 @@ export class FeishuTransport implements FeishuOutboundTransport {
     return text
   }
 
-  private async extractInboundText(
-    event: MessageReceiveEvent
-  ): Promise<{ imagePath?: string; sourceType: 'image' | 'text' | 'voice'; text: string } | null> {
+  private async extractInboundText(event: MessageReceiveEvent): Promise<{
+    imagePath?: string
+    mediaPath?: string
+    mediaFileName?: string
+    sourceType: 'file' | 'image' | 'text' | 'video' | 'voice'
+    text: string
+  } | null> {
     const { message } = event
     if (message.message_type === 'audio') {
       const transcript = await this.extractAudioTranscript(event)
@@ -463,11 +630,145 @@ export class FeishuTransport implements FeishuOutboundTransport {
     if (message.message_type === 'image') {
       return this.extractInboundImage(event)
     }
+    // M44: msg_type 'media' = 飞书原生视频消息（含 file_key）。
+    if (message.message_type === 'media') {
+      return this.extractInboundVideo(event)
+    }
     if (message.message_type === 'file') {
+      // M44: file 消息按扩展名再分流：图片扩展走 extractInboundImageFile（保留旧逻辑），
+      // 视频扩展 / 其它扩展走 extractInboundFile（新增）。
+      const file = (() => {
+        try {
+          return parseFileContent(message.content)
+        } catch {
+          return null
+        }
+      })()
+      if (file) {
+        const ext = extname(file.fileName).toLowerCase()
+        if (FEISHU_IMAGE_FILE_EXTS.has(ext)) return this.extractInboundImageFile(event)
+        return this.extractInboundFile(event)
+      }
       return this.extractInboundImageFile(event)
     }
     const text = this.extractText(event)
     return text === null ? null : { sourceType: 'text', text }
+  }
+
+  // M44: 入站视频（msg_type='media'）—— 解析 file_key 后下载，写 uploads 目录，surface 路径给 orch。
+  private async extractInboundVideo(event: MessageReceiveEvent): Promise<{
+    mediaPath?: string
+    mediaFileName?: string
+    sourceType: 'video'
+    text: string
+  } | null> {
+    const { message } = event
+    let file: ReturnType<typeof parseFileContent> | null = null
+    try {
+      file = parseFileContent(message.content)
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound video failed reason=invalid_media_content chat_id=${message.chat_id}`,
+        error
+      )
+      return { sourceType: 'video', text: '收到视频但处理失败：媒体消息格式无法解析。' }
+    }
+    if (!file) {
+      this.logger.warn(
+        `feishu inbound video failed reason=missing_file_key chat_id=${message.chat_id}`
+      )
+      return { sourceType: 'video', text: '收到视频但处理失败：缺少视频资源标识。' }
+    }
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        params: { type: 'file' },
+        path: {
+          file_key: file.fileKey,
+          message_id: message.message_id,
+        },
+      })
+      const buffer = await readableToBuffer(resource.getReadableStream())
+      const ext = extname(file.fileName).toLowerCase() || '.mp4'
+      const mediaPath = await this.saveFeishuMediaBuffer(buffer, ext, message.chat_id)
+      return {
+        mediaPath,
+        mediaFileName: file.fileName,
+        sourceType: 'video',
+        text: `收到一条来自飞书的视频：${file.fileName}。本地路径见上方 media= 字段，需要查看时按需读取（视频文件较大，建议必要时再处理）。`,
+      }
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound video failed reason=video_download_failed chat_id=${message.chat_id} file_key=${file.fileKey}`,
+        stringifyFeishuError(error)
+      )
+      return { sourceType: 'video', text: '收到视频但处理失败：无法下载飞书视频资源。' }
+    }
+  }
+
+  // M44: 入站非图片 file 消息（视频文档当文件发的、PDF 等）—— surface 给 orch 但不强制 Read。
+  private async extractInboundFile(event: MessageReceiveEvent): Promise<{
+    mediaPath?: string
+    mediaFileName?: string
+    sourceType: 'file'
+    text: string
+  } | null> {
+    const { message } = event
+    let file: ReturnType<typeof parseFileContent> | null = null
+    try {
+      file = parseFileContent(message.content)
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound file failed reason=invalid_file_content chat_id=${message.chat_id}`,
+        error
+      )
+      return { sourceType: 'file', text: '收到文件但处理失败：文件消息格式无法解析。' }
+    }
+    if (!file) {
+      this.logger.info(`feishu inbound dropped reason=missing_file_key chat_id=${message.chat_id}`)
+      return null
+    }
+    try {
+      const resource = await this.client.im.v1.messageResource.get({
+        params: { type: 'file' },
+        path: {
+          file_key: file.fileKey,
+          message_id: message.message_id,
+        },
+      })
+      const buffer = await readableToBuffer(resource.getReadableStream())
+      const ext = extname(file.fileName).toLowerCase() || '.bin'
+      const mediaPath = await this.saveFeishuMediaBuffer(buffer, ext, message.chat_id)
+      return {
+        mediaPath,
+        mediaFileName: file.fileName,
+        sourceType: 'file',
+        text: `收到一份来自飞书的文件：${file.fileName}。本地路径见上方 media= 字段，按需读取。`,
+      }
+    } catch (error) {
+      this.logger.warn(
+        `feishu inbound file failed reason=file_download_failed chat_id=${message.chat_id} file_key=${file.fileKey}`,
+        stringifyFeishuError(error)
+      )
+      return { sourceType: 'file', text: '收到文件但处理失败：无法下载飞书文件资源。' }
+    }
+  }
+
+  // M44: 入站视频/文件存盘，与 mobile/team-send-media 同一 uploads 目录约定。
+  private async saveFeishuMediaBuffer(buffer: Buffer, ext: string, chatId: string) {
+    // 钟馗顺手 #2：入站限放宽到 100MB（手机录屏常 60-80MB；飞书 messageResource 实际放行可达 100MB 内）。
+    // 出站 file.create 30MB 上限保留（SDK 接口限制），与入站独立。
+    const FEISHU_INBOUND_MEDIA_MAX_BYTES = 100 * 1024 * 1024
+    if (buffer.length > FEISHU_INBOUND_MEDIA_MAX_BYTES) {
+      this.logger.warn(
+        `feishu inbound media failed reason=media_too_large chat_id=${chatId} size=${buffer.length}`
+      )
+      throw new Error('Feishu inbound media exceeds 100MB limit')
+    }
+    const uploadsDir = getUploadsDir()
+    await mkdir(uploadsDir, { recursive: true })
+    const mediaPath = join(uploadsDir, `${randomUUID()}${ext}`)
+    await writeFile(mediaPath, buffer)
+    return mediaPath
   }
 
   private async extractInboundImage(
@@ -720,12 +1021,14 @@ export class FeishuTransport implements FeishuOutboundTransport {
 
   private startCleanupTimer() {
     if (this.cleanupInterval) return
+    // setInterval overload 在同时引 ES2022 + DOM lib 时返回 number，必须显式断言到 NodeJS.Timeout
+    // 才能拿回 .unref()（行为面不变；Node 运行时本就返 Timeout）。
     this.cleanupInterval = setInterval(() => {
       const removed = this.store.approvalLedger.cleanup(APPROVAL_LEDGER_TTL_MS)
       if (removed > 0) {
         this.logger.info(`feishu approval cleanup removed=${removed}`)
       }
-    }, APPROVAL_LEDGER_CLEANUP_INTERVAL_MS)
+    }, APPROVAL_LEDGER_CLEANUP_INTERVAL_MS) as unknown as NodeJS.Timeout
     this.cleanupInterval.unref?.()
   }
 }

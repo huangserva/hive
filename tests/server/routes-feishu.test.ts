@@ -44,8 +44,17 @@ const setupWithTransport = async (transportOverrides: Partial<FeishuTransport> =
   const agentManager = createAgentManager()
   const store = createRuntimeStore({ agentManager })
   const sendMessage = vi.fn().mockResolvedValue(undefined)
+  // M44 B1: 默认 sendMedia 也 fake 上；如果路由本应该走 sendMessage，sendMedia 不该被调（断言守）。
+  const sendMedia = vi.fn().mockResolvedValue({
+    category: 'media',
+    fileKey: 'fk',
+    fileName: 'demo.mp4',
+    imageKey: null,
+    sentCaption: false,
+  })
   const fakeTransport = {
     getLastChatForAgent: vi.fn().mockReturnValue(null),
+    sendMedia,
     sendMessage,
     ...transportOverrides,
   } as unknown as FeishuTransport
@@ -77,7 +86,7 @@ const setupWithTransport = async (transportOverrides: Partial<FeishuTransport> =
   const token = store.peekAgentToken(worker.id)
   if (!token) throw new Error('No agent token after start')
 
-  return { agentId: worker.id, baseUrl, run, sendMessage, store, token }
+  return { agentId: worker.id, baseUrl, run, sendMedia, sendMessage, store, token }
 }
 
 describe('POST /internal/feishu/outbound', () => {
@@ -245,5 +254,86 @@ describe('POST /internal/feishu/outbound', () => {
     expect(body).toEqual({ ok: true })
     expect(sendMessage).toHaveBeenCalledWith('oc_target', 'reply')
     expect(markReplyDelivered).toHaveBeenCalledWith('om_source')
+  })
+
+  // M44 钟馗第二轮 blocking #1：真集成穿透 CLI→route→transport 的媒体路径，
+  // 校验路由对 body.file 字段的真实分流（产品反 = 不调 sendMedia 仍走 sendMessage 这条假覆盖必须挂红）。
+  test('M44 file 字段存在 + text caption → 调 sendMedia({chatId, filePath, caption})，不调 sendMessage', async () => {
+    const { agentId, baseUrl, sendMedia, sendMessage, token } = await setupWithTransport()
+    const { status, body } = await postOutbound(
+      baseUrl,
+      { file: '/abs/path/demo.mp4', text: '主管发的视频', chatId: 'oc_target' },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(sendMedia).toHaveBeenCalledTimes(1)
+    expect(sendMedia).toHaveBeenCalledWith({
+      caption: '主管发的视频',
+      chatId: 'oc_target',
+      filePath: '/abs/path/demo.mp4',
+    })
+    // 产品反（route 静默降级到 sendMessage）这条断言会挂红
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('M44 file 字段 + 无 text → sendMedia 不带 caption（且不调 sendMessage）', async () => {
+    const { agentId, baseUrl, sendMedia, sendMessage, token } = await setupWithTransport()
+    const { status, body } = await postOutbound(
+      baseUrl,
+      { file: '/abs/path/demo.mp4', chatId: 'oc_target' },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(sendMedia).toHaveBeenCalledTimes(1)
+    const call = sendMedia.mock.calls[0]?.[0] as {
+      caption?: string
+      chatId: string
+      filePath: string
+    }
+    expect(call.chatId).toBe('oc_target')
+    expect(call.filePath).toBe('/abs/path/demo.mp4')
+    expect(call.caption).toBeUndefined()
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('M44 file 字段 + 空白 text → caption 省略（不传给 sendMedia，飞书只发媒体）', async () => {
+    const { agentId, baseUrl, sendMedia, sendMessage, token } = await setupWithTransport()
+    const { status, body } = await postOutbound(
+      baseUrl,
+      { file: '/abs/path/demo.mp4', text: '   ', chatId: 'oc_target' },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    const call = sendMedia.mock.calls[0]?.[0] as { caption?: string }
+    expect(call.caption).toBeUndefined()
+    expect(sendMessage).not.toHaveBeenCalled()
+  })
+
+  test('M44 file 字段 + messageId → media 发完仍 markReplyDelivered', async () => {
+    const markReplyDelivered = vi.fn().mockResolvedValue(undefined)
+    const { agentId, baseUrl, sendMedia, token } = await setupWithTransport({ markReplyDelivered })
+    const { status } = await postOutbound(
+      baseUrl,
+      { file: '/abs/path/demo.mp4', chatId: 'oc_target', messageId: 'om_source' },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(200)
+    expect(sendMedia).toHaveBeenCalledTimes(1)
+    expect(markReplyDelivered).toHaveBeenCalledWith('om_source')
+  })
+
+  test('M44 file 字段是空串 → 400 BadRequest，不调 sendMedia / sendMessage', async () => {
+    const { agentId, baseUrl, sendMedia, sendMessage, token } = await setupWithTransport()
+    const { status } = await postOutbound(
+      baseUrl,
+      { file: '   ', chatId: 'oc_target' },
+      authHeaders(agentId, token)
+    )
+    expect(status).toBe(400)
+    expect(sendMedia).not.toHaveBeenCalled()
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 })

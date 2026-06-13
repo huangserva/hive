@@ -1,3 +1,5 @@
+import { isAbsolute, resolve } from 'node:path'
+
 import { BadRequestError, HttpError, UnauthorizedError } from './http-errors.js'
 import { readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
@@ -5,6 +7,8 @@ import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
 interface FeishuOutboundBody {
   chatId?: unknown
+  /** M44: 媒体路径（可选）；存在时 text 当 caption，可空字符串。 */
+  file?: unknown
   messageId?: unknown
   text?: unknown
 }
@@ -71,6 +75,25 @@ const requireRisk = (value: unknown) => {
   return value
 }
 
+// M44: --file <path> 解析 + 相对路径归一到 cwd 绝对路径（与 mobile-send-media 同款契约）。
+const optionalFile = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new BadRequestError('file must be a non-empty string')
+  }
+  const trimmed = value.trim()
+  return isAbsolute(trimmed) ? trimmed : resolve(process.cwd(), trimmed)
+}
+
+// M44: caption（媒体路径下的可选 text 字段）；允许 undefined / 空串。
+const optionalCaption = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') {
+    throw new BadRequestError('text must be a string when file is provided')
+  }
+  return value
+}
+
 const optionalTarget = (value: unknown) => {
   if (value === undefined || value === null) return null
   if (typeof value !== 'string') {
@@ -131,7 +154,10 @@ export const feishuRoutes: RouteDefinition[] = [
       }
 
       const body = await readJsonBody<FeishuOutboundBody>(request)
-      const text = requireText(body.text)
+      // M44: 媒体出站路径 —— 有 file 字段时不要求 text 必填（caption 选填）。
+      const rawFile = body.file
+      const filePath = optionalFile(rawFile)
+      const text = filePath === undefined ? requireText(body.text) : optionalCaption(body.text)
       const chatId = optionalChatId(body.chatId) ?? feishuTransport.getLastChatForAgent(agentId)
       if (!chatId) {
         throw new BadRequestError('no recent feishu chat for this agent')
@@ -139,7 +165,18 @@ export const feishuRoutes: RouteDefinition[] = [
       const messageId =
         optionalMessageId(body.messageId) ?? feishuTransport.getLatestMessageForChat?.(chatId)
 
-      await feishuTransport.sendMessage(chatId, text)
+      if (filePath !== undefined) {
+        // 媒体路径：caption 仅在 trim 后非空时透传（与 transport 内部 trim 一致；route 层先 trim
+        // 避免 sendMedia 收到全空白 caption，与穿透测试期望一致）。
+        const trimmedCaption = text?.trim()
+        await feishuTransport.sendMedia({
+          chatId,
+          filePath,
+          ...(trimmedCaption ? { caption: trimmedCaption } : {}),
+        })
+      } else {
+        await feishuTransport.sendMessage(chatId, text ?? '')
+      }
       if (messageId) {
         await feishuTransport.markReplyDelivered?.(messageId)
       }
