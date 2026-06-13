@@ -4,6 +4,15 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-13 借鉴 Rive 协议强点：dispatch 从「字符串汇报」升级到「evidence + accept gate」— PM 从 Rive 对比调研提炼
+
+- **idea-16 协议硬化（吸收 Rive 协议内核）**：源自 `.hive/reports/2026-06-05-rive-vs-hive-serva.html` 对比调研。Rive 是跟 HippoTeam 哲学最像的"兄弟"（同为 local-first 多 agent runtime + dispatch ledger + git worktree），但**把协作语义定义得更硬**。⚠️ caveat：当时只核了 Rive 公开 docs/README，**未验证它是否真落地**——"Rive 强"=概念定义强，不是产品成熟度强（HippoTeam 反而已产品化真在跑）。借鉴**吸收不迁移**，且全程保留 HippoTeam 的 human PM control plane（Rive 偏自动调度，我们保留 user 拍板）。
+  - **Rive 比我们硬的 5 个语义**：①report done ≠ task done（必须 explicit **accept**，typed gate）②task node 与 dispatch attempt 分离（**Work DAG** 投影）③report/review 引用 **evidence/snapshot/ref**（不只自然语言）④worker 改文件进独立 worktree + **integrate/reject/ref 状态机** ⑤成功 workflow 存成不可变 **DAG + node prompt + output contract + capability policy** 模板。
+  - **6 步借鉴路线**：1) dispatch artifacts → evidence bundle（path 存在性/hash/manifest/diff·test·terminal refs）2) reviewable/accepted gate（先只高风险代码 dispatch）3) M34 兜底上加显式 reviewer assignment + accepted verdict 4) 给 M32 worktree gate 补 workspace_ref/integrate/reject/abort 协议 5) Work DAG MVP（task node 与 dispatch attempt 分离）6) reusable workflow template + DAG scheduler。
+  - **现成吸收点**（不用推倒重来）：直接接在在途的 **M32（worker worktree）+ M34（未审代码兜底）+ dispatch ledger** 上；已有 `team report --artifact` / `messages.artifacts` / `dispatches.artifacts` / `HIVE_WORKER_WORKTREES` gate / stale-dispatch push 作为升级地基。
+  - **勘误存档**：旧结论"hive-serva 没有 worktree/evidence/review 兜底"是错的——已有入口+兜底，真实差异是 artifact 仍是字符串、worktree 仍是隔离层、未审仍是启发式（Rive 把这些做成强事实投影）。
+  - **promote 条件**：user 拍是否立 milestone（建议拆 Phase：先 1+2 evidence bundle + 高风险 accept gate，价值最高、改动可控）；排在视频 4G + 现有在途 milestone 之后。关联 [[idea-8]]（远程可诊断性 M33，evidence 与 doctor/证据链同源）、M32、M34。
+
 ### 2026-06-10 app 内视频传输 + 内置播放 + 缩放 — user 手机端口述立项 → ✅ **promoted M41**（2026-06-12，PM 补里程碑；Phase 1/1.5 shipped，Phase 2 媒体走 relay 待 4010 重启+4G 真机验）
 
 - **idea-15 app 视频收发 + 内置可缩放播放器**：user 手机语音口述、明确要求**立项**。现状=文件传输双向已通，但**视频不能在 app 内播放**。诉求三段：①能把视频传给 app（上行，复用现有文件 upload）②app 接收并在**内置播放器**里播（下行 + player）③播放时能**放大缩小**（双指 pinch-zoom）。
