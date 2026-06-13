@@ -5,13 +5,13 @@
 
 ## In progress
 
-> 🎥 **2026-06-12 下午｜视频功能 4G 可用化 — 媒体走 relay（当前活跃）**
+> 🔬 **2026-06-13｜M43 dispatch accept gate + 显式 reviewer/verdict（当前活跃）**
 >
-> 视频/图片真机暴露架构 gap：**4G 下放不了（只 LAN 能播）**——app `resolveMediaUrl` 直连 HTTP 取媒体字节只 LAN 通，4G 走 relay 而 relay-rpc 无 media serve（只 upload+控制）。影响整个视频/图片显示在 4G 下都不工作（user 上传的也一样）。Phase1 device-verify(6/11)在 LAN 做的漏了——教训：**device-verify 必须覆盖 user 真实 4G/relay 路径**。user 远程没 WiFi 拍板修。
-> **代码已 ship（`bc96876` push origin/main）**：服务端 relay-rpc `media.get` 分块下载（流式 readSync + path-traversal 三层 guard 含 lstat/realpath 拒 symlink）；移动端 relay-media-cache 逐 chunk 真 decode（复用 relay-crypto 的 atob/Uint8Array，**零 Buffer 依赖**，Hermes 真机可用）+ 真 length 校验拒非法 base64 + 缓存去重 + 下载进度；图片状态机抽纯函数避免 LAN 失败永久挡。马超两轮（建 `5b91b080`→修 `0a5bb754`），钟馗两审：**首审 4 blocking 全真机会崩**（Hermes 无 Buffer/图片永久挡/symlink 逃逸/length 假校验，正是"单测绿真机崩"那类）→ 马超修 → **复审 0 blocking 全闭环**。服务端 12 + 移动端 18 字节级真测试。
-> **待激活**：① 服务端 `media.get` 要 **user 重启 4010** 才生效（PM 是 4010 子进程没法自重启）② 移动端要 **新 APK**（构建中）③ **张飞 4G 真机验**（watch logcat OOM，54MB 视频内存峰值~130MB；这次必覆盖 user 真实 4G 路径，不再只 LAN）。
+> 借鉴 Rive 协议强点（idea-16，对比报告 `2026-06-05-rive-vs-hive-serva.html`）。user 拍板做 #2+#3：worker 报告 ≠ 完成，必须显式 accept 才算 done；reviewer 显式绑定在审哪条（替 M34 启发式）。硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
+> **设计已就绪**（马超 spike `497717b1`）：推荐**方案 B 旁挂三字段**（review_status/reviews_dispatch_id/accept_verdict，不动 8 态机，flag-gated 零回归——PM 验过 isOpen/isCompleted 仅 2 处用、tasks.md `[~]` 正则本就支持）。产 `reports/`+`research/`+ADR draft `draft-2026-06-13-accept-gate.md`。
+> **实现 Phase 1 中**（马超 `8eeecfec`）：schema v33 三字段 + team report --reviews/--verdict + team accept --reason + tasks-file [~]/[x] 闸 + unreviewed-code 精确 link 优先 + flag HIVE_ACCEPT_GATE，scope 只高风险代码 dispatch。→ 钟馗 codex 跨 provider 独立审（L1 核心改动，查 flag=0 零回归 + accept 不可自审绕过）→ commit。
 >
-> **今日已 ship（归档）**：① 下行发送端 `team mobile-send-media`（`f393997`，主管发视频/图片到 app、走 store 自动实时推；立项漏的 Phase1.5 补齐，真机发真视频验过卡片+播放器，4G 播放=上面 gap） ② 上游 triage 4 backport（535cfca/shell/terminal/marketplace `5527a8a`..`6bae080`，每件不同人+钟馗审） ③ 两启动修复（watcher ENFILE + env-strip，4010 重启已激活，不用再 env -u） ④ relay 固化进 repo（`de75d73`） ⑤ PM 维护（module-map 刷新/Q15 park/格式告警清）。
+> **今日已 ship（归档）**：① 🎥 **M41 视频/图片 4G relay 真机验通 shipped**（`bc96876`，2026-06-13 user 真实 4G：4010 重启 PID 67337→62558 后 media.get 在线，112KB 视频 4G 下载+播放成功；真因=之前"重启"没生效旧进程占端口，教训"核进程号别信声称"）② 🗣️ **对讲 GLM 全传 orch live**（`433cc3c`，handled 也把信息作 FYI 注入 orch 不再失聪、双声 L1 焊死，关羽实现钟馗 0block，随同次 4010 重启激活）③ 下行发送端 `team mobile-send-media`（`f393997`）④ 上游 triage 4 backport（`5527a8a`..`6bae080`）⑤ 两启动修复（watcher ENFILE + env-strip）⑥ relay 固化（`de75d73`）⑦ **PM 大整顿**：plan 校准 6 stale 里程碑 + 补 M41/M42/M43 + baseline 三件套刷新 + 5 个 curated PM 文档补进 git（跨机同步漏档）。
 >
 > **下方 6/07~6/12 各 "当前活跃" 块均已 shipped，留作 build 史。**
 
@@ -834,6 +834,12 @@
 - [x] **钟馗** dispatch `14368180` — 【独立审·媒体走 relay 让 4G 能下载播放视频/图片(马超 5b91b080, claude 写)——user 急等的 4G 视频,必须审对】只审不改 team report blocking 优先中文。
 - [x] **马超** dispatch `0a5bb754` — 【修钟馗 4 blocking·媒体走 relay——全是真机会崩的,单测在 Node 上跑掩盖了,必须 RN-safe】改完 team report,带文件行号,中文。
 - [x] **钟馗** dispatch `6efc6cc5` — 【复审·媒体走 relay 的 4 blocking 修复(马超改完)——这是你上一审揪出的真机会崩项,复审必须确认真闭合,过了就出 APK + 张飞 4G 真机验】只审不改 team report blocking 优先中文。
+- [x] **马超** dispatch `cbfac9b3` — 【baseline 体检·刷新 test-gates.md(陈旧 17 天,40+ 测试相关代码变更没反映)】PM 维护类,做完 team report,中文。
+- [x] **马超** dispatch `6e7f99ed` — 【baseline 体检·刷新 risk-hotspots.md(陈旧 06-09,35 变更没反映)】PM 维护类,做完 team report,中文。接着你刚做的 test-gates 同标准。
+- [x] **关羽** dispatch `beac2e88` — 【对讲·GLM handled 也必须把信息传给 orch(治 orch 失聪留洞)——user 铁律,强 TDD,服务端改动需 4010 重启激活】做完 team report 中文带文件行号。
+- [x] **钟馗** dispatch `e3bcca05` — 【独立审·对讲 GLM handled 必须传 orch(关羽 codex 改,user 铁律)——只审不改 team report blocking 优先中文】
+- [x] **马超** dispatch `497717b1` — 【设计 spike·M43 dispatch accept gate + 显式 reviewer/verdict(user 拍板的 Rive 借鉴 #2+#3)——只设计不改产品代码,产 reports/*.html + research…
+- [ ] **马超** dispatch `8eeecfec` — 【M43 实现 Phase 1·accept gate + 显式 reviewer/verdict——user 拍板继续,按你自己的设计方案 B 落地】做完 team report 中文带文件行号。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
