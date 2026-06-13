@@ -76,12 +76,12 @@ last_review: 2026-06-12
 
 ## 里程碑
 
-### M43 · dispatch accept gate + 显式 reviewer/verdict（汇报≠完成，硬化审查环）· 🔬 设计中 2026-06-13（idea-16 #2+#3，user 拍板"先做"）
+### M43 · dispatch accept gate + 显式 reviewer/verdict（汇报≠完成，硬化审查环）· ✅ Phase 1 shipped 2026-06-13（flag-gated opt-in `HIVE_ACCEPT_GATE=1`）（idea-16 #2+#3，user 拍板）
 > 借鉴 Rive 协议强点（报告 `2026-06-05-rive-vs-hive-serva.html`，idea-16）。user 2026-06-13 手机拍板 #2+#3 合并先做。
-> **痛点**：worker report 了 = dispatch `reported`，但"完成"是软的——M34 只用启发式时序配对兜底。Rive 把它定义硬：report done ≠ task done，只进 reviewable；done 必须 explicit accept。这条直接硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
-> **目标**：①**accept gate**——worker 汇报→reviewable，必须显式 accept 才算 done ②**显式 reviewer 指派 + accepted verdict**（reviews_dispatch_id 精确配对，替 M34 启发式时序）③先只覆盖**高风险代码 dispatch**（不是所有 dispatch）。
-> - [ ] **设计 spike**（产 `reports/*.html`+`research/*.md`+ADR draft）：accept-gate 状态模型（新 reviewable/accepted 态 vs 独立 review-status 字段）+ reviews_dispatch_id 链接 + verdict 存储 + "done"重定义对 tasks.md/Cockpit/mobile 的波及 + schema 迁移 + surfacing。**待 user review 设计后再实现**。
-> - [ ] 实现 Phase 1（设计拍板后）
+> **痛点**：worker report 了 = dispatch `reported`，但"完成"是软的——M34 只用启发式时序配对兜底。Rive 把它定义硬：report done ≠ task done，只进 reviewable；done 必须 explicit accept。直接硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
+> - [x] **设计 spike**（马超 `497717b1`）：方案 B 旁挂三字段（不动 8 态机，flag-gated 零回归）。产 `reports/2026-06-13-accept-gate-reviewer-verdict-design.html` + research + ADR `decisions/2026-06-13-accept-gate.md`。PM 验承重句（isOpen/isCompleted 仅 2 处用、tasks.md `[~]` 正则本就支持）。
+> - [x] **实现 Phase 1**（马超，`124c21b`）：schema v33（review_status/reviews_dispatch_id/accept_verdict）+ `team report --reviews --verdict` + `team accept --reason`（强制引用 reviewer）+ tasks.md `[~]`/`[x]` 闸 + unreviewed-code 精确 link 替启发式 + scope 只高风险代码 dispatch。**反铁律焊死**（钟馗 3 轮审）：accept 的 reviewer 必须真 reported + 审在 coder 之后（同毫秒 sequence tie-break）+ 真 link 本 coder，PM 无法用空单/旧单伪造"审过"。flag 默认关零回归。48 M43 测 + 宽回归绿。
+> - [ ] **Phase 2（deferred）**：Cockpit/mobile 一键 accept/reject UI + `listAllWorkspaceDispatches` 分页（现 limit 1000 历史量大可能假拒）+ idea-16 #1 evidence bundle。
 > 关联：M34（未审兜底，本里程碑把其启发式升级成显式 gate）、[[idea-16]]、idea-8/M33（evidence 链同源）。
 
 ### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· ✅ shipped 2026-06-11~13（Phase 2 媒体走 relay 2026-06-13 user 真实 4G device-verify 通过：4010 重启后 media.get 在线，112KB 测试视频 4G 下载+播放成功）

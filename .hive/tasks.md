@@ -5,13 +5,11 @@
 
 ## In progress
 
-> 🔬 **2026-06-13｜M43 dispatch accept gate + 显式 reviewer/verdict（当前活跃）**
+> 🟢 **2026-06-13 收口｜无活跃 dispatch milestone，待 user 下一步**
 >
-> 借鉴 Rive 协议强点（idea-16，对比报告 `2026-06-05-rive-vs-hive-serva.html`）。user 拍板做 #2+#3：worker 报告 ≠ 完成，必须显式 accept 才算 done；reviewer 显式绑定在审哪条（替 M34 启发式）。硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
-> **设计已就绪**（马超 spike `497717b1`）：推荐**方案 B 旁挂三字段**（review_status/reviews_dispatch_id/accept_verdict，不动 8 态机，flag-gated 零回归——PM 验过 isOpen/isCompleted 仅 2 处用、tasks.md `[~]` 正则本就支持）。产 `reports/`+`research/`+ADR draft `draft-2026-06-13-accept-gate.md`。
-> **实现 Phase 1 中**（马超 `8eeecfec`）：schema v33 三字段 + team report --reviews/--verdict + team accept --reason + tasks-file [~]/[x] 闸 + unreviewed-code 精确 link 优先 + flag HIVE_ACCEPT_GATE，scope 只高风险代码 dispatch。→ 钟馗 codex 跨 provider 独立审（L1 核心改动，查 flag=0 零回归 + accept 不可自审绕过）→ commit。
+> 今日大批收口完成，当前无在跑的 dispatch milestone。**待 user 拍**：① Q16 华为开发者账号（后台推送前置）② M43 Phase 2（Cockpit/mobile accept/reject UI + evidence bundle，deferred）③ marketplace Phase2 UI。成熟可 promote idea：idea-13（worker 崩兜底）/idea-14（overdue 阈值）/idea-12（通话音量）。module-map.md 待补 M43 模块（小，下次 baseline refresh）。
 >
-> **今日已 ship（归档）**：① 🎥 **M41 视频/图片 4G relay 真机验通 shipped**（`bc96876`，2026-06-13 user 真实 4G：4010 重启 PID 67337→62558 后 media.get 在线，112KB 视频 4G 下载+播放成功；真因=之前"重启"没生效旧进程占端口，教训"核进程号别信声称"）② 🗣️ **对讲 GLM 全传 orch live**（`433cc3c`，handled 也把信息作 FYI 注入 orch 不再失聪、双声 L1 焊死，关羽实现钟馗 0block，随同次 4010 重启激活）③ 下行发送端 `team mobile-send-media`（`f393997`）④ 上游 triage 4 backport（`5527a8a`..`6bae080`）⑤ 两启动修复（watcher ENFILE + env-strip）⑥ relay 固化（`de75d73`）⑦ **PM 大整顿**：plan 校准 6 stale 里程碑 + 补 M41/M42/M43 + baseline 三件套刷新 + 5 个 curated PM 文档补进 git（跨机同步漏档）。
+> **今日已 ship（归档）**：① 🔬 **M43 accept gate Phase 1 shipped**（`124c21b`，flag-gated opt-in `HIVE_ACCEPT_GATE=1`）：worker 汇报≠完成，高风险代码 dispatch 必须 `team accept --reason` 引用真 reviewer 才算 done。借鉴 Rive（idea-16 #2+#3，user 拍板）。方案 B 旁挂三字段不动 8 态机零回归。**反铁律焊死**：钟馗 3 轮审揪出每道缝（reviewer 没 report→早于 coder→同毫秒落库 sequence tie-break），PM 无法伪造"审过"绕过。设计 `497717b1`+实现 `8eeecfec` 2 轮修，ADR `decisions/2026-06-13-accept-gate.md` accepted。② 🎥 **M41 视频/图片 4G relay 真机验通**（`bc96876`，user 真实 4G：4010 重启 PID 67337→62558 后 media.get 在线，112KB 视频 4G 下载播放成功；真因=之前"重启"没生效旧进程占端口，教训"核进程号别信声称"）③ 🗣️ **对讲 GLM 全传 orch live**（`433cc3c`，handled 也把信息作 FYI 注入 orch 不失聪、双声 L1 焊死，关羽实现钟馗 0block）④ 下行发送端 `team mobile-send-media`（`f393997`）⑤ 上游 triage 4 backport（`5527a8a`..`6bae080`）⑥ 两启动修复（watcher ENFILE + env-strip）⑦ relay 固化（`de75d73`）⑧ **PM 大整顿**：plan 校准 6 stale 里程碑 + 补 M41/M42/M43 + baseline 三件套刷新 + 5 个 curated PM 文档补进 git。
 >
 > **下方 6/07~6/12 各 "当前活跃" 块均已 shipped，留作 build 史。**
 
@@ -839,7 +837,12 @@
 - [x] **关羽** dispatch `beac2e88` — 【对讲·GLM handled 也必须把信息传给 orch(治 orch 失聪留洞)——user 铁律,强 TDD,服务端改动需 4010 重启激活】做完 team report 中文带文件行号。
 - [x] **钟馗** dispatch `e3bcca05` — 【独立审·对讲 GLM handled 必须传 orch(关羽 codex 改,user 铁律)——只审不改 team report blocking 优先中文】
 - [x] **马超** dispatch `497717b1` — 【设计 spike·M43 dispatch accept gate + 显式 reviewer/verdict(user 拍板的 Rive 借鉴 #2+#3)——只设计不改产品代码,产 reports/*.html + research…
-- [ ] **马超** dispatch `8eeecfec` — 【M43 实现 Phase 1·accept gate + 显式 reviewer/verdict——user 拍板继续,按你自己的设计方案 B 落地】做完 team report 中文带文件行号。
+- [x] **马超** dispatch `8eeecfec` — 【M43 实现 Phase 1·accept gate + 显式 reviewer/verdict——user 拍板继续,按你自己的设计方案 B 落地】做完 team report 中文带文件行号。
+- [x] **钟馗** dispatch `99b93f84` — 【独立审·M43 Phase 1 accept-gate + 显式 reviewer/verdict(马超 claude 写,L1 核心 dispatch lifecycle 改动,严审)】只审不改 team report blockin…
+- [x] **马超** dispatch `d3fc27dd` — 【修钟馗 2 blocking·M43 accept-gate——第1条是安全命门(反铁律可绕过),必须焊死】改完 team report 带行号中文。
+- [x] **钟馗** dispatch `e67b378b` — 【复审·M43 accept-gate 2 blocking 修复(马超改完)——上轮你揪出的反铁律绕过是真安全洞,复审必须确认焊死才放行】只审不改 team report blocking 优先中文带行号。
+- [x] **马超** dispatch `43447408` — 【修钟馗 M43 第二轮 3 blocking——同毫秒绕过是反铁律最后一道缝,务必焊死;这轮 tsc 必须覆盖 test 文件别再漏】改完 team report 带行号中文。
+- [x] **钟馗** dispatch `de9bccce` — 【第三轮复审·M43 accept-gate(马超修完同毫秒 tie-break + verdict_reason + tsc)——反铁律最后一道缝,确认焊死就放行】只审不改 team report blocking 优先中文带行号。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
