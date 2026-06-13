@@ -4,7 +4,7 @@
 
 ## inbox（按加入时间倒序）
 
-### 2026-06-13 借鉴 Rive 协议强点：dispatch 从「字符串汇报」升级到「evidence + accept gate」— PM 从 Rive 对比调研提炼
+### 2026-06-13 借鉴 Rive 协议强点：dispatch 从「字符串汇报」升级到「evidence + accept gate」— PM 从 Rive 对比调研提炼 → 🔬 **#2+#3 promoted M43**（user 2026-06-13 拍板先做 accept gate + 显式 reviewer/verdict；#1 evidence 顺带、#4-6 defer）
 
 - **idea-16 协议硬化（吸收 Rive 协议内核）**：源自 `.hive/reports/2026-06-05-rive-vs-hive-serva.html` 对比调研。Rive 是跟 HippoTeam 哲学最像的"兄弟"（同为 local-first 多 agent runtime + dispatch ledger + git worktree），但**把协作语义定义得更硬**。⚠️ caveat：当时只核了 Rive 公开 docs/README，**未验证它是否真落地**——"Rive 强"=概念定义强，不是产品成熟度强（HippoTeam 反而已产品化真在跑）。借鉴**吸收不迁移**，且全程保留 HippoTeam 的 human PM control plane（Rive 偏自动调度，我们保留 user 拍板）。
   - **Rive 比我们硬的 5 个语义**：①report done ≠ task done（必须 explicit **accept**，typed gate）②task node 与 dispatch attempt 分离（**Work DAG** 投影）③report/review 引用 **evidence/snapshot/ref**（不只自然语言）④worker 改文件进独立 worktree + **integrate/reject/ref 状态机** ⑤成功 workflow 存成不可变 **DAG + node prompt + output contract + capability policy** 模板。

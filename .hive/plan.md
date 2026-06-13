@@ -76,6 +76,14 @@ last_review: 2026-06-12
 
 ## 里程碑
 
+### M43 · dispatch accept gate + 显式 reviewer/verdict（汇报≠完成，硬化审查环）· 🔬 设计中 2026-06-13（idea-16 #2+#3，user 拍板"先做"）
+> 借鉴 Rive 协议强点（报告 `2026-06-05-rive-vs-hive-serva.html`，idea-16）。user 2026-06-13 手机拍板 #2+#3 合并先做。
+> **痛点**：worker report 了 = dispatch `reported`，但"完成"是软的——M34 只用启发式时序配对兜底。Rive 把它定义硬：report done ≠ task done，只进 reviewable；done 必须 explicit accept。这条直接硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
+> **目标**：①**accept gate**——worker 汇报→reviewable，必须显式 accept 才算 done ②**显式 reviewer 指派 + accepted verdict**（reviews_dispatch_id 精确配对，替 M34 启发式时序）③先只覆盖**高风险代码 dispatch**（不是所有 dispatch）。
+> - [ ] **设计 spike**（产 `reports/*.html`+`research/*.md`+ADR draft）：accept-gate 状态模型（新 reviewable/accepted 态 vs 独立 review-status 字段）+ reviews_dispatch_id 链接 + verdict 存储 + "done"重定义对 tasks.md/Cockpit/mobile 的波及 + schema 迁移 + surfacing。**待 user review 设计后再实现**。
+> - [ ] 实现 Phase 1（设计拍板后）
+> 关联：M34（未审兜底，本里程碑把其启发式升级成显式 gate）、[[idea-16]]、idea-8/M33（evidence 链同源）。
+
 ### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· Phase 1/1.5 shipped，Phase 2 待 4010 重启 + 4G 真机验 · 2026-06-11~12
 > **user 手机口述立项**：能把视频/图片传给 app、在内置播放器里播、双指缩放，单文件 ≤100MB；后续补"主管也能发媒体给 app"。
 > - ✅ **Phase 1 渲染 + 上行 + 内置播放器 + 缩放 `3d6b1a2`/`c3ff81f`**（2026-06-11，APK 2.8.15）：expo-video（无 GMS 依赖）播放器 + 图片 pinch-zoom 复用 + 上行 upload 50→100MB。PM adb 全链路 device-verify 通过。
