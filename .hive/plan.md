@@ -76,6 +76,13 @@ last_review: 2026-06-12
 
 ## 里程碑
 
+### M44 · 飞书媒体收发（视频/图片双向，对齐 mobile media）· 🚧 实现中 2026-06-13（user 拍板"做这个"）
+> user 2026-06-13 手机拍板：飞书也要支持视频/图片收发，跟 `team mobile-send-media` 那套对称。
+> **现状缺口**：入站图片部分支持（feishu-inbound-handler sourceType image + imagePath），但 `feishu-transport.ts:419` 有 `TODO Phase4+` 视频/文件入站没做完；出站 `sendMessage` 只发 `msg_type:text`，无任何媒体发送。
+> - [ ] **出站**（主缺口，orch→飞书）：`team feishu reply --file <path>` + transport `sendMedia`（图片 `im.v1.image.create`→image_key→msg_type image；视频 `im.v1.file.create`→file_key→msg_type media；文件→msg_type file）。马超 `2db62a4f`。
+> - [ ] **入站**（user→飞书→orch）：消息接收 handler 处理 image/file/media msg_type → `messageResource.get` 下载存 uploads → surface 路径给 orch（sourceType 扩 video/file）。
+> 关联：M41（mobile media，本里程碑对齐其能力到飞书渠道）、M4（飞书桥）。→ 马超实现 → 钟馗 codex 独立审。
+
 ### M43 · dispatch accept gate + 显式 reviewer/verdict（汇报≠完成，硬化审查环）· ✅ Phase 1 shipped 2026-06-13（flag-gated opt-in `HIVE_ACCEPT_GATE=1`）（idea-16 #2+#3，user 拍板）
 > 借鉴 Rive 协议强点（报告 `2026-06-05-rive-vs-hive-serva.html`，idea-16）。user 2026-06-13 手机拍板 #2+#3 合并先做。
 > **痛点**：worker report 了 = dispatch `reported`，但"完成"是软的——M34 只用启发式时序配对兜底。Rive 把它定义硬：report done ≠ task done，只进 reviewable；done 必须 explicit accept。直接硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
