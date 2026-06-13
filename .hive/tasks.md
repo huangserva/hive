@@ -5,9 +5,10 @@
 
 ## In progress
 
-> 🟢 **2026-06-13 收口｜M44 飞书媒体 code shipped 待 4010 重启验，无在跑 dispatch**
+> 🔧 **2026-06-13｜修全屏图片预览死锁（当前活跃）+ M44 飞书媒体待 4010 重启验**
 >
-> M44 飞书媒体收发 code ship（`38468e7`），**待 user 重启 4010 + 真飞书联调**（发图片/视频到飞书 + 飞书发媒体能到 orch）。其余无在跑 dispatch milestone。**待 user 拍**：① Q16 华为开发者账号（后台推送前置）② M43 Phase 2（accept/reject UI + evidence bundle，deferred）③ marketplace Phase2 UI。成熟 idea：idea-13（worker 崩兜底）/idea-14（overdue 阈值）/idea-12（通话音量）。module-map.md 待补 M43/M44 模块（小，下次 baseline refresh）。
+> **在跑**：全屏图片预览一直转圈死锁修复（马超 `e8763b37`）——`ImagePreviewModal.tsx:124/284` 鸡生蛋死锁（loading 等 imageSize，imageSize 只由被 hasImage 挡住永不渲染的 Image 的 onLoad 设）→ 永远转圈。M28 `654a4c8` pinch 上线就有的 longstanding bug，user 真机撞到。修=always-render Image + loading 浮层。→ 钟馗审 → 出新 APK。
+> **待 user**：① 重启 4010 激活 M44 飞书媒体 + 真飞书联调 ② Q16 华为开发者账号（后台推送前置）③ M43 Phase 2 / marketplace Phase2（deferred）。成熟 idea：idea-13（worker 崩兜底）/idea-14（overdue 阈值）/idea-12（通话音量）。module-map.md 待补 M43/M44 模块（小，下次 baseline refresh）。
 >
 > **今日已 ship（归档）**：⓪ 💬 **M44 飞书媒体收发 code shipped**（`38468e7`，待 4010 重启+真飞书验）：`team feishu reply --file` 发图片/视频到飞书 + 飞书入站 image/file/media 下载存盘 surface orch，对齐 mobile media。非 mp4 不伪装、入站 100MB、0 字节预拒。钟馗 3 轮审 0block（命门=穿透测试卡死 CLI→route→transport 整链）。① 🔬 **M43 accept gate Phase 1 shipped**（`124c21b`，flag-gated opt-in `HIVE_ACCEPT_GATE=1`）：worker 汇报≠完成，高风险代码 dispatch 必须 `team accept --reason` 引用真 reviewer 才算 done。借鉴 Rive（idea-16 #2+#3，user 拍板）。方案 B 旁挂三字段不动 8 态机零回归。**反铁律焊死**：钟馗 3 轮审揪出每道缝（reviewer 没 report→早于 coder→同毫秒落库 sequence tie-break），PM 无法伪造"审过"绕过。设计 `497717b1`+实现 `8eeecfec` 2 轮修，ADR `decisions/2026-06-13-accept-gate.md` accepted。② 🎥 **M41 视频/图片 4G relay 真机验通**（`bc96876`，user 真实 4G：4010 重启 PID 67337→62558 后 media.get 在线，112KB 视频 4G 下载播放成功；真因=之前"重启"没生效旧进程占端口，教训"核进程号别信声称"）③ 🗣️ **对讲 GLM 全传 orch live**（`433cc3c`，handled 也把信息作 FYI 注入 orch 不失聪、双声 L1 焊死，关羽实现钟馗 0block）④ 下行发送端 `team mobile-send-media`（`f393997`）⑤ 上游 triage 4 backport（`5527a8a`..`6bae080`）⑥ 两启动修复（watcher ENFILE + env-strip）⑦ relay 固化（`de75d73`）⑧ **PM 大整顿**：plan 校准 6 stale 里程碑 + 补 M41/M42/M43 + baseline 三件套刷新 + 5 个 curated PM 文档补进 git。
 >
@@ -848,6 +849,7 @@
 - [x] **马超** dispatch `2a9c5867` — 【修钟馗 M44 2 blocking + 顺手收 3 条·飞书媒体收发】改完 team report 带行号中文。
 - [x] **钟馗** dispatch `2261e121` — 【复审·M44 飞书媒体收发 2 blocking 修复(马超改完)——只审不改 team report blocking 优先中文带行号】
 - [x] **马超** dispatch `476c3386` — 【修钟馗 M44 最后 1 blocking·补 CLI run→HTTP body 的 file 透传测试——链的最中间一环没测】改完 team report 带行号中文。
+- [ ] **马超** dispatch `e8763b37` — 【修 bug·全屏图片预览死锁(ImagePreviewModal 一直转圈)——user 真机撞到,需出新 APK】改完 team report 带行号中文,做完我派钟馗审。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
