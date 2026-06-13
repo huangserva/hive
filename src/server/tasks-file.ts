@@ -31,11 +31,19 @@ interface TasksFileService {
       reason: string
     }
   ) => void
-  /** report 时调用：找到对应 dispatch_id 的行，把 [ ] 改 [x] */
+  /**
+   * report 时调用：找到对应 dispatch_id 的行，决定打 `[x]` 还是 `[~]`。
+   *
+   * M43 accept-gate（方案 B）：
+   * - `reviewStatus` 未传 / 为 null → [x]（旧行为，向后兼容）
+   * - `reviewStatus = 'accepted' | 'waived'` → [x]（系统承认完成）
+   * - `reviewStatus = 'pending' | 'rejected'` → [~]（reviewable 中间态，正则已支持）
+   */
   recordDispatchDone: (
     workspacePath: string,
     input: {
       dispatchId: string
+      reviewStatus?: 'pending' | 'accepted' | 'rejected' | 'waived' | null
     }
   ) => void
   /** 派单时调用：在 ## In progress 段追加一行 */
@@ -292,6 +300,9 @@ export const createTasksFileService = (
 
     recordDispatchDone(workspacePath, input) {
       const dispatchShortId = getDispatchShortId(input.dispatchId)
+      // M43: 无 reviewStatus 字段 / null = 旧路径打 [x]；accepted/waived 也 [x]；pending/rejected 进 [~] 中间态。
+      const targetMark =
+        input.reviewStatus === 'pending' || input.reviewStatus === 'rejected' ? '[~]' : '[x]'
       updateTasksContent(workspacePath, logger, 'done', (lines) => {
         const lineIndex = findDispatchLine(lines, dispatchShortId)
         if (lineIndex === -1) {
@@ -300,7 +311,7 @@ export const createTasksFileService = (
         }
         const currentLine = lines[lineIndex]
         if (!currentLine) return null
-        lines[lineIndex] = currentLine.replace(/^- \[[ x~]\]/, '- [x]')
+        lines[lineIndex] = currentLine.replace(/^- \[[ x~]\]/, `- ${targetMark}`)
         return lines
       })
     },

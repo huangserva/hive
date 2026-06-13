@@ -3,8 +3,14 @@ import { existsSync, statSync } from 'node:fs'
 import type { AgentRuntime } from './agent-runtime.js'
 import { buildWorkerCockpitSnapshot } from './agent-stdin-dispatcher.js'
 import { parseCockpit } from './cockpit-doc.js'
-import { type DispatchRecord, isActiveDispatchStatus } from './dispatch-ledger-store.js'
-import { ConflictError } from './http-errors.js'
+import {
+  type AcceptVerdict,
+  type DispatchRecord,
+  isActiveDispatchStatus,
+  isCompletedDispatchStatus,
+  type ReviewStatus,
+} from './dispatch-ledger-store.js'
+import { BadRequestError, ConflictError } from './http-errors.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
 import type {
   MobileChatDirection,
@@ -24,6 +30,7 @@ import {
   checkTasksNarrativeNudge,
   type TasksNarrativeNudgeResult,
 } from './tasks-narrative-nudge.js'
+import { isReportOnlyDispatch } from './unreviewed-code-status.js'
 import type { WorkspaceStore } from './workspace-store.js'
 
 export interface TeamOperationsInput {
@@ -76,6 +83,17 @@ export interface TeamOperationsInput {
     'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
   >
   workspaceStore: WorkspaceStore
+  // M43 accept-gate 旁挂字段读写（dispatch-ledger-store 暴露）。Phase 1 全部 optional：
+  // 缺任意一个 hook 都按"未启用 accept gate"行为走旧路径，绝不破坏 flag=0 兼容性。
+  findDispatchById?: (workspaceId: string, dispatchId: string) => DispatchRecord | undefined
+  setReviewStatus?: (dispatchId: string, status: ReviewStatus | null) => void
+  applyAcceptVerdict?: (dispatchId: string, verdict: AcceptVerdict) => void
+  linkReviewsDispatchId?: (reviewerDispatchId: string, coderDispatchId: string) => void
+  clearReviewStatus?: (dispatchId: string) => void
+  // M43 scope 解析（commandPresetId 在 worker launch config 上，需要解析）；缺则按"非 claude coder" 处理 → 不入 scope。
+  resolveCommandPresetId?: (workspaceId: string, workerId: string) => string | undefined
+  // M43 acceptTask 需查全 dispatches（含 reported reviewer dispatch）以校验 reason 引的 hex prefix 是 reviewer-role。
+  listAllWorkspaceDispatches?: (workspaceId: string) => DispatchRecord[]
 }
 
 export interface DispatchTaskInput {
@@ -91,6 +109,47 @@ export interface ReportTaskInput {
   requireDispatchId?: boolean
   status?: string
   text?: string
+  // M43 accept-gate（仅 reviewer 主路径用）：reviewer report 时显式指向被审 coder dispatch.id
+  // + 携带 accept verdict。flag=0 时即便传了也走旧路径（reportTask 自己 gate）。
+  reviewsDispatchId?: string
+  verdict?: ReviewStatus
+  verdictReason?: string
+}
+
+export interface AcceptTaskInput {
+  /** PM 旁路 accept：被审 coder dispatch.id（必须）。 */
+  dispatchId: string
+  /** 谁 accept（orchestrator agent_id；team-authz 已校验角色）。 */
+  fromAgentId: string
+  /** verdict 原因，强制要求；按设计要求引用 reviewer dispatch_id（PM 自审反铁律）。 */
+  reason: string
+  /** 默认 accepted；允许 PM 选 waived（不允许 rejected——rejected 必须走 reviewer report）。 */
+  verdict?: 'accepted' | 'waived'
+}
+
+export interface AcceptTaskResult {
+  dispatch: DispatchRecord
+}
+
+const isAcceptGateEnabled = (): boolean => process.env.HIVE_ACCEPT_GATE === '1'
+
+const VERDICT_REASON_REVIEWER_REFERENCE_PATTERN = /\b[0-9a-f]{8}\b/iu
+
+interface WorkerScopeInfo {
+  role?: string
+  commandPresetId?: string
+}
+
+// M43 scope 收窄：Phase 1 仅覆盖 claude coder + 真改 src 的 dispatch（复用 M34 反向排除器）。
+// 不在 scope 时 review_status 保持 NULL → 走旧 reported→[x] 路径，零波及。
+const isDispatchInAcceptGateScope = (
+  dispatch: DispatchRecord,
+  worker: WorkerScopeInfo
+): boolean => {
+  if (worker.role !== 'coder') return false
+  if (worker.commandPresetId !== 'claude') return false
+  if (isReportOnlyDispatch(dispatch)) return false
+  return true
 }
 
 export interface StatusTaskInput {
@@ -175,6 +234,13 @@ export const createTeamOperations = ({
   runDbTransaction = (mutation) => mutation(),
   tasksFileService = noopTasksFileService,
   workspaceStore,
+  findDispatchById,
+  setReviewStatus,
+  applyAcceptVerdict,
+  linkReviewsDispatchId,
+  clearReviewStatus,
+  resolveCommandPresetId,
+  listAllWorkspaceDispatches,
 }: TeamOperationsInput) => {
   const triggeredTasksNarrativeNudges = new Set<string>()
   const tasksNarrativeStates = new Map<string, TasksNarrativeState>()
@@ -514,6 +580,27 @@ export const createTeamOperations = ({
       if (!openDispatch) {
         throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
       }
+      // M43: reviewer 主路径 — 若调用方传了 --reviews + --verdict，必须三个 hook 都接好才有效。
+      // gate=0 时即便传了也忽略，走旧路径。
+      const acceptGateEnabled = isAcceptGateEnabled()
+      const hasAcceptGateHooks =
+        !!findDispatchById && !!setReviewStatus && !!applyAcceptVerdict && !!linkReviewsDispatchId
+      const reviewerLinkRequested =
+        acceptGateEnabled &&
+        hasAcceptGateHooks &&
+        typeof input.reviewsDispatchId === 'string' &&
+        input.reviewsDispatchId.length > 0 &&
+        input.verdict !== undefined
+      if (reviewerLinkRequested) {
+        if (!input.verdictReason?.trim()) {
+          throw new BadRequestError('--verdict requires --reason')
+        }
+        if (worker.role !== 'reviewer') {
+          throw new ConflictError(
+            `Only reviewer-role worker can verdict another dispatch; current role=${worker.role}`
+          )
+        }
+      }
       let messageHandle: MessageLogHandle | null = null
       let dbCommitted = false
       try {
@@ -531,6 +618,57 @@ export const createTeamOperations = ({
           if (!reportedDispatch) {
             throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
           }
+          // M43: reviewer 主路径 — 在被审 coder dispatch 上写 verdict + review_status。
+          if (reviewerLinkRequested && input.reviewsDispatchId) {
+            const coderDispatch = findDispatchById?.(workspaceId, input.reviewsDispatchId)
+            if (!coderDispatch) {
+              throw new ConflictError(
+                `--reviews target dispatch not found in workspace: ${input.reviewsDispatchId}`
+              )
+            }
+            if (!isCompletedDispatchStatus(coderDispatch.status)) {
+              throw new ConflictError(
+                `--reviews target dispatch is not reported yet: status=${coderDispatch.status}`
+              )
+            }
+            // 钟馗审 High（顺手收）：被审 target 必须真在 accept-gate scope 内
+            // （claude coder + 非 report-only），否则 reviewer 写 verdict 没意义。
+            const coderPreset = resolveCommandPresetId?.(workspaceId, coderDispatch.toAgentId)
+            const coderScopeInfo: WorkerScopeInfo = {
+              ...(coderPreset !== undefined ? { commandPresetId: coderPreset } : {}),
+            }
+            try {
+              const coderWorker = workspaceStore.getWorker(workspaceId, coderDispatch.toAgentId)
+              coderScopeInfo.role = coderWorker.role
+            } catch {
+              // worker 已删；不写 role，下面 scope 校验自然拒。
+            }
+            if (!isDispatchInAcceptGateScope(coderDispatch, coderScopeInfo)) {
+              throw new ConflictError(
+                `--reviews target dispatch is out of accept-gate scope: role=${coderScopeInfo.role ?? 'unknown'} preset=${coderScopeInfo.commandPresetId ?? 'unknown'}`
+              )
+            }
+            const verdict: AcceptVerdict = {
+              verdict: input.verdict as ReviewStatus,
+              byAgentId: workerId,
+              at: Date.now(),
+              reason: (input.verdictReason ?? '').trim(),
+              reviewsDispatchId: reportedDispatch.id,
+            }
+            applyAcceptVerdict?.(coderDispatch.id, verdict)
+            // 同时在 reviewer dispatch 上写 reviews_dispatch_id 精确指向被审 coder dispatch。
+            linkReviewsDispatchId?.(reportedDispatch.id, coderDispatch.id)
+            // 如果被审 coder dispatch 的 [~] 行需要根据新 verdict 重打 [x]/[~]，再调一次
+            // recordDispatchDone（accepted/waived → [x]，rejected 保持 [~]）。在 transaction
+            // 内调因为我们要保证 reviewer 写入与 tasks.md 行更新一起 commit。
+            const workspacePathInner = getWorkspacePath(workspaceId)
+            if (workspacePathInner) {
+              tasksFileService.recordDispatchDone(workspacePathInner, {
+                dispatchId: coderDispatch.id,
+                reviewStatus: input.verdict ?? null,
+              })
+            }
+          }
           insertMobileChatMessage?.(
             workspaceId,
             'outbound',
@@ -541,14 +679,40 @@ export const createTeamOperations = ({
               worker_name: worker.name,
             })
           )
+          // M43: 本次 report 自身的 scope 判定 + 写 review_status='pending'（reviewer report 本体不入 scope）。
+          if (acceptGateEnabled && hasAcceptGateHooks) {
+            const preset = resolveCommandPresetId?.(workspaceId, workerId)
+            const scopeInfo: WorkerScopeInfo = {
+              role: worker.role,
+              ...(preset !== undefined ? { commandPresetId: preset } : {}),
+            }
+            if (isDispatchInAcceptGateScope(reportedDispatch, scopeInfo)) {
+              // worker re-report 路径：上一轮可能是 rejected，本轮重新进 pending（清掉 verdict）。
+              clearReviewStatus?.(reportedDispatch.id)
+              setReviewStatus?.(reportedDispatch.id, 'pending')
+            }
+          }
           return reportedDispatch
         })
         dbCommitted = true
         workspaceStore.markTaskReported(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)
         if (workspacePath) {
+          // M43: 本次自己的 dispatch 行打 [x]/[~]——scope 内 + gate 开 → [~]；其他 → [x]（旧路径）。
+          const reviewStatusForLine =
+            acceptGateEnabled && hasAcceptGateHooks
+              ? (() => {
+                  const preset = resolveCommandPresetId?.(workspaceId, workerId)
+                  const scopeInfo: WorkerScopeInfo = {
+                    role: worker.role,
+                    ...(preset !== undefined ? { commandPresetId: preset } : {}),
+                  }
+                  return isDispatchInAcceptGateScope(dispatch, scopeInfo) ? 'pending' : null
+                })()
+              : null
           tasksFileService.recordDispatchDone(workspacePath, {
             dispatchId: dispatch.id,
+            ...(reviewStatusForLine !== null ? { reviewStatus: reviewStatusForLine } : {}),
           })
         }
         void mobilePushService?.notifyWorkerDone(workspaceId, worker.name, text, dispatch.id)
@@ -578,5 +742,137 @@ export const createTeamOperations = ({
         throw error
       }
     },
+    // M43 旁路 — PM orchestrator 显式 accept；强制 --reason 引用 reviewer dispatch_id 以守 PM 自审反铁律。
+    acceptTask(workspaceId: string, input: AcceptTaskInput): AcceptTaskResult {
+      if (!isAcceptGateEnabled()) {
+        throw new ConflictError('Accept gate disabled (HIVE_ACCEPT_GATE != 1)')
+      }
+      if (!findDispatchById || !applyAcceptVerdict) {
+        throw new ConflictError('Accept gate hooks unavailable')
+      }
+      const trimmedReason = (input.reason ?? '').trim()
+      if (!trimmedReason) {
+        throw new BadRequestError('--reason is required for team accept')
+      }
+      // 设计守则：PM accept 必须引用 reviewer dispatch_id（防 PM 跳过 reviewer 自审 claude code）。
+      // 强校验：reason 里至少出现一个 8 位 hex 子串 + 该子串能在 workspace dispatches 里找到一条
+      // reviewer dispatch（toAgentId 角色是 reviewer）。
+      const matches = trimmedReason.match(/\b[0-9a-f]{8,}\b/giu) ?? []
+      if (matches.length === 0) {
+        throw new BadRequestError(
+          'team accept --reason must reference reviewer dispatch_id (8+ hex chars). PM 自审反铁律：必须引用钟馗或其他 reviewer 的 dispatch_id。'
+        )
+      }
+      const coderDispatch = findDispatchById(workspaceId, input.dispatchId)
+      if (!coderDispatch) {
+        throw new ConflictError(`dispatch not found in workspace: ${input.dispatchId}`)
+      }
+      if (!isCompletedDispatchStatus(coderDispatch.status)) {
+        throw new ConflictError(
+          `dispatch not reported yet, cannot accept: status=${coderDispatch.status}`
+        )
+      }
+      // 校验 reason 引用的 hex 至少有一条命中本 workspace 内 reviewer-role dispatch。
+      // 必须扫全量 dispatches（reviewer 通常已 reported，不在 open list）。
+      //
+      // 钟馗审 blocking #1（安全命门）：单查"reviewer dispatch 存在"会让 PM 给 reviewer 派
+      // 一条还没 report 的 dispatch、然后在 --reason 里引这个 id → 绕过 PM 自审反铁律。
+      // 必须三重校验：
+      // ① reviewer dispatch 真 reported（isCompletedDispatchStatus）
+      // ② reviewer 的 report 时间晚于被审 coder（毫秒粒度 ms > coder 或同 ms 时 sequence 严格大于）
+      // ③ reviewer dispatch 若已设 reviewsDispatchId，必须 == 当前 coderDispatch.id（不能引"审别条 coder"的 reviewer）
+      //
+      // 钟馗第二轮 blocking #1：同毫秒绕过——`>=` 放过同毫秒落库的 reviewer，
+      // 而 SQLite 写入毫秒精度时 reviewer/coder 完全可能落在同一毫秒。
+      // 修法：用 dispatch.sequence（INTEGER PRIMARY KEY AUTOINCREMENT，单调递增）作 tie-break：
+      // 严格大于 coder.sequence 才算"审在 coder 之后"。
+      const coderReportedAt = coderDispatch.reportedAt
+      const coderSequence = coderDispatch.sequence
+      if (coderReportedAt === null) {
+        throw new ConflictError('coder dispatch has no reportedAt; accept gate invariant broken')
+      }
+      if (coderSequence === null) {
+        throw new ConflictError('coder dispatch has no sequence; accept gate invariant broken')
+      }
+      const allDispatches = listAllWorkspaceDispatches?.(workspaceId) ?? []
+      let referencedReviewer = false
+      let lastRejectReason: string | null = null
+      for (const hex of matches) {
+        const lower = hex.toLowerCase()
+        const candidates =
+          lower.length === 36
+            ? allDispatches.filter((d) => d.id.toLowerCase() === lower)
+            : allDispatches.filter((d) => d.id.toLowerCase().startsWith(lower))
+        for (const candidate of candidates) {
+          let refRole: string | undefined
+          try {
+            refRole = workspaceStore.getWorker(workspaceId, candidate.toAgentId).role
+          } catch {
+            // worker 已删/不存在，忽略此 candidate。
+            continue
+          }
+          if (refRole !== 'reviewer') continue
+          // ① reviewer 必须真 report 过
+          if (!isCompletedDispatchStatus(candidate.status)) {
+            lastRejectReason = `referenced reviewer dispatch ${candidate.id} has not reported yet (status=${candidate.status})`
+            continue
+          }
+          // ② reviewer 必须严格"审在 coder 之后"——毫秒 > 或同毫秒时 sequence 严格 > coder.sequence。
+          //    单 `>=` 放过同毫秒落库的 reviewer，反铁律最后一道缝。
+          if (candidate.reportedAt === null || candidate.sequence === null) {
+            lastRejectReason = `referenced reviewer dispatch ${candidate.id} missing reportedAt/sequence`
+            continue
+          }
+          const tiePasses =
+            candidate.reportedAt > coderReportedAt ||
+            (candidate.reportedAt === coderReportedAt && candidate.sequence > coderSequence)
+          if (!tiePasses) {
+            lastRejectReason = `referenced reviewer dispatch ${candidate.id} did not report strictly after coder dispatch (reviewer_reported_at=${candidate.reportedAt}/seq=${candidate.sequence} coder_reported_at=${coderReportedAt}/seq=${coderSequence})`
+            continue
+          }
+          // ③ reviewer 若已显式 link 别条 coder，必须 == 本 coder
+          if (
+            candidate.reviewsDispatchId !== null &&
+            candidate.reviewsDispatchId !== coderDispatch.id
+          ) {
+            lastRejectReason = `referenced reviewer dispatch ${candidate.id} is linked to a different coder dispatch (reviews_dispatch_id=${candidate.reviewsDispatchId})`
+            continue
+          }
+          referencedReviewer = true
+          break
+        }
+        if (referencedReviewer) break
+      }
+      if (!referencedReviewer) {
+        throw new BadRequestError(
+          `team accept --reason 引用的 dispatch_id 未能定位到一条合法 reviewer-role dispatch（必须：reviewer 已 reported + 报告时间晚于 coder 报告时间 + 显式 link 时必须 link 本 coder）；守 PM 自审反铁律${lastRejectReason ? ` · last reject: ${lastRejectReason}` : ''}`
+        )
+      }
+      const verdictValue: 'accepted' | 'waived' = input.verdict ?? 'accepted'
+      const verdict: AcceptVerdict = {
+        verdict: verdictValue,
+        byAgentId: input.fromAgentId,
+        at: Date.now(),
+        reason: trimmedReason,
+      }
+      runDbTransaction(() => {
+        applyAcceptVerdict(input.dispatchId, verdict)
+      })
+      const workspacePath = getWorkspacePath(workspaceId)
+      if (workspacePath) {
+        tasksFileService.recordDispatchDone(workspacePath, {
+          dispatchId: input.dispatchId,
+          reviewStatus: verdictValue,
+        })
+      }
+      const updated = findDispatchById(workspaceId, input.dispatchId)
+      if (!updated) {
+        throw new ConflictError('dispatch disappeared after accept; concurrent mutation?')
+      }
+      return { dispatch: updated }
+    },
   }
 }
+
+// 让 TS 知道 isAcceptGateEnabled 和 VERDICT_REASON_REVIEWER_REFERENCE_PATTERN 不被任何 export 引用没问题。
+void VERDICT_REASON_REVIEWER_REFERENCE_PATTERN

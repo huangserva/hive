@@ -1,9 +1,10 @@
 import type { AgentSummary } from '../shared/types.js'
 import { ForbiddenError, UnauthorizedError } from './http-errors.js'
 
-export type TeamCommand = 'send' | 'list' | 'report' | 'status' | 'cancel' | 'help'
+export type TeamCommand = 'send' | 'list' | 'report' | 'status' | 'cancel' | 'accept' | 'help'
 
-const ORCHESTRATOR_COMMANDS = new Set<TeamCommand>(['send', 'list', 'cancel', 'help'])
+// M43: accept 仅限 orchestrator（PM 自审反铁律守护，team-operations 会再强校验 reason 引 reviewer dispatch_id）。
+const ORCHESTRATOR_COMMANDS = new Set<TeamCommand>(['send', 'list', 'cancel', 'accept', 'help'])
 const WORKER_COMMANDS = new Set<TeamCommand>(['report', 'status', 'help'])
 const WORKER_ROLES = new Set<AgentSummary['role']>([
   'coder',

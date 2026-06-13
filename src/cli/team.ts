@@ -29,6 +29,8 @@ export const TEAM_USAGE = [
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
   '  team report "<result>" [--dispatch <dispatch-id>] [--artifact <path>]',
   '  team report --stdin [--dispatch <dispatch-id>] [--artifact <path>]',
+  '  team report (...same as above) --reviews <coder-dispatch-id> --verdict accepted|rejected|waived --reason "..."  # M43 reviewer 主路径',
+  '  team accept <coder-dispatch-id> --reason "<must reference reviewer dispatch_id>" [--verdict accepted|waived]  # M43 PM 旁路',
   '  team status "<current status>" [--artifact <path>]',
   '  team status --stdin [--artifact <path>]',
   '',
@@ -137,6 +139,58 @@ export interface ParsedReportArgs {
   dispatchId: string | undefined
   result: string | null
   useStdin: boolean
+  // M43 accept-gate reviewer 主路径选项；只 report 命令使用，status 命令不支持。
+  reviewsDispatchId?: string
+  verdict?: 'accepted' | 'rejected' | 'waived'
+  verdictReason?: string
+}
+
+export interface ParsedAcceptArgs {
+  dispatchId: string
+  reason: string
+  verdict: 'accepted' | 'waived'
+}
+
+export const ACCEPT_USAGE =
+  'Usage: team accept <coder-dispatch-id> --reason "<must reference reviewer dispatch_id>" [--verdict accepted|waived]'
+
+export const parseAcceptArgs = (args: string[]): ParsedAcceptArgs => {
+  const positionals: string[] = []
+  let reason: string | undefined
+  let verdict: 'accepted' | 'waived' = 'accepted'
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+    if (arg === '--reason') {
+      const next = args[index + 1]
+      if (next === undefined) {
+        throw new Error(`--reason requires a value\n\n${ACCEPT_USAGE}`)
+      }
+      reason = next
+      index += 1
+      continue
+    }
+    if (arg === '--verdict') {
+      const next = args[index + 1]
+      if (next !== 'accepted' && next !== 'waived') {
+        throw new Error(`--verdict must be accepted or waived\n\n${ACCEPT_USAGE}`)
+      }
+      verdict = next
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${ACCEPT_USAGE}`)
+    }
+    positionals.push(arg)
+  }
+  if (positionals.length !== 1 || !positionals[0]?.trim()) {
+    throw new Error(`Missing <coder-dispatch-id>\n\n${ACCEPT_USAGE}`)
+  }
+  if (!reason?.trim()) {
+    throw new Error(`Missing --reason\n\n${ACCEPT_USAGE}`)
+  }
+  return { dispatchId: positionals[0].trim(), reason: reason.trim(), verdict }
 }
 
 export interface ParsedFeishuReplyArgs {
@@ -358,6 +412,9 @@ export const parseReportArgs = (args: string[], command = 'report'): ParsedRepor
   const artifacts: string[] = []
   let dispatchId: string | undefined
   let useStdin = false
+  let reviewsDispatchId: string | undefined
+  let verdict: 'accepted' | 'rejected' | 'waived' | undefined
+  let verdictReason: string | undefined
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
@@ -377,6 +434,45 @@ export const parseReportArgs = (args: string[], command = 'report'): ParsedRepor
         throw new Error(withUsage('--artifact requires a value', command))
       }
       artifacts.push(next)
+      index += 1
+      continue
+    }
+
+    if (arg === '--reviews') {
+      if (command === 'status') {
+        throw new Error(withUsage('team status does not accept --reviews', command))
+      }
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(withUsage('--reviews requires a coder dispatch_id', command))
+      }
+      reviewsDispatchId = next
+      index += 1
+      continue
+    }
+
+    if (arg === '--verdict') {
+      if (command === 'status') {
+        throw new Error(withUsage('team status does not accept --verdict', command))
+      }
+      const next = args[index + 1]
+      if (next !== 'accepted' && next !== 'rejected' && next !== 'waived') {
+        throw new Error(withUsage('--verdict must be accepted | rejected | waived', command))
+      }
+      verdict = next
+      index += 1
+      continue
+    }
+
+    if (arg === '--reason') {
+      if (command === 'status') {
+        throw new Error(withUsage('team status does not accept --reason', command))
+      }
+      const next = args[index + 1]
+      if (next === undefined) {
+        throw new Error(withUsage('--reason requires a value', command))
+      }
+      verdictReason = next
       index += 1
       continue
     }
@@ -431,7 +527,22 @@ export const parseReportArgs = (args: string[], command = 'report'): ParsedRepor
     )
   }
 
-  return { result: useStdin ? null : (positionals[0] ?? null), artifacts, dispatchId, useStdin }
+  // M43: --reviews 与 --verdict 必须配对，独缺一个就拒（指引正确用法）。
+  if ((reviewsDispatchId === undefined) !== (verdict === undefined)) {
+    throw new Error(withUsage('--reviews and --verdict must be used together', command))
+  }
+  if (verdict !== undefined && !verdictReason?.trim()) {
+    throw new Error(withUsage('--verdict requires --reason', command))
+  }
+  return {
+    result: useStdin ? null : (positionals[0] ?? null),
+    artifacts,
+    dispatchId,
+    useStdin,
+    ...(reviewsDispatchId !== undefined ? { reviewsDispatchId } : {}),
+    ...(verdict !== undefined ? { verdict } : {}),
+    ...(verdictReason !== undefined ? { verdictReason } : {}),
+  }
 }
 
 export const readStdinToString = async (command = 'report'): Promise<string> => {
@@ -648,6 +759,9 @@ export const runTeamCommand = async (argv: string[]) => {
       token: env.HIVE_AGENT_TOKEN,
       result: body,
       artifacts: report.artifacts,
+      ...(report.reviewsDispatchId ? { reviews_dispatch_id: report.reviewsDispatchId } : {}),
+      ...(report.verdict ? { verdict: report.verdict } : {}),
+      ...(report.verdictReason ? { verdict_reason: report.verdictReason } : {}),
     })
     const payload = (await response.json()) as TeamReportResponse
     if (payload.forwarded === false && payload.forward_error) {
@@ -655,6 +769,21 @@ export const runTeamCommand = async (argv: string[]) => {
         `Hive recorded the report, but could not deliver it to Orchestrator in real time: ${payload.forward_error}`
       )
     }
+    return
+  }
+
+  if (command === 'accept') {
+    const accept = parseAcceptArgs(args)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    await postJson(baseUrl, '/api/team/accept', {
+      project_id: env.HIVE_PROJECT_ID,
+      from_agent_id: env.HIVE_AGENT_ID,
+      token: env.HIVE_AGENT_TOKEN,
+      dispatch_id: accept.dispatchId,
+      reason: accept.reason,
+      verdict: accept.verdict,
+    })
     return
   }
 

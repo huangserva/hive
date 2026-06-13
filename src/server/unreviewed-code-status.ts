@@ -39,6 +39,9 @@ export interface UnreviewedCodeEntry {
   minutesAgo: number
   reportedAt: number
   toAgentId: string
+  // M43: 当 dispatch 已被 accept/reject/waive 后，aiAction 可附带 verdict reason 让 PM 看到处理记录。
+  verdictReason?: string
+  verdictStatus?: 'pending' | 'accepted' | 'rejected' | 'waived' | null
 }
 
 export interface UnreviewedCodeSummary {
@@ -72,6 +75,12 @@ const isClaudeCoder = (info: WorkerRoleInfo | undefined): boolean =>
 
 // 纯函数：从 dispatch ledger（单 workspace、任意状态）+ worker role 反查推导「未审代码改动」清单。
 // dashboard / push 共用同一判定（照 M30 summarizeStaleDispatches）。
+//
+// M43 升级：在启发式时序配对之上**优先**用精确 reviews_dispatch_id 配对。
+// - 精确链接（reviewer dispatch.reviewsDispatchId === coder.id）+ verdict accepted/waived → 消解
+// - verdict rejected → 仍亮（要求重报），并附带 verdict reason
+// - dispatch 自己 reviewStatus = accepted/waived → 也消解（PM 旁路 team accept）
+// - 无精确链接也无 reviewStatus 时，回退到启发式时序配对（保持兼容期 fallback）
 export const summarizeUnreviewedCodeDispatches = (
   dispatches: DispatchRecord[],
   getWorkerRole: (agentId: string) => WorkerRoleInfo | undefined,
@@ -88,6 +97,17 @@ export const summarizeUnreviewedCodeDispatches = (
     )
     .map((dispatch) => dispatch.createdAt)
 
+  // M43: 精确链接的反向索引：被审 coder dispatch.id → 配对的 reviewer dispatch 列表。
+  const reviewerLinks = new Map<string, DispatchRecord[]>()
+  for (const dispatch of dispatches) {
+    if (dispatch.status === 'cancelled') continue
+    if (getWorkerRole(dispatch.toAgentId)?.role !== 'reviewer') continue
+    if (!dispatch.reviewsDispatchId) continue
+    const list = reviewerLinks.get(dispatch.reviewsDispatchId) ?? []
+    list.push(dispatch)
+    reviewerLinks.set(dispatch.reviewsDispatchId, list)
+  }
+
   const unreviewed: UnreviewedCodeEntry[] = []
   for (const dispatch of dispatches) {
     if (!isCompletedDispatchStatus(dispatch.status)) continue
@@ -98,35 +118,75 @@ export const summarizeUnreviewedCodeDispatches = (
     if (isReportOnlyDispatch(dispatch)) continue
     // 刚 report 的宽限期内不亮（给 PM 派 reviewer 的时间）。
     if (now - dispatch.reportedAt < graceMs) continue
-    // 启发式时序配对：该 dispatch report 之后出现过任意 reviewer dispatch → 视为已审，消解。
-    const reviewed = reviewerDispatchCreatedAts.some(
-      (createdAt) => createdAt >= (dispatch.reportedAt as number)
-    )
-    if (reviewed) continue
-    unreviewed.push({
+
+    // M43 优先：dispatch 自己 reviewStatus 上的 verdict——accepted/waived → 消解；
+    // rejected → 仍亮（要求重报），并把 verdict reason 透出给 PM 看。
+    // pending / null → 走精确链接 或 启发式 fallback。
+    if (dispatch.reviewStatus === 'accepted' || dispatch.reviewStatus === 'waived') continue
+
+    const links = reviewerLinks.get(dispatch.id) ?? []
+    const hasPreciseLink = links.length > 0
+    if (dispatch.reviewStatus !== 'rejected') {
+      // 精确链接存在 + 任一 reviewer 已 reported → 消解（accepted/waived 已在上面拦下；
+      // 仅可能是 reviewer 报了但 worker 没传 verdict 的旧 dispatch，此时视为兼容期"已审"）。
+      if (hasPreciseLink) {
+        const reviewedByLinked = links.some((link) => isCompletedDispatchStatus(link.status))
+        if (reviewedByLinked) continue
+      } else {
+        // 启发式时序配对（精确链接缺失时兼容期兜底）。
+        const reviewed = reviewerDispatchCreatedAts.some(
+          (createdAt) => createdAt >= (dispatch.reportedAt as number)
+        )
+        if (reviewed) continue
+      }
+    }
+
+    const entry: UnreviewedCodeEntry = {
       dispatchId: dispatch.id,
       minutesAgo: Math.floor((now - dispatch.reportedAt) / 60_000),
       reportedAt: dispatch.reportedAt,
       toAgentId: dispatch.toAgentId,
-    })
+    }
+    // verdict reason 透出：本 dispatch 上的 accept_verdict 是 reviewer 写的（含 rejected reason）。
+    if (dispatch.acceptVerdict?.reason) {
+      entry.verdictReason = dispatch.acceptVerdict.reason
+    }
+    if (dispatch.reviewStatus) {
+      entry.verdictStatus = dispatch.reviewStatus
+    }
+    unreviewed.push(entry)
   }
 
   return { unreviewed, unreviewedCount: unreviewed.length }
 }
 
 // 把「未审」summary 转成 Cockpit AIAction（severity=high，targetTab=tasks）。
+// M43 升级：附带 verdict reason / status，让 PM 看到 reviewer 留下的 rejected 原因
+// 或自己 accept 时的 reason，不用回去翻 dispatch 详情。
 export const buildUnreviewedCodeActions = (
   summary: UnreviewedCodeSummary,
   getWorkerName?: (agentId: string) => string | undefined
 ): AIAction[] =>
-  summary.unreviewed.map((entry) => ({
-    action: '派 reviewer',
-    id: `unreviewed-code:${entry.dispatchId}`,
-    priority: 'high',
-    targetTab: 'tasks',
-    text: `${getWorkerName?.(entry.toAgentId) ?? entry.toAgentId} 的代码改动（dispatch ${entry.dispatchId.slice(0, 8)}…，约 ${entry.minutesAgo} 分钟前 report）尚未派 reviewer 审查，请派 reviewer（如钟馗）或显式判定免审`,
-    type: 'unreviewed_code',
-  }))
+  summary.unreviewed.map((entry) => {
+    const baseText = `${getWorkerName?.(entry.toAgentId) ?? entry.toAgentId} 的代码改动（dispatch ${entry.dispatchId.slice(0, 8)}…，约 ${entry.minutesAgo} 分钟前 report）尚未派 reviewer 审查，请派 reviewer（如钟馗）或显式判定免审`
+    const verdictSuffix = (() => {
+      if (entry.verdictStatus === 'rejected' && entry.verdictReason) {
+        return ` · reviewer 判 rejected：${entry.verdictReason}（worker 需重报）`
+      }
+      if (entry.verdictStatus === 'pending') {
+        return ' · review pending'
+      }
+      return ''
+    })()
+    return {
+      action: '派 reviewer',
+      id: `unreviewed-code:${entry.dispatchId}`,
+      priority: 'high',
+      targetTab: 'tasks',
+      text: `${baseText}${verdictSuffix}`,
+      type: 'unreviewed_code',
+    }
+  })
 
 // 在「serve cockpit 的边界」把 DB 派生的「未审」action 合并进 file-only 的 aiActions。
 // **关键契约**：本函数在边界调用，绝不进 parseCockpit / buildAiActions（它们 file-only、不碰 DB）。

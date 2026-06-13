@@ -12,6 +12,23 @@ export type DispatchStatus =
   | 'cancelled'
   | 'orphaned'
 
+// M43 Phase 1: review_status 旁挂维度，独立于 status 8 态。
+// NULL = 该 dispatch 不在 accept-gate 范围（gate 关 / 非 coder / report-only / 存量数据）
+export type ReviewStatus = 'pending' | 'accepted' | 'rejected' | 'waived'
+
+export interface AcceptVerdict {
+  /** accepted | rejected | waived 之一；与 review_status 同步。 */
+  verdict: ReviewStatus
+  /** reviewer 或 orchestrator agent_id。 */
+  byAgentId: string
+  /** 时间戳。 */
+  at: number
+  /** verdict 原因；team accept 强制要求。 */
+  reason: string
+  /** 当 verdict 来自 reviewer dispatch 时，引回 reviewer dispatch.id。 */
+  reviewsDispatchId?: string
+}
+
 export interface DispatchRecord {
   artifacts: string[]
   createdAt: number
@@ -26,6 +43,12 @@ export interface DispatchRecord {
   text: string
   toAgentId: string
   workspaceId: string
+  /** M43 旁挂维度；NULL 表示不在 accept-gate 范围（走旧路径） */
+  reviewStatus: ReviewStatus | null
+  /** M43 reviewer dispatch 指向被审 coder dispatch.id */
+  reviewsDispatchId: string | null
+  /** M43 accept verdict JSON，落在被审 coder dispatch 上 */
+  acceptVerdict: AcceptVerdict | null
 }
 
 interface DispatchRow {
@@ -42,6 +65,9 @@ interface DispatchRow {
   text: string
   to_agent_id: string
   workspace_id: string
+  review_status: string | null
+  reviews_dispatch_id: string | null
+  accept_verdict: string | null
 }
 
 interface CreateDispatchInput {
@@ -95,6 +121,41 @@ const parseArtifacts = (value: string | null) => {
   }
 }
 
+const VALID_REVIEW_STATUSES = new Set<ReviewStatus>(['pending', 'accepted', 'rejected', 'waived'])
+
+const parseReviewStatus = (value: string | null): ReviewStatus | null => {
+  if (value === null) return null
+  return VALID_REVIEW_STATUSES.has(value as ReviewStatus) ? (value as ReviewStatus) : null
+}
+
+const parseAcceptVerdict = (value: string | null): AcceptVerdict | null => {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(value) as Partial<AcceptVerdict> & Record<string, unknown>
+    if (
+      typeof parsed.verdict !== 'string' ||
+      !VALID_REVIEW_STATUSES.has(parsed.verdict as ReviewStatus) ||
+      typeof parsed.byAgentId !== 'string' ||
+      typeof parsed.at !== 'number' ||
+      typeof parsed.reason !== 'string'
+    ) {
+      return null
+    }
+    const out: AcceptVerdict = {
+      verdict: parsed.verdict as ReviewStatus,
+      byAgentId: parsed.byAgentId,
+      at: parsed.at,
+      reason: parsed.reason,
+    }
+    if (typeof parsed.reviewsDispatchId === 'string' && parsed.reviewsDispatchId) {
+      out.reviewsDispatchId = parsed.reviewsDispatchId
+    }
+    return out
+  } catch {
+    return null
+  }
+}
+
 const toRecord = (row: DispatchRow): DispatchRecord => ({
   artifacts: parseArtifacts(row.artifacts),
   createdAt: row.created_at,
@@ -109,6 +170,9 @@ const toRecord = (row: DispatchRow): DispatchRecord => ({
   text: row.text,
   toAgentId: row.to_agent_id,
   workspaceId: row.workspace_id,
+  reviewStatus: parseReviewStatus(row.review_status),
+  reviewsDispatchId: row.reviews_dispatch_id,
+  acceptVerdict: parseAcceptVerdict(row.accept_verdict),
 })
 
 export const createDispatchLedgerStore = (db: Database) => {
@@ -127,6 +191,9 @@ export const createDispatchLedgerStore = (db: Database) => {
       text: input.text,
       toAgentId: input.toAgentId,
       workspaceId: input.workspaceId,
+      reviewStatus: null,
+      reviewsDispatchId: null,
+      acceptVerdict: null,
     }
 
     db.prepare(
@@ -396,13 +463,70 @@ export const createDispatchLedgerStore = (db: Database) => {
     )
   }
 
+  // M43 — 任意状态的 dispatch 都可读（accept gate 路径要找 reported coder dispatch，不能用
+  // findOpenDispatchById：那个只查 open 4 态）。
+  const findDispatchById = (
+    workspaceId: string,
+    dispatchId: string
+  ): DispatchRecord | undefined => {
+    const row = db
+      .prepare(
+        `SELECT *
+         FROM dispatches
+         WHERE id = ?
+           AND workspace_id = ?
+         LIMIT 1`
+      )
+      .get(dispatchId, workspaceId) as DispatchRow | undefined
+    return row ? toRecord(row) : undefined
+  }
+
+  // M43 — 写 review_status 单字段（不动 status 8 态）。
+  // 同时支持回退到 NULL（worker re-report 路径清回 pending 也走这里）。
+  const setReviewStatus = (dispatchId: string, status: ReviewStatus | null): void => {
+    db.prepare('UPDATE dispatches SET review_status = ? WHERE id = ?').run(status, dispatchId)
+  }
+
+  // M43 — 写 accept verdict（在被审 coder dispatch 上）+ 同步 review_status。
+  // verdict.verdict 必须与 review_status 同语义；调用方保证。
+  const applyAcceptVerdict = (dispatchId: string, verdict: AcceptVerdict): void => {
+    db.prepare(
+      `UPDATE dispatches
+       SET review_status = ?,
+           accept_verdict = ?
+       WHERE id = ?`
+    ).run(verdict.verdict, JSON.stringify(verdict), dispatchId)
+  }
+
+  // M43 — 仅在 reviewer dispatch 上写 reviews_dispatch_id（精确链接被审 coder dispatch）。
+  const linkReviewsDispatchId = (reviewerDispatchId: string, coderDispatchId: string): void => {
+    db.prepare('UPDATE dispatches SET reviews_dispatch_id = ? WHERE id = ?').run(
+      coderDispatchId,
+      reviewerDispatchId
+    )
+  }
+
+  // M43 — 清空 review_status / accept_verdict（worker re-report 路径，让上一轮 rejected 回 pending）。
+  const clearReviewStatus = (dispatchId: string): void => {
+    db.prepare(
+      `UPDATE dispatches
+       SET review_status = NULL,
+           accept_verdict = NULL
+       WHERE id = ?`
+    ).run(dispatchId)
+  }
+
   return {
+    applyAcceptVerdict,
+    clearReviewStatus,
     createDispatch,
     deleteDispatch,
     deleteWorkerDispatches,
     deleteWorkspaceDispatches,
+    findDispatchById,
     findOpenDispatch,
     findOpenDispatchById,
+    linkReviewsDispatchId,
     listOpenDispatchesForWorker,
     listOpenDispatchesForWorkspace,
     listOpenDispatchKinds,
@@ -412,5 +536,6 @@ export const createDispatchLedgerStore = (db: Database) => {
     markReportOverdue,
     markReportedByWorker,
     markSubmitted,
+    setReviewStatus,
   }
 }

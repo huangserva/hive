@@ -338,6 +338,24 @@ export const createRuntimeStoreServices = (
     runDbTransaction: (mutation) => db.transaction(mutation)(),
     tasksFileService,
     workspaceStore,
+    // M43 accept-gate Phase 1：旁挂三字段读写 + scope preset 解析 hook。
+    findDispatchById: dispatchLedgerStore.findDispatchById,
+    setReviewStatus: dispatchLedgerStore.setReviewStatus,
+    applyAcceptVerdict: dispatchLedgerStore.applyAcceptVerdict,
+    linkReviewsDispatchId: dispatchLedgerStore.linkReviewsDispatchId,
+    clearReviewStatus: dispatchLedgerStore.clearReviewStatus,
+    listAllWorkspaceDispatches: (workspaceId) =>
+      dispatchLedgerStore.listWorkspaceDispatches(workspaceId, { limit: 1_000 }),
+    resolveCommandPresetId: (workspaceId, workerId) => {
+      // M43 scope 解析复用 team-list-enrichment 同款契约：preset 在 agent_launch_configs 上。
+      try {
+        return (
+          agentRuntime.peekAgentLaunchConfig(workspaceId, workerId)?.commandPresetId ?? undefined
+        )
+      } catch {
+        return undefined
+      }
+    },
   })
   startExistingWorkspaceWatches()
   sentinelHeartbeat?.start()

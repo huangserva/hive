@@ -164,12 +164,56 @@ export const teamRoutes: RouteDefinition[] = [
       )
       throw new BadRequestError('Missing dispatch_id for worker report')
     }
+    // M43: reviewer 主路径，把可选字段透传给 team-operations.reportTask；空字段不传。
+    // 钟馗审 High（安全面）：任一 reviewer/verdict 字段存在但组合非法 → 直接 400，
+    // 不再静默降级为普通 report（L1 API 边界硬化，CLI 之外的客户端也兜得住）。
+    const bodyAny = body as unknown as Record<string, unknown>
+    const hasReviewsDispatchIdField = bodyAny.reviews_dispatch_id !== undefined
+    const hasVerdictField = bodyAny.verdict !== undefined
+    const hasVerdictReasonField = bodyAny.verdict_reason !== undefined
+    const reviewsDispatchId =
+      typeof bodyAny.reviews_dispatch_id === 'string' && bodyAny.reviews_dispatch_id.trim()
+        ? bodyAny.reviews_dispatch_id.trim()
+        : undefined
+    const rawVerdict = bodyAny.verdict
+    const verdict: 'accepted' | 'rejected' | 'waived' | undefined =
+      rawVerdict === 'accepted' || rawVerdict === 'rejected' || rawVerdict === 'waived'
+        ? (rawVerdict as 'accepted' | 'rejected' | 'waived')
+        : undefined
+    const verdictReason =
+      typeof bodyAny.verdict_reason === 'string' && bodyAny.verdict_reason.trim()
+        ? bodyAny.verdict_reason
+        : undefined
+    // 钟馗第二轮 blocking #2：原 verdict_reason 单独存在时校验只通过 hasVerdictReasonField 这关，
+    // 没触发组合校验就静默走普通 report。正确语义：**任一**字段存在就要求三元组都到齐且合法。
+    const anyReviewerFieldPresent =
+      hasReviewsDispatchIdField || hasVerdictField || hasVerdictReasonField
+    if (anyReviewerFieldPresent) {
+      if (!hasReviewsDispatchIdField || reviewsDispatchId === undefined) {
+        throw new BadRequestError(
+          'reviews_dispatch_id is required when any reviewer/verdict field is present (must be non-empty string)'
+        )
+      }
+      if (!hasVerdictField || verdict === undefined) {
+        throw new BadRequestError(
+          'verdict is required when any reviewer/verdict field is present (one of: accepted | rejected | waived)'
+        )
+      }
+      if (!hasVerdictReasonField || verdictReason === undefined) {
+        throw new BadRequestError(
+          'verdict_reason is required when any reviewer/verdict field is present (must be non-empty string)'
+        )
+      }
+    }
     const reportInput = {
       artifacts: getArtifacts(body.artifacts),
       dispatchId: requestDispatchId,
       requireActiveRun: true,
       requireDispatchId: true,
       text: resultText,
+      ...(reviewsDispatchId !== undefined ? { reviewsDispatchId } : {}),
+      ...(verdict !== undefined ? { verdict } : {}),
+      ...(verdictReason !== undefined ? { verdictReason } : {}),
     }
     if (typeof body.status === 'string') {
       const result = store.reportTask(projectId, fromAgentId, {
@@ -346,6 +390,44 @@ export const teamRoutes: RouteDefinition[] = [
       sendJson(response, 200, { ok: true })
     }
   ),
+  route('POST', '/api/team/accept', async ({ logger, request, response, store }) => {
+    const body = await readJsonBody<{
+      project_id?: unknown
+      from_agent_id?: unknown
+      token?: unknown
+      dispatch_id?: unknown
+      reason?: unknown
+      verdict?: unknown
+    }>(request)
+    const projectId = requireNonEmptyString(body.project_id, 'project_id')
+    const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
+    const dispatchId = requireNonEmptyString(body.dispatch_id, 'dispatch_id')
+    const reason = requireNonEmptyString(body.reason, 'reason')
+    const verdict =
+      body.verdict === 'waived' ? 'waived' : body.verdict === 'accepted' ? 'accepted' : 'accepted'
+    const agent = authenticateCliAgent({
+      fromAgentId,
+      getAgent: store.getAgent,
+      token: typeof body.token === 'string' ? body.token : undefined,
+      validateToken: store.validateAgentToken,
+      workspaceId: projectId,
+    })
+    requireCommandForRole(agent, 'accept')
+    const result = store.acceptTask(projectId, {
+      dispatchId,
+      fromAgentId,
+      reason,
+      verdict,
+    })
+    logger?.info?.(
+      `team accept applied workspace_id=${projectId} from_agent_id=${fromAgentId} dispatch_id=${dispatchId} verdict=${verdict}`
+    )
+    sendJson(response, 200, {
+      ok: true,
+      dispatch_id: result.dispatch.id,
+      review_status: result.dispatch.reviewStatus,
+    })
+  }),
   route(
     'POST',
     '/api/team/mobile-send-media',

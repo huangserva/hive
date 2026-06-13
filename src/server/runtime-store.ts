@@ -24,6 +24,8 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
 import type {
+  AcceptTaskInput,
+  AcceptTaskResult,
   CancelTaskInput,
   DispatchTaskInput,
   ReconcileOrphanedDispatchesInput,
@@ -78,6 +80,7 @@ interface RuntimeStore {
     input?: DispatchTaskInput
   ) => Promise<DispatchRecord>
   reportTask: (workspaceId: string, workerId: string, input?: ReportTaskInput) => ReportTaskResult
+  acceptTask: (workspaceId: string, input: AcceptTaskInput) => AcceptTaskResult
   statusTask: (workspaceId: string, workerId: string, input?: StatusTaskInput) => ReportTaskResult
   cancelTask: (workspaceId: string, dispatchId: string, input: CancelTaskInput) => ReportTaskResult
   reconcileOrphanedDispatches: (input?: ReconcileOrphanedDispatchesInput) => DispatchRecord[]
@@ -256,6 +259,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
     dispatchTask: services.teamOps.dispatchTask,
     dispatchTaskByWorkerName: services.teamOps.dispatchTaskByWorkerName,
     reportTask: services.teamOps.reportTask,
+    acceptTask: services.teamOps.acceptTask,
     statusTask: services.teamOps.statusTask,
     listDispatches: services.dispatchLedgerStore.listWorkspaceDispatches,
     listWorkers: (workspaceId) => services.workspaceStore.listWorkers(workspaceId),

@@ -49,6 +49,10 @@ const createDispatch = (workspaceId: string, workerId: string, text: string) =>
     text,
     toAgentId: workerId,
     workspaceId,
+    // M43 旁挂三字段（方案 B）：默认 NULL，单测不入 accept-gate scope。
+    reviewStatus: null,
+    reviewsDispatchId: null,
+    acceptVerdict: null,
   }) satisfies DispatchRecord
 
 const setupOps = (input: { role?: AgentSummary['role'] } = {}) => {

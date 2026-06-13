@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import Database from 'better-sqlite3'
+import Database, { type Database as DatabaseInstance } from 'better-sqlite3'
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
@@ -29,7 +29,7 @@ afterEach(async () => {
   }
 })
 
-const expectDispatchSchema = (db: Database) => {
+const expectDispatchSchema = (db: DatabaseInstance) => {
   const dispatchTable = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'dispatches'")
     .get() as { name: string } | undefined
@@ -44,19 +44,19 @@ const expectDispatchSchema = (db: Database) => {
   expect(dispatchIndexes.has('idx_dispatches_open_by_worker')).toBe(true)
 }
 
-const indexColumns = (db: Database, indexName: string) =>
+const indexColumns = (db: DatabaseInstance, indexName: string) =>
   (db.prepare(`PRAGMA index_info(${indexName})`).all() as Array<{ name: string }>).map(
     (column) => column.name
   )
 
-const dispatchColumns = (db: Database) =>
+const dispatchColumns = (db: DatabaseInstance) =>
   new Set(
     (db.prepare('PRAGMA table_info(dispatches)').all() as Array<{ name: string }>).map(
       (column) => column.name
     )
   )
 
-const tableExists = (db: Database, tableName: string) =>
+const tableExists = (db: DatabaseInstance, tableName: string) =>
   db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName) as
     | { name: string }
     | undefined
@@ -191,6 +191,10 @@ describe('schema version', () => {
         'reported_at',
         'report_text',
         'artifacts',
+        // M43 schema v33: 三个旁挂字段，默认 NULL；不破 8 态 status 维度。
+        'review_status',
+        'reviews_dispatch_id',
+        'accept_verdict',
       ])
     )
     expect(mobileDeviceColumns).toEqual(
@@ -1552,6 +1556,126 @@ describe('schema version', () => {
     expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(23)).toEqual({
       version: 23,
     })
+    db.close()
+  })
+
+  test('M43 schema v33 adds review_status / reviews_dispatch_id / accept_verdict (all NULL by default) + idempotent', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v33-'))
+    tempDirs.push(dataDir)
+    // 1) 初始化 → schema_version 应含 33。
+    const store = createRuntimeStore({ dataDir })
+    stores.push(store)
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(33)).toEqual({
+      version: 33,
+    })
+    // 2) 三个新列存在、defaults NULL。
+    const cols = dispatchColumns(db)
+    expect(cols.has('review_status')).toBe(true)
+    expect(cols.has('reviews_dispatch_id')).toBe(true)
+    expect(cols.has('accept_verdict')).toBe(true)
+    const fullColInfo = db.prepare('PRAGMA table_info(dispatches)').all() as Array<{
+      name: string
+      dflt_value: string | null
+      notnull: number
+    }>
+    for (const colName of ['review_status', 'reviews_dispatch_id', 'accept_verdict']) {
+      const info = fullColInfo.find((c) => c.name === colName)
+      expect(info, `column ${colName} must exist`).toBeDefined()
+      expect(info?.notnull, `${colName} must be nullable`).toBe(0)
+      expect(info?.dflt_value, `${colName} default must be NULL`).toBeNull()
+    }
+    // 3) 索引存在。
+    const dispatchIndexes = new Set(
+      (db.prepare('PRAGMA index_list(dispatches)').all() as Array<{ name: string }>).map(
+        (index) => index.name
+      )
+    )
+    expect(dispatchIndexes.has('idx_dispatches_workspace_review_status')).toBe(true)
+    expect(dispatchIndexes.has('idx_dispatches_reviews_dispatch_id')).toBe(true)
+
+    // 4) 重复执行 applySchemaVersion33 不应重复 ALTER（PRAGMA table_info 守住）。
+    const { applySchemaVersion33 } = await import('../../src/server/sqlite-schema-v33.js')
+    expect(() => {
+      applySchemaVersion33(db)
+      applySchemaVersion33(db)
+      applySchemaVersion33(db)
+    }).not.toThrow()
+    // 列数仍是 16（13 旧 + 3 新），不会出现 review_status_1 之类的重命名。
+    const colsAfter = dispatchColumns(db)
+    expect(colsAfter.size).toBe(cols.size)
+    db.close()
+  })
+
+  test('M43 v32 → v33 migration on a legacy v32 database adds 3 columns + sets schema_version=33', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v32-to-v33-'))
+    tempDirs.push(dataDir)
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    // 造一个 v32 数据库：schema_version 含 1..32，dispatches 表是 v15+ 后的 13 列。
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21), (22, 22),
+        (23, 23), (24, 24), (25, 25), (26, 26), (27, 27), (28, 28), (29, 29),
+        (30, 30), (31, 31), (32, 32);
+
+      CREATE TABLE dispatches (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        workspace_id TEXT NOT NULL,
+        from_agent_id TEXT,
+        to_agent_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        delivered_at INTEGER,
+        submitted_at INTEGER,
+        reported_at INTEGER,
+        report_text TEXT,
+        artifacts TEXT
+      );
+      CREATE INDEX idx_dispatches_workspace_created_at ON dispatches (workspace_id, sequence);
+      CREATE INDEX idx_dispatches_open_by_worker ON dispatches (workspace_id, to_agent_id, status, sequence);
+    `)
+    // 插一条遗留数据，迁移后应仍可读，且三个新字段为 NULL。
+    db.prepare(
+      `INSERT INTO dispatches (id, workspace_id, from_agent_id, to_agent_id, text, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('legacy-1', 'ws-1', null, 'worker-1', 'legacy task', 'reported', 1)
+
+    const before = dispatchColumns(db)
+    expect(before.has('review_status')).toBe(false)
+    expect(before.has('reviews_dispatch_id')).toBe(false)
+    expect(before.has('accept_verdict')).toBe(false)
+
+    // 触发 initialize → 应只跑 v33。
+    initializeRuntimeDatabase(db)
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(33)).toEqual({
+      version: 33,
+    })
+    const after = dispatchColumns(db)
+    expect(after.has('review_status')).toBe(true)
+    expect(after.has('reviews_dispatch_id')).toBe(true)
+    expect(after.has('accept_verdict')).toBe(true)
+    // 遗留数据三字段确实 NULL。
+    const legacyRow = db
+      .prepare(
+        'SELECT review_status, reviews_dispatch_id, accept_verdict FROM dispatches WHERE id = ?'
+      )
+      .get('legacy-1') as {
+      review_status: unknown
+      reviews_dispatch_id: unknown
+      accept_verdict: unknown
+    }
+    expect(legacyRow.review_status).toBeNull()
+    expect(legacyRow.reviews_dispatch_id).toBeNull()
+    expect(legacyRow.accept_verdict).toBeNull()
     db.close()
   })
 })
