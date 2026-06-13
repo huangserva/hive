@@ -5,9 +5,10 @@
 
 ## In progress
 
-> 🟢 **2026-06-13｜全屏图片预览死锁修复 ship+APK 投递（待真机验）；无在跑 dispatch**
+> 🔧 **2026-06-13｜全屏图片预览死锁——第一次修失败，正第二次真修（当前活跃）**
 >
-> **今日刚 ship**：全屏图片预览一直转圈死锁修复（`b55c284`，APK `hippoteam-b55c284-imgpreview-fix.apk` 已 DMIT+飞书投递）——`ImagePreviewModal.tsx` 鸡生蛋死锁（loading 等 imageSize，imageSize 只由被 hasImage 挡住永不渲染的 Image 的 onLoad 设）→ 永远转圈，M28 `654a4c8` pinch 上线即埋的 longstanding bug，user 真机撞到。修=always-mount Image + opacity 控可见 + loading 浮层 + shouldEnableGesture 接线，抽 deriveImagePreviewMountState 纯函数 7 决策表测+反向验证。钟馗 2 轮审 0block（死锁真解 + biome 0/0）。**待 user 装 APK 真机验全屏看图+pinch**（前端修复装上即生效，不依赖 4010）。
+> **现状**：全屏图片点开一直转圈。**第一次修（`b55c284`/2.8.15、`d4dcbc3`/2.8.16，已 adb 装真机）失败**——真机点开还卡。真因（PM 读代码确认）：`ImagePreviewModal` 的 stage(Animated.View) 宽高=baseW/H，baseW/H 在 imageSize 未知时恒 0（:90-94），image style width/height:'100%'（:402）→ stage=0×0 → **Image 渲染 0×0 → Android RN 不加载 0×0 图 → onLoad 永不触发 → imageSize 永远 0 → 永久卡**。第一次的 always-mount 没解决（图 mount 了但还是 0×0）。**这是"纯函数测试绿+钟馗审过但真机崩"——0×0 不加载是 RN 原生行为，单测/审查都测不出，真机验才是唯一 gate**。**第二次真修中**（马超 `4c985ef5`）：用 `Image.getSize`/`getSizeWithHeaders` 独立拿尺寸解耦 0×0 依赖（钟馗当时提的备选）+ error 不卡死兜底。→ 钟馗审 → 出 APK → **中继下真机点开验（必须真不卡才算完）**。教训记忆 [[feedback-adb-deviceverify-clash-trap]] 同源（媒体显示靠真机非单测）。
+> 注：adb 真机验时手机 Clash 拦 LAN 取媒体，折腾 Clash 把手机网络搞乱过（已认错恢复），媒体显示要在中继下验。
 > **待 user**：① 重启 4010 激活 M44 飞书媒体 + 真飞书联调 + 对讲 GLM 全传 orch ② Q16 华为开发者账号（后台推送前置）③ M43 Phase 2 / marketplace Phase2（deferred）。成熟 idea：idea-13（worker 崩兜底）/idea-14（overdue 阈值）/idea-12（通话音量）。module-map.md 待补 M43/M44 模块（小，下次 baseline refresh）。
 >
 > **今日已 ship（归档）**：⓪ 💬 **M44 飞书媒体收发 code shipped**（`38468e7`，待 4010 重启+真飞书验）：`team feishu reply --file` 发图片/视频到飞书 + 飞书入站 image/file/media 下载存盘 surface orch，对齐 mobile media。非 mp4 不伪装、入站 100MB、0 字节预拒。钟馗 3 轮审 0block（命门=穿透测试卡死 CLI→route→transport 整链）。① 🔬 **M43 accept gate Phase 1 shipped**（`124c21b`，flag-gated opt-in `HIVE_ACCEPT_GATE=1`）：worker 汇报≠完成，高风险代码 dispatch 必须 `team accept --reason` 引用真 reviewer 才算 done。借鉴 Rive（idea-16 #2+#3，user 拍板）。方案 B 旁挂三字段不动 8 态机零回归。**反铁律焊死**：钟馗 3 轮审揪出每道缝（reviewer 没 report→早于 coder→同毫秒落库 sequence tie-break），PM 无法伪造"审过"绕过。设计 `497717b1`+实现 `8eeecfec` 2 轮修，ADR `decisions/2026-06-13-accept-gate.md` accepted。② 🎥 **M41 视频/图片 4G relay 真机验通**（`bc96876`，user 真实 4G：4010 重启 PID 67337→62558 后 media.get 在线，112KB 视频 4G 下载播放成功；真因=之前"重启"没生效旧进程占端口，教训"核进程号别信声称"）③ 🗣️ **对讲 GLM 全传 orch live**（`433cc3c`，handled 也把信息作 FYI 注入 orch 不失聪、双声 L1 焊死，关羽实现钟馗 0block）④ 下行发送端 `team mobile-send-media`（`f393997`）⑤ 上游 triage 4 backport（`5527a8a`..`6bae080`）⑥ 两启动修复（watcher ENFILE + env-strip）⑦ relay 固化（`de75d73`）⑧ **PM 大整顿**：plan 校准 6 stale 里程碑 + 补 M41/M42/M43 + baseline 三件套刷新 + 5 个 curated PM 文档补进 git。
@@ -852,6 +853,7 @@
 - [x] **马超** dispatch `e8763b37` — 【修 bug·全屏图片预览死锁(ImagePreviewModal 一直转圈)——user 真机撞到,需出新 APK】改完 team report 带行号中文,做完我派钟馗审。
 - [x] **钟馗** dispatch `482b3b3d` — 【独立审·全屏图片预览死锁修复(马超 claude 写,需出 APK)——只审不改 team report blocking 优先中文带行号】
 - [x] **马超** dispatch `d52af365` — 【修钟馗 1 blocking·图片预览修复的 touched 文件 biome 没绿——碰了就得清,不能 pre-existing 带过】改完 team report 带行号中文。
+- [ ] **马超** dispatch `4c985ef5` — 【真修·全屏图片预览死锁(上次 always-mount 没解决,真机还卡加载中)——这次 getSize 解耦,真机验才算数】改完 team report 带行号中文。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
