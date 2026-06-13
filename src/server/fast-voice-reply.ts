@@ -178,6 +178,11 @@ export const appendFastReplyCoordination = (formattedPrompt: string, fastReplyTe
   return `${formattedPrompt}\n\n[协调] GLM 已经对用户回复了:"${reply}"。用户已听到这句。你只需补充 GLM 没回答到的、或需要你实际查证/操作的部分。简洁扼要，绝不重复 GLM 已说的内容。若 GLM 已充分回答，你可以回复“无需补充”，不要再展开。`
 }
 
+export const appendHandledFastReplyContext = (formattedPrompt: string, fastReplyText: string) => {
+  const reply = fastReplyText.replace(/"/g, '\\"')
+  return `${formattedPrompt}\n\n[协调] 前台(GLM)已就此条答复用户:"${reply}"。以下仅供你保持上下文，无需回复，也不要调用 team mobile-reply；除非后续用户明确要求你实际查证/操作，否则本条不需要动作。`
+}
+
 const buildSystemPrompt = (statusContext?: string, mode: VoiceFrontMode = 'strong') => {
   const context = statusContext?.trim()
   const systemPrompt =

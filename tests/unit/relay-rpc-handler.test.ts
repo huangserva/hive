@@ -901,7 +901,7 @@ describe('relay RPC handler', () => {
     expect(injected).toContain('[来自手机 Mobile App]\n---\n让关羽查一下\nWebRTC 为什么断续')
   })
 
-  it('skips orchestrator injection only when GLM gatekeeper explicitly handles a voice prompt', async () => {
+  it('injects handled voice context to orchestrator without starting a mobile reply obligation', async () => {
     vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
     const store = createBaseStore({
@@ -925,12 +925,12 @@ describe('relay RPC handler', () => {
       )
     ).resolves.toEqual({ ok: true, workspace_id: 'ws-1' })
 
-    expect(store.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n关羽现在在干嘛',
-      { forwardToOrchestrator: false }
-    )
+    const injected = store.recordUserInput.mock.calls[0]?.[2] as string
+    expect(injected).toContain('[来自手机 Mobile App]\n---\n关羽现在在干嘛')
+    expect(injected).toContain('前台(GLM)已就此条答复用户')
+    expect(injected).toContain('仅供你保持上下文，无需回复')
+    expect(injected).toContain('现在关羽正在 working。')
+    expect(store.recordUserInput.mock.calls[0]?.[3]).toBeUndefined()
     expect(store.insertMobileChatMessage).toHaveBeenCalledWith(
       'ws-1',
       'inbound',

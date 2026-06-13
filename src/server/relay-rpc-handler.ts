@@ -18,6 +18,7 @@ import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import {
   appendFastReplyCoordination,
+  appendHandledFastReplyContext,
   type FastVoiceReplyProvider,
   maybeInsertFastVoiceReplyWithGatekeeper,
 } from './fast-voice-reply.js'
@@ -476,7 +477,13 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
           ? appendFastReplyCoordination(formatted, fastReply.reply)
           : formatted
       if (gatekeeperHandled) {
-        deps.store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+        const handledReply = fastReply.reply
+        if (handledReply === null) throw new Error('unreachable handled fast reply without text')
+        deps.store.recordUserInput(
+          workspaceId,
+          orchId,
+          appendHandledFastReplyContext(formatted, handledReply)
+        )
       } else {
         const outputBus = deps.store.getPtyOutputBus?.()
         if (outputBus) {

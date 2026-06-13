@@ -1921,7 +1921,7 @@ fs.writeFileSync(outputPath, 'audio')
     }
   })
 
-  test('GLM gatekeeper handled voice prompt records but does not inject orchestrator over LAN', async () => {
+  test('GLM gatekeeper handled voice prompt injects FYI context without mobile reply obligation over LAN', async () => {
     await withMockedGlmFastReply('HIVE_GLM_GATEKEEPER: handled\n当前暂无未完成派单。', async () => {
       vi.stubEnv('HIVE_GLM_GATEKEEPER', '1')
       vi.stubEnv('HIVE_VOICE_UNDERSTANDING_WINDOW_MS', '0')
@@ -1959,14 +1959,17 @@ fs.writeFileSync(outputPath, 'audio')
         expect(await prompt.json()).toEqual({ ok: true, workspace_id: workspace.id })
         expect(server.store.listMessagesForRecovery(workspace.id, 0)).toContainEqual(
           expect.objectContaining({
-            text: '[来自手机 Mobile App]\n---\n现在有未完成派单吗',
+            text: expect.stringContaining('[来自手机 Mobile App]\n---\n现在有未完成派单吗'),
             type: 'user_input',
           })
         )
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        expect(
-          server.store.getActiveRunByAgentId(workspace.id, orchestratorId)?.output
-        ).not.toContain('现在有未完成派单吗')
+        await waitFor(() => {
+          const output = server.store.getActiveRunByAgentId(workspace.id, orchestratorId)?.output
+          expect(output).toContain('现在有未完成派单吗')
+          expect(output).toContain('前台(GLM)已就此条答复用户')
+          expect(output).toContain('仅供你保持上下文，无需回复')
+          expect(output).toContain('当前暂无未完成派单。')
+        })
         const fastReply = server.store
           .listMobileChatMessages(workspace.id)
           .find((message) => message.message_type === 'orch_reply')
@@ -1974,6 +1977,11 @@ fs.writeFileSync(outputPath, 'audio')
           gatekeeper: 'handled',
           text: '当前暂无未完成派单。',
         })
+        expect(
+          server.store
+            .listMobileChatMessages(workspace.id)
+            .some((message) => message.message_type === 'system_event')
+        ).toBe(false)
       } finally {
         await server.close()
       }

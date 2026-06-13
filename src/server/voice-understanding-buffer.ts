@@ -1,5 +1,6 @@
 import {
   appendFastReplyCoordination,
+  appendHandledFastReplyContext,
   type FastVoiceReplyProvider,
   generateFastVoiceReplyWithGatekeeper,
   insertFastVoiceReply,
@@ -216,7 +217,7 @@ const flushVoiceUnderstandingBuffer = async (workspaceId: string) => {
       workspaceId,
     })
     if (inserted) {
-      recordVoiceInput(buffer, workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+      recordVoiceInput(buffer, workspaceId, orchId, appendHandledFastReplyContext(formatted, reply))
     } else {
       recordVoiceInput(buffer, workspaceId, orchId, formatted)
     }

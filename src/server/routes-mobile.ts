@@ -18,6 +18,7 @@ import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
 import {
   appendFastReplyCoordination,
+  appendHandledFastReplyContext,
   maybeInsertFastVoiceReplyWithGatekeeper,
 } from './fast-voice-reply.js'
 import type { ResolvedApproval } from './feishu-approval-ledger.js'
@@ -816,7 +817,13 @@ export const mobileRoutes: RouteDefinition[] = [
           ? appendFastReplyCoordination(formatted, fastReply.reply)
           : formatted
       if (gatekeeperHandled) {
-        store.recordUserInput(workspaceId, orchId, formatted, { forwardToOrchestrator: false })
+        const handledReply = fastReply.reply
+        if (handledReply === null) throw new Error('unreachable handled fast reply without text')
+        store.recordUserInput(
+          workspaceId,
+          orchId,
+          appendHandledFastReplyContext(formatted, handledReply)
+        )
       } else {
         startMobileReplyObligation({
           activeRunId: activeRun.runId,

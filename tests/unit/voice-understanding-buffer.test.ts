@@ -68,7 +68,7 @@ describe('voice understanding buffer', () => {
     expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('wait_ms=1200'))
   })
 
-  test('processes a single voice segment after the configured window', async () => {
+  test('injects handled voice context to orchestrator after the configured window', async () => {
     vi.useFakeTimers()
     const store = createStore()
     const provider = {
@@ -87,12 +87,12 @@ describe('voice understanding buffer', () => {
     expect(provider.generate).toHaveBeenCalledWith(
       expect.objectContaining({ transcript: '现在有什么阻塞' })
     )
-    expect(store.recordUserInput).toHaveBeenCalledWith(
-      'ws-1',
-      'ws-1:orchestrator',
-      '[来自手机 Mobile App]\n---\n现在有什么阻塞',
-      { forwardToOrchestrator: false }
-    )
+    const injected = store.recordUserInput.mock.calls[0]?.[2] as string
+    expect(injected).toContain('[来自手机 Mobile App]\n---\n现在有什么阻塞')
+    expect(injected).toContain('前台(GLM)已就此条答复用户')
+    expect(injected).toContain('仅供你保持上下文，无需回复')
+    expect(injected).toContain('现在没有阻塞。')
+    expect(store.recordUserInput.mock.calls[0]?.[3]).toBeUndefined()
   })
 
   test('does not insert handled fast reply when explicit work override forwards continuous voice to PM', async () => {
