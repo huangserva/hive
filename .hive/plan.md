@@ -1,7 +1,7 @@
 ---
 title: HippoTeam
 started: 2026-05-20
-current_phase: M41 app 视频/图片收发 + 4G relay 传输（idea-15）— Phase 1/1.5 shipped，Phase 2 媒体走 relay code shipped `bc96876`，待 user 重启 4010 激活 media.get + 装新 APK + 4G 真机验。并行 M42 启动健壮性 + 上游 triage backports shipped。语音线 M40 Phase 3 GRM Turn 协议化为较大在途线（06-07 后未再推进，待视频 4G 收口后回到）。
+current_phase: M43 dispatch accept gate + 显式 reviewer/verdict（idea-16 #2+#3，方案 B 旁挂三字段，设计已就绪 user 拍板"继续"→实现 Phase 1 中）。M41 视频/图片 4G relay 已 2026-06-13 真机验通 shipped；对讲 GLM 全传 orch 已 live。语音线 M40 Phase 3 GRM Turn 为较大在途线。
 status: active
 last_review: 2026-06-12
 ---
@@ -84,11 +84,11 @@ last_review: 2026-06-12
 > - [ ] 实现 Phase 1（设计拍板后）
 > 关联：M34（未审兜底，本里程碑把其启发式升级成显式 gate）、[[idea-16]]、idea-8/M33（evidence 链同源）。
 
-### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· Phase 1/1.5 shipped，Phase 2 待 4010 重启 + 4G 真机验 · 2026-06-11~12
+### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· ✅ shipped 2026-06-11~13（Phase 2 媒体走 relay 2026-06-13 user 真实 4G device-verify 通过：4010 重启后 media.get 在线，112KB 测试视频 4G 下载+播放成功）
 > **user 手机口述立项**：能把视频/图片传给 app、在内置播放器里播、双指缩放，单文件 ≤100MB；后续补"主管也能发媒体给 app"。
 > - ✅ **Phase 1 渲染 + 上行 + 内置播放器 + 缩放 `3d6b1a2`/`c3ff81f`**（2026-06-11，APK 2.8.15）：expo-video（无 GMS 依赖）播放器 + 图片 pinch-zoom 复用 + 上行 upload 50→100MB。PM adb 全链路 device-verify 通过。
 > - ✅ **Phase 1.5 下行发送端 `team mobile-send-media` `f393997`**（2026-06-12）：新 CLI + `POST /api/team/mobile-send-media`，文件入 uploads + `store.insertMobileChatMessage` 走 wrapper 自动实时推（不用刷新）。支持视频+图片。钟馗审 0 blocking，真机发真视频验过。立项"你也可以传视频给 app"被 PM scoping 漏成 Phase1.5 的教训：方向词歧义没跟 user 对清。
-> - 🚧 **Phase 2 媒体走 relay（4G 下载播放）code shipped `bc96876`**（2026-06-12，push origin/main）：服务端 relay-rpc `media.get` 分块下载（流式 readSync + path-traversal 三层 guard 含 lstat/realpath）；移动端逐 chunk 真 decode（复用 relay-crypto 的 atob/Uint8Array，零 Buffer 依赖 Hermes 可用）+ 真 length 校验 + 缓存去重 + 进度；图片状态机抽纯函数避免 LAN 失败永久挡。钟馗两审（首审 4 blocking 全真机会崩→修→复审 0 blocking）。服务端 12 + 移动端 18 字节级真测试。APK 已出（`hippoteam-bc96876-media-relay.apk`）投递 DMIT+飞书。**待 user 重启 4010 激活 media.get + 装新 APK + 4G 真机验**。
+> - ✅ **Phase 2 媒体走 relay（4G 下载播放）`bc96876`**（2026-06-12 code，2026-06-13 device-verify）：服务端 relay-rpc `media.get` 分块下载（流式 readSync + path-traversal 三层 guard 含 lstat/realpath）；移动端逐 chunk 真 decode（复用 relay-crypto 的 atob/Uint8Array，零 Buffer 依赖 Hermes 可用）+ 真 length 校验 + 缓存去重 + 进度；图片状态机抽纯函数避免 LAN 失败永久挡。钟馗两审（首审 4 blocking 全真机会崩→修→复审 0 blocking）。服务端 12 + 移动端 18 字节级真测试。**2026-06-13 真机验通**：曾"4G 下载失败"真因=4010 没真重启（codex 助手声称重启但进程号没变、旧进程占端口）；user 用 [Restart] 真重启后（PID 67337→62558）media.get 在线，112KB 测试视频 4G 下载+播放成功。教训记忆 [[reference_mobile_offline_stale_lan_host]] 同源（"重启没生效"要核进程号别信声称）。
 > - **教训**：真机 device-verify 必须覆盖 user 真实 4G/relay 路径，不能只 LAN——Phase 1 在 LAN 验漏了 4G 取不到媒体字节这条架构 gap（[[feedback_verify_real_artifact_not_proxy_metric]]）。
 
 ### M42 · 启动健壮性修复 + 上游 hive triage backports · shipped 2026-06-11~12
