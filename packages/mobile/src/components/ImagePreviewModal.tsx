@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
   useAnimatedStyle,
@@ -16,6 +16,7 @@ import {
   resolvePreviewContainSize,
   resolvePreviewDoubleTapTarget,
 } from '../lib/image-preview-gesture'
+import { planImagePreviewGetSize } from '../lib/image-preview-getsize-source'
 import { deriveImagePreviewMountState } from '../lib/image-preview-mount-state'
 import { colors, spacing } from '../theme'
 
@@ -37,6 +38,9 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
   const t = useT()
   const [containerSize, setContainerSize] = useState({ height: 0, width: 0 })
   const [imageSize, setImageSize] = useState({ height: 0, width: 0 })
+  // 真修死锁：getSize 失败时 surface 出来，避免无限 loading。详见
+  // ../lib/image-preview-mount-state.ts 的历史教训注释。
+  const [loadFailed, setLoadFailed] = useState(false)
 
   const scale = useSharedValue(1)
   const translateX = useSharedValue(0)
@@ -55,6 +59,7 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
     if (!visible) return
     setContainerSize({ height: 0, width: 0 })
     setImageSize({ height: 0, width: 0 })
+    setLoadFailed(false)
     scale.value = 1
     translateX.value = 0
     translateY.value = 0
@@ -76,6 +81,41 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
     translateY,
     visible,
   ])
+
+  // 真修核心：用 Image.getSize / Image.getSizeWithHeaders 在 useEffect 里独立取图片
+  // 自然尺寸，与 0×0 stage 解耦——治 Android RN Image 在 0×0 layout 下根本不触发
+  // 加载导致 onLoad 永不触发的死锁（b55c284 always-mount 修法击穿点）。
+  // source→API 选择走纯函数 planImagePreviewGetSize（已单测），这里只负责调 RN API
+  // + 处理 success/error + cancel。
+  useEffect(() => {
+    const plan = planImagePreviewGetSize({ source, visible })
+    if (plan.kind === 'skip') return
+
+    let cancelled = false
+    const onSuccess = (width: number, height: number) => {
+      if (cancelled) return
+      if (!width || !height) {
+        setLoadFailed(true)
+        return
+      }
+      setImageSize({ height, width })
+    }
+    const onError = () => {
+      if (cancelled) return
+      // 别永远 loading——显式 surface 失败让 user 能关掉重来。
+      setLoadFailed(true)
+    }
+
+    if (plan.kind === 'withHeaders') {
+      Image.getSizeWithHeaders(plan.uri, plan.headers, onSuccess, onError)
+    } else {
+      Image.getSize(plan.uri, onSuccess, onError)
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [source, visible])
 
   useEffect(() => {
     stageWidth.value = containerSize.width
@@ -125,14 +165,15 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
     translateY,
   ])
 
-  // 死锁修：mountState.shouldMountImage 在 visible=true 时永远 true，让 <Animated.Image onLoad>
-  // 能跑、imageSize 能被设上去；mountState.shouldShow* 字段用来控可见性/手势/overlay，
-  // 但不再门 mount。详见 ../lib/image-preview-mount-state.ts + 同名测试。
+  // 真修：mount/show/overlay/failed 决策由 getSize 拿到的 imageSize + onLayout 拿到的
+  // containerSize + loadFailed 三态共同决定。详见 ../lib/image-preview-mount-state.ts
+  // 的历史教训注释与同名测试。
   const mountState = deriveImagePreviewMountState({
     containerHeight: containerSize.height,
     containerWidth: containerSize.width,
     imageNaturalHeight: imageSize.height,
     imageNaturalWidth: imageSize.width,
+    loadFailed,
     visible,
   })
 
@@ -308,9 +349,8 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
     transform: [{ scale: scale.value }],
   }))
 
-  // 死锁修：用 opacity 而非三元 mount 来控可见。stage 在尺寸都未知时（baseW/H=0）
-  // 本身宽高就是 0，所以 opacity=0 期间也不占视觉位置；onLoad 仍能跑（RN Image 的
-  // onLoad 不被 layout / opacity 影响）。
+  // 真修后此处 mount 只在 hasImage 时为真，opacity 作 belt-and-suspenders——
+  // shouldMountImage 严格蕴含 shouldShowImage 时 opacity=1；否则不渲染该分支。
   const stageVisibilityStyle = { opacity: mountState.shouldShowImage ? 1 : 0 }
 
   return (
@@ -332,7 +372,10 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
                 <Animated.View style={[s.stage, stageAnimatedStyle, stageVisibilityStyle]}>
                   <Animated.Image
                     accessibilityLabel={label}
+                    onError={() => setLoadFailed(true)}
                     onLoad={(event) => {
+                      // 辅助路径：getSize 是主路径，onLoad 仅在尺寸更准时 refine。
+                      // 不再作为唯一尺寸来源（治 0×0 Image 不触发加载的 Android 行为）。
                       const nextSize = event.nativeEvent.source
                       if (!nextSize?.width || !nextSize?.height) return
                       setImageSize({ height: nextSize.height, width: nextSize.width })
@@ -353,6 +396,12 @@ export function ImagePreviewModal({ label, onClose, source, visible }: ImagePrev
               <View pointerEvents="none" style={s.loadingOverlay}>
                 <ActivityIndicator color={colors.accent} size="small" />
                 <Text style={s.loadingText}>{t('common.loading')}</Text>
+              </View>
+            ) : null}
+            {mountState.shouldShowLoadFailed ? (
+              <View pointerEvents="none" style={s.loadingOverlay}>
+                <Ionicons color={colors.muted} name="image-outline" size={32} />
+                <Text style={s.loadingText}>{t('imagePreview.loadFailed')}</Text>
               </View>
             ) : null}
           </View>
