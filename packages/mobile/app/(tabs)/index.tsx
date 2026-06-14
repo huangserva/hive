@@ -34,6 +34,7 @@ import { ImagePreviewModal, type PreviewImageSource } from '../../src/components
 import { Screen } from '../../src/components/Screen'
 import { VideoPreviewModal } from '../../src/components/VideoPreviewModal'
 import { type TFunction, useT } from '../../src/i18n'
+import { shouldAutoScrollOnNewMessage } from '../../src/lib/chat-auto-scroll'
 import {
   buildChatMediaEnvelopeJson,
   type ChatMediaItem,
@@ -52,6 +53,7 @@ import {
 } from '../../src/lib/composer-height'
 import { deriveMediaContentImageState } from '../../src/lib/media-content-image-state'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
+import { useChatAutoScrollEffects } from '../../src/lib/use-chat-auto-scroll-effects'
 import { useRelayMediaSource } from '../../src/lib/use-relay-media-source'
 import { colors, radius, spacing } from '../../src/theme'
 
@@ -417,10 +419,26 @@ export default function ChatTab() {
         }
         return
       }
-      const shouldScroll =
-        forceScrollToEndRef.current ||
-        !hasInitialAutoScrolledRef.current ||
-        (trigger === 'message' && isNearBottomRef.current)
+      // 真修 2026-06-14：决策表统一走 shouldAutoScrollOnNewMessage 纯函数（详见
+      // src/lib/chat-auto-scroll.ts），把"forceScroll / !hasInitial / (trigger==='message'
+      // && isNearBottom)"这套散落 ref 逻辑【等价收敛】进决策表，让那张表成为唯一真相，
+      // 既好单测也好防回归（钟馗 blocking 焊：测试要真卡得住）。
+      //
+      // 映射：
+      //   - isDragging = isDraggingRef（这里已 early-return，所以这里恒 false）
+      //   - isNearBottom = trigger==='message' ? isNearBottomRef : false
+      //     （旧逻辑里 trigger==='content' 时 isNearBottom 分支被压住不参与，等价做法
+      //     是直接把 isNearBottom 喂 false 给纯函数，让它走 fall-through）
+      //   - isUserSend = forceScrollToEndRef（sendMessage 唯一显式置 true 的地方；
+      //     scrollToLatestMessage 也置 true，但语义上它已经被 useChatAutoScrollEffects
+      //     的 focus-enter 路径或 user-send 调用方覆盖——这里同款映射）
+      //   - isFocusEnter = !hasInitialAutoScrolledRef（首次进入/挂载也强滚，等价旧行为）
+      const shouldScroll = shouldAutoScrollOnNewMessage({
+        isDragging: false,
+        isFocusEnter: !hasInitialAutoScrolledRef.current,
+        isNearBottom: trigger === 'message' ? isNearBottomRef.current : false,
+        isUserSend: forceScrollToEndRef.current,
+      })
       if (!shouldScroll) return
       hasInitialAutoScrolledRef.current = true
       forceScrollToEndRef.current = false
@@ -605,19 +623,53 @@ export default function ChatTab() {
     uploadMedia,
   ])
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!allMessages.length) return undefined
-      scrollToLatestMessage(true)
-      return undefined
-    }, [allMessages.length, scrollToLatestMessage])
+  // 抖动 bug 真修（2026-06-14 PM adb 录帧坐实根因）：
+  //
+  // **旧实现**把 `allMessages.length` 放进了 useFocusEffect 的 callback deps，导致每条
+  // 新消息(轮询刷新 / incoming / 系统事件 Mobile Reply Obligation Stalled 反复插入)
+  // 都重跑 callback → 无条件 `forceScrollToEndRef.current = true` → 即便 user 正下拉
+  // 看历史也被强行拽回底部 → 跟手势打架 → 抖动。
+  //
+  // **真修**：useFocusEffect + latestMessageToken 两条副作用抽进
+  // `useChatAutoScrollEffects` hook，统一消费 `shouldAutoScrollOnNewMessage` 决策表，
+  // 钉死"messagesCount 用 ref 读不进 useFocusEffect deps"这条 invariant（hook 自带
+  // 穿透测覆盖到 scrollFn 调用计数，反向回退到旧 deps 必红——见
+  // __tests__/use-chat-auto-scroll-effects.test.ts）。
+  //
+  // 决策映射（hook 调 getInputs 时填）：
+  //   - new-message：isUserSend=forceScroll，isFocusEnter=!hasInitial，isNearBottom=
+  //     isNearBottomRef（这条命门——user 上翻历史 → false → 不滚）
+  //   - focus-enter：isUserSend=false（focus 不算 user-send），isFocusEnter=true，
+  //     isNearBottom=isNearBottomRef（focus-enter 已经返 true，isNearBottom 不参与）
+  const getAutoScrollInputs = useCallback(
+    (kind: 'new-message' | 'focus-enter') => ({
+      isDragging: isDraggingRef.current,
+      isFocusEnter: kind === 'focus-enter' || !hasInitialAutoScrolledRef.current,
+      isNearBottom: isNearBottomRef.current,
+      isUserSend: kind === 'new-message' ? forceScrollToEndRef.current : false,
+    }),
+    []
   )
-
-  useEffect(() => {
-    if (latestMessageToken) {
-      maybeAutoScrollToEnd(true)
-    }
-  }, [latestMessageToken, maybeAutoScrollToEnd])
+  const handleAutoScroll = useCallback(
+    (kind: 'new-message' | 'focus-enter') => {
+      if (kind === 'focus-enter') {
+        scrollToLatestMessage(true)
+        return
+      }
+      // new-message：复用 maybeAutoScrollToEnd 链路（动画 + 拖拽守护 + ref 维护），
+      // hook 已经裁过决策，这里走的就是"该滚"分支；trigger='message' 让链路继续按
+      // refs 二次校验（双保险，防 race）。
+      maybeAutoScrollToEnd(true, 'message')
+    },
+    [maybeAutoScrollToEnd, scrollToLatestMessage]
+  )
+  useChatAutoScrollEffects({
+    getInputs: getAutoScrollInputs,
+    latestMessageToken,
+    messagesCount: allMessages.length,
+    onScroll: handleAutoScroll,
+    useFocusEffect,
+  })
 
   useEffect(
     () => () => {
