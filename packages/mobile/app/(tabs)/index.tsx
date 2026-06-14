@@ -3,7 +3,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import * as FileSystem from 'expo-file-system/legacy'
 import * as ImagePicker from 'expo-image-picker'
 import { useFocusEffect, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +45,7 @@ import {
   normalizePickedMediaAttachment,
   type StagedChatAttachment,
 } from '../../src/lib/chat-media'
+import { resolveMediaPlaceholderSize } from '../../src/lib/chat-media-placeholder'
 import { filterPendingOptimisticMessages } from '../../src/lib/chat-message-dedupe'
 import { resolveChatSendOutcome } from '../../src/lib/chat-send-status'
 import {
@@ -52,6 +53,7 @@ import {
   resolveComposerInputHeight,
 } from '../../src/lib/composer-height'
 import { deriveMediaContentImageState } from '../../src/lib/media-content-image-state'
+import { areMessageCardPropsEqual } from '../../src/lib/message-card-equality'
 import { stripInlineMarkdown } from '../../src/lib/strip-markdown'
 import { useChatAutoScrollEffects } from '../../src/lib/use-chat-auto-scroll-effects'
 import { useRelayMediaSource } from '../../src/lib/use-relay-media-source'
@@ -92,6 +94,9 @@ const DEDUPE_MESSAGE_TYPES = new Set<DisplayMessage['message_type']>([
   'orch_reply',
   'worker_report',
 ])
+// 稳定空 worker 数组单例：dashboard 还没加载时给 MessageCard 一个引用稳定的 fallback，
+// 防 memo 比较器把每渲染新建的 `[]` 误判成"workers 引用变了"导致整列重渲染。
+const EMPTY_WORKER_LIST: MobileDashboardWorker[] = []
 
 const createClientNonce = () => globalThis.crypto?.randomUUID?.() ?? `chat-${Date.now()}`
 
@@ -533,6 +538,20 @@ export default function ChatTab() {
     setPreviewVideo(null)
   }, [])
 
+  // 残留抖动 polish：原 renderItem 里 `onOpenApproval={(approvalId) => router.push(...)}`
+  // 是匿名函数每渲染都换新引用 → MessageCard memo 比较器看到 `prev.onOpenApproval !==
+  // next.onOpenApproval` → 整列重渲染，memo 等于白搭。提出来 useCallback 稳定引用。
+  const openApprovalScreen = useCallback(
+    (approvalId: string) => {
+      router.push({ pathname: '/approval', params: { approvalId } })
+    },
+    [router]
+  )
+
+  // 同款问题：原 `workers={dashboard?.workers ?? []}` 在 dashboard 为 null 时每渲染
+  // 新建 `[]`，让 memo 比较器误判 prop 引用变。useMemo 让稳定 fallback 单例。
+  const workerList = useMemo(() => dashboard?.workers ?? EMPTY_WORKER_LIST, [dashboard?.workers])
+
   const scrollToLatestMessage = useCallback(
     (animated: boolean) => {
       forceScrollToEndRef.current = true
@@ -847,15 +866,13 @@ export default function ChatTab() {
           renderItem={({ item }) => (
             <MessageCard
               message={item}
-              onOpenApproval={(approvalId) =>
-                router.push({ pathname: '/approval', params: { approvalId } })
-              }
+              onOpenApproval={openApprovalScreen}
               onApprove={approveRequest}
               onPreviewImage={openImagePreview}
               onPreviewVideo={openVideoPreview}
               runtimeHost={host}
               token={token}
-              workers={dashboard?.workers ?? []}
+              workers={workerList}
             />
           )}
         />
@@ -1191,7 +1208,7 @@ type MessageCardProps = {
   workers: MobileDashboardWorker[]
 }
 
-const MessageCard = ({
+const MessageCardImpl = ({
   message,
   onApprove,
   onOpenApproval,
@@ -1425,6 +1442,12 @@ const MessageCard = ({
   )
 }
 
+// 残留抖动 polish 2026-06-14：React.memo 包 MessageCard 防"轮询/incoming 让
+// allMessages 换数组身份就整列 MessageCard 重渲染 → 媒体重 mount 重测高"
+// churn。比较器 areMessageCardPropsEqual 集中在 src/lib/message-card-equality.ts
+// + 同名测试覆盖。
+const MessageCard = memo(MessageCardImpl, areMessageCardPropsEqual)
+
 const resolveMediaUrl = (url: string, runtimeHost: string) => {
   if (/^(https?:|file:|content:|data:|asset:)/iu.test(url)) return url
   const baseUrl = normalizeRuntimeHost(runtimeHost)
@@ -1502,13 +1525,28 @@ const MediaContent = ({
     previousUriRef.current = uri
   }, [imageRenderState?.shouldResetImageFailed, uri])
 
+  // 残留抖动 polish 2026-06-14：给 isImage 的 placeholder / fallback 套跟最终 Image
+  // 同款固定尺寸（170×230 / 104×104），治"加载完成那一刻 fileCard 变高跳 170 → 列表
+  // 顶动"。决策抽到 resolveMediaPlaceholderSize 纯函数（见 chat-media-placeholder.ts）。
+  // null 时维持原 fileCard 自然布局（视频/普通文件不需要预留）。
+  const placeholderSize = resolveMediaPlaceholderSize({
+    compact,
+    kind: isImage ? 'image' : isVideo ? 'video' : 'other',
+  })
+  const stableSlotStyle = placeholderSize
+    ? { height: placeholderSize.height, width: placeholderSize.width }
+    : null
+
   if (imageRenderState?.shouldShowDownloadingPlaceholder) {
     return (
       <View
         accessibilityLabel={`${media.filename} · 4G 下载中`}
-        style={compact ? mediaStyles.imageContainerCompact : mediaStyles.imageContainer}
+        style={[
+          compact ? mediaStyles.imageContainerCompact : mediaStyles.imageContainer,
+          stableSlotStyle,
+        ]}
       >
-        <View style={mediaStyles.fileCard}>
+        <View style={[mediaStyles.fileCard, stableSlotStyle]}>
           <Ionicons color={colors.accent} name="cloud-download-outline" size={24} />
           <View style={mediaStyles.fileMeta}>
             <Text numberOfLines={1} style={mediaStyles.fileNameOut}>
@@ -1602,12 +1640,14 @@ const MediaContent = ({
     </>
   )
   if (isImage) {
+    // 抖动 polish：fileCard fallback 走稳定尺寸槽（跟最终 Image 同高）防加载完成时
+    // 列表顶动。
     return (
       <Pressable
         accessibilityLabel={media.filename}
         accessibilityRole="button"
         onPress={() => onPreviewImage(imageSource, media.filename)}
-        style={mediaStyles.fileCard}
+        style={[mediaStyles.fileCard, stableSlotStyle]}
       >
         {FileCardInner}
       </Pressable>
