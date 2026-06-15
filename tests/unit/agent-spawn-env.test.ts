@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { createAgentSpawnEnv } from '../../src/server/agent-manager.js'
+import { CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL } from '../../src/server/role-templates.js'
 
 describe('agent spawn env', () => {
   afterEach(() => {
@@ -56,5 +57,25 @@ describe('agent spawn env', () => {
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe('oauth-token-from-parent')
     expect(env.HIVE_PARENT_ENV_CHECK).toBe('kept')
     expect(env.HIVE_AGENT_ID).toBe('worker-process-env')
+  })
+
+  test('injects GLM_API_KEY as Anthropic auth token only when workflow flag authorizes it', () => {
+    vi.stubEnv('GLM_API_KEY', 'glm-secret')
+
+    const workflowEnv = createAgentSpawnEnv({
+      ANTHROPIC_BASE_URL: CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+      HIVE_AGENT_ID: 'workflow-worker',
+      HIVE_WORKFLOW_ALLOWED: '1',
+    })
+    const ordinaryEnv = createAgentSpawnEnv({
+      ANTHROPIC_BASE_URL: CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL,
+      HIVE_AGENT_ID: 'ordinary-worker',
+    })
+
+    expect(workflowEnv.ANTHROPIC_AUTH_TOKEN).toBe('glm-secret')
+    expect(workflowEnv.GLM_API_KEY).toBe('glm-secret')
+    expect(ordinaryEnv.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+    expect(ordinaryEnv.GLM_API_KEY).toBe('glm-secret')
   })
 })

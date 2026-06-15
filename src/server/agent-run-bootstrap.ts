@@ -163,21 +163,24 @@ export const buildAgentRunBootstrap = (
         codexManaged?.home,
         claudeManaged?.projectsRoot
       )
+  const startEnv: Record<string, string | undefined> = {
+    ...(startConfigWithThinking.env ?? {}),
+    ...getSessionCaptureEnvironment(sessionCaptureSnapshot),
+    // managed CODEX_HOME / CODEX_SESSION_ROOT 必须压过 snapshot env，且 resume 路径也要带。
+    ...(codexManaged ? codexManaged.env : {}),
+    // managed Claude HOME / CLAUDE_PROJECTS_ROOT 同理压过 snapshot env，fresh + resume 都带。
+    ...(claudeManaged ? claudeManaged.env : {}),
+    ...(startConfigWithThinking.workflowAllowed ? { HIVE_WORKFLOW_ALLOWED: '1' } : {}),
+    HIVE_PORT: '',
+    HIVE_PROJECT_ID: workspace.id,
+    HIVE_AGENT_ID: agentId,
+    HIVE_AGENT_TOKEN: '',
+    PATH: `${HIVE_BIN_DIR}${delimiter}${runtimeEnv.PATH ?? process.env.PATH ?? ''}`,
+  }
   return {
     sessionCaptureSnapshot,
     startConfig: startConfigWithThinking,
-    startEnv: {
-      ...getSessionCaptureEnvironment(sessionCaptureSnapshot),
-      // managed CODEX_HOME / CODEX_SESSION_ROOT 必须压过 snapshot env，且 resume 路径也要带。
-      ...(codexManaged ? codexManaged.env : {}),
-      // managed Claude HOME / CLAUDE_PROJECTS_ROOT 同理压过 snapshot env，fresh + resume 都带。
-      ...(claudeManaged ? claudeManaged.env : {}),
-      HIVE_PORT: '',
-      HIVE_PROJECT_ID: workspace.id,
-      HIVE_AGENT_ID: agentId,
-      HIVE_AGENT_TOKEN: '',
-      PATH: `${HIVE_BIN_DIR}${delimiter}${runtimeEnv.PATH ?? process.env.PATH ?? ''}`,
-    },
+    startEnv,
   }
 }
 

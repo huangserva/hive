@@ -18,6 +18,7 @@ export interface WorkerRow {
   workspace_id: string
   name: string
   description: string | null
+  workflow_allowed: number | null
   role: WorkerRole
 }
 
@@ -33,6 +34,7 @@ export const createOrchestrator = (workspaceId: string): AgentSummary => ({
   role: 'orchestrator',
   status: 'stopped',
   pendingTaskCount: 0,
+  workflowAllowed: false,
 })
 
 export const isWorkerAgent = (

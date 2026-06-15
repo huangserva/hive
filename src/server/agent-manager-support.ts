@@ -9,6 +9,7 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 export const MAX_RUN_OUTPUT_LENGTH = 1_000_000
 const MAX_ERROR_TAIL_LINES = 200
 const FORCE_KILL_DELAY_MS = 750
+type ForceKillTimer = ReturnType<typeof setTimeout> & { unref?: () => void }
 
 export const createOutputTailBuffer = (maxLines = MAX_ERROR_TAIL_LINES) => {
   const lines: string[] = []
@@ -69,7 +70,7 @@ export const attachAgentPty = (
   logger?: HiveLogger
 ) => {
   let stdinClosed = false
-  let forceKillTimer: ReturnType<typeof setTimeout> | undefined
+  let forceKillTimer: ForceKillTimer | undefined
   const resolveProcessGroupId = () => {
     if (process.platform === 'win32' || pty.pid <= 0) return null
     try {
@@ -130,7 +131,7 @@ export const attachAgentPty = (
         ignoreMissingProcess(error)
       }
       killProcessGroup('SIGKILL')
-    }, FORCE_KILL_DELAY_MS)
+    }, FORCE_KILL_DELAY_MS) as ForceKillTimer
     forceKillTimer.unref?.()
   }
   run.process = {

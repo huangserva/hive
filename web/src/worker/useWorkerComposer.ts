@@ -322,6 +322,7 @@ export const useWorkerComposer = ({
       name: workerName,
       role: workerRole,
       roleDescription,
+      roleTemplateId: selectedRoleTemplateId,
       startupCommand: sentinel ? '' : startupCommand,
       thinkingLevel: sentinel || startupCommand.trim() ? '' : thinkingLevel,
     })

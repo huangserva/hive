@@ -393,7 +393,8 @@ export const createTeamOperations = ({
           senderName,
           promptWorker.description,
           text,
-          cockpitSnapshot
+          cockpitSnapshot,
+          { workflowAllowed: promptWorker.workflowAllowed }
         )
       }
 

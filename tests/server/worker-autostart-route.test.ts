@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'vitest'
-
+import { CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL } from '../../src/server/role-templates.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -84,6 +84,94 @@ const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25)
 }
 
 describe('POST /api/workspaces/:workspaceId/workers autostart', () => {
+  test('creating a worker from claude-workflow role template persists workflow launch env', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+
+    const response = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      body: JSON.stringify({
+        autostart: false,
+        command_preset_id: 'claude',
+        description: '用户可编辑描述里不含特殊标记',
+        name: 'Workflow Worker',
+        role: 'custom',
+        role_template_id: 'claude-workflow',
+      }),
+      headers: { 'content-type': 'application/json', cookie },
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as { id: string; workflow_allowed?: boolean }
+    const worker = server.store.getWorker(workspace.id, body.id)
+    const launch = server.store.peekAgentLaunchConfig(workspace.id, body.id)
+
+    expect(worker.workflowAllowed).toBe(true)
+    expect(body.workflow_allowed).toBe(true)
+    expect(launch).toMatchObject({
+      command: 'claude',
+      commandPresetId: 'claude',
+      env: {
+        ANTHROPIC_BASE_URL: CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2',
+      },
+      workflowAllowed: true,
+    })
+  })
+
+  test('patching command preset keeps claude-workflow launch env and workflow flag', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+
+    const createResponse = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      body: JSON.stringify({
+        autostart: false,
+        command_preset_id: 'claude',
+        description: '用户可编辑描述',
+        name: 'Workflow Worker',
+        role: 'custom',
+        role_template_id: 'claude-workflow',
+      }),
+      headers: { 'content-type': 'application/json', cookie },
+      method: 'POST',
+    })
+    expect(createResponse.status).toBe(201)
+    const created = (await createResponse.json()) as { id: string }
+
+    const patchResponse = await fetch(
+      `${server.baseUrl}/api/workspaces/${workspace.id}/workers/${created.id}`,
+      {
+        body: JSON.stringify({
+          command_preset_id: 'claude',
+          thinking_level: 'high',
+        }),
+        headers: { 'content-type': 'application/json', cookie },
+        method: 'PATCH',
+      }
+    )
+
+    expect(patchResponse.status).toBe(200)
+    const launch = server.store.peekAgentLaunchConfig(workspace.id, created.id)
+    expect(launch).toMatchObject({
+      command: 'claude',
+      commandPresetId: 'claude',
+      env: {
+        ANTHROPIC_BASE_URL: CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL,
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2',
+      },
+      thinkingLevel: 'high',
+      workflowAllowed: true,
+    })
+  })
+
   test('rejects a second sentinel worker in the same workspace', async () => {
     const server = await startTestServer()
     servers.push(server)

@@ -13,6 +13,7 @@ export const serializeTeamListItem = ({
   sentinelIntervalMs,
   status,
   thinkingLevel,
+  workflowAllowed,
 }: TeamListItem): TeamListItemPayload => ({
   id,
   name,
@@ -25,4 +26,5 @@ export const serializeTeamListItem = ({
   capabilities: capabilities ? serializeCommandPresetCapabilities(capabilities) : null,
   thinking_level: thinkingLevel ?? null,
   sentinel_interval_ms: sentinelIntervalMs ?? null,
+  workflow_allowed: workflowAllowed === true,
 })

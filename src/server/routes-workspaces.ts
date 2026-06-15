@@ -4,9 +4,12 @@ import {
   resolveCommandPresetLaunchConfig,
   resolveStartupCommandLaunchConfig,
 } from './agent-launch-resolver.js'
+import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import { BadRequestError, ConflictError } from './http-errors.js'
 import { autostartAgent, autostartOrchestrator } from './orchestrator-autostart.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
+import type { RoleTemplateRecord } from './role-template-store.js'
+import { CLAUDE_WORKFLOW_ROLE_ID } from './role-templates.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type {
   CreateWorkerBody,
@@ -33,6 +36,32 @@ const getSerializedWorker = (workspaceId: string, workerId: string, store: Runti
 }
 
 const getRuntimePort = (request: IncomingMessage) => String(request.socket.localPort ?? '')
+
+const applyRoleTemplateLaunchDefaults = (
+  launchConfig: AgentLaunchConfigInput | undefined,
+  template: RoleTemplateRecord | undefined,
+  workflowAllowed: boolean
+) => {
+  if (!launchConfig && !template) return undefined
+  if (!launchConfig && template) {
+    return {
+      args: template.defaultArgs,
+      command: template.defaultCommand,
+      commandPresetId: template.defaultCommand,
+      env: template.defaultEnv,
+      workflowAllowed,
+    }
+  }
+  if (!launchConfig) return undefined
+  if (!template) return { ...launchConfig, workflowAllowed }
+  return {
+    ...launchConfig,
+    args: launchConfig.args ?? template.defaultArgs,
+    command: launchConfig.command || template.defaultCommand,
+    env: { ...template.defaultEnv, ...(launchConfig.env ?? {}) },
+    workflowAllowed,
+  }
+}
 
 interface PatchWorkerBody {
   command_preset_id?: unknown
@@ -196,10 +225,22 @@ export const workspaceRoutes: RouteDefinition[] = [
           ? {
               ...body,
               command_preset_id: 'claude',
+              role_template_id: null,
               startup_command: null,
               thinking_level: null,
             }
           : body
+      const roleTemplateId =
+        typeof workerBody.role_template_id === 'string' && workerBody.role_template_id.trim()
+          ? workerBody.role_template_id.trim()
+          : null
+      const roleTemplate = roleTemplateId
+        ? store.settings.listRoleTemplates().find((template) => template.id === roleTemplateId)
+        : undefined
+      if (roleTemplateId && !roleTemplate) {
+        throw new BadRequestError(`Role template not found: ${roleTemplateId}`)
+      }
+      const workflowAllowed = roleTemplate?.id === CLAUDE_WORKFLOW_ROLE_ID
       const presetId = workerBody.command_preset_id ?? null
       const startupCommand =
         typeof workerBody.startup_command === 'string' ? workerBody.startup_command : null
@@ -215,10 +256,21 @@ export const workspaceRoutes: RouteDefinition[] = [
       if (presetId && !startupCommand?.trim() && !launchConfig) {
         throw new Error(`Command preset not found: ${presetId}`)
       }
-      const worker = store.addWorker(workspaceId, workerBody)
-      if (launchConfig) {
+      const workerInput = {
+        ...workerBody,
+        workflowAllowed,
+      }
+      const description = workerBody.description ?? roleTemplate?.description
+      if (description !== undefined) workerInput.description = description
+      const worker = store.addWorker(workspaceId, workerInput)
+      const launchConfigWithTemplate = applyRoleTemplateLaunchDefaults(
+        launchConfig,
+        roleTemplate,
+        workflowAllowed
+      )
+      if (launchConfigWithTemplate) {
         try {
-          store.configureAgentLaunch(workspaceId, worker.id, launchConfig)
+          store.configureAgentLaunch(workspaceId, worker.id, launchConfigWithTemplate)
         } catch (error) {
           store.deleteWorker(workspaceId, worker.id)
           throw error
@@ -324,7 +376,11 @@ export const workspaceRoutes: RouteDefinition[] = [
             thinkingLevel === undefined ? (currentConfig?.thinkingLevel ?? null) : thinkingLevel
           )
           if (!nextConfig) throw new BadRequestError(`Command preset not found: ${commandPresetId}`)
-          store.configureAgentLaunch(workspaceId, workerId, nextConfig)
+          store.configureAgentLaunch(workspaceId, workerId, {
+            ...nextConfig,
+            env: currentConfig?.env ?? {},
+            workflowAllowed: currentConfig?.workflowAllowed ?? worker.workflowAllowed,
+          })
         } else {
           if (!currentConfig) {
             throw new BadRequestError(`Worker launch config not found: ${workerId}`)

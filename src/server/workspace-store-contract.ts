@@ -9,6 +9,7 @@ export interface WorkerInput {
   description?: string
   name: string
   role: WorkerRole
+  workflowAllowed?: boolean
 }
 
 export interface WorkerConfig {

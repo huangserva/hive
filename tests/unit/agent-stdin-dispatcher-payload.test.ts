@@ -118,6 +118,33 @@ describe('buildWorkerDispatchPayload', () => {
     expect(payload).not.toContain('--dispatch <id>')
   })
 
+  test('does not allow workflow reminder only because the editable description mentions claude-workflow', () => {
+    const payload = buildWorkerDispatchPayload(
+      'orchestrator-1',
+      '普通 coder 描述里误写 claude-workflow 字样',
+      'disp-workflow',
+      'run the internal workflow'
+    )
+    expect(payload).toContain('Do not launch nested CLI subagents')
+    expect(payload).not.toContain('You ARE expected to run your internal workflow')
+  })
+
+  test('uses the workflow-allowed reminder when the hard workflow flag is set', () => {
+    const payload = buildWorkerDispatchPayload(
+      'orchestrator-1',
+      '用户已改写后的普通描述',
+      'disp-workflow',
+      'run the internal workflow',
+      undefined,
+      undefined,
+      { workflowAllowed: true }
+    )
+    expect(payload).toContain('claude-workflow')
+    expect(payload).toContain('You ARE expected to run your internal workflow')
+    expect(payload).toContain('team report "<result>" --dispatch disp-workflow')
+    expect(payload).not.toContain('Do not launch nested CLI subagents')
+  })
+
   test('places the worker reminder AFTER the task body so it is the last thing the worker sees', () => {
     const payload = buildWorkerDispatchPayload('orchestrator-1', 'Coder', 'disp-99', 'do the thing')
     const taskBodyIdx = lineIndexOf(payload, 'do the thing')

@@ -20,6 +20,25 @@ const HIPPO_DISCIPLINE = [
   '- 推进 milestone、发现 drift 或需 user 拍板时，维护对应 PM 文档。',
 ].join('\n')
 
+export const CLAUDE_WORKFLOW_ROLE_ID = 'claude-workflow'
+export const CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL = 'https://open.bigmodel.cn/api/anthropic'
+
+const CLAUDE_WORKFLOW_DEFAULT_ENV = {
+  ANTHROPIC_BASE_URL: CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL,
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+  ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2',
+} satisfies Record<string, string>
+
+const WORKFLOW_DISCIPLINE = [
+  'HippoTeam claude-workflow 纪律：',
+  '- 你是 claude-workflow 黑盒 workflow 运行器，被期望使用内置 subagent / Task 跑完整内部多 agent workflow。',
+  '- HippoTeam PM 只给你高层任务；你内部自行规划、拆解、并行、审查和收口。',
+  '- 完成、失败、阻塞或部分完成后，必须用 team report 汇报最终产物、验证、风险和阻塞。',
+  '- 不要调用 team send 给其他 Hive worker 派单；内部多 agent 只使用你所在 Claude Code 的 workflow/subagent 能力。',
+  '- 调研/技术选型/深读源码必须双产出 .hive/reports/*.html + .hive/research/*.md。',
+].join('\n')
+
 const SENTINEL_DISCIPLINE = [
   'HippoTeam Sentinel 纪律：',
   '- 巡检发现、阻塞或风险用 team status 汇报给 Orchestrator。',
@@ -140,6 +159,16 @@ export const GENERAL_ASSISTANT_ROLE_DESCRIPTION = [
   '质量标准：交付简洁、证据充分；不确定时说明假设、风险和下一步。',
 ].join('\n')
 
+export const CLAUDE_WORKFLOW_ROLE_DESCRIPTION = [
+  '你是 claude-workflow 运行器，负责把高层目标放进 Claude Code 内部 workflow 黑盒里跑完。',
+  '工作方式：',
+  '- 使用内置 subagent / Task 组织内部多 agent 流水、评审和修复；长时间运行是正常行为。',
+  '- 对 HippoTeam 只暴露最终 team report，不把内部子任务再派给 Hive worker。',
+  '- 交付说明要包含：最终产物、关键验证、剩余风险或阻塞。',
+  WORKFLOW_DISCIPLINE,
+  tddQuality,
+].join('\n')
+
 export const BUILTIN_ROLE_TEMPLATES: BuiltinRoleTemplateDefinition[] = [
   {
     defaultArgs: [],
@@ -229,6 +258,15 @@ export const BUILTIN_ROLE_TEMPLATES: BuiltinRoleTemplateDefinition[] = [
     description: GENERAL_ASSISTANT_ROLE_DESCRIPTION,
     id: 'general-assistant',
     name: '通用助手',
+    roleType: 'custom',
+  },
+  {
+    defaultArgs: [],
+    defaultCommand: 'claude',
+    defaultEnv: CLAUDE_WORKFLOW_DEFAULT_ENV,
+    description: CLAUDE_WORKFLOW_ROLE_DESCRIPTION,
+    id: CLAUDE_WORKFLOW_ROLE_ID,
+    name: 'Claude Workflow 运行器',
     roleType: 'custom',
   },
 ]

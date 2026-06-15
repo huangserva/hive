@@ -61,11 +61,13 @@ export const createAgentLaunchCache = (store: AgentLaunchCacheStore) => {
         command: input.command,
         args: input.args ?? [],
         commandPresetId: input.commandPresetId ?? null,
+        env: input.env ?? {},
         interactiveCommand: input.interactiveCommand ?? null,
         presetAugmentationDisabled: input.presetAugmentationDisabled ?? false,
         resumeArgsTemplate: input.resumeArgsTemplate ?? null,
         sessionIdCapture: input.sessionIdCapture ?? null,
         thinkingLevel: input.thinkingLevel ?? null,
+        workflowAllowed: input.workflowAllowed ?? false,
       }
       store.saveLaunchConfig(workspaceId, agentId, normalized)
       const key = cacheKey(workspaceId, agentId)

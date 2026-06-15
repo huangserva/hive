@@ -183,7 +183,8 @@ export const createAgentRuntime = (
       fromAgentName,
       workerDescription,
       text,
-      cockpitSnapshot
+      cockpitSnapshot,
+      input = {}
     ) {
       const launchConfig = launchCache.peek(workspaceId, workerId)
       const presetId =
@@ -205,7 +206,8 @@ export const createAgentRuntime = (
         workerDescription,
         text,
         cockpitSnapshot,
-        capabilitySummary
+        capabilitySummary,
+        input
       )
     },
     writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input = {}) {

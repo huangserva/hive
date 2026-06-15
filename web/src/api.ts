@@ -50,6 +50,7 @@ const fromPayload = (payload: TeamListItemPayload): TeamListItem => ({
   role: payload.role,
   status: payload.status,
   pendingTaskCount: payload.pending_task_count,
+  workflowAllowed: payload.workflow_allowed,
   ...(payload.last_pty_line ? { lastPtyLine: payload.last_pty_line } : {}),
   ...(payload.command_preset_id ? { commandPresetId: payload.command_preset_id } : {}),
   ...(payload.capabilities
@@ -621,6 +622,7 @@ export const createWorker = async (
     command_preset_id?: string | null
     description?: string
     role: WorkerRole
+    role_template_id?: string | null
     startup_command?: string | null
     thinking_level?: string | null
   }

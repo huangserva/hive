@@ -7,12 +7,14 @@ export interface AgentLaunchConfigInput {
   command: string
   args?: string[]
   commandPresetId?: string | null
+  env?: Record<string, string | undefined>
   interactiveCommand?: string | null
   presetAugmentationDisabled?: boolean
   resumedSessionId?: string | null
   resumeArgsTemplate?: string | null
   sessionIdCapture?: SessionIdCaptureConfig | null
   thinkingLevel?: string | null
+  workflowAllowed?: boolean
 }
 
 export interface PersistedAgentRun {
@@ -47,17 +49,39 @@ interface LaunchConfigRow {
   command: string
   args_json: string
   command_preset_id: string | null
+  env_json: string | null
   interactive_command: string | null
   preset_augmentation_disabled: number | null
   resume_args_template: string | null
   session_id_capture_json: string | null
   thinking_level: string | null
+  workflow_allowed: number | null
 }
 
 const parseSessionIdCaptureJson = (value: string | null) => {
   if (!value) return null
   return parseSessionIdCapture(JSON.parse(value))
 }
+
+const parseEnvJson = (value: string | null) => {
+  if (!value) return {}
+  const parsed = JSON.parse(value) as unknown
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  return Object.fromEntries(
+    Object.entries(parsed).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  )
+}
+
+const serializeEnv = (env: Record<string, string | undefined> | undefined) =>
+  JSON.stringify(
+    Object.fromEntries(
+      Object.entries(env ?? {}).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    )
+  )
 
 interface AgentRunRow {
   run_id: string
@@ -84,7 +108,7 @@ export const createAgentRunStore = (db: Database) => {
 
     return db
       .prepare(
-        `SELECT workspace_id, agent_id, command, args_json, command_preset_id, interactive_command, preset_augmentation_disabled, resume_args_template, session_id_capture_json, thinking_level
+        `SELECT workspace_id, agent_id, command, args_json, command_preset_id, env_json, interactive_command, preset_augmentation_disabled, resume_args_template, session_id_capture_json, thinking_level, workflow_allowed
          FROM agent_launch_configs ORDER BY updated_at ASC`
       )
       .all()
@@ -96,11 +120,13 @@ export const createAgentRunStore = (db: Database) => {
             command: typedRow.command,
             args: parseArgsJson(typedRow.args_json, typedRow.agent_id),
             commandPresetId: typedRow.command_preset_id,
+            env: parseEnvJson(typedRow.env_json),
             interactiveCommand: typedRow.interactive_command,
             presetAugmentationDisabled: typedRow.preset_augmentation_disabled === 1,
             resumeArgsTemplate: typedRow.resume_args_template,
             sessionIdCapture: parseSessionIdCaptureJson(typedRow.session_id_capture_json),
             thinkingLevel: typedRow.thinking_level,
+            workflowAllowed: typedRow.workflow_allowed === 1,
           },
           workspaceId: typedRow.workspace_id,
         }
@@ -123,22 +149,26 @@ export const createAgentRunStore = (db: Database) => {
          command,
          args_json,
          command_preset_id,
+         env_json,
          interactive_command,
          preset_augmentation_disabled,
          thinking_level,
+         workflow_allowed,
          resume_args_template,
          session_id_capture_json,
          created_at,
          updated_at
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
           command = excluded.command,
           args_json = excluded.args_json,
           command_preset_id = excluded.command_preset_id,
+          env_json = excluded.env_json,
           interactive_command = excluded.interactive_command,
           preset_augmentation_disabled = excluded.preset_augmentation_disabled,
           thinking_level = excluded.thinking_level,
+          workflow_allowed = excluded.workflow_allowed,
           resume_args_template = excluded.resume_args_template,
           session_id_capture_json = excluded.session_id_capture_json,
           updated_at = excluded.updated_at`
@@ -148,9 +178,11 @@ export const createAgentRunStore = (db: Database) => {
       input.command,
       JSON.stringify(input.args ?? []),
       input.commandPresetId ?? null,
+      serializeEnv(input.env),
       input.interactiveCommand ?? null,
       input.presetAugmentationDisabled ? 1 : 0,
       input.thinkingLevel || null,
+      input.workflowAllowed ? 1 : 0,
       input.resumeArgsTemplate ?? null,
       input.sessionIdCapture ? JSON.stringify(input.sessionIdCapture) : null,
       createdAt,

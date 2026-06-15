@@ -54,6 +54,8 @@ export interface CreateWorkerBody {
   description?: string
   name: string
   role: WorkerRole
+  /** Optional role template id. Used to apply server-side template defaults. */
+  role_template_id?: string | null
   /** Optional full startup command. When set, this overrides command_preset_id. */
   startup_command?: string | null
   /** Optional preset-native reasoning / effort override. */

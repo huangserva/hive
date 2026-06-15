@@ -45,11 +45,19 @@ export const PM_DISPATCH_REMINDER = [
  * persona that would call nested subagents) plus the exact report syntax
  * with dispatch_id pre-bound.
  */
-export const buildWorkerReminderTail = (dispatchId: string) =>
-  '<hive-system-reminder>\n' +
-  `You are a Hive Worker. Do not launch nested CLI subagents (Task / Explore / etc.) — finish the task yourself. When the task is done, blocked, or has failed, report with: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies); writing a text recap is not a report. Before ending every turn, self-check: did you actually run \`team report\`? If not complete, still report partial progress or blocked status.\n` +
-  'PM 文档共维护职责：如果任务触碰调研、plan milestone、决策、drift、open questions、ideas 或 baseline，你必须自己同步维护对应 `.hive/` 文档（尤其调研类 `.hive/reports/` + `.hive/research/` 必须并存），不要等 orchestrator 事后补。\n' +
-  '</hive-system-reminder>'
+export const buildWorkerReminderTail = (
+  dispatchId: string,
+  input: { workflowAllowed?: boolean } = {}
+) =>
+  input.workflowAllowed
+    ? '<hive-system-reminder>\n' +
+      `You are a Hive Workflow Worker (claude-workflow). You ARE expected to run your internal workflow / nested agents to completion, then report the final artifact via: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies). Do not call \`team send\`; Hive dispatch stays outside your internal workflow. Writing a text recap is not a report. Before ending every turn, self-check: did you actually run \`team report\`? If not complete, still report partial progress or blocked status.\n` +
+      'PM 文档共维护职责：如果任务触碰调研、plan milestone、决策、drift、open questions、ideas 或 baseline，你必须自己同步维护对应 `.hive/` 文档（尤其调研类 `.hive/reports/` + `.hive/research/` 必须并存），不要等 orchestrator。\n' +
+      '</hive-system-reminder>'
+    : '<hive-system-reminder>\n' +
+      `You are a Hive Worker. Do not launch nested CLI subagents (Task / Explore / etc.) — finish the task yourself. When the task is done, blocked, or has failed, report with: \`team report "<result>" --dispatch ${dispatchId}\` (or \`team report --stdin --dispatch ${dispatchId}\` for long bodies); writing a text recap is not a report. Before ending every turn, self-check: did you actually run \`team report\`? If not complete, still report partial progress or blocked status.\n` +
+      'PM 文档共维护职责：如果任务触碰调研、plan milestone、决策、drift、open questions、ideas 或 baseline，你必须自己同步维护对应 `.hive/` 文档（尤其调研类 `.hive/reports/` + `.hive/research/` 必须并存），不要等 orchestrator 事后补。\n' +
+      '</hive-system-reminder>'
 
 const ORCHESTRATOR_RULES = [
   'Hive worker 是右侧卡片里的真实 CLI agent，不是你所在 CLI 的内置 subagent / 子代理工具。',
@@ -87,12 +95,26 @@ const WORKER_RULES = [
   '**PM 文档共维护职责**\n\n你不是只交代码 / 报告的执行器，也是 Cockpit PM 文档体系的共同维护者。任务过程中触发以下任一条件时，必须自己更新对应 `.hive/` 文档，并在 `team report` 里列出：\n\n- 调研类工作（外部项目调研、横向对比、技术选型 spike、深度读源码 / docs）→ 必须同时产出 `.hive/reports/*.html` + `.hive/research/*.md`，不能只交 HTML。\n- 完成或推进 plan milestone → 更新 `.hive/plan.md`，可用时记录 commit hash。\n- 产生架构选择 / 不可逆操作 / 多选项取舍 → 起草 `.hive/decisions/draft-YYYY-MM-DD-slug.md`。\n- 发现计划 drift、缺 user 偏好、需要外部凭证 → 更新 `.hive/plan.md` 或挂 `.hive/open-questions.md`。\n\n❌ 反例：派你做 paseo 调研，只交 `.hive/reports/*.html`，不补 `.hive/research/*.md`。HTML 是给 user 看的交付，research note 是给未来 PM 的索引，两者用途不重叠。',
 ]
 
-export const getHiveTeamRules = (agent: Pick<AgentSummary, 'role'>) =>
+const WORKFLOW_WORKER_RULES = [
+  '你是 Hive 右侧卡片里的 claude-workflow 黑盒 workflow worker。',
+  '你被期望使用你所在 Claude Code 的内置 subagent / Task / workflow 能力，把内部多 agent 流水跑到收口。',
+  '不要调用 team send 给其他 Hive worker 派单；你的并行与审查只发生在你自己的内部 workflow 里。',
+  '完成、失败、阻塞或部分完成已派发任务时，必须真正运行 `team report` CLI 汇报最终产物；写一段文字总结不算汇报。每个 turn 结束前自检：我是否真的运行了 `team report`？如果还没完成，也要 report 部分进展或阻塞。',
+  '长时间运行是正常行为；如果卡住，使用 `team report` 汇报阻塞、已完成部分和下一步。',
+  '`team --help` 只用于查命令语法，**绝不是** 汇报手段；其输出不会进入 Orchestrator 视野，跑完后仍需正式调用 `team report` / `team status`。',
+  '**PM 文档共维护职责**\n\n你不是只交代码 / 报告的执行器，也是 Cockpit PM 文档体系的共同维护者。任务过程中触发以下任一条件时，必须自己更新对应 `.hive/` 文档，并在 `team report` 里列出：\n\n- 调研类工作（外部项目调研、横向对比、技术选型 spike、深度读源码 / docs）→ 必须同时产出 `.hive/reports/*.html` + `.hive/research/*.md`，不能只交 HTML。\n- 完成或推进 plan milestone → 更新 `.hive/plan.md`，可用时记录 commit hash。\n- 产生架构选择 / 不可逆操作 / 多选项取舍 → 起草 `.hive/decisions/draft-YYYY-MM-DD-slug.md`。\n- 发现计划 drift、缺 user 偏好、需要外部凭证 → 更新 `.hive/plan.md` 或挂 `.hive/open-questions.md`。',
+]
+
+export const getHiveTeamRules = (
+  agent: Pick<AgentSummary, 'description' | 'role' | 'workflowAllowed'>
+) =>
   agent.role === 'orchestrator'
     ? ORCHESTRATOR_RULES
     : agent.role === 'sentinel'
       ? SENTINEL_RULES
-      : WORKER_RULES
+      : agent.workflowAllowed
+        ? WORKFLOW_WORKER_RULES
+        : WORKER_RULES
 
 const renderRules = (rules: readonly string[]) =>
   rules

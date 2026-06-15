@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 import { initializeRuntimeDatabase } from '../../src/server/sqlite-schema.js'
+import { applySchemaVersion34 } from '../../src/server/sqlite-schema-v34.js'
 
 const tempDirs: string[] = []
 const stores: Array<ReturnType<typeof createRuntimeStore>> = []
@@ -52,6 +53,13 @@ const indexColumns = (db: DatabaseInstance, indexName: string) =>
 const dispatchColumns = (db: DatabaseInstance) =>
   new Set(
     (db.prepare('PRAGMA table_info(dispatches)').all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  )
+
+const tableColumns = (db: DatabaseInstance, tableName: string) =>
+  new Set(
+    (db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
       (column) => column.name
     )
   )
@@ -136,6 +144,7 @@ describe('schema version', () => {
       .get() as { name: string } | undefined
 
     expect(workerColumns.has('last_session_id')).toBe(true)
+    expect(workerColumns.has('workflow_allowed')).toBe(true)
     expect(agentRunColumns.has('pid')).toBe(true)
     expect(agentRunColumns.has('ended_at')).toBe(true)
     expect(agentRunColumns.has('error_tail')).toBe(true)
@@ -145,6 +154,8 @@ describe('schema version', () => {
     expect(launchConfigColumns.has('resume_args_template')).toBe(true)
     expect(launchConfigColumns.has('session_id_capture_json')).toBe(true)
     expect(launchConfigColumns.has('thinking_level')).toBe(true)
+    expect(launchConfigColumns.has('env_json')).toBe(true)
+    expect(launchConfigColumns.has('workflow_allowed')).toBe(true)
     expect(commandPresetColumns).toEqual(
       new Set([
         'id',
@@ -223,15 +234,19 @@ describe('schema version', () => {
     const appState = db
       .prepare('SELECT key, value FROM app_state WHERE key = ?')
       .get('active_workspace_id') as { key: string; value: string | null } | undefined
+    const latestVersion = db
+      .prepare('SELECT version FROM schema_version WHERE version = ?')
+      .get(34) as { version: number } | undefined
 
     expect(presetCount.count).toBe(4)
-    expect(roleTemplateCount.count).toBe(11)
+    expect(roleTemplateCount.count).toBe(12)
     expect(appState).toEqual({ key: 'active_workspace_id', value: null })
+    expect(latestVersion).toEqual({ version: 34 })
 
     db.close()
   })
 
-  test('latest schema seeds ten HippoTeam worker role templates', () => {
+  test('latest schema seeds eleven HippoTeam worker role templates', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-hippoteam-role-templates-'))
     tempDirs.push(dataDir)
 
@@ -255,9 +270,10 @@ describe('schema version', () => {
       role_type: string
     }>
 
-    expect(rows).toHaveLength(10)
+    expect(rows).toHaveLength(11)
     expect(rows.map((row) => row.name).sort()).toEqual(
       [
+        'Claude Workflow 运行器',
         'DevOps 工程师',
         '代码审查员',
         '全栈工程师',
@@ -273,9 +289,20 @@ describe('schema version', () => {
     for (const row of rows) {
       expect(row.default_command).toBe('claude')
       expect(JSON.parse(row.default_args)).toEqual([])
-      expect(JSON.parse(row.default_env)).toEqual({})
       expect(row.description).toContain('team report')
-      expect(row.description).toContain('不要启动内置 subagent')
+      if (row.id === 'claude-workflow') {
+        expect(JSON.parse(row.default_env)).toMatchObject({
+          ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2',
+        })
+        expect(row.description).toContain('被期望使用内置 subagent')
+        expect(row.description).not.toContain('不要启动内置 subagent')
+      } else {
+        expect(JSON.parse(row.default_env)).toEqual({})
+        expect(row.description).toContain('不要启动内置 subagent')
+      }
     }
     expect(rows.find((row) => row.name === '调研员')?.description).toContain('.hive/reports/')
     expect(rows.find((row) => row.name === '调研员')?.description).toContain('.hive/research/')
@@ -1676,6 +1703,76 @@ describe('schema version', () => {
     expect(legacyRow.review_status).toBeNull()
     expect(legacyRow.reviews_dispatch_id).toBeNull()
     expect(legacyRow.accept_verdict).toBeNull()
+    db.close()
+  })
+
+  test('v34 migration records workflow launch columns and is idempotent', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v34-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21), (22, 22),
+        (23, 23), (24, 24), (25, 25), (26, 26), (27, 27), (28, 28), (29, 29),
+        (30, 30), (31, 31), (32, 32), (33, 33);
+
+      CREATE TABLE workers (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        config_json TEXT,
+        last_session_id TEXT,
+        role TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE agent_launch_configs (
+        workspace_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        command_preset_id TEXT,
+        interactive_command TEXT,
+        preset_augmentation_disabled INTEGER NOT NULL DEFAULT 0,
+        thinking_level TEXT,
+        resume_args_template TEXT,
+        session_id_capture_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, agent_id)
+      );
+    `)
+
+    expect(tableColumns(db, 'workers').has('workflow_allowed')).toBe(false)
+    expect(tableColumns(db, 'agent_launch_configs').has('env_json')).toBe(false)
+    expect(tableColumns(db, 'agent_launch_configs').has('workflow_allowed')).toBe(false)
+
+    initializeRuntimeDatabase(db)
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(34)).toEqual({
+      version: 34,
+    })
+    expect(tableColumns(db, 'workers').has('workflow_allowed')).toBe(true)
+    expect(tableColumns(db, 'agent_launch_configs').has('env_json')).toBe(true)
+    expect(tableColumns(db, 'agent_launch_configs').has('workflow_allowed')).toBe(true)
+
+    const workerColumnCount = tableColumns(db, 'workers').size
+    const launchColumnCount = tableColumns(db, 'agent_launch_configs').size
+    expect(() => {
+      applySchemaVersion34(db)
+      applySchemaVersion34(db)
+    }).not.toThrow()
+    expect(tableColumns(db, 'workers').size).toBe(workerColumnCount)
+    expect(tableColumns(db, 'agent_launch_configs').size).toBe(launchColumnCount)
+
     db.close()
   })
 })

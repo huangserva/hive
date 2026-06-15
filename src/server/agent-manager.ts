@@ -8,6 +8,7 @@ import {
 } from './agent-manager-support.js'
 import type { HiveLogger } from './logger.js'
 import { createPtyOutputBus, type PtyOutputBus } from './pty-output-bus.js'
+import { CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL } from './role-templates.js'
 
 type RunStatus = 'starting' | 'running' | 'exited' | 'error'
 type RunExitEvent = { runId: string; exitCode: number | null; errorTail?: string | null }
@@ -79,6 +80,17 @@ export const createAgentSpawnEnv = (
   inputEnv?: Record<string, string | undefined>
 ): NodeJS.ProcessEnv => {
   const env = { ...process.env, ...inputEnv }
+  // Phase 1 wires the claude-workflow GLM Anthropic route without storing secrets
+  // in role templates; Phase 2 should verify the GLM key against the endpoint.
+  if (
+    env.ANTHROPIC_AUTH_TOKEN === undefined &&
+    env.HIVE_WORKFLOW_ALLOWED === '1' &&
+    env.ANTHROPIC_BASE_URL === CLAUDE_WORKFLOW_ANTHROPIC_BASE_URL &&
+    typeof env.GLM_API_KEY === 'string' &&
+    env.GLM_API_KEY.trim().length > 0
+  ) {
+    env.ANTHROPIC_AUTH_TOKEN = env.GLM_API_KEY
+  }
   for (const key of Object.keys(env)) {
     if (env[key] === undefined || isNestedClaudeCodeEnvKey(key)) delete env[key]
   }

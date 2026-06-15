@@ -100,10 +100,19 @@ export const createWorkspaceStore = (
         role: input.role,
         status: 'stopped',
         pendingTaskCount: 0,
+        workflowAllowed: input.workflowAllowed === true,
       }
       db.prepare(
-        'INSERT INTO workers (id, workspace_id, name, description, role, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(worker.id, workspaceId, worker.name, worker.description, worker.role, Date.now())
+        'INSERT INTO workers (id, workspace_id, name, description, workflow_allowed, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(
+        worker.id,
+        workspaceId,
+        worker.name,
+        worker.description,
+        worker.workflowAllowed ? 1 : 0,
+        worker.role,
+        Date.now()
+      )
       workspace.agents.push(worker)
       return worker
     },
@@ -189,13 +198,14 @@ export const createWorkspaceStore = (
     listWorkers(workspaceId) {
       return getWorkspace(workspaceId)
         .agents.filter(isWorkerAgent)
-        .map(({ id, name, description, role, status, pendingTaskCount }) => ({
+        .map(({ id, name, description, role, status, pendingTaskCount, workflowAllowed }) => ({
           id,
           name,
           description,
           role,
           status,
           pendingTaskCount,
+          workflowAllowed,
         }))
     },
     listWorkspaces() {

@@ -28,8 +28,9 @@ import { applySchemaVersion30 } from './sqlite-schema-v30.js'
 import { applySchemaVersion31 } from './sqlite-schema-v31.js'
 import { applySchemaVersion32 } from './sqlite-schema-v32.js'
 import { applySchemaVersion33 } from './sqlite-schema-v33.js'
+import { applySchemaVersion34 } from './sqlite-schema-v34.js'
 
-export const CURRENT_SCHEMA_VERSION = 33
+export const CURRENT_SCHEMA_VERSION = 34
 
 export const initializeRuntimeDatabase = (db: Database) => {
   db.exec(`
@@ -52,6 +53,7 @@ export const initializeRuntimeDatabase = (db: Database) => {
       description TEXT,
       config_json TEXT,
       last_session_id TEXT,
+      workflow_allowed INTEGER NOT NULL DEFAULT 0,
       role TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
@@ -75,9 +77,11 @@ export const initializeRuntimeDatabase = (db: Database) => {
       command TEXT NOT NULL,
       args_json TEXT NOT NULL,
       command_preset_id TEXT,
+      env_json TEXT,
       interactive_command TEXT,
       preset_augmentation_disabled INTEGER NOT NULL DEFAULT 0,
       thinking_level TEXT,
+      workflow_allowed INTEGER NOT NULL DEFAULT 0,
       resume_args_template TEXT,
       session_id_capture_json TEXT,
       created_at INTEGER NOT NULL,
@@ -149,6 +153,9 @@ export const initializeRuntimeDatabase = (db: Database) => {
     if (workerColumns.size > 0 && !workerColumns.has('description')) {
       db.exec('ALTER TABLE workers ADD COLUMN description TEXT')
     }
+    if (workerColumns.size > 0 && !workerColumns.has('workflow_allowed')) {
+      db.exec('ALTER TABLE workers ADD COLUMN workflow_allowed INTEGER NOT NULL DEFAULT 0')
+    }
 
     db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(2, Date.now())
   }
@@ -189,6 +196,14 @@ export const initializeRuntimeDatabase = (db: Database) => {
     }
     if (!launchConfigColumns.has('session_id_capture_json')) {
       db.exec('ALTER TABLE agent_launch_configs ADD COLUMN session_id_capture_json TEXT')
+    }
+    if (!launchConfigColumns.has('env_json')) {
+      db.exec('ALTER TABLE agent_launch_configs ADD COLUMN env_json TEXT')
+    }
+    if (!launchConfigColumns.has('workflow_allowed')) {
+      db.exec(
+        'ALTER TABLE agent_launch_configs ADD COLUMN workflow_allowed INTEGER NOT NULL DEFAULT 0'
+      )
     }
 
     db.exec(`
@@ -349,6 +364,16 @@ export const initializeRuntimeDatabase = (db: Database) => {
       applySchemaVersion33(db)
       db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
         33,
+        Date.now()
+      )
+    })()
+  }
+
+  if (!appliedVersions.has(34)) {
+    db.transaction(() => {
+      applySchemaVersion34(db)
+      db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
+        34,
         Date.now()
       )
     })()

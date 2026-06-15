@@ -23,6 +23,7 @@ const presets: CommandPreset[] = [
   {
     args: [],
     available: true,
+    capabilities: null,
     command: 'claude',
     displayName: 'Claude Code',
     id: 'claude',
@@ -31,6 +32,7 @@ const presets: CommandPreset[] = [
   {
     args: [],
     available: true,
+    capabilities: null,
     command: 'codex',
     displayName: 'Codex',
     id: 'codex',
@@ -39,6 +41,7 @@ const presets: CommandPreset[] = [
   {
     args: [],
     available: true,
+    capabilities: null,
     command: 'opencode',
     displayName: 'OpenCode',
     id: 'opencode',
@@ -69,6 +72,7 @@ const ComposerHarness = () => {
   return (
     <div>
       <output data-testid="selected-preset">{composer.commandPresetId}</output>
+      <output data-testid="role-description">{composer.roleDescription}</output>
       {composer.commandPresets.map((preset) => (
         <button
           key={preset.id}
@@ -87,6 +91,9 @@ const ComposerHarness = () => {
           apply {template.id}
         </button>
       ))}
+      <form onSubmit={(event) => composer.submit(event, () => {})}>
+        <button type="submit">create</button>
+      </form>
     </div>
   )
 }
@@ -120,5 +127,30 @@ describe('useWorkerComposer command preset selection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'apply frontend-expert' }))
 
     expect(screen.getByTestId('selected-preset')).toHaveTextContent('codex')
+  })
+
+  test('passes selected role_template_id to worker creation so server can apply template defaults', async () => {
+    vi.mocked(listCommandPresets).mockResolvedValue(presets)
+    vi.mocked(listRoleTemplates).mockResolvedValue(templates)
+
+    render(
+      <AppProviders>
+        <ComposerHarness />
+      </AppProviders>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'apply frontend-expert' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'apply frontend-expert' }))
+    fireEvent.click(screen.getByRole('button', { name: 'create' }))
+
+    await waitFor(() => {
+      expect(createWorker).toHaveBeenCalled()
+    })
+    expect(createWorker).toHaveBeenLastCalledWith(
+      expect.objectContaining({ roleTemplateId: 'frontend-expert' })
+    )
   })
 })

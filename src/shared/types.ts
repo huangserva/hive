@@ -53,6 +53,7 @@ export interface AgentSummary {
   role: WorkerRole | 'orchestrator'
   status: AgentStatus
   pendingTaskCount: number
+  workflowAllowed: boolean
 }
 
 export interface TeamListItem {
@@ -78,6 +79,7 @@ export interface TeamListItem {
   capabilities?: CommandPresetCapabilities
   thinkingLevel?: string
   sentinelIntervalMs?: number
+  workflowAllowed?: boolean
 }
 
 /**
@@ -97,4 +99,5 @@ export interface TeamListItemPayload {
   capabilities: CommandPresetCapabilitiesPayload | null
   thinking_level: string | null
   sentinel_interval_ms: number | null
+  workflow_allowed: boolean
 }

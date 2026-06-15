@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   buildProtocolDoc,
   buildWorkerReminderTail,
+  getHiveTeamRules,
   ORCHESTRATOR_REMINDER_TAIL,
   PM_DISPATCH_REMINDER,
 } from '../../src/server/hive-team-guidance.js'
@@ -91,12 +92,47 @@ describe('buildWorkerReminderTail', () => {
     expect(tail).toContain('Do not launch nested CLI subagents')
   })
 
+  test('allows nested agents for claude-workflow workers while preserving report discipline', () => {
+    const tail = buildWorkerReminderTail('disp-workflow', { workflowAllowed: true })
+    expect(tail).toContain('Hive Workflow Worker')
+    expect(tail).toContain('You ARE expected to run your internal workflow')
+    expect(tail).toContain('team report "<result>" --dispatch disp-workflow')
+    expect(tail).not.toContain('Do not launch nested CLI subagents')
+  })
+
   test('reminds workers that PM documents are a shared responsibility', () => {
     const tail = buildWorkerReminderTail('disp-pm')
     expect(tail).toContain('PM 文档共维护职责')
     expect(tail).toContain('.hive/reports/')
     expect(tail).toContain('.hive/research/')
     expect(tail).toContain('不要等 orchestrator')
+  })
+})
+
+describe('getHiveTeamRules', () => {
+  test('keeps ordinary workers on the no-subagent rule', () => {
+    const rules = getHiveTeamRules({
+      description: '普通 coder，但文本里误写 claude-workflow 字样',
+      role: 'coder',
+      workflowAllowed: false,
+    })
+    expect(rules.join('\n')).toContain('不要调用 team send')
+    expect(rules.join('\n')).toContain('内置 subagent')
+    expect(rules.join('\n')).not.toContain('黑盒 workflow worker')
+  })
+
+  test('switches workflow workers by hard flag even when description is edited', () => {
+    const rules = getHiveTeamRules({
+      description: '用户改写后的普通描述',
+      role: 'custom',
+      workflowAllowed: true,
+    })
+    const text = rules.join('\n')
+    expect(text).toContain('claude-workflow')
+    expect(text).toContain('被期望使用')
+    expect(text).toContain('内置 subagent')
+    expect(text).toContain('team report')
+    expect(text).not.toContain('不要调用 team send，也不要再启动')
   })
 })
 

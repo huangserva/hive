@@ -70,7 +70,8 @@ export interface AgentRuntime {
     fromAgentName: string,
     workerDescription: string,
     text: string,
-    cockpitSnapshot?: string
+    cockpitSnapshot?: string,
+    input?: { workflowAllowed?: boolean }
   ) => void
   writeCancelPrompt: (
     workspaceId: string,

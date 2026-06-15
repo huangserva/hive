@@ -14,7 +14,7 @@ import {
 
 const createWorkerSummary = (
   workspaceId: string,
-  row: Pick<WorkerRow, 'description' | 'id' | 'name' | 'role'>
+  row: Pick<WorkerRow, 'description' | 'id' | 'name' | 'role' | 'workflow_allowed'>
 ): AgentSummary => ({
   id: row.id,
   workspaceId,
@@ -23,6 +23,7 @@ const createWorkerSummary = (
   role: row.role,
   status: 'stopped',
   pendingTaskCount: 0,
+  workflowAllowed: row.workflow_allowed === 1,
 })
 
 const applyMessageKinds = (
@@ -70,7 +71,7 @@ export const hydrateWorkspaceFromDb = (
 
   for (const workerRow of db
     .prepare(
-      'SELECT id, workspace_id, name, description, role FROM workers WHERE workspace_id = ? ORDER BY created_at ASC'
+      'SELECT id, workspace_id, name, description, workflow_allowed, role FROM workers WHERE workspace_id = ? ORDER BY created_at ASC'
     )
     .all(workspaceId) as WorkerRow[]) {
     workspaces.get(workspaceId)?.agents.push(createWorkerSummary(workerRow.workspace_id, workerRow))
@@ -95,7 +96,7 @@ export const seedWorkspacesFromDb = (
 
   for (const row of db
     .prepare(
-      'SELECT id, workspace_id, name, description, role FROM workers ORDER BY created_at ASC'
+      'SELECT id, workspace_id, name, description, workflow_allowed, role FROM workers ORDER BY created_at ASC'
     )
     .all() as WorkerRow[]) {
     workspaces.get(row.workspace_id)?.agents.push(createWorkerSummary(row.workspace_id, row))

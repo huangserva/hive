@@ -98,6 +98,27 @@ describe('agent run bootstrap', () => {
     expect(bootstrap.startConfig.args).toEqual(['--effort', 'high', '--model', 'sonnet'])
   })
 
+  test('carries launch config env into the PTY start environment', () => {
+    const bootstrap = buildAgentRunBootstrap(
+      { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
+      'agent-1',
+      {
+        args: [],
+        command: 'claude',
+        commandPresetId: 'claude',
+        env: {
+          ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2',
+        },
+      },
+      createSessionStore(''),
+      (id) => (id === 'claude' ? claudePreset : undefined)
+    )
+
+    expect(bootstrap.startEnv.ANTHROPIC_BASE_URL).toBe('https://open.bigmodel.cn/api/anthropic')
+    expect(bootstrap.startEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('glm-5.2')
+  })
+
   test('injects Codex thinking_level as global config before subcommands', () => {
     const bootstrap = buildAgentRunBootstrap(
       { id: 'workspace-1', name: 'Workspace', path: '/tmp/no-such-workspace' },
