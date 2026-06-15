@@ -5,7 +5,17 @@
 
 ## In progress
 
-> 🔧 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（真机驱动，当前活跃）**
+> 🔬 **2026-06-15｜claude-workflow worker（黑盒 workflow 运行器，idea-17，user 拍"很重要"）— Phase 1 已 ship，待 seed gap 补 + 重启 + Phase 2 真跑（当前活跃）**
+>
+> **背景**：user 想把 Claude Code 的多 agent workflow（如 fireworks-design 40 个进程内 agent）跨窗口跑在 GLM-5.2 上（Opus 指挥 + GLM 乐手）。PM 切法：**不拆**进程内 agent，新增一类 worker 当黑盒——PM 派高层任务 → 它内部用内置 subagent 跑完整条流水 → report 交产物。HippoTeam 在 workflow 粒度编排。ADR `decisions/draft-2026-06-15-claude-workflow-worker.md`。
+> - ✅ **Phase 1 shipped `8d86b4c`**（关羽实现，钟馗 codex **三轮**审）：新 `claude-workflow` role + no-subagent 红线豁免挂【持久硬信号 workflow_allowed】（不读可编辑 description）+ GLM `ANTHROPIC_*` 路由真穿透 PTY（role_template_id→defaultEnv→launch config env_json→startEnv，token 仅 HIVE_WORKFLOW_ALLOWED=1 时 spawn 注入、密钥不落库）+ PATCH 保留 env/flag + schema v34。钟馗三轮揪出：空接→硬信号/env穿透→PATCH保留/v34→0 block。84 测含穿透。
+> - ✅ **Phase 2 GLM 前置全验通**（PM 当场 curl，无需新 key）：现有 `GLM_API_KEY` 打 `/api/anthropic` **200**、`glm-5.2` 真模型名、x-api-key + Bearer 都认（关羽 ANTHROPIC_AUTH_TOKEN/Bearer 接线正确）。
+> - 🔧 **重启后暴露第 4 个 gap（关羽修中 `7924681d`）**：`claude-workflow` 模板没 seed 进【已存在的库】（builtin 只在 v7 建库/v27 一次性 seed，升级路径漏）→ Add Worker UI 选不到。治根=每次启动幂等 ensure 缺失 builtin（INSERT OR IGNORE，不覆盖用户自定义）。→ 钟馗审 → commit → **user 再重启一次**（激活 seed）。
+> - **下一步 Phase 2**：重启后 user 在 Add Worker 选 "Claude Workflow 运行器" 建 worker（自动带 GLM 路由）→ PM 派真任务 → 量【质量/延迟/tool-use 成功率】→ Phase 3 按数据铺多窗口 + overdue 放宽（idea-14 联动）。
+> **教训记**：builtin seeding 第二次漏（新增 builtin 不进存量库）；钟馗复现式审查四连抓"代码对但生产/升级/编辑某路径断"的假绿。
+>
+> ---
+> 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**
 >
 > **一句话**：从"图片点开转圈"一路真机 device-verify 修到媒体收发 + 滚动体验全通。链条 2.8.17→2.8.20 四个包，每个 bug 都 PM adb 实证根因 + 马超实现 + 钟馗 codex 独立审（多个 blocking 被抓）。① 图片预览死锁（getSize，`be3e5e6`/2.8.17）**真机验过** ② LAN authed 图加载（JS 下载 file://，`d61c93a`/2.8.18）**user 确认"可以收到了"** ③ 聊天页抖动·拽底主因（`2f38b68`/2.8.19）**user 确认"好很多"** ④ 媒体加载抖位 polish（占位固定高+memo，`9dea0d2`/2.8.20）**待真机验**。**待 user**：2.8.20 真机验"媒体加载列表不顶动" + 94MB 视频能否播放（唯一未确认功能）。
 >
@@ -881,6 +891,7 @@
 - [x] **钟馗** dispatch `77b6c27c` — 【复审·claude-workflow Phase 1 两 blocking 返工(关羽改完:硬信号 workflow_allowed + GLM env 真穿透 PTY)——只审不改 team report blocking 优先中文带…
 - [x] **关羽** dispatch `9c544556` — 【修钟馗 2 blocking·Phase 1 第三轮——PATCH 覆盖丢 env + schema 没 bump 版本】改完 team report 中文带行号。两条都对,必须闭。
 - [x] **钟馗** dispatch `ad4938d0` — 【复审·claude-workflow Phase 1 第三轮 2 blocking(关羽改完:PATCH 保留 env/flag + v34 schema migration)——只审不改 team report blocking 优先…
+- [ ] **关羽** dispatch `7924681d` — 【修·Phase 1 第 4 个生产 gap·claude-workflow role template 没 seed 进已存在的库(升级路径漏,UI 选不到)】改完 team report 中文带行号,我派钟馗审。
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
