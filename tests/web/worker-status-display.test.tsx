@@ -26,6 +26,7 @@ const terminalRun = (agentId: string): TerminalRunSummary => ({
   agent_name: agentId,
   run_id: `run-${agentId}`,
   status: 'running',
+  terminal_input_profile: 'default',
 })
 
 describe('worker status presentation', () => {
@@ -150,6 +151,43 @@ describe('worker status presentation', () => {
     expect(within(sentinelSection).getByText('watchtower')).toBeInTheDocument()
     expect(
       within(screen.getByRole('list', { name: 'idle team members' })).queryByText('watchtower')
+    ).toBeNull()
+  })
+
+  test('workers pane renders workflow workers in a dedicated section outside status groups', () => {
+    const workflow = worker({
+      id: 'workflow-worker',
+      name: '工作流andy',
+      status: 'idle',
+      workflowAllowed: true,
+    })
+    const regular = worker({ id: 'coder-worker', name: 'coder-agent', status: 'idle' })
+
+    render(
+      <WorkersPane
+        onAddWorkerClick={vi.fn()}
+        onDeleteWorker={vi.fn()}
+        onOpenShellTerminal={vi.fn()}
+        onOpenWorker={vi.fn()}
+        onUpdateWorker={vi.fn()}
+        onStartWorker={vi.fn()}
+        onStartAllWorkers={vi.fn()}
+        onStopAllWorkers={vi.fn()}
+        onStopWorker={vi.fn()}
+        startingWorkerId={null}
+        terminalRuns={[]}
+        workers={[regular, workflow]}
+      />
+    )
+
+    const workflowSection = screen.getByTestId('workflow-section')
+    expect(within(workflowSection).getByText('工作流andy')).toBeInTheDocument()
+    expect(
+      within(workflowSection).getByRole('list', { name: 'Workflow agents' })
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('workflow-card-workflow-worker')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('list', { name: 'idle team members' })).queryByText('工作流andy')
     ).toBeNull()
   })
 

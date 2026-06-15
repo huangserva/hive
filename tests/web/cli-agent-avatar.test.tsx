@@ -47,6 +47,15 @@ describe('CliAgentAvatar — fallback path', () => {
   })
 })
 
+describe('CliAgentAvatar — workflow agents', () => {
+  test('workflowAllowed renders the workflow icon instead of the normal CLI logo', () => {
+    render(<CliAgentAvatar commandPresetId="claude" workflowAllowed workerRole="coder" />)
+
+    expect(screen.getByTestId('workflow-agent-avatar')).toBeInTheDocument()
+    expect(screen.queryByTestId('cli-agent-avatar')).toBeNull()
+  })
+})
+
 describe('CliAgentAvatar — status halo', () => {
   test('status ring color is wired through to the rendered box-shadow', () => {
     // The halo is the only piece that visually changes between idle/working/

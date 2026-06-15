@@ -200,6 +200,9 @@ const enMessages = {
   'worker.terminalNotStarted': 'PTY not started yet — ',
   'worker.terminalStopped': 'PTY stopped — ',
   'worker.widthResize': 'Resize worker detail width',
+  'worker.workflowDesc':
+    'Dedicated agent for workflow scripts designed by Opus. It does not take ordinary dispatches.',
+  'worker.workflowTitle': 'Workflow',
   'workerPane.resize': 'Resize Orchestrator and Team Members panes',
   // tasks.* — TaskGraphDrawer + TaskGraphRawEditor
   'tasks.action.addSubtask': 'Add subtask',
@@ -726,6 +729,8 @@ const zhMessages: Record<TranslationKey, string> = {
   'worker.terminalNotStarted': '终端未启动 — ',
   'worker.terminalStopped': '终端已停止 — ',
   'worker.widthResize': '调整成员详情宽度',
+  'worker.workflowDesc': '运行 Opus 设计的工作流脚本的专用执行 agent；不接普通派单。',
+  'worker.workflowTitle': '工作流',
   'workerPane.resize': '调整 Orchestrator 和团队成员面板宽度',
   // tasks.*
   'tasks.action.addSubtask': '添加子任务',

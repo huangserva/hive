@@ -33,7 +33,9 @@ export const WorkerModal = ({
   worker,
 }: WorkerModalProps) => {
   const { t } = useI18n()
-  const role = getRolePresentation(worker.role)
+  const role = getRolePresentation(worker.role, {
+    ...(worker.workflowAllowed !== undefined ? { workflowAllowed: worker.workflowAllowed } : {}),
+  })
   const ptyRunning = !!runId
   const status = presentWorkerRuntimeStatus(ptyRunning)
   const resize = useWorkerModalResize()
@@ -134,6 +136,9 @@ export const WorkerModal = ({
                   <div className="m-auto flex max-w-[400px] flex-col items-center gap-3 px-6 text-center">
                     <CliAgentAvatar
                       commandPresetId={worker.commandPresetId}
+                      {...(worker.workflowAllowed !== undefined
+                        ? { workflowAllowed: worker.workflowAllowed }
+                        : {})}
                       workerRole={worker.role}
                       size={48}
                     />

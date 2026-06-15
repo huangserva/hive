@@ -1,7 +1,7 @@
 import type { WorkerRole } from '../../../src/shared/types.js'
 import { Avatar } from '../ui/Avatar.js'
 
-type FullRole = WorkerRole | 'orchestrator'
+type FullRole = WorkerRole | 'orchestrator' | 'workflow'
 
 type StatusRing = 'working' | 'idle' | 'stopped' | 'none'
 
@@ -19,6 +19,7 @@ const initialsByRole: Record<FullRole, string> = {
   tester: 'Te',
   custom: 'Cu',
   sentinel: 'Se',
+  workflow: 'Wf',
 }
 
 const colorByRole: Record<FullRole, string> = {
@@ -28,6 +29,7 @@ const colorByRole: Record<FullRole, string> = {
   tester: 'var(--status-orange)',
   custom: 'var(--text-secondary)',
   sentinel: 'var(--status-green)',
+  workflow: 'var(--status-purple)',
 }
 
 const ringColorByStatus: Record<Exclude<StatusRing, 'none'>, string> = {

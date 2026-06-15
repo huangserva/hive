@@ -10,6 +10,7 @@ import { EmptyState } from '../ui/EmptyState.js'
 import { SentinelCard } from './SentinelCard.js'
 import { WorkerCard, type WorkerCardActionKind } from './WorkerCard.js'
 import { WorkerSettingsDialog } from './WorkerSettingsDialog.js'
+import { WorkflowCard } from './WorkflowCard.js'
 import { presentWorkerStatus, type WorkerStatusKind } from './worker-status.js'
 
 type WorkersPaneProps = {
@@ -70,8 +71,12 @@ export const WorkersPane = ({
 }: WorkersPaneProps) => {
   const { t } = useI18n()
   const sentinelWorker = workers.find((worker) => worker.role === 'sentinel') ?? null
+  const workflowWorkers = useMemo(
+    () => workers.filter((worker) => worker.workflowAllowed === true),
+    [workers]
+  )
   const regularWorkers = useMemo(
-    () => workers.filter((worker) => worker.role !== 'sentinel'),
+    () => workers.filter((worker) => worker.role !== 'sentinel' && worker.workflowAllowed !== true),
     [workers]
   )
   const sections = useMemo(() => groupByWorkerStatus(regularWorkers), [regularWorkers])
@@ -239,6 +244,30 @@ export const WorkersPane = ({
                   onClick={onOpenWorker}
                   worker={sentinelWorker}
                 />
+              </section>
+            ) : null}
+            {workflowWorkers.length > 0 ? (
+              <section className="mb-3" data-testid="workflow-section">
+                <div className="px-2 py-1 text-xs font-medium uppercase tracking-wider text-ter">
+                  {t('worker.workflowTitle')}
+                  <span className="mono ml-1.5 text-ter">{workflowWorkers.length}</span>
+                </div>
+                <ul
+                  aria-label={`${t('worker.workflowTitle')} agents`}
+                  className="flex flex-col gap-2"
+                >
+                  {workflowWorkers.map((worker) => (
+                    <li key={worker.id}>
+                      <WorkflowCard
+                        hasRun={!!runIdFor(worker)}
+                        isPending={startingWorkerId === worker.id}
+                        onAction={handleAction}
+                        onClick={onOpenWorker}
+                        worker={worker}
+                      />
+                    </li>
+                  ))}
+                </ul>
               </section>
             ) : null}
             {sections.map((section) => (

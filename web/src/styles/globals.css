@@ -479,6 +479,11 @@ html, body {
   background: color-mix(in oklab, var(--status-orange) 12%, transparent);
   border-color: color-mix(in oklab, var(--status-orange) 28%, transparent);
 }
+.pill--purple {
+  color: color-mix(in oklab, var(--status-purple) 62%, white);
+  background: color-mix(in oklab, var(--status-purple) 14%, transparent);
+  border-color: color-mix(in oklab, var(--status-purple) 30%, transparent);
+}
 .pill--red {
   color: color-mix(in oklab, var(--status-red) 50%, white);
   background: color-mix(in oklab, var(--status-red) 14%, transparent);
@@ -698,6 +703,10 @@ html, body {
 }
 .role-badge--reviewer {
   background: color-mix(in oklab, var(--status-purple) 22%, var(--bg-2));
+  color: var(--status-purple);
+}
+.role-badge--workflow {
+  background: color-mix(in oklab, var(--status-purple) 24%, var(--bg-2));
   color: var(--status-purple);
 }
 .role-badge--orch { background: var(--bg-3); color: var(--text-secondary); }

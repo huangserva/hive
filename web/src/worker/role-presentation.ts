@@ -5,7 +5,13 @@ export interface RolePresentation {
   label: string
 }
 
-export const getRolePresentation = (role: WorkerRole): RolePresentation => {
+export const getRolePresentation = (
+  role: WorkerRole,
+  input: { workflowAllowed?: boolean } = {}
+): RolePresentation => {
+  if (input.workflowAllowed === true) {
+    return { badgeClass: 'role-badge--workflow', label: 'Workflow' }
+  }
   switch (role) {
     case 'coder':
       return { badgeClass: 'role-badge--coder', label: 'Coder' }

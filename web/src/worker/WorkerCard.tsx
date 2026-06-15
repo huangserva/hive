@@ -71,6 +71,9 @@ export const WorkerCard = ({
         <div className="flex items-start gap-2">
           <CliAgentAvatar
             commandPresetId={worker.commandPresetId}
+            {...(worker.workflowAllowed !== undefined
+              ? { workflowAllowed: worker.workflowAllowed }
+              : {})}
             workerRole={worker.role}
             size={40}
             statusRing={status.kind}
@@ -93,7 +96,10 @@ export const WorkerCard = ({
           <span className={status.dotClass} aria-hidden />
           {t(statusKey(status.kind))}
         </span>
-        <CommandPresetCapabilities capabilities={worker.capabilities} maxFeatures={3} />
+        <CommandPresetCapabilities
+          {...(worker.capabilities ? { capabilities: worker.capabilities } : {})}
+          maxFeatures={3}
+        />
       </button>
 
       {onAction ? (
