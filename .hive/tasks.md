@@ -13,8 +13,10 @@
 > - ✅ **第 4 个 gap 已修 `7c1443c`**（关羽，钟馗 0 block）：`claude-workflow` 模板没 seed 进【已存在的库】（builtin 只在 v7 建库/v27 一次性 seed，升级路径漏）→ Add Worker UI 选不到。治根=每次启动幂等 ensure 缺失 builtin（INSERT OR IGNORE，不覆盖用户自定义），以后新 builtin 自动同步进存量库。21 测含升级回归。**待 user 再重启一次激活 seed**。
 > - **下一步 Phase 2**：重启后 user 在 Add Worker 选 "Claude Workflow 运行器" 建 worker（自动带 GLM 路由）→ PM 派真任务 → 量【质量/延迟/tool-use 成功率】→ Phase 3 按数据铺多窗口 + overdue 放宽（idea-14 联动）。
 > **教训记**：builtin seeding 第二次漏（新增 builtin 不进存量库）；钟馗复现式审查四连抓"代码对但生产/升级/编辑某路径断"的假绿。
->
-> ---
+
+
+## 近期归档（已 shipped，留作 build 史）
+
 > 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**
 >
 > **一句话**：从"图片点开转圈"一路真机 device-verify 修到媒体收发 + 滚动体验全通。链条 2.8.17→2.8.20 四个包，每个 bug 都 PM adb 实证根因 + 马超实现 + 钟馗 codex 独立审（多个 blocking 被抓）。① 图片预览死锁（getSize，`be3e5e6`/2.8.17）**真机验过** ② LAN authed 图加载（JS 下载 file://，`d61c93a`/2.8.18）**user 确认"可以收到了"** ③ 聊天页抖动·拽底主因（`2f38b68`/2.8.19）**user 确认"好很多"** ④ 媒体加载抖位 polish（占位固定高+memo，`9dea0d2`/2.8.20）**待真机验**。**待 user**：2.8.20 真机验"媒体加载列表不顶动" + 94MB 视频能否播放（唯一未确认功能）。
@@ -893,6 +895,8 @@
 - [x] **钟馗** dispatch `ad4938d0` — 【复审·claude-workflow Phase 1 第三轮 2 blocking(关羽改完:PATCH 保留 env/flag + v34 schema migration)——只审不改 team report blocking 优先…
 - [x] **关羽** dispatch `7924681d` — 【修·Phase 1 第 4 个生产 gap·claude-workflow role template 没 seed 进已存在的库(升级路径漏,UI 选不到)】改完 team report 中文带行号,我派钟馗审。
 - [x] **钟馗** dispatch `a970fc00` — 【独立审·claude-workflow seed gap 修复(关羽 codex 写:启动幂等 ensure builtin role templates)——只审不改 team report blocking 优先中文带行号,过了我 …
+- [ ] **工作流andy** dispatch `be9e5407` — 【试跑·GLM workflow worker 首测,目标是验你能不能在 GLM 上正常读码+推理】读 src/server/relay-rpc-handler.ts 这个文件,用中文 team report 回答三点,要具体、基于你真读…
+- [ ] **工作流andy** dispatch `da98a98b` — 【试跑·GLM workflow worker(干净重派)】读 src/server/relay-rpc-handler.ts,用中文 team report 回答三点,基于真读到的代码、要具体:
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
