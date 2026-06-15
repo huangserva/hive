@@ -5,16 +5,31 @@
 
 ## In progress
 
-> 🔬 **2026-06-15｜claude-workflow worker（黑盒 workflow 运行器，idea-17，user 拍"很重要"）— Phase 1 已 ship，待 seed gap 补 + 重启 + Phase 2 真跑（当前活跃）**
+> 🔬 **2026-06-15｜claude-workflow worker（idea-17，user 拍"很重要"）— ✅ 架构端到端验通，#2 触发顺手化进行中（当前活跃）**
 >
 > **背景**：user 想把 Claude Code 的多 agent workflow（如 fireworks-design 40 个进程内 agent）跨窗口跑在 GLM-5.2 上（Opus 指挥 + GLM 乐手）。PM 切法：**不拆**进程内 agent，新增一类 worker 当黑盒——PM 派高层任务 → 它内部用内置 subagent 跑完整条流水 → report 交产物。HippoTeam 在 workflow 粒度编排。ADR `decisions/draft-2026-06-15-claude-workflow-worker.md`。
 > - ✅ **Phase 1 shipped `8d86b4c`**（关羽实现，钟馗 codex **三轮**审）：新 `claude-workflow` role + no-subagent 红线豁免挂【持久硬信号 workflow_allowed】（不读可编辑 description）+ GLM `ANTHROPIC_*` 路由真穿透 PTY（role_template_id→defaultEnv→launch config env_json→startEnv，token 仅 HIVE_WORKFLOW_ALLOWED=1 时 spawn 注入、密钥不落库）+ PATCH 保留 env/flag + schema v34。钟馗三轮揪出：空接→硬信号/env穿透→PATCH保留/v34→0 block。84 测含穿透。
 > - ✅ **Phase 2 GLM 前置全验通**（PM 当场 curl，无需新 key）：现有 `GLM_API_KEY` 打 `/api/anthropic` **200**、`glm-5.2` 真模型名、x-api-key + Bearer 都认（关羽 ANTHROPIC_AUTH_TOKEN/Bearer 接线正确）。
 > - ✅ **第 4 个 gap 已修 `7c1443c`**（关羽，钟馗 0 block）：`claude-workflow` 模板没 seed 进【已存在的库】（builtin 只在 v7 建库/v27 一次性 seed，升级路径漏）→ Add Worker UI 选不到。治根=每次启动幂等 ensure 缺失 builtin（INSERT OR IGNORE，不覆盖用户自定义），以后新 builtin 自动同步进存量库。21 测含升级回归。**待 user 再重启一次激活 seed**。
-> - **下一步 Phase 2**：重启后 user 在 Add Worker 选 "Claude Workflow 运行器" 建 worker（自动带 GLM 路由）→ PM 派真任务 → 量【质量/延迟/tool-use 成功率】→ Phase 3 按数据铺多窗口 + overdue 放宽（idea-14 联动）。
-> **教训记**：builtin seeding 第二次漏（新增 builtin 不进存量库）；钟馗复现式审查四连抓"代码对但生产/升级/编辑某路径断"的假绿。
+> - ✅ **架构端到端验通（2026-06-15）**：最终形态=**Opus(orch)写固定脚本 `workflows/*.mjs`（控制流写死,fan-out/judge/synthesize）→ andy(GLM)用 Workflow 工具执行（叶子 agent 在 GLM 跑、真读码）**。user 否决"GLM 临场全包",采纳"智能在脚本、GLM 出力"。andy 4 轮真跑验证(inline 通→args 挂→默认值通→带参数通)。
+> - ✅ **args 根因+修(`05319c3`)**：scriptPath 模式 args 以 **JSON 字符串**注入(orch 0-agent diag 坐实),脚本侧 `typeof args==='string'?JSON.parse(args):...` normalize → 带参数复用端到端通(andy 带 file 参数成功切目标)。首个工作流脚本 `workflows/code-review-3x.mjs`。
+> - ✅ **GLM workflow 自主审出真 bug 并修(`06daf1d`)**：dogfood 中 andy 审 dispatch-ledger-store 挖出 `createDispatch` 返回 sequence 恒 null(潜伏伤 M43 排序)→ 赵云 lastInsertRowid 回填,钟馗 0 block。**首个 GLM workflow 自主发现+修复的真 bug**。andy 另审 agent-manager.ts 19 条(含其自身 GLM 接线 3 缺陷,待排期)。
+> - ✅ **UI(`44ff6fa`)**：workflow agent 像哨兵专属分区显示;点进终端即可观测内部工作流(零额外开发)。
+> - 🔧 **#2 进行中(关羽 `9884f7d2`)**：触发顺手化(role 提示词教 andy 按名跑 workflows/ 脚本+参数)+ 脚本库 README 约定。
+> - **待 user**：ADR(`decisions/draft-2026-06-15-claude-workflow-worker.md`)可转 accepted 归档;agent-manager 自身接线缺陷排期;args-as-string 是否在工具层根治(vs 脚本侧 parse 约定)。
+> **教训记**：builtin seeding 两次漏;钟馗复现式审查多连抓"代码对但生产/升级/编辑某路径断"的假绿;workflow 架构关键认知=控制流写死在脚本(Opus 设计)、模型只跑叶子(GLM 执行)。
 
 
+- [x] **工作流andy** dispatch `d8ccdfda` — 【真·workflow 能力测试——这次必须用你的内部多 agent 流水(fan-out→评审→综合),不是单线程读一遍就完】
+- [x] **关羽** dispatch `3c086d82` — 【设计调研·彻底方案:Opus 编排 + GLM 执行的可复现工作流(user 要"彻底"那条,不是临场拆)】这是设计 spike,只调研+出设计,先别写实现代码。双产出 .hive/reports/*.html + .hive/rese…
+- [x] **关羽** dispatch `5034a934` — 【UI·workflow agent 像哨兵一样单独成一类显示(user 要求:特殊,不能看起来跟普通 worker 一样)】改完 team report 中文带行号,我派钟馗审 + 出 dist 真浏览器验。
+- [x] **钟馗** dispatch `8a41e38c` — 【独立审·workflow agent 专属 UI 分区(关羽 codex 写,碰了共用组件)——只审不改 team report blocking 优先中文带行号】
+- [x] **工作流andy** dispatch `14994474` — 【真·workflow 执行测试:跑 Opus 写死的固定脚本(不是你临场编)】
+- [x] **工作流andy** dispatch `0c31f68f` — 【重跑·Opus 固定脚本(已加默认值兜底,绕开 args gap)】同一个脚本文件,我已把"参数必填"改成有默认值兜底,现在不传 args 也能跑。请直接执行:
+- [x] **赵云** dispatch `271d5eef` — 【验+修·dispatch-ledger-store createDispatch sequence 恒 null(workflow andy code review 挖出,疑伤 M43 防自审)】先验真假再动手,TDD,改完我派钟馗审。
+- [x] **工作流andy** dispatch `b8195f56` — 【验证 args 修复:带参数跑固定脚本】我已修脚本(scriptPath 模式下 args 是 JSON 字符串,脚本里已 parse)。这次【带 args】执行:
+- [x] **钟馗** dispatch `5e8536f0` — 【独立审·createDispatch sequence 回填修复(赵云 codex 写,动 dispatch ledger spine)——只审不改 team report blocking 优先中文带行号】
+- [ ] **关羽** dispatch `9884f7d2` — 【#2·把 workflow 触发做顺手 + 建脚本库约定(让"叫 andy 跑工作流"自然化)】改完 team report 中文带行号,我派钟馗审。
 ## 近期归档（已 shipped，留作 build 史）
 
 > 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**
@@ -896,7 +911,7 @@
 - [x] **关羽** dispatch `7924681d` — 【修·Phase 1 第 4 个生产 gap·claude-workflow role template 没 seed 进已存在的库(升级路径漏,UI 选不到)】改完 team report 中文带行号,我派钟馗审。
 - [x] **钟馗** dispatch `a970fc00` — 【独立审·claude-workflow seed gap 修复(关羽 codex 写:启动幂等 ensure builtin role templates)——只审不改 team report blocking 优先中文带行号,过了我 …
 - [ ] **工作流andy** dispatch `be9e5407` — 【试跑·GLM workflow worker 首测,目标是验你能不能在 GLM 上正常读码+推理】读 src/server/relay-rpc-handler.ts 这个文件,用中文 team report 回答三点,要具体、基于你真读…
-- [ ] **工作流andy** dispatch `da98a98b` — 【试跑·GLM workflow worker(干净重派)】读 src/server/relay-rpc-handler.ts,用中文 team report 回答三点,基于真读到的代码、要具体:
+- [x] **工作流andy** dispatch `da98a98b` — 【试跑·GLM workflow worker(干净重派)】读 src/server/relay-rpc-handler.ts,用中文 team report 回答三点,基于真读到的代码、要具体:
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
