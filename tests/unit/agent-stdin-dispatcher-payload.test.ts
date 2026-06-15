@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import type { AgentManager } from '../../src/server/agent-manager.js'
 import {
   buildOrchestratorQuestionAnsweredPayload,
   buildOrchestratorReportPayload,
@@ -8,6 +9,7 @@ import {
   buildWorkerCancelPayload,
   buildWorkerCockpitSnapshot,
   buildWorkerDispatchPayload,
+  createAgentStdinDispatcher,
 } from '../../src/server/agent-stdin-dispatcher.js'
 import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
 import {
@@ -15,6 +17,7 @@ import {
   ORCHESTRATOR_REMINDER_TAIL,
   PM_DISPATCH_REMINDER,
 } from '../../src/server/hive-team-guidance.js'
+import { createLiveRunRegistry } from '../../src/server/live-run-registry.js'
 
 const lineIndexOf = (payload: string, needle: string): number =>
   payload.split('\n').findIndex((line) => line === needle || line.includes(needle))
@@ -45,6 +48,19 @@ describe('buildOrchestratorReportPayload', () => {
 
   test('contains the full ORCHESTRATOR_REMINDER_TAIL block verbatim', () => {
     const payload = buildOrchestratorReportPayload('coder-1', 'done', [])
+    expect(payload).toContain(ORCHESTRATOR_REMINDER_TAIL)
+  })
+
+  test('can append a workspace-local workflow agent hint when workflow agents exist', () => {
+    const payload = buildOrchestratorReportPayload('coder-1', 'done', [], ['工作流andy'])
+    expect(payload).toContain('本工作区有 workflow agent')
+    expect(payload).toContain('工作流andy')
+    expect(payload).toContain('跑工作流 <name>')
+  })
+
+  test('does not mention workflow agents when the workspace has none', () => {
+    const payload = buildOrchestratorReportPayload('coder-1', 'done', [], [])
+    expect(payload).not.toContain('workflow agent')
     expect(payload).toContain(ORCHESTRATOR_REMINDER_TAIL)
   })
 
@@ -79,6 +95,12 @@ describe('buildOrchestratorUserInputPayload', () => {
     const payload = buildOrchestratorUserInputPayload('line one\nline two')
     expect(payload.startsWith('line one\nline two\n')).toBe(true)
     expect(payload).toContain(ORCHESTRATOR_REMINDER_TAIL)
+  })
+
+  test('adds workflow agent names to the user-input reminder only for workflow-enabled workers', () => {
+    const payload = buildOrchestratorUserInputPayload('please review this file', ['工作流andy'])
+    expect(payload).toContain('工作流andy')
+    expect(payload).toContain('多步并行')
   })
 })
 
@@ -258,6 +280,47 @@ describe('buildWorkerCockpitSnapshot', () => {
     expect(snapshot).toContain('baseline: stale')
     expect(snapshot).toContain('only stage your files')
     expect(snapshot.length).toBeLessThan(520)
+  })
+})
+
+describe('createAgentStdinDispatcher workflow agent data source', () => {
+  test('uses workspace agents to append workflow hints only for workflowAllowed workers', () => {
+    const writes: string[] = []
+    const registry = createLiveRunRegistry()
+    registry.add({
+      agentId: 'workspace-1:orchestrator',
+      exitCode: null,
+      output: '',
+      pid: 123,
+      runId: 'run-orch',
+      startedAt: Date.now(),
+      status: 'running',
+    })
+    const agentManager = {
+      writeInput: (_runId: string, input: Buffer | string) => {
+        writes.push(String(input))
+      },
+    } as Pick<AgentManager, 'writeInput'> as AgentManager
+
+    const dispatcher = createAgentStdinDispatcher({
+      agentManager,
+      getLaunchConfig: () => undefined,
+      getWorkspaceId: (agentId) =>
+        agentId === 'workspace-1:orchestrator' ? 'workspace-1' : undefined,
+      listAgents: () => [
+        { name: '普通工蜂', workflowAllowed: false },
+        { name: '工作流andy', workflowAllowed: true },
+      ],
+      registry,
+      syncRun: (run) => run,
+    })
+
+    dispatcher.writeUserInputPrompt('workspace-1', 'review this file')
+
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toContain('工作流andy')
+    expect(writes[0]).toContain('跑工作流 <name>')
+    expect(writes[0]).not.toContain('普通工蜂')
   })
 })
 

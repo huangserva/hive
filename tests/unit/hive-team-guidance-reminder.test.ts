@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   buildProtocolDoc,
   buildWorkerReminderTail,
+  buildWorkflowAgentsReminderLine,
   getHiveTeamRules,
   ORCHESTRATOR_REMINDER_TAIL,
   PM_DISPATCH_REMINDER,
@@ -52,6 +53,21 @@ describe('ORCHESTRATOR_REMINDER_TAIL', () => {
 
   test('length stays under 2000 characters for token cost control', () => {
     expect(ORCHESTRATOR_REMINDER_TAIL.length).toBeLessThan(2600)
+  })
+})
+
+describe('buildWorkflowAgentsReminderLine', () => {
+  test('returns null when a workspace has no workflow agents', () => {
+    expect(buildWorkflowAgentsReminderLine([])).toBeNull()
+  })
+
+  test('lists workflow agent names and the natural trigger syntax when present', () => {
+    const line = buildWorkflowAgentsReminderLine(['工作流andy', 'review-bot'])
+    expect(line).toContain('工作流andy')
+    expect(line).toContain('review-bot')
+    expect(line).toContain('多步并行')
+    expect(line).toContain('跑工作流 <name>')
+    expect(line).toContain('参数 file=')
   })
 })
 

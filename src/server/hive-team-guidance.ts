@@ -27,6 +27,23 @@ export const ORCHESTRATOR_REMINDER_TAIL =
   'On session start: read .hive/baseline/*.md, then scan .hive/ideas/inbox.md and .hive/open-questions.md before doing anything else.\n' +
   '</hive-system-reminder>'
 
+export const buildWorkflowAgentsReminderLine = (workflowAgentNames: readonly string[]) => {
+  const names = workflowAgentNames.map((name) => name.trim()).filter((name) => name.length > 0)
+  if (names.length === 0) return null
+  return `本工作区有 workflow agent: ${names.join('、')}。遇到多步并行→评审→综合的工作，优先考虑用 team send 派给它们，触发写法：跑工作流 <name>，参数 file=...。`
+}
+
+export const buildOrchestratorReminderTail = (
+  workflowAgentNames: readonly string[] = []
+): string => {
+  const workflowLine = buildWorkflowAgentsReminderLine(workflowAgentNames)
+  if (!workflowLine) return ORCHESTRATOR_REMINDER_TAIL
+  return ORCHESTRATOR_REMINDER_TAIL.replace(
+    '</hive-system-reminder>',
+    `${workflowLine}\n</hive-system-reminder>`
+  )
+}
+
 export const PM_DISPATCH_REMINDER = [
   '**PM 文档共维护要求（worker 必读）**',
   '',

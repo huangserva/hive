@@ -3,8 +3,8 @@ import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { ParsedCockpit } from './cockpit-doc.js'
 import {
+  buildOrchestratorReminderTail,
   buildWorkerReminderTail,
-  ORCHESTRATOR_REMINDER_TAIL,
   PM_DISPATCH_REMINDER,
 } from './hive-team-guidance.js'
 import { PtyInactiveError } from './http-errors.js'
@@ -14,6 +14,7 @@ import { createPostStartInputWriter } from './post-start-input-writer.js'
 interface AgentStdinDispatcherInput {
   agentManager: AgentManager | undefined
   getLaunchConfig: (workspaceId: string, agentId: string) => AgentLaunchConfigInput | undefined
+  listAgents?: (workspaceId: string) => readonly { name: string; workflowAllowed?: boolean }[]
   getWorkspaceId: (agentId: string) => string | undefined
   registry: LiveRunRegistry
   syncRun: (run: LiveAgentRun) => LiveAgentRun
@@ -22,27 +23,31 @@ interface AgentStdinDispatcherInput {
 export const buildOrchestratorReportPayload = (
   workerName: string,
   text: string,
-  artifacts: string[]
+  artifacts: string[],
+  workflowAgentNames: readonly string[] = []
 ): string => {
   const lines: string[] = [`[Hive 系统消息：来自 @${workerName} 的汇报]`, text]
   for (const artifact of artifacts) lines.push(`artifact: ${artifact}`)
-  lines.push('', ORCHESTRATOR_REMINDER_TAIL, '')
+  lines.push('', buildOrchestratorReminderTail(workflowAgentNames), '')
   return lines.join('\n')
 }
 
 export const buildOrchestratorStatusPayload = (
   workerName: string,
   text: string,
-  artifacts: string[]
+  artifacts: string[],
+  workflowAgentNames: readonly string[] = []
 ): string => {
   const lines: string[] = [`[Hive 系统消息：来自 @${workerName} 的状态更新]`, text]
   for (const artifact of artifacts) lines.push(`artifact: ${artifact}`)
-  lines.push('', ORCHESTRATOR_REMINDER_TAIL, '')
+  lines.push('', buildOrchestratorReminderTail(workflowAgentNames), '')
   return lines.join('\n')
 }
 
-export const buildOrchestratorUserInputPayload = (text: string): string =>
-  [text, '', ORCHESTRATOR_REMINDER_TAIL, ''].join('\n')
+export const buildOrchestratorUserInputPayload = (
+  text: string,
+  workflowAgentNames: readonly string[] = []
+): string => [text, '', buildOrchestratorReminderTail(workflowAgentNames), ''].join('\n')
 
 const summarizeQuestionAnswer = (answer: string) => {
   const normalized = answer.trim().replace(/\s+/g, ' ')
@@ -52,7 +57,8 @@ const summarizeQuestionAnswer = (answer: string) => {
 
 export const buildOrchestratorQuestionAnsweredPayload = (
   questionId: string,
-  answer: string
+  answer: string,
+  workflowAgentNames: readonly string[] = []
 ): string =>
   [
     '[Hive 系统消息：PM question 已被 user 答复]',
@@ -62,12 +68,14 @@ export const buildOrchestratorQuestionAnsweredPayload = (
     '请重读 .hive/open-questions.md，并根据 user 的答复决定后续行动。',
     '这不是新 dispatch；这是 Cockpit Questions tab 的 human-in-the-loop 回答唤醒。',
     '',
-    ORCHESTRATOR_REMINDER_TAIL,
+    buildOrchestratorReminderTail(workflowAgentNames),
     '',
   ].join('\n')
 
-export const buildOrchestratorTasksNarrativeNudgePayload = (message: string): string =>
-  [message, '', ORCHESTRATOR_REMINDER_TAIL, ''].join('\n')
+export const buildOrchestratorTasksNarrativeNudgePayload = (
+  message: string,
+  workflowAgentNames: readonly string[] = []
+): string => [message, '', buildOrchestratorReminderTail(workflowAgentNames), ''].join('\n')
 
 export const buildWorkerCockpitSnapshot = (cockpit: ParsedCockpit): string => {
   const phase = cockpit.plan.frontmatter.current_phase ?? cockpit.plan.currentPhase ?? 'unknown'
@@ -138,10 +146,16 @@ export const buildWorkerCancelPayload = (dispatchId: string, reason: string): st
 export const createAgentStdinDispatcher = ({
   agentManager,
   getLaunchConfig,
+  listAgents,
   getWorkspaceId,
   registry,
   syncRun,
 }: AgentStdinDispatcherInput) => {
+  const workflowAgentNamesForWorkspace = (workspaceId: string): string[] =>
+    (listAgents?.(workspaceId) ?? [])
+      .filter((agent) => agent.workflowAllowed === true)
+      .map((agent) => agent.name)
+
   const writeToActiveAgentRun = (
     workspaceId: string,
     agentId: string,
@@ -189,7 +203,12 @@ export const createAgentStdinDispatcher = ({
       writeToActiveAgentRun(
         workspaceId,
         `${workspaceId}:orchestrator`,
-        buildOrchestratorReportPayload(workerName, text, artifacts),
+        buildOrchestratorReportPayload(
+          workerName,
+          text,
+          artifacts,
+          workflowAgentNamesForWorkspace(workspaceId)
+        ),
         input
       )
     },
@@ -203,7 +222,12 @@ export const createAgentStdinDispatcher = ({
       writeToActiveAgentRun(
         workspaceId,
         `${workspaceId}:orchestrator`,
-        buildOrchestratorStatusPayload(workerName, text, artifacts),
+        buildOrchestratorStatusPayload(
+          workerName,
+          text,
+          artifacts,
+          workflowAgentNamesForWorkspace(workspaceId)
+        ),
         input
       )
     },
@@ -216,7 +240,11 @@ export const createAgentStdinDispatcher = ({
       writeToActiveAgentRun(
         workspaceId,
         `${workspaceId}:orchestrator`,
-        buildOrchestratorQuestionAnsweredPayload(questionId, answer),
+        buildOrchestratorQuestionAnsweredPayload(
+          questionId,
+          answer,
+          workflowAgentNamesForWorkspace(workspaceId)
+        ),
         input
       )
     },
@@ -228,7 +256,10 @@ export const createAgentStdinDispatcher = ({
       writeToActiveAgentRun(
         workspaceId,
         `${workspaceId}:orchestrator`,
-        buildOrchestratorTasksNarrativeNudgePayload(message),
+        buildOrchestratorTasksNarrativeNudgePayload(
+          message,
+          workflowAgentNamesForWorkspace(workspaceId)
+        ),
         input
       )
     },
@@ -276,7 +307,7 @@ export const createAgentStdinDispatcher = ({
       writeToActiveAgentRun(
         workspaceId,
         `${workspaceId}:orchestrator`,
-        buildOrchestratorUserInputPayload(text)
+        buildOrchestratorUserInputPayload(text, workflowAgentNamesForWorkspace(workspaceId))
       )
     },
   }

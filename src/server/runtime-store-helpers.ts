@@ -199,7 +199,8 @@ export const createRuntimeStoreServices = (
     restartPolicy,
     (workspaceId, agentId) => workspaceStore.getAgent(workspaceId, agentId),
     options.logger,
-    options.dataDir
+    options.dataDir,
+    (workspaceId) => workspaceStore.getWorkspaceSnapshot(workspaceId).agents
   )
   const milestoneCompletionTrigger = createMilestoneCompletionTrigger({
     getWorkspacePath: (workspaceId) =>

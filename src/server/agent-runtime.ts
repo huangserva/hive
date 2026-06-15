@@ -36,7 +36,8 @@ export const createAgentRuntime = (
   getAgent?: (workspaceId: string, agentId: string) => AgentSummary | undefined,
   logger?: HiveLogger,
   // M25 Phase 1：runtime state 目录；codex agent 据此获得物理隔离的 managed CODEX_HOME。
-  dataDir?: string
+  dataDir?: string,
+  listAgents?: (workspaceId: string) => readonly AgentSummary[]
 ): AgentRuntime => {
   const registry = createLiveRunRegistry()
   const launchCache = createAgentLaunchCache(agentRunStore)
@@ -67,6 +68,7 @@ export const createAgentRuntime = (
   const stdinDispatcher = createAgentStdinDispatcher({
     agentManager,
     getLaunchConfig: launchCache.peek,
+    ...(listAgents ? { listAgents } : {}),
     getWorkspaceId: launchCache.getWorkspaceId,
     registry,
     syncRun,
