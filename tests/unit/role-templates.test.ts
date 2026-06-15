@@ -17,6 +17,9 @@ describe('builtin role templates', () => {
     expect(template?.description).toBe(CLAUDE_WORKFLOW_ROLE_DESCRIPTION)
     expect(template?.description).toContain('claude-workflow')
     expect(template?.description).toContain('被期望使用内置 subagent')
+    expect(template?.description).toContain('跑工作流 <name>')
+    expect(template?.description).toContain('<repoRoot>/workflows/<name>.mjs')
+    expect(template?.description).toContain('scriptPath 模式下 args 是 JSON 字符串')
     expect(template?.description).not.toContain('不要启动内置 subagent')
     expect(template?.description).not.toContain('不要再启动')
     expect(template?.defaultEnv).toMatchObject({
