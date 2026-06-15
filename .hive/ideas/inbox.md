@@ -4,6 +4,15 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-15 专属 `claude-workflow` worker — 把"Claude Code 进程内多 agent workflow"当黑盒 worker 编排（user 拍板"很重要，按你意思推"）→ 🔬 立项中（ADR draft 已起，Phase 1 派单实现）
+
+- **idea-17 workflow worker（黑盒 workflow 运行器）**：源自 user 分享的 fireworks-design 跨窗口跑 GLM-5.2 设计（Opus 指挥 + 多 GLM 乐手）。PM 评估后给出**更优切法**：不要把 fireworks 的 40 个进程内子 agent 拆成 HippoTeam 跨窗口 dispatch（高风险移植），而是**新增一类 worker**——它本身就是一个跑自己内部 workflow 的 Claude Code，对 HippoTeam 是黑盒：PM 派一个高层任务 → 它内部用内置 subagent/Task 跑完整条多 agent 流水 → `team report` 回产物。HippoTeam 在 **workflow 粒度**编排，fireworks 内部编排原样不动。
+- **关键设计点（动了红线）**：现 WORKER_RULES 明令"不要启动内置 subagent"（`role-templates.ts:18` + `hive-team-guidance.ts:50`）。workflow worker 的全部价值就是用内置 subagent——必须**显式豁免**这一类 role。
+- **配套 3 件**：① 可观测性 tradeoff：40 个 agent 在一个 PTY 里，HippoTeam 只见 1 个 worker（黑盒），要看内部进度得 workflow 自己吐。② 长跑容忍：40-agent 流水是 10+ 分钟级，会顶着 `report_overdue` 跑 → 撞 [[idea-14]]（overdue 假阳性），workflow preset 要放宽阈值。③ 并行预算 + 模型分配：每个 workflow worker 很重，per-window env 配 Opus（质量）或 GLM（省钱杀延迟）。
+- **机制扎实**：Claude Code 指 GLM 用 `ANTHROPIC_BASE_URL=open.bigmodel.cn/api/anthropic` + `ANTHROPIC_AUTH_TOKEN`（GLM key，复用 repo .env `GLM_API_KEY`）+ `ANTHROPIC_DEFAULT_OPUS_MODEL=glm-5.2` 等；`BuiltinRoleTemplateDefinition.defaultEnv` 正好承载。per-PTY env 隔离天生适配"一地址一进程"。
+- **分期**：Phase 1=preset/role 脚手架 + 守则豁免（不需真 GLM 调用）；Phase 2=配 GLM 凭据/模型名真起一个 workflow worker，丢真任务量【质量 / 延迟 / tool-use 成功率】三个数；Phase 3=按数据决定铺几个、Opus/GLM 怎么配 + overdue 放宽。
+- **关联**：[[idea-14]]（长任务 overdue）、M11（preset/role catalog 体系，本 idea 是其扩展）、fireworks-design 跨窗口设计（user 提供的图）。ADR draft `decisions/draft-2026-06-15-claude-workflow-worker.md`。
+
 ### 2026-06-13 借鉴 Rive 协议强点：dispatch 从「字符串汇报」升级到「evidence + accept gate」— PM 从 Rive 对比调研提炼 → 🔬 **#2+#3 promoted M43**（user 2026-06-13 拍板先做 accept gate + 显式 reviewer/verdict；#1 evidence 顺带、#4-6 defer）
 
 - **idea-16 协议硬化（吸收 Rive 协议内核）**：源自 `.hive/reports/2026-06-05-rive-vs-hive-serva.html` 对比调研。Rive 是跟 HippoTeam 哲学最像的"兄弟"（同为 local-first 多 agent runtime + dispatch ledger + git worktree），但**把协作语义定义得更硬**。⚠️ caveat：当时只核了 Rive 公开 docs/README，**未验证它是否真落地**——"Rive 强"=概念定义强，不是产品成熟度强（HippoTeam 反而已产品化真在跑）。借鉴**吸收不迁移**，且全程保留 HippoTeam 的 human PM control plane（Rive 偏自动调度，我们保留 user 拍板）。

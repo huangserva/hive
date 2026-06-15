@@ -875,6 +875,12 @@
 - [x] **钟馗** dispatch `04e63fd7` — 【独立审·媒体加载残留抖动 polish(马超 claude 写:稳定占位尺寸 + memo MessageCard)——只审不改 team report blocking 优先中文带行号,过了出 2.8.20】
 - [x] **马超** dispatch `1b790dbb` — 【修钟馗 1 blocking·memo 被 workers 引用击穿=churn 没真治住,必须焊死】改完 team report 带行号中文。
 - [x] **钟馗** dispatch `df6e14de` — 【复审·media 抖位 polish 的 workers-memo blocking 焊死(马超改完)——只审不改 team report blocking 优先中文带行号,过了出 2.8.20】
+- [x] **关羽** dispatch `d77e1fa6` — 【实现·Phase 1 新增 claude-workflow worker role(黑盒 workflow 运行器)+ no-subagent 红线豁免——HippoTeam 侧脚手架,不需真 GLM 调用】做完 team report…
+- [x] **钟馗** dispatch `be208a11` — 【独立审·Phase 1 claude-workflow worker role + no-subagent 红线豁免(关羽 codex 写)——只审不改 team report blocking 优先中文带行号】
+- [x] **关羽** dispatch `0c593a60` — 【修钟馗 2 blocking·Phase 1 没真接通——红线豁免要硬信号 + GLM env 要真流到 PTY】改完 team report 中文带行号。钟馗审出 Phase 1 是"测试绿但生产没接通",两刀都对,必须真闭合。
+- [x] **钟馗** dispatch `77b6c27c` — 【复审·claude-workflow Phase 1 两 blocking 返工(关羽改完:硬信号 workflow_allowed + GLM env 真穿透 PTY)——只审不改 team report blocking 优先中文带…
+- [x] **关羽** dispatch `9c544556` — 【修钟馗 2 blocking·Phase 1 第三轮——PATCH 覆盖丢 env + schema 没 bump 版本】改完 team report 中文带行号。两条都对,必须闭。
+- [x] **钟馗** dispatch `ad4938d0` — 【复审·claude-workflow Phase 1 第三轮 2 blocking(关羽改完:PATCH 保留 env/flag + v34 schema migration)——只审不改 team report blocking 优先…
 ## Open（user 回来决定）
 - [ ] multica 余下：#4 run 列表最新优先排序+复制一致(S，👍) / #5 Gemini 官方图标(S，看用不用) / #6 复合派单选择器(M，存疑别做成 squad) / #8 OpenCode cwd 防回归测试(低，park)
 - [ ] clipboard 写权限 console error（张飞发现 2 条，疑 playwright 环境权限非真 bug）— 先确认真假
