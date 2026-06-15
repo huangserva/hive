@@ -1775,4 +1775,68 @@ describe('schema version', () => {
 
     db.close()
   })
+
+  test('startup ensures missing builtin role templates without overwriting edited builtins', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-builtin-role-ensure-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21), (22, 22),
+        (23, 23), (24, 24), (25, 25), (26, 26), (27, 27), (28, 28), (29, 29),
+        (30, 30), (31, 31), (32, 32), (33, 33), (34, 34);
+
+      CREATE TABLE role_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role_type TEXT NOT NULL,
+        description TEXT NOT NULL,
+        default_command TEXT NOT NULL,
+        default_args TEXT NOT NULL,
+        default_env TEXT NOT NULL,
+        is_builtin INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      INSERT INTO role_templates (
+        id, name, role_type, description, default_command, default_args, default_env,
+        is_builtin, created_at, updated_at
+      ) VALUES (
+        'coder', '用户改过的全栈工程师', 'coder', '用户保留的自定义 builtin 描述',
+        'claude', '[]', '{}', 1, 1, 1
+      );
+    `)
+
+    initializeRuntimeDatabase(db)
+    initializeRuntimeDatabase(db)
+
+    const workflow = db
+      .prepare('SELECT default_env FROM role_templates WHERE id = ?')
+      .get('claude-workflow') as { default_env: string } | undefined
+    const coder = db
+      .prepare('SELECT name, description FROM role_templates WHERE id = ?')
+      .get('coder') as { description: string; name: string } | undefined
+    const workflowCount = db
+      .prepare('SELECT COUNT(*) AS count FROM role_templates WHERE id = ?')
+      .get('claude-workflow') as { count: number }
+
+    expect(workflowCount.count).toBe(1)
+    expect(JSON.parse(workflow?.default_env ?? '{}')).toMatchObject({
+      ANTHROPIC_BASE_URL: 'https://open.bigmodel.cn/api/anthropic',
+    })
+    expect(coder).toEqual({
+      description: '用户保留的自定义 builtin 描述',
+      name: '用户改过的全栈工程师',
+    })
+
+    db.close()
+  })
 })

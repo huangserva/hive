@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3'
-
+import { BUILTIN_ROLE_TEMPLATES } from './role-templates.js'
 import { applySchemaVersion5 } from './sqlite-schema-v5.js'
 import { applySchemaVersion7 } from './sqlite-schema-v7.js'
 import { applySchemaVersion8 } from './sqlite-schema-v8.js'
@@ -31,6 +31,43 @@ import { applySchemaVersion33 } from './sqlite-schema-v33.js'
 import { applySchemaVersion34 } from './sqlite-schema-v34.js'
 
 export const CURRENT_SCHEMA_VERSION = 34
+
+const ensureBuiltinRoleTemplates = (db: Database) => {
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'role_templates'")
+    .get() as { name: string } | undefined
+  if (!table) return
+
+  const now = Date.now()
+  const insertRoleTemplate = db.prepare(
+    `INSERT OR IGNORE INTO role_templates (
+       id,
+       name,
+       role_type,
+       description,
+       default_command,
+       default_args,
+       default_env,
+       is_builtin,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+  )
+
+  for (const template of BUILTIN_ROLE_TEMPLATES) {
+    insertRoleTemplate.run(
+      template.id,
+      template.name,
+      template.roleType,
+      template.description,
+      template.defaultCommand,
+      JSON.stringify(template.defaultArgs),
+      JSON.stringify(template.defaultEnv),
+      now,
+      now
+    )
+  }
+}
 
 export const initializeRuntimeDatabase = (db: Database) => {
   db.exec(`
@@ -378,4 +415,6 @@ export const initializeRuntimeDatabase = (db: Database) => {
       )
     })()
   }
+
+  ensureBuiltinRoleTemplates(db)
 }
