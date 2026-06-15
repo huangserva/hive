@@ -196,8 +196,9 @@ export const createDispatchLedgerStore = (db: Database) => {
       acceptVerdict: null,
     }
 
-    db.prepare(
-      `INSERT INTO dispatches (
+    const insertResult = db
+      .prepare(
+        `INSERT INTO dispatches (
         id,
         workspace_id,
         from_agent_id,
@@ -211,22 +212,26 @@ export const createDispatchLedgerStore = (db: Database) => {
         report_text,
         artifacts
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      record.id,
-      record.workspaceId,
-      record.fromAgentId,
-      record.toAgentId,
-      record.text,
-      record.status,
-      record.createdAt,
-      record.deliveredAt,
-      record.submittedAt,
-      record.reportedAt,
-      record.reportText,
-      JSON.stringify(record.artifacts)
-    )
+      )
+      .run(
+        record.id,
+        record.workspaceId,
+        record.fromAgentId,
+        record.toAgentId,
+        record.text,
+        record.status,
+        record.createdAt,
+        record.deliveredAt,
+        record.submittedAt,
+        record.reportedAt,
+        record.reportText,
+        JSON.stringify(record.artifacts)
+      )
 
-    return record
+    return {
+      ...record,
+      sequence: Number(insertResult.lastInsertRowid),
+    }
   }
 
   const deleteDispatch = (dispatchId: string) => {

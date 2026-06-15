@@ -497,6 +497,9 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
       dispatchId: reviewerDispatch.id,
       text: '0 blocking',
     })
+    expect(coderDispatch.sequence).not.toBeNull()
+    expect(reviewerDispatch.sequence).not.toBeNull()
+    expect(reviewerDispatch.sequence ?? 0).toBeGreaterThan(coderDispatch.sequence ?? 0)
 
     // 同 ms 但 reviewer.sequence 严格大于 coder.sequence —— 直接把 reviewer.reported_at 改成与 coder 一致。
     const db = new Database(join(dataDir, 'runtime.sqlite'))

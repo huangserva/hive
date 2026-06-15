@@ -16,6 +16,29 @@ describe('dispatch ledger — cancel', () => {
     db.close()
   })
 
+  test('createDispatch returns the SQLite-assigned sequence', () => {
+    const first = store.createDispatch({
+      text: 'first task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+    const second = store.createDispatch({
+      text: 'second task',
+      toAgentId: 'worker-1',
+      workspaceId: 'ws-1',
+    })
+
+    const rows = db
+      .prepare('SELECT id, sequence FROM dispatches ORDER BY sequence ASC')
+      .all() as Array<{ id: string; sequence: number }>
+
+    expect(first.sequence).toBe(rows[0]?.sequence)
+    expect(second.sequence).toBe(rows[1]?.sequence)
+    expect(first.sequence).not.toBeNull()
+    expect(second.sequence).not.toBeNull()
+    expect(second.sequence ?? 0).toBeGreaterThan(first.sequence ?? 0)
+  })
+
   test('markCancelled transitions status from queued to cancelled', () => {
     const dispatch = store.createDispatch({
       text: 'do something',
