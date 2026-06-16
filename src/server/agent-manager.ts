@@ -164,8 +164,15 @@ const VERTEX_PARENT_ENV_KEYS = new Set([
   'GOOGLE_CLOUD_PROJECT',
 ])
 
+// 出网代理（Clash/VPN 隧道等）。worker 在受限网络下必须继承，否则直连 Anthropic
+// 会被回 403 Request not allowed。这只是网络隧道，不是 relay，不会带入
+// ANTHROPIC_BASE_URL / AUTH_TOKEN —— GLM/嵌套清洗逻辑不受影响。
+const PROXY_PARENT_ENV_KEYS = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'])
+
 const isCommonParentEnvKey = (key: string) =>
-  COMMON_PARENT_ENV_KEYS.has(key) || key.startsWith('LC_')
+  COMMON_PARENT_ENV_KEYS.has(key) ||
+  key.startsWith('LC_') ||
+  PROXY_PARENT_ENV_KEYS.has(key.toUpperCase())
 
 const copyParentEnvKeys = (target: NodeJS.ProcessEnv, keys: Iterable<string>) => {
   for (const key of keys) {

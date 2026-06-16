@@ -340,4 +340,31 @@ describe('agent spawn env', () => {
       expect(env.LOGNAME, `${family} family LOGNAME`).toBe('hippo')
     }
   })
+
+  test('preserves outbound proxy env without leaking nested markers or Anthropic endpoint credentials', () => {
+    vi.stubEnv('HTTPS_PROXY', 'http://127.0.0.1:7890')
+    vi.stubEnv('https_proxy', 'http://127.0.0.1:7891')
+    vi.stubEnv('HTTP_PROXY', 'http://127.0.0.1:7892')
+    vi.stubEnv('ALL_PROXY', 'socks5://127.0.0.1:7893')
+    vi.stubEnv('NO_PROXY', 'localhost,127.0.0.1')
+    vi.stubEnv('CLAUDECODE', '1')
+    vi.stubEnv('CLAUDE_CODE_SESSION_ID', 'outer-session')
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://api.anthropic.com')
+    vi.stubEnv('ANTHROPIC_AUTH_TOKEN', 'anthropic-auth-token')
+
+    const env = createAgentSpawnEnv(
+      { HIVE_AGENT_ID: 'codex-proxy-worker' },
+      { providerFamily: 'codex' }
+    )
+
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7890')
+    expect(env.https_proxy).toBe('http://127.0.0.1:7891')
+    expect(env.HTTP_PROXY).toBe('http://127.0.0.1:7892')
+    expect(env.ALL_PROXY).toBe('socks5://127.0.0.1:7893')
+    expect(env.NO_PROXY).toBe('localhost,127.0.0.1')
+    expect(env.CLAUDECODE).toBeUndefined()
+    expect(env.CLAUDE_CODE_SESSION_ID).toBeUndefined()
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined()
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+  })
 })
