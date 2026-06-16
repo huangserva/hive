@@ -4,6 +4,21 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-06-16 worker compact 卡死自愈 + "卡死 vs 慢"判定 — 一次会话内实测三连暴露 → ✅ **promoted（user 2026-06-16 拍板"立，要解决"）→ M45**
+
+- **idea-18 worker compact-recovery 看门狗（L1 机制）**：2026-06-16 首个 PM 编排 / GLM 执行的真任务（andy 跑 code-review-3x 审 agent-manager.ts，详见 `reports/2026-06-16-agent-manager-audit-code-review-3x.html`）+ 随后的 4 修复 sprint 中，**同一问题在一次会话里炸了三次**，逼出完整设计要点：
+  - **【新发现 A·恢复手段】team send 往 stdin 灌文字叫不醒 compact 卡死的 worker**：实测马超卡死后 team send 注入无反应（之前 andy 能活是 user 在终端手动敲了回车）。→ 看门狗的恢复动作必须是**真重启 worker 或给 PTY 发真实按键/中断**，不能只注入系统消息。
+  - **【新发现 B·判定信号】状态机/pty 分不清"卡死"还是"慢"**：马超 compact 后 pty 显示 working + 静态边框，与真卡死签名一样；其实它只是慢、没死。**可靠的进展信号是文件 mtime / git diff，不是状态机三态或 pty 行**。
+  - **【新发现 C·误判的代价】误判"卡死"去重派，导致重复劳动 + 覆盖过审代码**：我以为马超卡死，把 #3 改派关羽；其实马超在慢慢跑，两人各实现一遍 #3，**后完成的马超用定点编辑覆盖了关羽已过审的版本**（靠 mtime 查出真相 + 补审才发现，补审还多抓出一个真泄漏 bug）。→ 在把"卡死"任务改派别处前，必须**先确定性确认原 worker 已停（或先杀掉它）**，否则并发重复 + 覆盖。
+  - 原始摩擦（回传链断）：Workflow 工具后台启动 + 完成回叫；agent 启动后自身 compact → 不知道有后台工作流等回叫 → idle 不 report，dispatch 顶 report_overdue 挂着，产物其实已在 `subagents/workflows/wf_*/journal.jsonl`。
+  - **本质**：worker 长跑 + 自身 compact + report_overdue 三者叠加；compact 重置上下文后 agent 丢了"我有未完成派单"的线，PM 端只看到 report_overdue（[[idea-14]] 假阳性又一例），分不清真卡死 / 慢 / 产物没回传。
+
+- **idea-18 原始记录（2026-06-16 首次，保留）**：
+  - **现象**：Claude Code 的 Workflow 工具是"后台启动 + 完成后回叫"的。andy 调 Workflow 启动工作流后，**自身上下文正好触发 compact**，会话断 8 分钟没被回叫、没自动 `team report`，dispatch 一直顶着 `report_overdue` 挂着，靠 user 手动提醒 andy 才补报。工作流本体其实在后台已正常跑完（4 agent / 262s），产物可从 `subagents/workflows/wf_*/journal.jsonl` 直接捞——**结果没丢，只是回传链断了**。
+  - **本质**：workflow agent 长跑 + 自身 compact + report_overdue 三者叠加。compact 重置上下文后，agent 不知道"我有个后台工作流等回叫"，于是停在 idle。PM 这端只看到 report_overdue（[[idea-14]] 的假阳性又一例），分不清"真卡死"还是"产物在后台没回传"。
+  - **方向（待评估 L1）**：①workflow agent 派单时在 prompt 里硬约定"Workflow 完成后必须 team report 产物"，并在 compact 摘要里保留"有未回传的后台工作流"指针；②或 runtime 侧探测 `subagents/workflows/wf_*/journal.jsonl` 出现 `result` 但 dispatch 未 report → 自动把产物捞回灌 orch（兜底，治本）；③overdue 对 workflow_allowed agent 放宽（同 idea-14 按 preset 区分阈值）。
+  - **关联**：[[idea-14]]（overdue 假阳性）、[[idea-13]]（worker 崩/中断 WIP 自动保全，同源"产物在但没人收"）、idea-17（claude-workflow worker 本体）、[[feedback_worker_reliability_systemic]]（系统兜住不手捞）。promote 前 scoping：回传保障放 prompt（L2）还是 runtime 捞底（L1）。
+
 ### 2026-06-15 专属 `claude-workflow` worker — 把"Claude Code 进程内多 agent workflow"当黑盒 worker 编排（user 拍板"很重要，按你意思推"）→ 🔬 立项中（ADR draft 已起，Phase 1 派单实现）
 
 - **idea-17 workflow worker（黑盒 workflow 运行器）**：源自 user 分享的 fireworks-design 跨窗口跑 GLM-5.2 设计（Opus 指挥 + 多 GLM 乐手）。PM 评估后给出**更优切法**：不要把 fireworks 的 40 个进程内子 agent 拆成 HippoTeam 跨窗口 dispatch（高风险移植），而是**新增一类 worker**——它本身就是一个跑自己内部 workflow 的 Claude Code，对 HippoTeam 是黑盒：PM 派一个高层任务 → 它内部用内置 subagent/Task 跑完整条多 agent 流水 → `team report` 回产物。HippoTeam 在 **workflow 粒度**编排，fireworks 内部编排原样不动。

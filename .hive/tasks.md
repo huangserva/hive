@@ -5,7 +5,7 @@
 
 ## In progress
 
-> 🔬 **2026-06-15｜claude-workflow worker（idea-17，user 拍"很重要"）— ✅ 架构端到端验通，#2 触发顺手化进行中（当前活跃）**
+> 🔬 **2026-06-15~16｜claude-workflow worker（idea-17，user 拍"很重要"）— ✅ 架构端到端验通 + L1/L2/L3 三层补齐 + 4010 已激活 live，#1~#4 全收口（当前活跃）**
 >
 > **背景**：user 想把 Claude Code 的多 agent workflow（如 fireworks-design 40 个进程内 agent）跨窗口跑在 GLM-5.2 上（Opus 指挥 + GLM 乐手）。PM 切法：**不拆**进程内 agent，新增一类 worker 当黑盒——PM 派高层任务 → 它内部用内置 subagent 跑完整条流水 → report 交产物。HippoTeam 在 workflow 粒度编排。ADR `decisions/draft-2026-06-15-claude-workflow-worker.md`。
 > - ✅ **Phase 1 shipped `8d86b4c`**（关羽实现，钟馗 codex **三轮**审）：新 `claude-workflow` role + no-subagent 红线豁免挂【持久硬信号 workflow_allowed】（不读可编辑 description）+ GLM `ANTHROPIC_*` 路由真穿透 PTY（role_template_id→defaultEnv→launch config env_json→startEnv，token 仅 HIVE_WORKFLOW_ALLOWED=1 时 spawn 注入、密钥不落库）+ PATCH 保留 env/flag + schema v34。钟馗三轮揪出：空接→硬信号/env穿透→PATCH保留/v34→0 block。84 测含穿透。
@@ -15,9 +15,13 @@
 > - ✅ **args 根因+修(`05319c3`)**：scriptPath 模式 args 以 **JSON 字符串**注入(orch 0-agent diag 坐实),脚本侧 `typeof args==='string'?JSON.parse(args):...` normalize → 带参数复用端到端通(andy 带 file 参数成功切目标)。首个工作流脚本 `workflows/code-review-3x.mjs`。
 > - ✅ **GLM workflow 自主审出真 bug 并修(`06daf1d`)**：dogfood 中 andy 审 dispatch-ledger-store 挖出 `createDispatch` 返回 sequence 恒 null(潜伏伤 M43 排序)→ 赵云 lastInsertRowid 回填,钟馗 0 block。**首个 GLM workflow 自主发现+修复的真 bug**。andy 另审 agent-manager.ts 19 条(含其自身 GLM 接线 3 缺陷,待排期)。
 > - ✅ **UI(`44ff6fa`)**：workflow agent 像哨兵专属分区显示;点进终端即可观测内部工作流(零额外开发)。
-> - 🔧 **#2 进行中(关羽 `9884f7d2`)**：触发顺手化(role 提示词教 andy 按名跑 workflows/ 脚本+参数)+ 脚本库 README 约定。
-> - **待 user**：ADR(`decisions/draft-2026-06-15-claude-workflow-worker.md`)可转 accepted 归档;agent-manager 自身接线缺陷排期;args-as-string 是否在工具层根治(vs 脚本侧 parse 约定)。
-> **教训记**：builtin seeding 两次漏;钟馗复现式审查多连抓"代码对但生产/升级/编辑某路径断"的假绿;workflow 架构关键认知=控制流写死在脚本(Opus 设计)、模型只跑叶子(GLM 执行)。
+> - ✅ **#2 触发顺手化 shipped(`acdd331`)**：role 提示词教 andy 把"跑工作流 \<name> 参数 file=X"转成 Workflow({scriptPath,args})调用 + 脚本库 README 约定 + args-as-string parse 写进守则。
+> - ✅ **#1 L1 awareness 注入 shipped(`cf9b3d9`，关羽 `61336cfa` 实现 / 钟馗 `46f5091c` 0block)**：orch 每轮 reminder 数据驱动列出本工作区 workflow agent(无则零注入)，消灭"orch 忘了有这类 agent"。5 条 orch-stdin 路径全注入。
+> - ✅ **全链路 live 验证(2026-06-16)**：4010 今天 10:25 重启，已加载全部增强(无需再重启/编译，纯后端 tsx 直跑)。**L1 提醒实测在 orch reminder 里出现**("本工作区有 workflow agent: 工作流andy")。andy 在新 runtime 下 10:25 spawn(带新 role 提示词)。当场派 `0949f382` 让 andy 跑 code-review-3x 复审 `agent-manager.ts` 做端到端复验。
+> - ✅ **首个真任务审计 sprint shipped(2026-06-16，`d23007e`+`0aa82d5`)**：user "测一下工作流"→ andy 在 GLM 上跑 code-review-3x 审 `agent-manager.ts`(4 agent/262s/grounded)→ 出 13 条、4 高危 → 钟馗独立复核全为真 → 4 条全修+多轮独立审+整合 90 测绿 → 提交。**#1** exitCode 竞态跨层真闭环(钟馗 3 轮逼出内存→生产层漏洞)+**#2** pgid guard 防误杀 hive(`d23007e`)；**#3** spawn env provider 作用域 allowlist 治宿主机密钥全泄漏(含真 node-pty 穿透测)+**#4** 自定义命令护栏含延迟绕过(`0aa82d5`)。审计报告/笔记在 `reports`+`research`/2026-06-16-agent-manager-audit*(gitignored 本地)。**插曲**：马超(没卡死只是慢)重复实现 #3 覆盖关羽过审版→靠 mtime 查真相+补审，补审反多抓一个真泄漏 bug(workflow 非 GLM 漏 ANTHROPIC_API_KEY+假绿测试)→焊死。审查门兜住没让没审的混进提交。
+> - 🔬 **idea-18 → M45 立项(user 2026-06-16 拍"立，要解决")**：worker compact 卡死自愈看门狗。一会话三炸(andy×1/马超×2)逼出设计：判定信号用 mtime 非状态机、恢复必须真重启/PTY 中断(team send 叫不醒卡死 worker)、改派前确认原 worker 已停防覆盖。设计 spike 待派。
+> - **待 user**：ADR(`decisions/draft-2026-06-15-claude-workflow-worker.md` + `draft-2026-06-16-agent-spawn-env-allowlist.md`)可转 accepted 归档;那个"卡死结"(report_overdue 单既挡新派又取消不掉)本次又靠 SQL 手动绕过、应随 M45 一起根治;args-as-string 是否在工具层根治(vs 脚本侧 parse 约定)。
+> **教训记**：builtin seeding 两次漏;钟馗复现式审查多连抓"代码对但生产/升级/编辑某路径断"的假绿;workflow 架构关键认知=控制流写死在脚本(Opus 设计)、模型只跑叶子(GLM 执行)；L1 能保证 orch【知道】有 workflow agent，但【是否用】仍是 orch 的 L3 选择。
 
 
 - [x] **工作流andy** dispatch `d8ccdfda` — 【真·workflow 能力测试——这次必须用你的内部多 agent 流水(fan-out→评审→综合),不是单线程读一遍就完】
@@ -29,7 +33,30 @@
 - [x] **赵云** dispatch `271d5eef` — 【验+修·dispatch-ledger-store createDispatch sequence 恒 null(workflow andy code review 挖出,疑伤 M43 防自审)】先验真假再动手,TDD,改完我派钟馗审。
 - [x] **工作流andy** dispatch `b8195f56` — 【验证 args 修复:带参数跑固定脚本】我已修脚本(scriptPath 模式下 args 是 JSON 字符串,脚本里已 parse)。这次【带 args】执行:
 - [x] **钟馗** dispatch `5e8536f0` — 【独立审·createDispatch sequence 回填修复(赵云 codex 写,动 dispatch ledger spine)——只审不改 team report blocking 优先中文带行号】
-- [ ] **关羽** dispatch `9884f7d2` — 【#2·把 workflow 触发做顺手 + 建脚本库约定(让"叫 andy 跑工作流"自然化)】改完 team report 中文带行号,我派钟馗审。
+- [x] **关羽** dispatch `9884f7d2` — 【#2·把 workflow 触发做顺手 + 建脚本库约定(让"叫 andy 跑工作流"自然化)】改完 team report 中文带行号,我派钟馗审。
+- [x] **关羽** dispatch `61336cfa` — 【L1·让 orch 永远知道本工作区有哪些 workflow agent(数据驱动注入,消灭"orch 忘了用")】改完 team report 中文带行号,我派钟馗审。
+- [x] **钟馗** dispatch `46f5091c` — 【独立审·L1 workflow agent 提醒注入(关羽 codex 写,注入所有 orch-stdin 路径)——只审不改 team report blocking 优先中文带行号】
+- [x] **工作流andy** dispatch `0949f382` — 跑工作流 code-review-3x，审计目标文件 src/server/agent-manager.ts。执行方式：调用 Workflow 工具，scriptPath=/Users/huangzongning/development/…
+- [x] **钟馗** dispatch `c8d6f9f9` — 独立审查（只核不改，别启动子 agent）：工作流 andy 在 GLM 上审 src/server/agent-manager.ts 出了 4 条高危结论，需要你这个独立 reviewer 亲手对照真代码逐条定真假——我（claude …
+- [x] **关羽** dispatch `d5288236` — 修两个 agent 启动脊柱上的确认 bug（钟馗 codex 已独立核实为真，verdict 见 .hive/reports/2026-06-16-agent-manager-audit-code-review-3x.html）。TDD…
+- [ ] **马超** dispatch `6db13e65` — 修 #3：worker 启动 env 把宿主机所有机密透传给每个 worker（钟馗 codex 已坐实，verdict 见 .hive/reports/2026-06-16-agent-manager-audit-code-review…
+- [x] **赵云** dispatch `93338c8f` — 给"自定义启动命令"高权限能力面加护栏（#4，钟馗 codex 核实=真实高权限配置面、非匿名 RCE，verdict 见 .hive/reports/2026-06-16-agent-manager-audit-code-review-…
+- [x] **钟馗** dispatch `e64ee39e` — 独立审查（只审不改，blocking 优先，中文带行号）：关羽刚修了 agent 启动脊柱上的 #1/#2 两个确认 bug（你之前核实为真的那两条），现在要你这个独立 reviewer 复现式审改动对不对、有没有引入新问题。改动全在 s…
+- [x] **关羽** dispatch `5807820d` — 钟馗独立审你的 #1/#2 出了 1 个 blocking + 2 个该补的缺口，打回收口。TDD，改完 team report 中文带行号，我再派钟馗复审。
+- [x] **钟馗** dispatch `122d35ec` — 复审第二轮（只审不改，blocking 优先，中文带行号）：关羽按你上轮的 1 blocking + 2 缺口收口了 #1/#2，确认是否真闭环、有没有引入新问题。改动全在 src/server/agent-manager-support…
+- [x] **关羽** dispatch `330d7b0d` — 钟馗 round-2 复审：#2 已确认完全修好（主风险 pgid 测试 + fail-closed 都真覆盖，放行）。但 #1 还有 1 个更深的 blocking，跨层没闭环，round 3 收口。
+- [x] **钟馗** dispatch `30bc2235` — 独立审查（只审不改，blocking 优先，中文带行号）：赵云做完了 #4 自定义命令能力面护栏（user 拍板=保留功能但加护栏）。复现式审，重点查 fail-closed 有没有绕过路径、来源标记有没有被错误降权。
+- [x] **赵云** dispatch `ba98190f` — 钟馗独立审你的 #4 出了 1 个 blocking（延迟绕过）+ 几个审计准确度缺口，round 2 收口。TDD，改完 team report 中文带行号，我再派钟馗复审。
+- [x] **钟馗** dispatch `1f4617cd` — 三审 #1（只审不改，blocking 优先，中文带行号）：关羽按你 round-2 的跨层 blocking 收口了，确认是否真闭环、受控补写有没有开新口子。改动 src/server/agent-run-exit-handler.ts…
+- [x] **钟馗** dispatch `816e0667` — 复审 #4 round 2（只审不改，blocking 优先，中文带行号）：赵云按你上轮的延迟绕过 blocking 收口了。确认是否真闭环、有没有过度拦截合法远端建 worker。
+- [ ] **马超** dispatch `79c22e9b` — 【#3 重新派发——你上一轮 compact 后停住了，这是任务全文，从头做，别找之前的上下文】
+- [x] **关羽** dispatch `b01a03d5` — 【#3 第一步：只出设计，先别写实现——这是个短任务，出完方案就 team report】
+- [x] **关羽** dispatch `5a286198` — 【#3 第二步：按你刚出的设计实现】方向已确认（provider-scoped allowlist），照你 dispatch b01a03d5 的设计原文落地。你的设计已存档，万一你中途 compact 了我会按那份设计把任务重发给你，别…
+- [x] **钟馗** dispatch `1bd75696` — 独立审 #3（只审不改，blocking 优先，中文带行号）：关羽按 provider-scoped allowlist 方案实现了 worker spawn env 密钥作用域，治宿主机机密全量泄漏。复现式审，重点是"既真堵泄漏、又没破…
+- [x] **关羽** dispatch `9e302616` — 一个收尾小活：更新一个被 #1 行为变更弄过期的旧测试断言（钟馗已裁定是过期断言、非回归，并给了精确改法）。只改这一个测试文件，别动产品代码、别碰其它测试。
+- [x] **钟馗** dispatch `e256f657` — 重要·重审 #3 当前磁盘版本（只审不改，blocking 优先，中文带行号）。情况：你之前审的是关羽那版 #3，但马超（并发跑同一任务、没真卡死）在 11:59 用定点编辑覆盖了 agent-manager.ts 成它自己那版（更全：多…
+- [x] **马超** dispatch `68083092` — 钟馗复审你这版 #3 抓出 1 个真 blocking（泄漏），定点修。当前磁盘 agent-manager.ts 就是你那版，先重新读一遍再改，只修这一处，别动别的、别让范围扩散。改完用 team report 中文带行号（你之前 di…
+- [x] **钟馗** dispatch `6f553c20` — 复审 #3 你 round-2 抓的泄漏 blocking（只审不改，中文带行号）：马超按你最小改法焊死了。确认闭环、没误删正常鉴权。
 ## 近期归档（已 shipped，留作 build 史）
 
 > 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**

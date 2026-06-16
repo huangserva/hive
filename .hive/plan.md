@@ -76,6 +76,12 @@ last_review: 2026-06-12
 
 ## 里程碑
 
+### M45 · worker compact 卡死自愈看门狗（idea-18，L1 机制）· 🔬 立项 2026-06-16（user 拍板"立，要解决"）· 设计中
+> **痛点**：worker（含 workflow agent）长跑中自身 compact → 丢失"有未完成派单"上下文 → idle 不 report，dispatch 顶 report_overdue 挂着；且状态机三态 + pty 分不清"真卡死 / 只是慢 / 产物没回传"。2026-06-16 一次会话内炸三次（andy 一次、马超两次），其中一次因误判"卡死"改派，导致两 worker 重复实现同一修复 + 后者覆盖了已过审版本（靠 mtime 查真相 + 补审才发现，补审反而多抓出一个真泄漏 bug）。
+> - **设计要点（idea-18 实测逼出）**：① 判定进展用文件 mtime / 语义进展，不信状态机三态或 pty 行；② 恢复动作必须真重启 worker 或发真实 PTY 中断/按键——team send 往 stdin 注入叫不醒 compact 卡死的 worker；③ 检测"未完成派单 + 一段时间无进展"→ 自包含重发原始任务 / 重启 → 重试 → 升级 Cockpit 红条；④ 改派"卡死"任务前必须确定性确认原 worker 已停（或先杀），防并发重复 + 覆盖过审代码。
+> - **关联**：M30 stale-dispatch（阈值持有方）、M26 idle 自愈（只认 idle、compact 后 worker 仍是 working 故漏触发）、idea-13（crash WIP 保全同源）、idea-14（overdue 假阳性）、[[feedback_worker_reliability_systemic]]。
+> - [ ] 设计 spike：检测信号 + 恢复手段（重启 vs PTY 注入）+ 升级路径 + 在 M30/M26 上的挂接点
+
 ### M44 · 飞书媒体收发（视频/图片双向，对齐 mobile media）· ✅ code shipped 2026-06-13（`38468e7`，待 4010 重启 + 真飞书联调）（user 拍板"做这个"）
 > user 2026-06-13 手机拍板：飞书也要支持视频/图片收发，跟 `team mobile-send-media` 那套对称。
 > - [x] **出站**（主缺口，orch→飞书）：`team feishu reply --file <path>` + transport `sendMedia`（图片 `im.v1.image.create`→image_key→msg_type image；`.mp4` `im.v1.file.create`→file_key→msg_type media；其它视频/文件→file_type stream→msg_type file，非 mp4 不伪装）。caption trim 非空才跟发 text。
