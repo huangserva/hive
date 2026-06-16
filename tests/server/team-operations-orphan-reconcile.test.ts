@@ -2,8 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
+import type { LiveAgentRun } from '../../src/server/agent-runtime-types.js'
 import { createRuntimeStoreServices } from '../../src/server/runtime-store-helpers.js'
 import { HIVE_DIR_NAME } from '../../src/server/tasks-file.js'
 
@@ -36,6 +37,17 @@ const readTasks = (workspacePath: string) => {
   const path = join(workspacePath, HIVE_DIR_NAME, 'tasks.md')
   return existsSync(path) ? readFileSync(path, 'utf8') : null
 }
+
+const createLiveRunRef = (runId: string): LiveAgentRun =>
+  ({
+    agentId: 'worker-1',
+    exitCode: null,
+    output: '',
+    pid: 1234,
+    runId,
+    startedAt: Date.now(),
+    status: 'running',
+  }) satisfies LiveAgentRun
 
 // 把一条 dispatch 推到 running 态：先经 teamOps.dispatchTask（写 tasks.md sent 行 + queued），
 // 再用真实 ledger 的 markSubmitted 翻成 running。worker 从未启动，status 维持 'stopped'。
@@ -97,9 +109,10 @@ describe('reconcileOrphanedDispatches', () => {
     const { services, worker, workspace } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Active task')
 
-    // worker 标成已启动（非 stopped），属合法在途，绝不收尾。
-    services.workspaceStore.markAgentStarted(workspace.id, worker.id)
-    expect(services.workspaceStore.getWorker(workspace.id, worker.id).status).not.toBe('stopped')
+    // active run 是合法在途的权威信号；状态投影由 reconciler 派生，不能靠 mark* 伪造。
+    vi.spyOn(services.agentRuntime, 'getActiveRunByAgentId').mockReturnValue(
+      createLiveRunRef('run-1')
+    )
 
     const reconciled = services.teamOps.reconcileOrphanedDispatches({ staleMs: 0 })
 

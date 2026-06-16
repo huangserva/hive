@@ -11,6 +11,16 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+const withDispatchDefaults = (
+  dispatch: Omit<DispatchRecord, 'acceptVerdict' | 'reviewStatus' | 'reviewsDispatchId'> &
+    Partial<Pick<DispatchRecord, 'acceptVerdict' | 'reviewStatus' | 'reviewsDispatchId'>>
+): DispatchRecord => ({
+  acceptVerdict: null,
+  reviewStatus: null,
+  reviewsDispatchId: null,
+  ...dispatch,
+})
+
 describe('team atomicity', () => {
   test('dispatchTask does not bump pending count when message insert fails before PTY write', async () => {
     const store = createRuntimeStore()
@@ -89,7 +99,7 @@ describe('team atomicity', () => {
     if (!orchestrator) {
       throw new Error('Expected orchestrator')
     }
-    const dispatch = {
+    const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -103,7 +113,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } satisfies DispatchRecord
+    })
     const deleteDispatch = vi.fn()
     const deleteMessage = vi.fn()
 
@@ -155,7 +165,7 @@ describe('team atomicity', () => {
     if (!orchestrator) {
       throw new Error('Expected orchestrator')
     }
-    const dispatch = {
+    const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -169,7 +179,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } satisfies DispatchRecord
+    })
     const deleteDispatch = vi.fn()
     const deleteMessage = vi.fn()
     const markDispatchSubmitted = vi.fn()
@@ -214,7 +224,7 @@ describe('team atomicity', () => {
     expect(deleteMessage).toHaveBeenCalledWith({ sequence: 1 })
   })
 
-  test('reportTask with requireActiveRun closes dispatch and decrements count even when orch run is absent', () => {
+  test('reportTask with requireActiveRun closes dispatch and reconciles stopped when worker has no active run', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
@@ -236,7 +246,7 @@ describe('team atomicity', () => {
       expect.objectContaining({
         id: worker.id,
         pendingTaskCount: 0,
-        status: 'idle',
+        status: 'stopped',
       })
     )
     expect(store.listMessagesForRecovery(workspace.id, 0).length).toBe(beforeMessages + 1)
@@ -252,7 +262,7 @@ describe('team atomicity', () => {
   })
 
   test('legacy reported dispatch rows are still read as completed/done', () => {
-    const legacyReported = {
+    const legacyReported = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -266,15 +276,15 @@ describe('team atomicity', () => {
       text: 'Legacy report row',
       toAgentId: 'worker-1',
       workspaceId: 'workspace-1',
-    } satisfies DispatchRecord
-    const completed = {
+    })
+    const completed = withDispatchDefaults({
       ...legacyReported,
       id: 'completed',
       sequence: 2,
       status: 'completed',
       text: 'Completed row',
       toAgentId: 'worker-2',
-    } satisfies DispatchRecord
+    })
 
     expect(isCompletedDispatchStatus('reported')).toBe(true)
     expect(isCompletedDispatchStatus('completed')).toBe(true)
@@ -300,7 +310,7 @@ describe('team atomicity', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    const dispatch = {
+    const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -314,7 +324,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } satisfies DispatchRecord
+    })
     const deleteMessage = vi.fn()
     const markTaskReported = vi.fn()
     const writeReportPrompt = vi.fn()
@@ -361,7 +371,7 @@ describe('team atomicity', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    const dispatch = {
+    const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -375,7 +385,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } satisfies DispatchRecord
+    })
     const deleteMessage = vi.fn()
     const markDispatchReportedByWorker = vi.fn(
       (): DispatchRecord => ({ ...dispatch, status: 'completed' })
@@ -437,7 +447,7 @@ describe('team atomicity', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
     const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
-    const dispatch = {
+    const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
@@ -451,7 +461,7 @@ describe('team atomicity', () => {
       text: 'Implement login',
       toAgentId: worker.id,
       workspaceId: workspace.id,
-    } satisfies DispatchRecord
+    })
     const notifyWorkerDone = vi.fn(async () => {})
 
     const ops = createTeamOperations({

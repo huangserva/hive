@@ -367,6 +367,7 @@ export const createRuntimeStoreServices = (
     clearReviewStatus: dispatchLedgerStore.clearReviewStatus,
     listAllWorkspaceDispatches: (workspaceId) =>
       dispatchLedgerStore.listWorkspaceDispatches(workspaceId, { limit: 1_000 }),
+    reconcileAgentStatus: reconcileAgentStatusForAgent,
     resolveCommandPresetId: (workspaceId, workerId) => {
       // M43 scope 解析复用 team-list-enrichment 同款契约：preset 在 agent_launch_configs 上。
       try {
@@ -378,6 +379,14 @@ export const createRuntimeStoreServices = (
       }
     },
   })
+  const reconcileAllAgentStatuses = () => {
+    for (const workspace of workspaceStore.listWorkspaces()) {
+      for (const worker of workspaceStore.listWorkers(workspace.id)) {
+        reconcileAgentStatusForAgent(workspace.id, worker.id)
+      }
+    }
+  }
+  reconcileAllAgentStatuses()
   startExistingWorkspaceWatches()
   sentinelHeartbeat?.start()
   stalledDispatchNudge.start()
@@ -389,6 +398,7 @@ export const createRuntimeStoreServices = (
   try {
     const reconciled = teamOps.reconcileOrphanedDispatches()
     if (reconciled.length > 0) {
+      reconcileAllAgentStatuses()
       options.logger?.info(`reconciled ${reconciled.length} orphaned submitted dispatch(es)`)
     }
   } catch (error) {
@@ -451,17 +461,20 @@ export const createRuntimeStoreLifecycle = ({
     services.workspaceStore.getAgent(workspaceId, agentId)
     services.workspaceStore.markAgentStarted(workspaceId, agentId)
     try {
-      const run = await services.agentRuntime.startAgent(
+      const start = services.agentRuntime.startAgent(
         services.workspaceStore.getWorkspaceSnapshot(workspaceId).summary,
         agentId,
         input
       )
+      reconcileLifecycleAgentStatus(workspaceId, agentId)
+      const run = await start
       if (run.status === 'error') {
         services.workspaceStore.markAgentStopped(workspaceId, agentId)
         reconcileLifecycleAgentStatus(workspaceId, agentId)
       } else {
         services.workerOutputTracker?.attach(workspaceId, agentId, run.runId, run.output)
         services.mobileOrchestratorReplyCapture?.attach(workspaceId, agentId, run.runId)
+        reconcileLifecycleAgentStatus(workspaceId, agentId)
       }
       return run
     } catch (error) {

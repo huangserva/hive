@@ -65,6 +65,7 @@ const setupOps = (input: { role?: AgentSummary['role'] } = {}) => {
     pendingTaskCount: 0,
     role: input.role ?? 'coder',
     status: 'stopped',
+    workflowAllowed: false,
     workspaceId,
   }
   const writeTasksNarrativeNudgePrompt = vi.fn()

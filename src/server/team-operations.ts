@@ -94,6 +94,7 @@ export interface TeamOperationsInput {
   resolveCommandPresetId?: (workspaceId: string, workerId: string) => string | undefined
   // M43 acceptTask 需查全 dispatches（含 reported reviewer dispatch）以校验 reason 引的 hex prefix 是 reviewer-role。
   listAllWorkspaceDispatches?: (workspaceId: string) => DispatchRecord[]
+  reconcileAgentStatus?: (workspaceId: string, agentId: string) => void
 }
 
 export interface DispatchTaskInput {
@@ -241,6 +242,7 @@ export const createTeamOperations = ({
   clearReviewStatus,
   resolveCommandPresetId,
   listAllWorkspaceDispatches,
+  reconcileAgentStatus,
 }: TeamOperationsInput) => {
   const triggeredTasksNarrativeNudges = new Set<string>()
   const tasksNarrativeStates = new Map<string, TasksNarrativeState>()
@@ -316,17 +318,22 @@ export const createTeamOperations = ({
 
     workspaceStore.markAgentStarted(workspaceId, workerId)
     try {
-      const run = await agentRuntime.startAgent(
+      const start = agentRuntime.startAgent(
         workspaceStore.getWorkspaceSnapshot(workspaceId).summary,
         workerId,
         { hivePort }
       )
+      reconcileAgentStatus?.(workspaceId, workerId)
+      const run = await start
       if (run.status === 'error') {
         workspaceStore.markAgentStopped(workspaceId, workerId)
+        reconcileAgentStatus?.(workspaceId, workerId)
         throw new ConflictError(`${config.command} failed to start`)
       }
+      reconcileAgentStatus?.(workspaceId, workerId)
     } catch (error) {
       workspaceStore.markAgentStopped(workspaceId, workerId)
+      reconcileAgentStatus?.(workspaceId, workerId)
       throw error
     }
   }
@@ -372,6 +379,7 @@ export const createTeamOperations = ({
       }
       if (input.fromAgentId) dispatchInput.fromAgentId = input.fromAgentId
       dispatch = createDispatch(dispatchInput)
+      reconcileAgentStatus?.(workspaceId, workerId)
 
       const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, workerId)
       const hasLaunchConfig = !!agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
@@ -399,6 +407,7 @@ export const createTeamOperations = ({
       }
 
       workspaceStore.markTaskDispatched(workspaceId, workerId)
+      reconcileAgentStatus?.(workspaceId, workerId)
       const workspacePath = getWorkspacePath(workspaceId)
       if (workspacePath) {
         const recentDispatchState =
@@ -425,7 +434,10 @@ export const createTeamOperations = ({
       )
       return dispatch
     } catch (error) {
-      if (dispatch) deleteDispatch(dispatch.id)
+      if (dispatch) {
+        deleteDispatch(dispatch.id)
+        reconcileAgentStatus?.(workspaceId, workerId)
+      }
       deleteMessage(messageHandle)
       throw error
     }
@@ -466,6 +478,7 @@ export const createTeamOperations = ({
         throw new ConflictError(`No open dispatch: ${dispatchId}`)
       }
       workspaceStore.markTaskCancelled(workspaceId, dispatch.toAgentId)
+      reconcileAgentStatus?.(workspaceId, dispatch.toAgentId)
       const workspacePath = getWorkspacePath(workspaceId)
       if (workspacePath) {
         tasksFileService.recordDispatchCancelled(workspacePath, {
@@ -503,6 +516,7 @@ export const createTeamOperations = ({
           // worker 还在（只是 stopped）才更新它的 pending 计数；已删 worker 跳过。
           if (workspaceStore.hasAgent(workspaceId, cancelled.toAgentId)) {
             workspaceStore.markTaskCancelled(workspaceId, cancelled.toAgentId)
+            reconcileAgentStatus?.(workspaceId, cancelled.toAgentId)
           }
           const workspacePath = getWorkspacePath(workspaceId)
           if (workspacePath) {
@@ -697,6 +711,7 @@ export const createTeamOperations = ({
         })
         dbCommitted = true
         workspaceStore.markTaskReported(workspaceId, workerId)
+        reconcileAgentStatus?.(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)
         if (workspacePath) {
           // M43: 本次自己的 dispatch 行打 [x]/[~]——scope 内 + gate 开 → [~]；其他 → [x]（旧路径）。

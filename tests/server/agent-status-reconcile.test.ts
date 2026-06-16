@@ -64,8 +64,9 @@ describe('agent status reconcile with real stores', () => {
       toAgentId: worker.id,
       workspaceId: workspace.id,
     })
-    services.workspaceStore.markAgentStarted(workspace.id, worker.id)
-    services.workspaceStore.markTaskDispatched(workspace.id, worker.id)
+    const staleWorker = services.workspaceStore.getWorker(workspace.id, worker.id)
+    staleWorker.status = 'working'
+    staleWorker.pendingTaskCount = 1
     expect(services.workspaceStore.getWorker(workspace.id, worker.id).status).toBe('working')
 
     reconcileAgentStatus({
@@ -102,6 +103,43 @@ describe('agent status reconcile with real stores', () => {
     const reconciled = services.workspaceStore.getWorker(workspace.id, worker.id)
     expect(reconciled.status).toBe('working')
     expect(reconciled.pendingTaskCount).toBe(1)
+  })
+
+  test('derives working then idle from dispatch ledger open count for a live worker', () => {
+    const { services, worker, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      fromAgentId: `${workspace.id}:orchestrator`,
+      text: 'finish this task',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const reconcileLiveWorker = () =>
+      reconcileAgentStatus({
+        agent: services.workspaceStore.getWorker(workspace.id, worker.id),
+        getActiveRunByAgentId: () => ({ runId: 'run-1' }),
+        listOpenDispatchesForWorker: services.dispatchLedgerStore.listOpenDispatchesForWorker,
+        workspaceId: workspace.id,
+      })
+
+    reconcileLiveWorker()
+    expect(services.workspaceStore.getWorker(workspace.id, worker.id)).toMatchObject({
+      pendingTaskCount: 1,
+      status: 'working',
+    })
+
+    services.dispatchLedgerStore.markReportedByWorker({
+      artifacts: [],
+      dispatchId: dispatch.id,
+      reportText: 'done',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    reconcileLiveWorker()
+
+    expect(services.workspaceStore.getWorker(workspace.id, worker.id)).toMatchObject({
+      pendingTaskCount: 0,
+      status: 'idle',
+    })
   })
 
   test('sentinel reconcile does not stop a worker while agent start is pending', async () => {
@@ -153,5 +191,37 @@ describe('agent status reconcile with real stores', () => {
     expect(run.runId).toBeTruthy()
     expect(afterStart.status).toBe('working')
     expect(afterStart.pendingTaskCount).toBe(1)
+  })
+
+  test('startup hydration does not restore stopped workers with phantom pending counts', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-agent-status-reconcile-data-'))
+    tempDirs.push(dataDir)
+    const workspacePath = mkdtempSync(join(tmpdir(), 'hive-agent-status-reconcile-ws-'))
+    tempDirs.push(workspacePath)
+    const firstServices = createRuntimeStoreServices({ dataDir })
+    const workspace = firstServices.workspaceStore.createWorkspace(workspacePath, 'Hydration')
+    const worker = firstServices.workspaceStore.addWorker(workspace.id, {
+      name: '张飞',
+      role: 'coder',
+    })
+    firstServices.dispatchLedgerStore.createDispatch({
+      fromAgentId: `${workspace.id}:orchestrator`,
+      text: 'open task before restart',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    firstServices.db.close()
+
+    const secondServices = createRuntimeStoreServices({ dataDir })
+    try {
+      const hydrated = secondServices.workspaceStore.getWorker(workspace.id, worker.id)
+      expect(hydrated.status).toBe('stopped')
+      expect(hydrated.pendingTaskCount).toBe(0)
+      expect(
+        secondServices.dispatchLedgerStore.listOpenDispatchesForWorker(workspace.id, worker.id)
+      ).toHaveLength(1)
+    } finally {
+      secondServices.db.close()
+    }
   })
 })

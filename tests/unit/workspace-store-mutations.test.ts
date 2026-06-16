@@ -3,6 +3,8 @@ import { describe, expect, test } from 'vitest'
 import type { WorkspaceRecord } from '../../src/server/workspace-store-contract.js'
 import {
   markAgentStarted,
+  markAgentStopped,
+  markTaskCancelled,
   markTaskDispatched,
   markTaskReported,
 } from '../../src/server/workspace-store-mutations.js'
@@ -16,6 +18,7 @@ const createWorkspaceRecord = (): WorkspaceRecord => ({
       pendingTaskCount: 0,
       role: 'coder',
       status: 'stopped',
+      workflowAllowed: false,
       workspaceId: 'workspace-1',
     },
   ],
@@ -32,46 +35,45 @@ const createWorkspaceMap = () => {
 }
 
 describe('workspace store mutations', () => {
-  test('markAgentStarted resets a stopped worker with queued pending tasks to idle', () => {
+  test('markAgentStarted validates the agent but does not project status', () => {
     const workspaces = createWorkspaceMap()
+    const worker = workspaces.get('workspace-1')?.agents[0]
+    if (!worker) throw new Error('missing worker fixture')
+    worker.pendingTaskCount = 2
+    worker.status = 'stopped'
 
-    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
-    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
+    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
+
     expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
       pendingTaskCount: 2,
       status: 'stopped',
     })
-
-    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
-
-    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
-      pendingTaskCount: 2,
-      status: 'idle',
-    })
   })
 
-  test('markAgentStarted resets a running worker with backlog to idle without clearing count', () => {
+  test('markAgentStopped validates the agent but does not project status', () => {
     const workspaces = createWorkspaceMap()
+    const worker = workspaces.get('workspace-1')?.agents[0]
+    if (!worker) throw new Error('missing worker fixture')
+    worker.pendingTaskCount = 1
+    worker.status = 'working'
 
-    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
-    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
+    markAgentStopped(workspaces, 'workspace-1', 'worker-1')
+
     expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
       pendingTaskCount: 1,
       status: 'working',
     })
-
-    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
-
-    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
-      pendingTaskCount: 1,
-      status: 'idle',
-    })
   })
 
-  test('markAgentStarted promotes a stopped worker with no queue to idle', () => {
+  test('task marks validate the worker but do not maintain an independent pending counter', () => {
     const workspaces = createWorkspaceMap()
+    const worker = workspaces.get('workspace-1')?.agents[0]
+    if (!worker) throw new Error('missing worker fixture')
+    worker.status = 'idle'
 
-    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
+    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
+    markTaskReported(workspaces, 'workspace-1', 'worker-1')
+    markTaskCancelled(workspaces, 'workspace-1', 'worker-1')
 
     expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
       pendingTaskCount: 0,
@@ -79,23 +81,12 @@ describe('workspace store mutations', () => {
     })
   })
 
-  test('dispatch and report keep counts correct after a stopped queued worker starts', () => {
+  test('mark helpers still fail for missing agents and workers', () => {
     const workspaces = createWorkspaceMap()
 
-    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
-    markTaskDispatched(workspaces, 'workspace-1', 'worker-1')
-    markAgentStarted(workspaces, 'workspace-1', 'worker-1')
-
-    markTaskReported(workspaces, 'workspace-1', 'worker-1')
-    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
-      pendingTaskCount: 1,
-      status: 'working',
-    })
-
-    markTaskReported(workspaces, 'workspace-1', 'worker-1')
-    expect(workspaces.get('workspace-1')?.agents[0]).toMatchObject({
-      pendingTaskCount: 0,
-      status: 'idle',
-    })
+    expect(() => markAgentStarted(workspaces, 'workspace-1', 'missing')).toThrow(/Agent not found/)
+    expect(() => markTaskDispatched(workspaces, 'workspace-1', 'missing')).toThrow(
+      /Agent not found/
+    )
   })
 })

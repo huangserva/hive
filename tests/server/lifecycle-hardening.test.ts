@@ -156,8 +156,10 @@ describe('lifecycle hardening (R2.1 / R2.2 / R2.3) — real PTY', () => {
       )
 
       expect(new Set(runs.map((run) => run.runId)).size).toBe(1)
+      const firstRun = runs[0]
+      if (!firstRun) throw new Error('Expected a run')
       await waitFor(() => {
-        expect(store.getLiveRun(runs[0].runId).status).toBe('running')
+        expect(store.getLiveRun(firstRun.runId).status).toBe('running')
       })
       let spawnedPid: number | undefined
       await waitFor(() => {
@@ -433,11 +435,32 @@ describe('lifecycle hardening (R2.1 / R2.2 / R2.3) — real PTY', () => {
         expect.objectContaining({ text: 'keep this dispatch', toAgentId: worker.id })
       )
       expect(store.getWorker(workspace.id, worker.id)).toEqual(
-        expect.objectContaining({ id: worker.id, pendingTaskCount: 1 })
+        expect.objectContaining({ id: worker.id, pendingTaskCount: 0, status: 'stopped' })
       )
     } finally {
       db.exec('DROP TRIGGER IF EXISTS fail_worker_delete')
       db.close()
+      await store.close()
+    }
+  })
+
+  test('deleteWorker removes the worker dispatch ledger rows in the same mutation', async () => {
+    const { dataDir, workspacePath } = prepareWorkspace()
+    const store = createRuntimeStore({ dataDir })
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const dispatch = await store.dispatchTask(workspace.id, worker.id, 'remove this dispatch')
+
+    try {
+      store.deleteWorker(workspace.id, worker.id)
+
+      expect(store.listDispatches(workspace.id)).not.toContainEqual(
+        expect.objectContaining({ id: dispatch.id })
+      )
+      expect(() => store.getWorker(workspace.id, worker.id)).toThrow(
+        /Agent not found|Worker not found/
+      )
+    } finally {
       await store.close()
     }
   })

@@ -1,6 +1,6 @@
 import type { AgentSummary, WorkerRole } from '../shared/types.js'
 import type { WorkspaceRecord } from './workspace-store-contract.js'
-import { getStatusFromPendingCount, isWorkerAgent } from './workspace-store-support.js'
+import { isWorkerAgent } from './workspace-store-support.js'
 
 type WorkspaceMap = Map<string, WorkspaceRecord>
 
@@ -45,10 +45,7 @@ export const markAgentStarted = (
   workspaceId: string,
   agentId: string
 ) => {
-  const agent = getAgentRecord(workspaces, workspaceId, agentId)
-  // Starting a fresh PTY means the agent is available, not already working.
-  // pendingTaskCount stays intact so backlog/recovery UI can still surface it.
-  agent.status = 'idle'
+  getAgentRecord(workspaces, workspaceId, agentId)
 }
 
 export const markAgentStopped = (
@@ -56,9 +53,7 @@ export const markAgentStopped = (
   workspaceId: string,
   agentId: string
 ) => {
-  const agent = getAgentRecord(workspaces, workspaceId, agentId)
-  agent.status = 'stopped'
-  agent.pendingTaskCount = 0
+  getAgentRecord(workspaces, workspaceId, agentId)
 }
 
 export const markTaskDispatched = (
@@ -66,13 +61,7 @@ export const markTaskDispatched = (
   workspaceId: string,
   workerId: string
 ) => {
-  const worker = getWorkerRecord(workspaces, workspaceId, workerId)
-  worker.pendingTaskCount += 1
-  // spec §3.6.4: a stopped worker may accumulate queued tasks; PTY isn't
-  // running so it can't be `working`. Stay stopped until restart (mirrors
-  // markTaskReported's stopped guard below).
-  if (worker.status !== 'stopped')
-    worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
+  getWorkerRecord(workspaces, workspaceId, workerId)
 }
 
 export const markTaskReported = (
@@ -80,10 +69,7 @@ export const markTaskReported = (
   workspaceId: string,
   workerId: string
 ) => {
-  const worker = getWorkerRecord(workspaces, workspaceId, workerId)
-  worker.pendingTaskCount = Math.max(0, worker.pendingTaskCount - 1)
-  if (worker.status !== 'stopped')
-    worker.status = getStatusFromPendingCount(worker.pendingTaskCount)
+  getWorkerRecord(workspaces, workspaceId, workerId)
 }
 
 export const markTaskCancelled = markTaskReported
