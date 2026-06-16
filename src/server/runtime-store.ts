@@ -7,6 +7,7 @@ import type {
   AppendAgentRunTimelineEventInput,
   FetchAgentRunTimelineWindowInput,
 } from './agent-run-timeline-store.js'
+import type { StartAgentOptions } from './agent-runtime-contract.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { DispatchRecord, ListDispatchesOptions } from './dispatch-ledger-store.js'
 import type { ApprovalLedger } from './feishu-approval-ledger.js'
@@ -187,10 +188,6 @@ interface RuntimeStoreOptions {
   dataDir?: string
   agentManager?: AgentManager
   logger?: HiveLogger
-}
-
-interface StartAgentOptions {
-  hivePort: string
 }
 
 export type { RuntimeStore }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'vitest'
 
+import { createRelayRpcHandler } from '../../src/server/relay-rpc-handler.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -185,6 +186,93 @@ describe('mobile create worker route', () => {
       expect(launch?.commandPresetId).toBe('claude')
       expect(launch?.command).toBe('claude')
       expect(JSON.stringify(launch ?? {})).not.toContain('rm -rf')
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('rejects custom command presets from mobile before they can be autostarted later', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Create Worker Test')
+      const customPreset = server.store.settings.createCommandPreset({
+        args: ['-e', 'setTimeout(() => {}, 1000)'],
+        command: 'node',
+        displayName: 'Custom Node',
+        env: {},
+        resumeArgsTemplate: null,
+        sessionIdCapture: null,
+        yoloArgsTemplate: null,
+      })
+      const { token } = await createMobileToken(server.baseUrl)
+
+      const response = await createWorkerRequest(server.baseUrl, workspace.id, token, {
+        autostart: false,
+        command_preset_id: customPreset.id,
+        name: 'Custom Remote Worker',
+        role: 'coder',
+      })
+      const body = (await response.json()) as { error?: string }
+
+      expect(response.status).toBe(400)
+      expect(body.error).toMatch(/custom command presets.*local UI/i)
+      const customWorker = server.store
+        .listWorkers(workspace.id)
+        .find((worker) => worker.name === 'Custom Remote Worker')
+      expect(customWorker).toBeUndefined()
+
+      const autostartResults = await server.store.autostartConfiguredAgents({ hivePort: '4010' })
+      expect(
+        autostartResults.some((result) => customWorker && result.agent_id === customWorker.id)
+      ).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('rejects custom command presets from relay before they can be autostarted later', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Create Worker Test')
+      const customPreset = server.store.settings.createCommandPreset({
+        args: ['-e', 'setTimeout(() => {}, 1000)'],
+        command: 'node',
+        displayName: 'Relay Custom Node',
+        env: {},
+        resumeArgsTemplate: null,
+        sessionIdCapture: null,
+        yoloArgsTemplate: null,
+      })
+      const handler = createRelayRpcHandler({
+        runtimeInfo: { dataDir: server.dataDir, port: 4010 },
+        store: server.store,
+      })
+
+      await expect(
+        handler(
+          'worker.create',
+          {
+            autostart: false,
+            command_preset_id: customPreset.id,
+            name: 'Relay Custom Worker',
+            role: 'coder',
+            workspace_id: workspace.id,
+          },
+          'device-1',
+          ['admin_runtime']
+        )
+      ).rejects.toThrow(/custom command presets.*local UI/i)
+      const customWorker = server.store
+        .listWorkers(workspace.id)
+        .find((worker) => worker.name === 'Relay Custom Worker')
+      expect(customWorker).toBeUndefined()
+
+      const autostartResults = await server.store.autostartConfiguredAgents({ hivePort: '4010' })
+      expect(
+        autostartResults.some((result) => customWorker && result.agent_id === customWorker.id)
+      ).toBe(false)
     } finally {
       await server.close()
     }

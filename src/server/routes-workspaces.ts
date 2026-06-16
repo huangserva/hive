@@ -130,7 +130,8 @@ export const workspaceRoutes: RouteDefinition[] = [
       store,
       workspace.id,
       getOrchestratorId(workspace.id),
-      getRuntimePort(request)
+      getRuntimePort(request),
+      'ui_workspace_create'
     )
     sendJson(response, 201, { ...workspace, orchestrator_start: orchestratorStart })
   }),
@@ -446,6 +447,7 @@ export const workspaceRoutes: RouteDefinition[] = [
       }
       const run = await store.startAgent(workspaceId, agentId, {
         hivePort: getRuntimePort(request),
+        source: 'ui',
       })
       sendJson(response, 201, { run_id: run.runId })
     }

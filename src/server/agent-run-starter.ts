@@ -1,7 +1,9 @@
 import type { AgentSummary, WorkspaceSummary } from '../shared/types.js'
 import type { AgentLaunchRoots } from './agent-launch-roots.js'
 import { resolveAgentLaunchRoots } from './agent-launch-roots.js'
-import type { AgentManager } from './agent-manager.js'
+import type { AgentLaunchSource } from './agent-launch-source.js'
+import { isRemoteAgentLaunchSource } from './agent-launch-source.js'
+import type { AgentManager, StartAgentInput } from './agent-manager.js'
 import { buildAgentRunBootstrap, startAgentRunCapture } from './agent-run-bootstrap.js'
 import { handleAgentRunExit } from './agent-run-exit-handler.js'
 import type { AgentRunExitContext, AgentRunStarterStorePort } from './agent-run-start-context.js'
@@ -10,7 +12,9 @@ import type { AgentSessionStorePort } from './agent-runtime-ports.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { buildAgentStartupInstructions } from './agent-startup-instructions.js'
 import type { AgentTokenRegistry } from './agent-tokens.js'
+import { getCommandPresetCapabilities } from './command-preset-capabilities.js'
 import type { CommandPresetRecord } from './command-preset-store.js'
+import { ConflictError } from './http-errors.js'
 import type { LiveRunRegistry } from './live-run-registry.js'
 import type { HiveLogger } from './logger.js'
 import { createPostStartInputWriter, isInteractiveAgentCommand } from './post-start-input-writer.js'
@@ -41,6 +45,22 @@ interface AgentRunStarterInput {
     | undefined
 }
 
+const BUILTIN_AGENT_COMMANDS = new Set(['claude', 'codex', 'gemini', 'opencode'])
+
+const getCustomLaunchKind = (
+  config: AgentLaunchConfigInput,
+  preset: CommandPresetRecord | undefined
+) => {
+  if (config.presetAugmentationDisabled === true && config.commandPresetId === null) {
+    return 'startup_command'
+  }
+  if (config.commandPresetId) {
+    return preset?.isBuiltin === true ? null : 'custom_command_preset'
+  }
+  const command = config.interactiveCommand ?? config.command
+  return BUILTIN_AGENT_COMMANDS.has(command) ? null : 'custom_direct_command'
+}
+
 export const createAgentRunStarter = ({
   agentManager,
   registry,
@@ -67,11 +87,32 @@ export const createAgentRunStarter = ({
     workspace: WorkspaceSummary,
     agentId: string,
     config: AgentLaunchConfigInput,
-    hivePort: string
+    hivePort: string,
+    source: AgentLaunchSource = 'internal'
   ) => {
     if (!agentManager) throw new Error('Agent manager is required to start agents')
 
     const agent = getAgent?.(workspace.id, agentId)
+    const commandPreset = config.commandPresetId
+      ? getCommandPreset(config.commandPresetId)
+      : undefined
+    const customLaunchKind = getCustomLaunchKind(config, commandPreset)
+    if (customLaunchKind && isRemoteAgentLaunchSource(source)) {
+      logger?.warn(
+        [
+          'custom_agent_command_reject',
+          `kind=${customLaunchKind}`,
+          `source=${source}`,
+          `workspace_id=${workspace.id}`,
+          `agent_id=${agentId}`,
+          `agent_name=${JSON.stringify(agent?.name ?? null)}`,
+          `preset_id=${config.commandPresetId ?? 'null'}`,
+          `command=${JSON.stringify(config.command)}`,
+          `args=${JSON.stringify(config.args ?? [])}`,
+        ].join(' ')
+      )
+      throw new ConflictError('Remote custom command start requires local UI approval')
+    }
     // M32：先 resolve 分层根（orchestrator 主树 / worker 独立 CODE worktree）。必须在 bootstrap 之前，
     // 因为 ① BLOCKER 2：session capture / resume 要用 worker 真实 cwd = launchRoots.cwd；② BLOCKER 3：
     // ensure 失败时 resolveLaunchRoots fail-closed 抛错，应在创建 run / 发 token 等任何副作用前阻断启动。
@@ -86,6 +127,21 @@ export const createAgentRunStarter = ({
       dataDir,
       launchRoots.cwd
     )
+    if (customLaunchKind) {
+      logger?.warn(
+        [
+          'custom_agent_command_start',
+          `kind=${customLaunchKind}`,
+          `source=${source}`,
+          `workspace_id=${workspace.id}`,
+          `agent_id=${agentId}`,
+          `agent_name=${JSON.stringify(agent?.name ?? null)}`,
+          `preset_id=${config.commandPresetId ?? 'null'}`,
+          `command=${JSON.stringify(startConfig.command)}`,
+          `args=${JSON.stringify(startConfig.args ?? [])}`,
+        ].join(' ')
+      )
+    }
     const handledRunExits = new Set<string>()
     const abortedRunIds = new Set<string>()
     const startedAt = Date.now()
@@ -102,7 +158,7 @@ export const createAgentRunStarter = ({
       tokenRegistry,
       workspace,
     }
-    const startInput = {
+    const startInput: StartAgentInput = {
       agentId,
       command: startConfig.command,
       cwd: launchRoots.cwd,
@@ -118,6 +174,14 @@ export const createAgentRunStarter = ({
         HIVE_WORKSPACE_ROOT: launchRoots.workspaceRoot,
         HIVE_CODE_ROOT: launchRoots.codeRoot,
         HIVE_GOVERNANCE_ROOT: launchRoots.governanceRoot,
+        NODE_ENV: process.env.NODE_ENV ?? 'development',
+      },
+      envScope: {
+        commandPresetId: commandPreset?.id ?? null,
+        providerFamily: commandPreset
+          ? getCommandPresetCapabilities(commandPreset.id).providerFamily
+          : 'custom',
+        workflowAllowed: startConfig.workflowAllowed === true,
       },
       onExit: ({
         runId,

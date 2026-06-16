@@ -47,6 +47,7 @@ const agentSummary = (overrides: Partial<AgentSummary> = {}): AgentSummary => ({
   pendingTaskCount: 0,
   role: 'coder',
   status: 'working',
+  workflowAllowed: false,
   workspaceId: 'ws-1',
   ...overrides,
 })
@@ -444,6 +445,28 @@ describe('relay RPC handler', () => {
     ).resolves.toBeDefined()
     await expect(
       handler(
+        'worker.create',
+        {
+          command_preset_id: 'codex',
+          name: 'Mallory',
+          role: 'coder',
+          startup_command: 'rm -rf /',
+          workspace_id: 'ws-1',
+        },
+        'device-1',
+        ['admin_runtime']
+      )
+    ).resolves.toBeDefined()
+    expect(store.configureAgentLaunch).toHaveBeenLastCalledWith(
+      'ws-1',
+      expect.any(String),
+      expect.objectContaining({ command: 'codex', commandPresetId: 'codex' })
+    )
+    expect(JSON.stringify(store.configureAgentLaunch.mock.calls.at(-1)?.[2] ?? {})).not.toContain(
+      'rm -rf'
+    )
+    await expect(
+      handler(
         'device.register_push_token',
         { push_token: 'ExponentPushToken[relay]' },
         'device-1',
@@ -539,6 +562,39 @@ describe('relay RPC handler', () => {
 
     expect(localTtsMock.synthesize).toHaveBeenCalledWith('正式回复', {
       voice: 'zh-CN-YunxiNeural',
+    })
+  })
+
+  it('starts relay-created workers with relay as the launch source', async () => {
+    const store = createBaseStore({
+      startAgent: vi.fn(async () => ({ runId: 'run-relay-worker' })),
+    })
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir: '/tmp/hive', port: 4010 },
+      store,
+    })
+
+    await expect(
+      handler(
+        'worker.create',
+        {
+          autostart: true,
+          command_preset_id: 'codex',
+          name: 'Relay Worker',
+          role: 'coder',
+          workspace_id: 'ws-1',
+        },
+        'device-1',
+        ['admin_runtime']
+      )
+    ).resolves.toMatchObject({
+      agent_start: { ok: true, run_id: 'run-relay-worker' },
+      ok: true,
+    })
+
+    expect(store.startAgent).toHaveBeenCalledWith('ws-1', expect.any(String), {
+      hivePort: '4010',
+      source: 'relay',
     })
   })
 

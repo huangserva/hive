@@ -13,6 +13,7 @@ import { join, resolve, sep } from 'node:path'
 
 import type { WorkerRole } from '../shared/types.js'
 import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
+import type { AgentLaunchSource } from './agent-launch-source.js'
 import { parseCockpit } from './cockpit-doc.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import type { DispatchRecord } from './dispatch-ledger-store.js'
@@ -383,7 +384,8 @@ export const createMobileWorker = async (
   store: CreateMobileWorkerStore,
   workspaceId: string,
   body: CreateMobileWorkerBody,
-  hivePort: string
+  hivePort: string,
+  source: Extract<AgentLaunchSource, 'mobile' | 'relay' | 'feishu'> = 'mobile'
 ) => {
   const name = typeof body.name === 'string' ? body.name.trim() : ''
   if (!name) throw new BadRequestError('name is required')
@@ -406,12 +408,16 @@ export const createMobileWorker = async (
       : null
   const description = typeof body.description === 'string' ? body.description : undefined
 
+  const preset = presetId ? store.settings.getCommandPreset(presetId) : undefined
+  if (presetId && !preset) {
+    throw new BadRequestError(`Command preset not found: ${presetId}`)
+  }
+  if (preset && !preset.isBuiltin) {
+    throw new BadRequestError('Custom command presets require local UI approval')
+  }
   const launchConfig = presetId
     ? resolveCommandPresetLaunchConfig(store.settings, presetId, thinkingLevel)
     : undefined
-  if (presetId && !launchConfig) {
-    throw new BadRequestError(`Command preset not found: ${presetId}`)
-  }
 
   const worker = store.addWorker(workspaceId, {
     name,
@@ -437,7 +443,7 @@ export const createMobileWorker = async (
       agentStart = { error: 'No worker launch config available', ok: false, run_id: null }
     } else {
       try {
-        const run = await store.startAgent(workspaceId, worker.id, { hivePort })
+        const run = await store.startAgent(workspaceId, worker.id, { hivePort, source })
         agentStart = { error: null, ok: true, run_id: run.runId }
       } catch (error) {
         // worker 已建好，仅自启失败：保留 worker（同 PC autostart 语义），把错误带回前端。
@@ -926,6 +932,7 @@ export const mobileRoutes: RouteDefinition[] = [
       if (activeRun) store.stopAgentRun(activeRun.runId)
       const run = await store.startAgent(workspaceId, workerId, {
         hivePort: String(request.socket.localPort ?? ''),
+        source: 'mobile',
       })
       sendJson(response, 200, {
         ok: true,

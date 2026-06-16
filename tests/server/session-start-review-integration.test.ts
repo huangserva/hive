@@ -34,6 +34,7 @@ const makeAgentSummary = (
   role,
   status: 'idle',
   workspaceId,
+  workflowAllowed: false,
 })
 
 const PROMPT_READY_OUTPUT = '\n❯ '
@@ -95,6 +96,152 @@ const makeSessionStoreMock = () => ({
 const flushMicrotasks = () => new Promise((resolve) => setTimeout(resolve, 150))
 
 describe('session-start-review via agent-run-starter', () => {
+  test('logs custom startup_command launch with source and command details', async () => {
+    const { mock: agentManager } = makeAgentManagerMock()
+    const store = makeStoreMock()
+    const sessionStore = makeSessionStoreMock()
+    const logger = { close: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const startLiveRun = createAgentRunStarter({
+      agentManager,
+      registry: createLiveRunRegistry(),
+      onAgentExit: vi.fn(),
+      store,
+      sessionStore,
+      tokenRegistry: createAgentTokenRegistry(),
+      getCommandPreset: vi.fn(),
+      getAgent: vi
+        .fn()
+        .mockReturnValue(
+          makeAgentSummary(ORCHESTRATOR_AGENT_ID, 'orchestrator', 'orch', 'test orch')
+        ),
+      logger,
+      restartPolicy: createNoopRestartPolicy(),
+    })
+
+    await startLiveRun(
+      { id: WORKSPACE.id, name: WORKSPACE.summary.name, path: WORKSPACE.summary.path },
+      ORCHESTRATOR_AGENT_ID,
+      {
+        args: ['-lic', 'qwen --resume session-1'],
+        command: '/bin/zsh',
+        commandPresetId: null,
+        interactiveCommand: 'qwen',
+        presetAugmentationDisabled: true,
+      },
+      '4100',
+      'ui_workspace_create'
+    )
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('custom_agent_command_start'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('source=ui_workspace_create'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('agent_id=ws-1:orchestrator'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('command="/bin/zsh"'))
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('args=["-lic","qwen --resume session-1"]')
+    )
+  })
+
+  test('logs custom command preset launch but not builtin preset launch', async () => {
+    const { mock: agentManager } = makeAgentManagerMock()
+    const store = makeStoreMock()
+    const sessionStore = makeSessionStoreMock()
+    const logger = { close: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const startLiveRun = createAgentRunStarter({
+      agentManager,
+      registry: createLiveRunRegistry(),
+      onAgentExit: vi.fn(),
+      store,
+      sessionStore,
+      tokenRegistry: createAgentTokenRegistry(),
+      getCommandPreset: vi.fn((id: string) =>
+        id === 'custom-qwen'
+          ? {
+              args: [],
+              command: 'qwen',
+              displayName: 'Qwen',
+              env: {},
+              id: 'custom-qwen',
+              isBuiltin: false,
+              resumeArgsTemplate: null,
+              sessionIdCapture: null,
+              yoloArgsTemplate: null,
+            }
+          : {
+              args: [],
+              command: 'claude',
+              displayName: 'Claude',
+              env: {},
+              id: 'claude',
+              isBuiltin: true,
+              resumeArgsTemplate: null,
+              sessionIdCapture: null,
+              yoloArgsTemplate: null,
+            }
+      ),
+      getAgent: vi
+        .fn()
+        .mockReturnValue(makeAgentSummary(WORKER_AGENT_ID, 'coder', 'worker', 'test worker')),
+      logger,
+      restartPolicy: createNoopRestartPolicy(),
+    })
+
+    await startLiveRun(
+      { id: WORKSPACE.id, name: WORKSPACE.summary.name, path: WORKSPACE.summary.path },
+      WORKER_AGENT_ID,
+      { args: ['--model', 'qwen'], command: 'qwen', commandPresetId: 'custom-qwen' },
+      '4100',
+      'ui'
+    )
+    await startLiveRun(
+      { id: WORKSPACE.id, name: WORKSPACE.summary.name, path: WORKSPACE.summary.path },
+      `${WORKSPACE.id}:worker-builtin`,
+      { args: [], command: 'claude', commandPresetId: 'claude' },
+      '4100',
+      'ui'
+    )
+
+    expect(logger.warn).toHaveBeenCalledTimes(1)
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('preset_id=custom-qwen'))
+  })
+
+  test('rejects mobile or relay sourced custom command starts before spawning', async () => {
+    const { mock: agentManager } = makeAgentManagerMock()
+    const logger = { close: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
+    const startLiveRun = createAgentRunStarter({
+      agentManager,
+      registry: createLiveRunRegistry(),
+      onAgentExit: vi.fn(),
+      store: makeStoreMock(),
+      sessionStore: makeSessionStoreMock(),
+      tokenRegistry: createAgentTokenRegistry(),
+      getCommandPreset: vi.fn(),
+      getAgent: vi
+        .fn()
+        .mockReturnValue(makeAgentSummary(WORKER_AGENT_ID, 'coder', 'worker', 'test worker')),
+      logger,
+      restartPolicy: createNoopRestartPolicy(),
+    })
+
+    await expect(
+      startLiveRun(
+        { id: WORKSPACE.id, name: WORKSPACE.summary.name, path: WORKSPACE.summary.path },
+        WORKER_AGENT_ID,
+        {
+          args: ['-lic', 'dangerous-custom-wrapper'],
+          command: '/bin/zsh',
+          commandPresetId: null,
+          presetAugmentationDisabled: true,
+        },
+        '4100',
+        'mobile'
+      )
+    ).rejects.toThrow(/custom command.*requires local UI/i)
+    expect(agentManager.startAgent).not.toHaveBeenCalled()
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('custom_agent_command_reject'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('source=mobile'))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('kind=startup_command'))
+  })
+
   test('fresh orchestrator start injects session-start review + startup instructions in one write', async () => {
     const { mock: agentManager, writtenInputs } = makeAgentManagerMock()
     const store = makeStoreMock()

@@ -1,3 +1,4 @@
+import type { AgentLaunchSource } from './agent-launch-source.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import { getStartupCommandExecutable } from './startup-command-parser.js'
 
@@ -5,7 +6,7 @@ interface AutostartPort {
   startAgent: (
     workspaceId: string,
     agentId: string,
-    input: { hivePort: string }
+    input: { hivePort: string; source?: AgentLaunchSource }
   ) => Promise<{ runId: string; status: string; exitCode: number | null }>
   getLiveRun: (runId: string) => { status: string; exitCode: number | null }
   peekAgentLaunchConfig: (
@@ -86,11 +87,13 @@ export const autostartOrchestrator = async (
   port: AutostartPort,
   workspaceId: string,
   orchestratorId: string,
-  hivePort: string
+  hivePort: string,
+  source: AgentLaunchSource = 'autostart'
 ): Promise<OrchestratorStartResult> => {
   return autostartAgent(port, workspaceId, orchestratorId, hivePort, {
     missingConfigError:
       'No orchestrator launch config available (set HIVE_ORCHESTRATOR_COMMAND or seed a role template)',
+    source,
   })
 }
 
@@ -99,7 +102,7 @@ export const autostartAgent = async (
   workspaceId: string,
   agentId: string,
   hivePort: string,
-  options: { missingConfigError: string }
+  options: { missingConfigError: string; source?: AgentLaunchSource }
 ): Promise<OrchestratorStartResult> => {
   const config = port.peekAgentLaunchConfig(workspaceId, agentId)
   if (!config) {
@@ -110,7 +113,10 @@ export const autostartAgent = async (
     }
   }
   try {
-    const run = await port.startAgent(workspaceId, agentId, { hivePort })
+    const run = await port.startAgent(workspaceId, agentId, {
+      hivePort,
+      source: options.source ?? 'autostart',
+    })
     // node-pty often doesn't throw on missing binaries — it spawns then exits
     // fast via onExit with a non-zero code. Poll briefly so we surface the
     // failure synchronously in the response instead of returning a fake "ok".

@@ -2,6 +2,7 @@ import type { AgentManager } from './agent-manager.js'
 import { type AgentLaunchConfigInput, createAgentRunStore } from './agent-run-store.js'
 import { createAgentRunTimelineStore } from './agent-run-timeline-store.js'
 import { createAgentRuntime } from './agent-runtime.js'
+import type { StartAgentOptions } from './agent-runtime-contract.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
@@ -412,7 +413,7 @@ export const createRuntimeStoreLifecycle = ({
   const startAgent = async (
     workspaceId: string,
     agentId: string,
-    input: { hivePort: string }
+    input: StartAgentOptions
   ): Promise<LiveAgentRun> => {
     services.workspaceStore.getAgent(workspaceId, agentId)
     services.workspaceStore.markAgentStarted(workspaceId, agentId)
@@ -435,7 +436,7 @@ export const createRuntimeStoreLifecycle = ({
     }
   }
 
-  const autostartConfiguredAgents = async (input: { hivePort: string }) => {
+  const autostartConfiguredAgents = async (input: StartAgentOptions) => {
     if (!agentManager) return []
     const starts = services.workspaceStore.listWorkspaces().flatMap((workspace) => {
       seedOrchestratorLaunchConfig(services.agentRuntime, services.settings, workspace.id)
@@ -448,7 +449,10 @@ export const createRuntimeStoreLifecycle = ({
         )
         .map(async (agent) => {
           try {
-            const run = await startAgent(workspace.id, agent.id, input)
+            const run = await startAgent(workspace.id, agent.id, {
+              ...input,
+              source: input.source ?? 'autostart',
+            })
             return {
               agent_id: agent.id,
               error: null,

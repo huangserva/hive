@@ -533,6 +533,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       if (activeRun) deps.store.stopAgentRun(activeRun.runId)
       const run = await deps.store.startAgent(workspaceId, workerId, {
         hivePort: String(deps.runtimeInfo.port ?? ''),
+        source: 'relay',
       })
       return { ok: true, run_id: run.runId, worker_id: workerId, workspace_id: workspaceId }
     }
@@ -658,7 +659,8 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
         deps.store as RuntimeStore,
         workspaceId,
         params,
-        String(deps.runtimeInfo.port ?? '')
+        String(deps.runtimeInfo.port ?? ''),
+        'relay'
       )
     }
 

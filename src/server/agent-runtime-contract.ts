@@ -1,5 +1,5 @@
 import type { WorkspaceSummary } from '../shared/types.js'
-
+import type { AgentLaunchSource } from './agent-launch-source.js'
 import type { PersistedAgentRun } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { AgentTokenRegistry } from './agent-tokens.js'
@@ -7,6 +7,7 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 
 interface StartAgentOptions {
   hivePort: string
+  source?: AgentLaunchSource
 }
 
 export interface AgentRuntime {
