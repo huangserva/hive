@@ -49,7 +49,9 @@ export const finishAgentRun = (
   exitCode: number | null,
   ptyOutputBus: PtyOutputBus
 ) => {
-  if (run.status === 'exited' || run.status === 'error') return
+  const canCorrectPendingError =
+    run.status === 'error' && run.exitCode === null && exitCode !== null
+  if ((run.status === 'exited' || run.status === 'error') && !canCorrectPendingError) return
   run.status = exitCode === 0 ? 'exited' : 'error'
   run.exitCode = exitCode
   run.errorTail = exitCode === 0 ? null : run.errorTailBuffer.read()
@@ -71,15 +73,33 @@ export const attachAgentPty = (
 ) => {
   let stdinClosed = false
   let forceKillTimer: ForceKillTimer | undefined
-  const resolveProcessGroupId = () => {
-    if (process.platform === 'win32' || pty.pid <= 0) return null
+  let pendingErrorFinishTimer: ForceKillTimer | undefined
+  const resolveProcessGroupForPid = (pid: number) => {
     try {
-      const value = execFileSync('ps', ['-o', 'pgid=', '-p', String(pty.pid)], {
+      const value = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim()
       const groupId = Number(value)
       if (Number.isInteger(groupId) && groupId > 0) return groupId
+    } catch {}
+    return null
+  }
+  const resolveProcessGroupId = () => {
+    if (process.platform === 'win32' || pty.pid <= 0) return null
+    try {
+      const groupId = resolveProcessGroupForPid(pty.pid)
+      const currentGroupId = resolveProcessGroupForPid(process.pid)
+      const currentProcessGroupId = (process as NodeJS.Process & { pgid?: number }).pgid
+      if (
+        groupId !== null &&
+        currentGroupId !== null &&
+        groupId !== process.pid &&
+        (typeof currentProcessGroupId !== 'number' || groupId !== currentProcessGroupId) &&
+        groupId !== currentGroupId
+      ) {
+        return groupId
+      }
     } catch {
       return pty.pid
     }
@@ -116,6 +136,11 @@ export const attachAgentPty = (
     clearTimeout(forceKillTimer)
     forceKillTimer = undefined
   }
+  const clearPendingErrorFinishTimer = () => {
+    if (!pendingErrorFinishTimer) return
+    clearTimeout(pendingErrorFinishTimer)
+    pendingErrorFinishTimer = undefined
+  }
   const cleanupProcessGroup = () => {
     clearForceKillTimer()
     killProcessGroup('SIGKILL')
@@ -133,6 +158,18 @@ export const attachAgentPty = (
       killProcessGroup('SIGKILL')
     }, FORCE_KILL_DELAY_MS) as ForceKillTimer
     forceKillTimer.unref?.()
+  }
+  const schedulePendingErrorFinish = () => {
+    clearPendingErrorFinishTimer()
+    pendingErrorFinishTimer = setTimeout(() => {
+      pendingErrorFinishTimer = undefined
+      try {
+        finishAgentRun(run, null, ptyOutputBus)
+      } catch (finishError) {
+        logHandlerError(logger, 'pty.onError finish', finishError)
+      }
+    }, FORCE_KILL_DELAY_MS) as ForceKillTimer
+    pendingErrorFinishTimer.unref?.()
   }
   run.process = {
     isStopped() {
@@ -193,15 +230,12 @@ export const attachAgentPty = (
     } catch (tailError) {
       logHandlerError(logger, 'pty.onError errorTail', tailError)
     }
-    try {
-      finishAgentRun(run, null, ptyOutputBus)
-    } catch (finishError) {
-      logHandlerError(logger, 'pty.onError finish', finishError)
-    }
+    schedulePendingErrorFinish()
   })
 
   pty.onExit((event) => {
     stdinClosed = true
+    clearPendingErrorFinishTimer()
     try {
       cleanupProcessGroup()
     } catch (cleanupError) {

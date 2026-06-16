@@ -28,6 +28,13 @@ export const handleAgentRunExit = (
     return false
   }
   if (context.handledRunExits.has(runId)) {
+    if (liveRun.status === 'error' && liveRun.exitCode === null && exitCode !== null) {
+      liveRun.errorTail = errorTail ?? null
+      completeLiveRun(liveRun, exitCode, endedAt, context.store)
+      clearResumedSessionOnFailure(context, exitCode)
+      context.registry.clearPendingExitCode(runId)
+      return true
+    }
     context.registry.clearPendingExitCode(runId)
     return false
   }

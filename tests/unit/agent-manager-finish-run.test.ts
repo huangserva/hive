@@ -94,7 +94,7 @@ describe('agent manager finishRun', () => {
     expect(manager.getRun(run.runId)).toMatchObject({ exitCode: 1, status: 'error' })
   })
 
-  test('treats a null exit result as terminal when PTY exit fires twice', async () => {
+  test('corrects a null exit fallback when PTY exit fires twice with a later real code', async () => {
     exitSequences.push([null, 0])
     const manager = createAgentManager()
     const onExitSpy = vi.fn()
@@ -107,12 +107,16 @@ describe('agent manager finishRun', () => {
     })
 
     await waitFor(() => {
-      expect(manager.getRun(run.runId).status).toBe('error')
+      expect(manager.getRun(run.runId).status).toBe('exited')
     })
 
-    expect(onExitSpy).toHaveBeenCalledTimes(1)
-    expect(onExitSpy).toHaveBeenCalledWith({ errorTail: null, exitCode: null, runId: run.runId })
-    expect(manager.getRun(run.runId)).toMatchObject({ exitCode: null, status: 'error' })
+    expect(onExitSpy).toHaveBeenCalledTimes(2)
+    expect(onExitSpy).toHaveBeenLastCalledWith({ errorTail: null, exitCode: 0, runId: run.runId })
+    expect(manager.getRun(run.runId)).toMatchObject({
+      errorTail: null,
+      exitCode: 0,
+      status: 'exited',
+    })
   })
 
   test('logs pty.onExit cleanup errors and still finishes the run', async () => {

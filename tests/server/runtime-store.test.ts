@@ -5,7 +5,11 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
-import type { AgentManager, AgentRunSnapshot } from '../../src/server/agent-manager.js'
+import type {
+  AgentManager,
+  AgentRunSnapshot,
+  StartAgentInput,
+} from '../../src/server/agent-manager.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 import { initializeRuntimeDatabase } from '../../src/server/sqlite-schema.js'
 import { createWorkspaceStore } from '../../src/server/workspace-store.js'
@@ -17,7 +21,9 @@ const outputBus = {
   subscribe: () => () => {},
 }
 
-const createFakeAgentManager = (): AgentManager => {
+const createFakeAgentManager = (
+  onStart?: (input: StartAgentInput, runs: Map<string, AgentRunSnapshot>) => void
+): AgentManager => {
   const runs = new Map<string, AgentRunSnapshot>()
 
   return {
@@ -47,6 +53,7 @@ const createFakeAgentManager = (): AgentManager => {
         status: 'starting' as const,
       }
       runs.set(run.runId, run)
+      onStart?.(input, runs)
       return run
     },
     stopRun() {},
@@ -205,6 +212,55 @@ describe('runtime store', () => {
     expect(drainedWorker.status).toBe('idle')
   })
 
+  test('late real exit corrects fallback error/null across live run, persisted run, and worker summary', async () => {
+    let startInput: StartAgentInput | undefined
+    let agentRuns: Map<string, AgentRunSnapshot> | undefined
+    const store = createRuntimeStore({
+      agentManager: createFakeAgentManager((input, runs) => {
+        startInput = input
+        agentRuns = runs
+      }),
+    })
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, {
+      name: 'Alice',
+      role: 'coder',
+    })
+    store.configureAgentLaunch(workspace.id, worker.id, { command: '/bin/bash', args: [] })
+
+    const run = await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+    if (!startInput) throw new Error('start input was not captured')
+    const emitExit = (exitCode: number | null, errorTail?: string | null) => {
+      const snapshot = agentRuns?.get(run.runId)
+      if (!snapshot) throw new Error('run snapshot was not captured')
+      snapshot.status = exitCode === 0 ? 'exited' : 'error'
+      snapshot.exitCode = exitCode
+      snapshot.errorTail = errorTail ?? null
+      startInput?.onExit?.(
+        errorTail === undefined
+          ? { exitCode, runId: run.runId }
+          : { errorTail, exitCode, runId: run.runId }
+      )
+    }
+
+    emitExit(null, 'pty stream failed')
+    expect(store.getLiveRun(run.runId)).toMatchObject({ status: 'error', exitCode: null })
+    expect(store.listAgentRuns(worker.id)[0]).toMatchObject({
+      status: 'error',
+      exitCode: null,
+    })
+    expect(store.getWorker(workspace.id, worker.id).status).toBe('stopped')
+
+    emitExit(0)
+
+    expect(store.listAgentRuns(worker.id)[0]).toMatchObject({
+      status: 'exited',
+      exitCode: 0,
+    })
+    expect(store.getLiveRun(run.runId)).toMatchObject({ status: 'exited', exitCode: 0 })
+    expect(store.getWorker(workspace.id, worker.id).status).toBe('stopped')
+  })
+
   test('reportTask resets worker pending count and returns it to idle', () => {
     const store = createRuntimeStore()
 
@@ -263,6 +319,7 @@ describe('runtime store', () => {
         description: expect.any(String),
         status: 'stopped',
         pendingTaskCount: 0,
+        workflowAllowed: false,
       },
       {
         id: expect.any(String),
@@ -271,6 +328,7 @@ describe('runtime store', () => {
         description: expect.any(String),
         status: 'stopped',
         pendingTaskCount: 0,
+        workflowAllowed: false,
       },
     ])
   })
