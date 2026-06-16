@@ -19,6 +19,7 @@ export interface AgentRuntime {
   ) => void
   deleteAgentLaunchConfig: (workspaceId: string, agentId: string) => void
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => LiveAgentRun | undefined
+  isAgentStarting: (workspaceId: string, agentId: string) => boolean
   peekAgentLaunchConfig: (
     workspaceId: string,
     agentId: string

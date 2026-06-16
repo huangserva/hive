@@ -44,6 +44,7 @@ export interface SentinelHeartbeatOptions {
   listWorkspaces: () => WorkspaceSummary[]
   logger?: HiveLogger
   now?: () => number
+  reconcileAgentStatus?: (workspaceId: string, agentId: string) => void
   writeRunInput: (runId: string, input: string) => void
 }
 
@@ -140,9 +141,10 @@ export const createSentinelHeartbeat = ({
   listWorkspaces,
   logger,
   now = Date.now,
+  reconcileAgentStatus,
   writeRunInput,
 }: SentinelHeartbeatOptions) => {
-  let timer: NodeJS.Timeout | null = null
+  let timer: ReturnType<typeof setInterval> | null = null
   const lastTickAt = new Map<string, number>()
   const archiveAuditTrigger = createArchiveAuditTrigger()
 
@@ -189,6 +191,16 @@ export const createSentinelHeartbeat = ({
     )
     for (const workspace of workspaces) {
       const workers = listWorkers(workspace.id)
+      for (const worker of workers) {
+        try {
+          reconcileAgentStatus?.(workspace.id, worker.id)
+        } catch (error) {
+          logger?.warn(
+            `agent status reconcile failed workspace_id=${workspace.id} agent_id=${worker.id}`,
+            error
+          )
+        }
+      }
       const sentinels = workers.filter((worker) => worker.role === 'sentinel')
       for (const sentinel of sentinels) {
         const run = getActiveRunByAgentId(workspace.id, sentinel.id)
@@ -229,10 +241,11 @@ export const createSentinelHeartbeat = ({
 
   const start = () => {
     if (timer) return
-    timer = setInterval(() => {
+    const nextTimer = setInterval(() => {
       void tick()
     }, intervalMs)
-    timer.unref?.()
+    timer = nextTimer
+    ;(nextTimer as { unref?: () => void }).unref?.()
   }
 
   const stop = () => {

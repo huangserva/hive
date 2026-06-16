@@ -112,6 +112,9 @@ export const createAgentRuntime = (
         agentId
       )
     },
+    isAgentStarting(workspaceId, agentId) {
+      return startPromises.has(`${workspaceId}:${agentId}`)
+    },
     getLiveRun(runId) {
       const run = registry.get(runId)
       if (!run) throw new Error(`Live run not found: ${runId}`)

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-
+import type { DispatchRecord } from '../../src/server/dispatch-ledger-store.js'
 import {
   createSentinelHeartbeat,
   listStaleDecisionDrafts,
@@ -66,6 +66,46 @@ describe('sentinel heartbeat', () => {
     expect(writeRunInput.mock.calls[0]?.[1]).toContain('M src/server/example.ts')
   })
 
+  test('reconciles every worker status before building heartbeat payload', async () => {
+    const writeRunInput = vi.fn()
+    const reconcileAgentStatus = vi.fn()
+    const workers = [
+      {
+        id: 'workspace-1:sentinel',
+        name: 'Sentinel',
+        pendingTaskCount: 0,
+        role: 'sentinel' as const,
+        status: 'idle' as const,
+      },
+      {
+        id: 'workspace-1:coder',
+        name: 'Coder',
+        pendingTaskCount: 1,
+        role: 'coder' as const,
+        status: 'working' as const,
+      },
+    ]
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: (_workspaceId, agentId) =>
+        agentId === 'workspace-1:sentinel' ? { runId: 'run-sentinel' } : undefined,
+      getWorkerConfig: () => ({}),
+      listWorkers: () => workers,
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' }],
+      reconcileAgentStatus,
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+
+    expect(reconcileAgentStatus).toHaveBeenCalledWith('workspace-1', 'workspace-1:sentinel')
+    expect(reconcileAgentStatus).toHaveBeenCalledWith('workspace-1', 'workspace-1:coder')
+    expect(reconcileAgentStatus).toHaveBeenCalledTimes(2)
+    expect(writeRunInput).toHaveBeenCalledTimes(1)
+    expect(reconcileAgentStatus.mock.invocationCallOrder[0]).toBeLessThan(
+      writeRunInput.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    )
+  })
+
   test('uses per-sentinel heartbeat interval from worker config', async () => {
     let now = 1_000
     const writeRunInput = vi.fn()
@@ -104,8 +144,9 @@ describe('sentinel heartbeat', () => {
     const heartbeat = createSentinelHeartbeat({
       getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
       getWorkerConfig: () => ({}),
-      listOpenDispatches: () => [
+      listOpenDispatches: (): DispatchRecord[] => [
         {
+          acceptVerdict: null,
           artifacts: [],
           createdAt: now - 20 * 60 * 1000,
           deliveredAt: null,
@@ -113,6 +154,8 @@ describe('sentinel heartbeat', () => {
           id: 'dispatch-stale',
           reportedAt: null,
           reportText: null,
+          reviewStatus: null,
+          reviewsDispatchId: null,
           sequence: 1,
           status: 'submitted',
           submittedAt: now - 20 * 60 * 1000,
@@ -155,8 +198,9 @@ describe('sentinel heartbeat', () => {
     const heartbeat = createSentinelHeartbeat({
       getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
       getWorkerConfig: () => ({}),
-      listOpenDispatches: () => [
+      listOpenDispatches: (): DispatchRecord[] => [
         {
+          acceptVerdict: null,
           artifacts: [],
           createdAt: now - 20 * 60 * 1000,
           deliveredAt: null,
@@ -164,6 +208,8 @@ describe('sentinel heartbeat', () => {
           id: 'dispatch-running',
           reportedAt: null,
           reportText: null,
+          reviewStatus: null,
+          reviewsDispatchId: null,
           sequence: 1,
           status: 'submitted',
           submittedAt: now - 20 * 60 * 1000,
@@ -206,8 +252,9 @@ describe('sentinel heartbeat', () => {
     const heartbeat = createSentinelHeartbeat({
       getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
       getWorkerConfig: () => ({}),
-      listOpenDispatches: () => [
+      listOpenDispatches: (): DispatchRecord[] => [
         {
+          acceptVerdict: null,
           artifacts: [],
           createdAt: now - 35 * 60 * 1000,
           deliveredAt: null,
@@ -215,6 +262,8 @@ describe('sentinel heartbeat', () => {
           id: 'dispatch-stale-working',
           reportedAt: null,
           reportText: null,
+          reviewStatus: null,
+          reviewsDispatchId: null,
           sequence: 1,
           status: 'submitted',
           submittedAt: now - 35 * 60 * 1000,

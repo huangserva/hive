@@ -5,6 +5,7 @@ import { createAgentRuntime } from './agent-runtime.js'
 import type { StartAgentOptions } from './agent-runtime-contract.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
+import { reconcileAgentStatus } from './agent-status-reconciler.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { createDispatchLedgerStore } from './dispatch-ledger-store.js'
 import { createApprovalLedger } from './feishu-approval-ledger.js'
@@ -181,7 +182,11 @@ export const createRuntimeStoreServices = (
       workerOutputTracker?.detach(workspaceId, agentId)
       if (!workspaceStore.hasAgent(workspaceId, agentId)) return
       const worker = workspaceStore.getAgent(workspaceId, agentId)
-      workspaceStore.markAgentStopped(workspaceId, agentId)
+      try {
+        workspaceStore.markAgentStopped(workspaceId, agentId)
+      } finally {
+        reconcileAgentStatusForAgent(workspaceId, agentId)
+      }
       try {
         notifyOrphanedDispatchesOnWorkerExit({
           injectNudge: (targetWorkspaceId, message) =>
@@ -203,6 +208,19 @@ export const createRuntimeStoreServices = (
     options.dataDir,
     (workspaceId) => workspaceStore.getWorkspaceSnapshot(workspaceId).agents
   )
+  function reconcileAgentStatusForAgent(workspaceId: string, agentId: string) {
+    if (!workspaceStore.hasAgent(workspaceId, agentId)) return
+    reconcileAgentStatus({
+      agent: workspaceStore.getAgent(workspaceId, agentId),
+      getActiveRunByAgentId: (targetWorkspaceId, targetAgentId) =>
+        agentRuntime.getActiveRunByAgentId(targetWorkspaceId, targetAgentId),
+      isAgentStarting: (targetWorkspaceId, targetAgentId) =>
+        agentRuntime.isAgentStarting(targetWorkspaceId, targetAgentId),
+      listOpenDispatchesForWorker: (targetWorkspaceId, targetAgentId) =>
+        dispatchLedgerStore.listOpenDispatchesForWorker(targetWorkspaceId, targetAgentId),
+      workspaceId,
+    })
+  }
   const milestoneCompletionTrigger = createMilestoneCompletionTrigger({
     getWorkspacePath: (workspaceId) =>
       workspaceStore.getWorkspaceSnapshot(workspaceId).summary.path,
@@ -247,6 +265,7 @@ export const createRuntimeStoreServices = (
         listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
         listWorkspaces: () => workspaceStore.listWorkspaces(),
         ...(options.logger ? { logger: options.logger } : {}),
+        reconcileAgentStatus: reconcileAgentStatusForAgent,
         writeRunInput: writeAgentRunInput,
       })
     : null
@@ -410,6 +429,20 @@ export const createRuntimeStoreLifecycle = ({
   agentManager,
   services,
 }: CreateRuntimeStoreLifecycleOptions) => {
+  const reconcileLifecycleAgentStatus = (workspaceId: string, agentId: string) => {
+    if (!services.workspaceStore.hasAgent(workspaceId, agentId)) return
+    reconcileAgentStatus({
+      agent: services.workspaceStore.getAgent(workspaceId, agentId),
+      getActiveRunByAgentId: (targetWorkspaceId, targetAgentId) =>
+        services.agentRuntime.getActiveRunByAgentId(targetWorkspaceId, targetAgentId),
+      isAgentStarting: (targetWorkspaceId, targetAgentId) =>
+        services.agentRuntime.isAgentStarting(targetWorkspaceId, targetAgentId),
+      listOpenDispatchesForWorker: (targetWorkspaceId, targetAgentId) =>
+        services.dispatchLedgerStore.listOpenDispatchesForWorker(targetWorkspaceId, targetAgentId),
+      workspaceId,
+    })
+  }
+
   const startAgent = async (
     workspaceId: string,
     agentId: string,
@@ -425,6 +458,7 @@ export const createRuntimeStoreLifecycle = ({
       )
       if (run.status === 'error') {
         services.workspaceStore.markAgentStopped(workspaceId, agentId)
+        reconcileLifecycleAgentStatus(workspaceId, agentId)
       } else {
         services.workerOutputTracker?.attach(workspaceId, agentId, run.runId, run.output)
         services.mobileOrchestratorReplyCapture?.attach(workspaceId, agentId, run.runId)
@@ -432,6 +466,7 @@ export const createRuntimeStoreLifecycle = ({
       return run
     } catch (error) {
       services.workspaceStore.markAgentStopped(workspaceId, agentId)
+      reconcileLifecycleAgentStatus(workspaceId, agentId)
       throw error
     }
   }
