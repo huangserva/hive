@@ -21,7 +21,8 @@
 > - ✅ **首个真任务审计 sprint shipped(2026-06-16，`d23007e`+`0aa82d5`)**：user "测一下工作流"→ andy 在 GLM 上跑 code-review-3x 审 `agent-manager.ts`(4 agent/262s/grounded)→ 出 13 条、4 高危 → 钟馗独立复核全为真 → 4 条全修+多轮独立审+整合 90 测绿 → 提交。**#1** exitCode 竞态跨层真闭环(钟馗 3 轮逼出内存→生产层漏洞)+**#2** pgid guard 防误杀 hive(`d23007e`)；**#3** spawn env provider 作用域 allowlist 治宿主机密钥全泄漏(含真 node-pty 穿透测)+**#4** 自定义命令护栏含延迟绕过(`0aa82d5`)。审计报告/笔记在 `reports`+`research`/2026-06-16-agent-manager-audit*(gitignored 本地)。**插曲**：马超(没卡死只是慢)重复实现 #3 覆盖关羽过审版→靠 mtime 查真相+补审，补审反多抓一个真泄漏 bug(workflow 非 GLM 漏 ANTHROPIC_API_KEY+假绿测试)→焊死。审查门兜住没让没审的混进提交。
 > - 🔬 **idea-18 → M45 立项(user 2026-06-16 拍"立，要解决")**：worker compact 卡死自愈看门狗。一会话三炸(andy×1/马超×2)逼出设计：判定信号用 mtime 非状态机、恢复必须真重启/PTY 中断(team send 叫不醒卡死 worker)、改派前确认原 worker 已停防覆盖。
 > - 🔧 **M45 前置·worker 状态 reconcile P0+P1 code-complete + reviewed-green(本地 `c787ae6`+`c31f2d4`，待 4010 重启激活 + 张飞真机验)**：user 怒"假忙/假idle 反复修不好"→ andy 工作流根因调查(`workflows/worker-status-rootcause.mjs`，钟馗复核削平 2 处事实错)定位真根=status 是内存可变字段、4 真相源(内存/pending/ledger/PTY)运行期零对账。**彻底修**：status 降级为派生投影 `deriveAgentStatus(activeRun||isStarting, openDispatchCount)` + 统一 reconciler(哨兵 tick + 事件 + 启动三触发)。P0 止血命门路径 A(crash 后假忙，钟馗 2 轮逼出启动中误降窗口 blocking→isStarting 守卫)；P1 收敛全部 mark* 写口为单一权威派生、pending 改从 ledger 派生、B/E/F 三脱节态结构性消失。全程 codex(赵云)实现 + 钟馗多轮独立审 0block。**reconcile 是 M45 前置**(status 可信后 watchdog 才有可信输入)。详见 `reports`/`research`/2026-06-16-worker-status-desync-rootcause + ADR draft `decisions/draft-2026-06-16-worker-status-derived-projection.md`。残留:旧死代码 getStatusFromPendingCount 待清(P2 hygiene)。
-> - **待 user**：ADR(`decisions/draft-2026-06-15-claude-workflow-worker.md` + `draft-2026-06-16-agent-spawn-env-allowlist.md`)可转 accepted 归档;那个"卡死结"(report_overdue 单既挡新派又取消不掉)本次又靠 SQL 手动绕过、应随 M45 一起根治;args-as-string 是否在工具层根治(vs 脚本侧 parse 约定)。
+> - 🐛 **runtime bug 普查 sprint(andy 工作流挖 + 钟馗逐条独立核 + codex 修)shipped**：第二个 PM 编排/GLM 执行的工作流(`workflows/runtime-bug-sweep.mjs`,4 类反模式并行:真相源漂移/静默吞错/并发竞态/资源泄漏)扫出 14 bug → 钟馗独立核高危 5 条 → 4 真 1 已被 P1 覆盖(#4)→ codex 全修 + 钟馗多轮独立审(连拦"全局抛出带坏 report/cancel""审批可被相反 decision 翻盘"两个真 regression)。**#2** 派单 TOCTOU 双发(守卫含 queued + per-worker 原子 reservation,`187c187`)；**#1+#7** 飞书审批 fire-and-forget + ledger 重启全丢(approval 进 SQLite feishu_approvals v35/v36 + resolve 原子抢占防相反 decision 翻盘 + 注入成功才 ack,`114ee8e`)；**#3** tasks.md↔ledger 双向 drift(创建路径抛+补偿、lifecycle 路径容忍,`0a6c8b8`)；**proxy 回归**(#3 安全 allowlist 误删 HTTP(S)_PROXY 致 worker 403,`b8433b0` 已 push)。#1 是高风险动作放行闸门、最该修。known-limitation:审批同 decision at-least-once 重复注入待后续 approval_id 幂等;tasks.md lifecycle stale 待 ② ledger→投影 reconcile。完整报告 `reports/2026-06-16-runtime-bug-sweep.html`。
+> - **待 user**：ADR(`decisions/draft-2026-06-15-claude-workflow-worker.md` + `draft-2026-06-16-agent-spawn-env-allowlist.md` + `draft-2026-06-16-worker-status-derived-projection.md`)可转 accepted 归档;那个"卡死结"(report_overdue 单既挡新派又取消不掉)本次又靠 SQL 手动绕过、应随 M45 一起根治;args-as-string 是否在工具层根治(vs 脚本侧 parse 约定);M45 看门狗本体仍待建(reconcile 前置已 ship)。
 > **教训记**：builtin seeding 两次漏;钟馗复现式审查多连抓"代码对但生产/升级/编辑某路径断"的假绿;workflow 架构关键认知=控制流写死在脚本(Opus 设计)、模型只跑叶子(GLM 执行)；L1 能保证 orch【知道】有 workflow agent，但【是否用】仍是 orch 的 L3 选择。
 
 
@@ -67,6 +68,22 @@
 - [x] **钟馗** dispatch `01b22e95` — 复审 worker 状态 reconcile P0 round2（只审不改，blocking 优先，中文带行号）：赵云按你上轮的启动中误降 blocking 补了 isAgentStarting 守卫。确认窗口真堵死 + 没引入反向新坑。
 - [x] **赵云** dispatch `4ac86844` — 【worker 状态 reconcile · P1 彻底收敛——codex 实现,TDD】P0 已过审+本地提交(c787ae6)。P1 做钟馗指的"收敛写口、根除双写竞态"那步,把 status 真正变成单一权威派生。改完 report…
 - [x] **钟馗** dispatch `2104e2d5` — 独立审 worker 状态 reconcile P1 收敛写口（只审不改，blocking 优先，中文带行号）。这是横切整个 mutation 层的大改，P0 已过审+提交(c787ae6)，P1 把 status/pendingTask…
+- [x] **工作流andy** dispatch `9f56597d` — 跑工作流 runtime-bug-sweep，在 runtime/dispatch/agent-lifecycle 脊柱上做 bug 普查。执行方式：调用 Workflow 工具，scriptPath=/Users/huangzongni…
+- [~] **钟馗** dispatch `bcc791a6` — 独立核 runtime bug 普查的高危发现（只核不改，中文带行号，逐条 verdict 真/假/部分 + 证据文件:行）。andy(GLM) 工作流扫出 14 个 bug，它之前误报过（路径 D），所以高危项必须你对照真代码坐实真假再… ⊘ reviewer 钟馗 crash 未完成核验，改派重核
+- [~] **张飞** dispatch `8f78f986` — 独立核 runtime bug 普查的高危发现（只核不改，中文带行号，逐条 verdict 真/假/部分 + 证据文件:行）。背景：工作流 andy(GLM) 扫出 14 个 bug，钟馗核到一半崩了，改派你这个独立 codex 来核高危… ⊘ orphan-submitted: worker stopped without reporting
+- [x] **张飞** dispatch `3e3fbe14` — 加一条回归测试钉死"worker spawn env 必须保留出网代理"这个坑(我们 #3 安全 allowlist 曾把它误删导致 worker 直连 Anthropic 被回 403,已在工作区补 PROXY_PARENT_ENV_K…
+- [x] **钟馗** dispatch `89119f98` — 重派(上次你核到一半崩了,被重启 orphan)。独立核 runtime bug 普查的高危 5 条(只核不改,中文带行号,逐条 verdict 真/假/部分 + 证据文件:行)。andy(GLM)扫出 14 个 bug、自己也穿透核过声…
+- [x] **关羽** dispatch `55daf086` — 修 #2 派单并发双发(TOCTOU,钟馗独立核实为真·高危)。TDD,改完 team report 中文带行号,我派钟馗审。
+- [x] **赵云** dispatch `46b3388b` — 修 #1+#7 飞书审批 fire-and-forget + ledger 纯内存重启全丢(钟馗独立核实为真·高危·同根=approval 状态非持久)。这是个小子系统改动:若你判断一次改不完,先把设计方案(新表 schema + res…
+- [x] **钟馗** dispatch `585984d3` — 独立审 #2 派单并发双发修复(只审不改,中文带行号,blocking 优先)。关羽改的,你之前核实过这是真 bug,现在审实现对不对、有没有引入新坑。
+- [x] **关羽** dispatch `fb67b40e` — #2 钟馗审:产品逻辑 0 问题(锁释放/原子性/不过度拦截/影响面都核过),只剩 1 个 blocking=过期测试,收口它就能提交。
+- [x] **钟馗** dispatch `bc1ac58d` — 独立审 #1+#7 飞书审批持久化 + fire-and-forget 修复(只审不改,blocking 优先,中文带行号)。这是高风险动作放行闸门、安全命门,赵云改的子系统(新 feishu_approvals 表 schema v35…
+- [x] **关羽** dispatch `cebed8c7` — 修 #3 tasks.md 与 DB dispatch ledger 双向 drift(钟馗核实为真·P1)。TDD,改完 team report 中文带行号,我派钟馗审。先别碰 #1/#7(赵云在改的 feishu/approval/r…
+- [x] **赵云** dispatch `4fd84586` — #1/#7 钟馗审:持久化方向对、重启恢复+schema v35 都过,但抓到 1 个真 blocking(安全命门),round 2 收口。TDD,改完 report 我再派钟馗复审。
+- [x] **钟馗** dispatch `28c8f942` — 独立审 #3 tasks.md drift 修复(只审不改,blocking 优先,中文带行号)。关羽用最小补偿方案修了 DB↔tasks.md 双向 drift(你之前核实的两种)。复现式审,命门是"把吞错改成抛出会不会带坏别的调用方"。
+- [x] **关羽** dispatch `1e15d1c3` — #3 钟馗审出真 regression,round 2 收口。你把 safeWriteTasksFile 全局改抛出,但只有 dispatchTask 创建路径有补偿——report/cancel/accept/orphan 这些"先改 …
+- [x] **钟馗** dispatch `c93349b3` — 复审 #1/#7 round 2(只审不改,中文带行号)。赵云按你上轮 blocking 加了原子抢占。确认命门真堵死 + 无新坑。
+- [x] **钟馗** dispatch `f4b88143` — 复审 #3 round 2(只审不改,中文带行号)。关羽按你上轮 blocking 把全局抛出改成按调用点 opt-in。确认 regression 真消除 + 创建路径补偿没丢。
 ## 近期归档（已 shipped，留作 build 史）
 
 > 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**
