@@ -149,6 +149,148 @@ describe('reconcileOrphanedDispatches', () => {
     ).toBe('queued')
   })
 
+  test('startup queued reconcile re-drives a queued dispatch when the worker can be launched', async () => {
+    const { services, worker, workspace, workspacePath } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      fromAgentId: worker.id,
+      text: 'Queued crash survivor',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const writtenPrompts: Array<{ dispatchId: string; workerId: string }> = []
+    vi.spyOn(services.agentRuntime, 'peekAgentLaunchConfig').mockReturnValue({
+      command: 'codex',
+    })
+    vi.spyOn(services.agentRuntime, 'getActiveRunByAgentId').mockReturnValue(
+      createLiveRunRef('run-queued')
+    )
+    vi.spyOn(services.agentRuntime, 'writeSendPrompt').mockImplementation(
+      (_workspaceId, workerId, dispatchId) => {
+        writtenPrompts.push({ dispatchId, workerId })
+      }
+    )
+
+    const reconciled = await services.teamOps.reconcileQueuedDispatchesOnStartup({
+      hivePort: '4010',
+      workspaceId: workspace.id,
+    })
+
+    expect(reconciled.map((item) => item.dispatch.id)).toEqual([dispatch.id])
+    expect(reconciled[0]?.action).toBe('submitted')
+    expect(writtenPrompts).toEqual([{ dispatchId: dispatch.id, workerId: worker.id }])
+    expect(
+      services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
+    ).toBe('running')
+    expect(readTasks(workspacePath)).toContain(`dispatch \`${dispatch.id.slice(0, 8)}\``)
+  })
+
+  test('startup queued reconcile keeps a delivered dispatch running when tasks projection fails', async () => {
+    const { services, worker, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      fromAgentId: worker.id,
+      text: 'Queued survivor with readonly tasks',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    vi.spyOn(services.agentRuntime, 'peekAgentLaunchConfig').mockReturnValue({
+      command: 'codex',
+    })
+    vi.spyOn(services.agentRuntime, 'getActiveRunByAgentId').mockReturnValue(
+      createLiveRunRef('run-delivered')
+    )
+    vi.spyOn(services.agentRuntime, 'writeSendPrompt').mockImplementation(() => {})
+    vi.spyOn(services.tasksFileService, 'recordDispatchSent').mockImplementation(() => {
+      throw new Error('tasks.md readonly')
+    })
+
+    const reconciled = await services.teamOps.reconcileQueuedDispatchesOnStartup({
+      workspaceId: workspace.id,
+    })
+
+    expect(reconciled.map((item) => item.dispatch.id)).toEqual([dispatch.id])
+    expect(reconciled[0]?.action).toBe('submitted')
+    expect(
+      services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
+    ).toBe('running')
+  })
+
+  test('startup queued reconcile only orphans when prompt delivery fails before worker receives task', async () => {
+    const { services, worker, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      fromAgentId: worker.id,
+      text: 'Queued survivor with dead pty',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    vi.spyOn(services.agentRuntime, 'peekAgentLaunchConfig').mockReturnValue({
+      command: 'codex',
+    })
+    vi.spyOn(services.agentRuntime, 'getActiveRunByAgentId').mockReturnValue(
+      createLiveRunRef('run-dead-pty')
+    )
+    vi.spyOn(services.agentRuntime, 'writeSendPrompt').mockImplementation(() => {
+      throw new Error('pty write failed')
+    })
+
+    const reconciled = await services.teamOps.reconcileQueuedDispatchesOnStartup({
+      workspaceId: workspace.id,
+    })
+
+    expect(reconciled.map((item) => item.dispatch.id)).toEqual([dispatch.id])
+    expect(reconciled[0]?.action).toBe('orphaned')
+    expect(services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)).toBe(
+      undefined
+    )
+  })
+
+  test('startup queued reconcile surfaces an unrecoverable queued dispatch for an existing worker', async () => {
+    const { services, worker, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      fromAgentId: worker.id,
+      text: 'Queued survivor without launch config',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+
+    const reconciled = await services.teamOps.reconcileQueuedDispatchesOnStartup({
+      workspaceId: workspace.id,
+    })
+
+    expect(reconciled).toEqual([])
+    expect(
+      services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
+    ).toBe('queued')
+    const events = services.mobileChatStore
+      .listChatMessages(workspace.id)
+      .filter((message) => message.message_type === 'system_event')
+      .map((message) => JSON.parse(message.content_json) as { dispatch_id?: string; type?: string })
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        dispatch_id: dispatch.id,
+        type: 'queued_dispatch_reconcile_blocked',
+      })
+    )
+  })
+
+  test('startup queued reconcile orphans a queued dispatch whose worker is gone', async () => {
+    const { services, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      text: 'Queued for deleted worker',
+      toAgentId: 'missing-worker',
+      workspaceId: workspace.id,
+    })
+
+    const reconciled = await services.teamOps.reconcileQueuedDispatchesOnStartup({
+      workspaceId: workspace.id,
+    })
+
+    expect(reconciled.map((item) => item.dispatch.id)).toEqual([dispatch.id])
+    expect(reconciled[0]?.action).toBe('orphaned')
+    expect(services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)).toBe(
+      undefined
+    )
+  })
+
   test('scopes reconcile to a single workspace when workspaceId is given', async () => {
     const { services, worker, workspace, workspacePath } = setup()
     const otherWorkspacePath = mkdtempSync(join(tmpdir(), 'hive-orphan-ws2-'))

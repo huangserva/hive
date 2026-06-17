@@ -182,12 +182,24 @@ export interface ReconcileOrphanedDispatchesInput {
   workspaceId?: string
 }
 
+export interface ReconcileQueuedDispatchesInput {
+  hivePort?: string
+  workspaceId?: string
+}
+
+export interface ReconcileQueuedDispatchesResult {
+  action: 'orphaned' | 'submitted'
+  dispatch: DispatchRecord
+}
+
 // 孤儿派单收尾：一条 dispatch 卡在 submitted、目标 worker 已 stopped/已删 且无 active run，
 // 就再也不会有人 report 了（worker 在别的 dispatch 下 report、或 worker 已停）。把这种
 // 「明确孤儿」标成 cancelled，避免无限堆在 In progress 段当噪音。语义与 sentinel 巡检
 // (sentinel-heartbeat.ts STALE_SUBMITTED_DISPATCH_MS) 对齐：默认 15 分钟 staleness 阈值，
 // 防止刚派出去、worker 还没起来/正在原生 resume 的在途任务被误杀。
 export const ORPHAN_DISPATCH_CANCEL_REASON = 'orphan-submitted: worker stopped without reporting'
+export const ORPHAN_QUEUED_DISPATCH_CANCEL_REASON =
+  'orphan-queued: dispatch was never submitted before runtime restart'
 const ORPHAN_SUBMITTED_STALE_MS = 15 * 60 * 1000
 
 export interface ReportTaskResult {
@@ -222,6 +234,34 @@ const forwardFailureSystemEvent = (input: {
     severity: 'error',
     text: `${input.workerName} ${input.operation} 已记录，但 Orchestrator 没收到：${input.error}`,
     type: 'orchestrator_forward_failed',
+    worker_name: input.workerName,
+  })
+
+const queuedDispatchReconcileBlockedSystemEvent = (input: {
+  dispatchId: string
+  reason: string
+  workerName: string
+}) =>
+  JSON.stringify({
+    dispatch_id: input.dispatchId,
+    reason: input.reason,
+    severity: 'warning',
+    text: `${input.workerName} 有一条 queued dispatch 启动恢复失败：${input.reason}`,
+    type: 'queued_dispatch_reconcile_blocked',
+    worker_name: input.workerName,
+  })
+
+const queuedDispatchProjectionFailedSystemEvent = (input: {
+  dispatchId: string
+  error: string
+  workerName: string
+}) =>
+  JSON.stringify({
+    dispatch_id: input.dispatchId,
+    error: input.error,
+    severity: 'warning',
+    text: `${input.workerName} queued dispatch 已交付，但本地 tasks.md 投影失败：${input.error}`,
+    type: 'queued_dispatch_projection_failed',
     worker_name: input.workerName,
   })
 
@@ -582,7 +622,169 @@ export const createTeamOperations = ({
     return dispatch
   }
 
+  const orphanQueuedDispatch = (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    reason = ORPHAN_QUEUED_DISPATCH_CANCEL_REASON
+  ): ReconcileQueuedDispatchesResult | null => {
+    const orphaned = (markDispatchOrphaned ?? markDispatchCancelled)({
+      dispatchId: dispatch.id,
+      reason,
+      workspaceId,
+    })
+    if (!orphaned) return null
+    if (workspaceStore.hasAgent(workspaceId, orphaned.toAgentId)) {
+      workspaceStore.markTaskCancelled(workspaceId, orphaned.toAgentId)
+      reconcileAgentStatus?.(workspaceId, orphaned.toAgentId)
+    }
+    const workspacePath = getWorkspacePath(workspaceId)
+    if (workspacePath) {
+      tasksFileService.recordDispatchCancelled(workspacePath, {
+        dispatchId: orphaned.id,
+        reason,
+      })
+    }
+    return { action: 'orphaned', dispatch: orphaned }
+  }
+
+  const surfaceQueuedDispatchReconcileBlocked = (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    workerName: string,
+    reason: string
+  ) => {
+    insertMobileChatMessage?.(
+      workspaceId,
+      'outbound',
+      'system_event',
+      queuedDispatchReconcileBlockedSystemEvent({
+        dispatchId: dispatch.id,
+        reason,
+        workerName,
+      })
+    )
+  }
+
+  const surfaceQueuedDispatchProjectionFailed = (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    workerName: string,
+    error: unknown
+  ) => {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn('[hive] queued dispatch projection failed after delivery', {
+      dispatchId: dispatch.id,
+      error: message,
+      workspaceId,
+      workerName,
+    })
+    insertMobileChatMessage?.(
+      workspaceId,
+      'outbound',
+      'system_event',
+      queuedDispatchProjectionFailedSystemEvent({
+        dispatchId: dispatch.id,
+        error: message,
+        workerName,
+      })
+    )
+  }
+
+  const resubmitQueuedDispatch = async (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    input: ReconcileQueuedDispatchesInput
+  ): Promise<ReconcileQueuedDispatchesResult | null> => {
+    if (!workspaceStore.hasAgent(workspaceId, dispatch.toAgentId)) {
+      return orphanQueuedDispatch(workspaceId, dispatch)
+    }
+    const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)
+    const hasLaunchConfig = !!agentRuntime.peekAgentLaunchConfig?.(workspaceId, dispatch.toAgentId)
+    if (!hasActiveRun && !hasLaunchConfig) {
+      const workerName = workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name
+      surfaceQueuedDispatchReconcileBlocked(
+        workspaceId,
+        dispatch,
+        workerName,
+        'worker has no active run or launch config'
+      )
+      return null
+    }
+    let promptWorker: ReturnType<WorkspaceStore['getWorker']>
+    let workspacePath: string | null = null
+    try {
+      await ensureWorkerRun(workspaceId, dispatch.toAgentId, input.hivePort ?? '')
+      promptWorker = workspaceStore.getWorker(workspaceId, dispatch.toAgentId)
+      const senderName =
+        dispatch.fromAgentId && workspaceStore.hasAgent(workspaceId, dispatch.fromAgentId)
+          ? workspaceStore.getAgent(workspaceId, dispatch.fromAgentId).name
+          : 'startup-reconcile'
+      workspacePath = getWorkspacePath(workspaceId)
+      const cockpitSnapshot = workspacePath
+        ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
+        : undefined
+      markDispatchSubmitted(dispatch.id)
+      agentRuntime.writeSendPrompt(
+        workspaceId,
+        dispatch.toAgentId,
+        dispatch.id,
+        senderName,
+        promptWorker.description,
+        dispatch.text,
+        cockpitSnapshot,
+        { workflowAllowed: promptWorker.workflowAllowed }
+      )
+    } catch (error) {
+      return orphanQueuedDispatch(
+        workspaceId,
+        dispatch,
+        `${ORPHAN_QUEUED_DISPATCH_CANCEL_REASON}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      )
+    }
+    try {
+      workspaceStore.markTaskDispatched(workspaceId, dispatch.toAgentId)
+      reconcileAgentStatus?.(workspaceId, dispatch.toAgentId)
+    } catch (error) {
+      surfaceQueuedDispatchProjectionFailed(workspaceId, dispatch, promptWorker.name, error)
+    }
+    if (workspacePath) {
+      try {
+        tasksFileService.recordDispatchSent(workspacePath, {
+          dispatchId: dispatch.id,
+          taskFirstLine: dispatch.text,
+          workerName: promptWorker.name,
+        })
+      } catch (error) {
+        surfaceQueuedDispatchProjectionFailed(workspaceId, dispatch, promptWorker.name, error)
+      }
+    }
+    const submitted = findOpenDispatchById(workspaceId, dispatch.id) ?? {
+      ...dispatch,
+      status: 'running' as const,
+      submittedAt: Date.now(),
+    }
+    return { action: 'submitted', dispatch: submitted }
+  }
+
   return {
+    async reconcileQueuedDispatchesOnStartup(input: ReconcileQueuedDispatchesInput = {}) {
+      const workspaceIds = input.workspaceId
+        ? [input.workspaceId]
+        : workspaceStore.listWorkspaces().map((workspace) => workspace.id)
+      const reconciled: ReconcileQueuedDispatchesResult[] = []
+      for (const workspaceId of workspaceIds) {
+        const queuedDispatches = listOpenDispatchesForWorkspace(workspaceId).filter(
+          (dispatch) => dispatch.status === 'queued'
+        )
+        for (const dispatch of queuedDispatches) {
+          const result = await resubmitQueuedDispatch(workspaceId, dispatch, input)
+          if (result) reconciled.push(result)
+        }
+      }
+      return reconciled
+    },
     recoverTask(workspaceId: string, dispatchId: string, input: RecoverTaskInput) {
       workspaceStore.getAgent(workspaceId, input.fromAgentId)
       const dispatch = requireReportOverdueDispatch(workspaceId, dispatchId)

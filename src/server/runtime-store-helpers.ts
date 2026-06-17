@@ -395,6 +395,20 @@ export const createRuntimeStoreServices = (
   sentinelHeartbeat?.start()
   stalledDispatchNudge.start()
 
+  // 启动时恢复 createDispatch→markSubmitted 之间崩溃留下的 queued dispatch：
+  // 可重投的重新注入同 worker；目标 worker 不存在的收尾为 orphaned，避免永久卡 queued。
+  void teamOps
+    .reconcileQueuedDispatchesOnStartup({ hivePort: process.env.HIVE_PORT ?? '' })
+    .then((reconciled) => {
+      if (reconciled.length > 0) {
+        reconcileAllAgentStatuses()
+        options.logger?.info(`reconciled ${reconciled.length} queued dispatch(es) on startup`)
+      }
+    })
+    .catch((error) => {
+      options.logger?.warn('queued dispatch reconcile on startup failed', error)
+    })
+
   // 启动时收尾历史孤儿派单：runtime 重启后所有 worker 都是 stopped 且无 active run，
   // 此时把卡在 submitted 已过期的孤儿统一标成 cancelled（tasks.md 同步），清掉噪音。
   // 当前正在 working 的 worker 在重启瞬间也是 stopped，但其 dispatch 通常未过 staleness
