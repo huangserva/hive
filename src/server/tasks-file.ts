@@ -55,6 +55,13 @@ interface TasksFileService {
       workerName: string
     }
   ) => void
+  /** dispatch 创建后发生后续失败时调用：删除刚追加的 sent 行 */
+  recordDispatchRolledBack: (
+    workspacePath: string,
+    input: {
+      dispatchId: string
+    }
+  ) => void
   readPlan: (workspacePath: string) => string
   readTasks: (workspacePath: string) => string
   writeTasks: (workspacePath: string, content: string) => void
@@ -158,12 +165,16 @@ const safeWriteTasksFile = (
   workspacePath: string,
   content: string,
   logger: Pick<HiveLogger, 'warn'> | undefined,
-  operation: string
+  operation: string,
+  input: { throwOnFailure?: boolean } = {}
 ) => {
   try {
     writeFileSync(getTasksFilePath(workspacePath), content, 'utf8')
   } catch (error) {
     logger?.warn(`tasks lifecycle ${operation} skipped: failed to write tasks.md`, error)
+    if (input.throwOnFailure) {
+      throw error
+    }
   }
 }
 
@@ -171,14 +182,17 @@ const updateTasksContent = (
   workspacePath: string,
   logger: Pick<HiveLogger, 'warn'> | undefined,
   operation: string,
-  update: (lines: string[]) => string[] | null
+  update: (lines: string[]) => string[] | null,
+  input: { throwOnWriteFailure?: boolean } = {}
 ) => {
   const content = safeReadTasksFile(workspacePath, logger, operation)
   if (content === null) return
   const lines = content.split(/\r?\n/)
   const nextLines = update(lines)
   if (!nextLines) return
-  safeWriteTasksFile(workspacePath, nextLines.join('\n'), logger, operation)
+  safeWriteTasksFile(workspacePath, nextLines.join('\n'), logger, operation, {
+    throwOnFailure: input.throwOnWriteFailure === true,
+  })
 }
 
 const TASKS_SEED_TEMPLATE = `# Tasks
@@ -319,15 +333,36 @@ export const createTasksFileService = (
     recordDispatchSent(workspacePath, input) {
       const dispatchShortId = getDispatchShortId(input.dispatchId)
       const taskFirstLine = truncateText(input.taskFirstLine, 120)
-      updateTasksContent(workspacePath, logger, 'send', (lines) => {
-        const section = findInProgressSection(lines)
-        if (!section) {
-          logger?.warn('tasks lifecycle send skipped: missing ## In progress section')
+      updateTasksContent(
+        workspacePath,
+        logger,
+        'send',
+        (lines) => {
+          const section = findInProgressSection(lines)
+          if (!section) {
+            logger?.warn('tasks lifecycle send skipped: missing ## In progress section')
+            return null
+          }
+          if (findDispatchLine(lines, dispatchShortId) !== -1) return null
+          const line = `- [ ] **${input.workerName}** dispatch \`${dispatchShortId}\` — ${taskFirstLine}`
+          lines.splice(section.end, 0, line)
+          return lines
+        },
+        {
+          throwOnWriteFailure: true,
+        }
+      )
+    },
+
+    recordDispatchRolledBack(workspacePath, input) {
+      const dispatchShortId = getDispatchShortId(input.dispatchId)
+      updateTasksContent(workspacePath, logger, 'rollback', (lines) => {
+        const lineIndex = findDispatchLine(lines, dispatchShortId)
+        if (lineIndex === -1) {
+          logger?.warn(`tasks lifecycle rollback skipped: dispatch not found id=${dispatchShortId}`)
           return null
         }
-        if (findDispatchLine(lines, dispatchShortId) !== -1) return null
-        const line = `- [ ] **${input.workerName}** dispatch \`${dispatchShortId}\` — ${taskFirstLine}`
-        lines.splice(section.end, 0, line)
+        lines.splice(lineIndex, 1)
         return lines
       })
     },

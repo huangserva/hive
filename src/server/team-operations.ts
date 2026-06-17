@@ -82,7 +82,8 @@ export interface TeamOperationsInput {
   tasksFileService?: Pick<
     TasksFileService,
     'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
-  >
+  > &
+    Partial<Pick<TasksFileService, 'recordDispatchRolledBack'>>
   workspaceStore: WorkspaceStore
   // M43 accept-gate 旁挂字段读写（dispatch-ledger-store 暴露）。Phase 1 全部 optional：
   // 缺任意一个 hook 都按"未启用 accept gate"行为走旧路径，绝不破坏 flag=0 兼容性。
@@ -190,10 +191,14 @@ const reportForwardErrorMessage = (error: unknown) =>
 
 const noopTasksFileService: Pick<
   TasksFileService,
-  'recordDispatchCancelled' | 'recordDispatchDone' | 'recordDispatchSent'
+  | 'recordDispatchCancelled'
+  | 'recordDispatchDone'
+  | 'recordDispatchRolledBack'
+  | 'recordDispatchSent'
 > = {
   recordDispatchCancelled: () => {},
   recordDispatchDone: () => {},
+  recordDispatchRolledBack: () => {},
   recordDispatchSent: () => {},
 }
 
@@ -472,6 +477,14 @@ export const createTeamOperations = ({
       if (dispatch) {
         deleteDispatch(dispatch.id)
         reconcileAgentStatus?.(workspaceId, workerId)
+        const workspacePath = getWorkspacePath(workspaceId)
+        if (workspacePath) {
+          try {
+            tasksFileService.recordDispatchRolledBack?.(workspacePath, { dispatchId: dispatch.id })
+          } catch (rollbackError) {
+            console.error('[hive] swallowed:teamDispatch.tasksRollback', rollbackError)
+          }
+        }
       }
       if (messageHandle) {
         deleteMessage(messageHandle)
