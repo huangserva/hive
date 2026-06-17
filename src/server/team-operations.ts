@@ -8,6 +8,7 @@ import {
   type DispatchRecord,
   isActiveDispatchStatus,
   isCompletedDispatchStatus,
+  isOpenDispatchStatus,
   type ReviewStatus,
 } from './dispatch-ledger-store.js'
 import { BadRequestError, ConflictError } from './http-errors.js'
@@ -306,6 +307,25 @@ export const createTeamOperations = ({
     }
   }
 
+  const workerDispatchReservations = new Set<string>()
+
+  const withWorkerDispatchReservation = <T>(
+    workspaceId: string,
+    workerId: string,
+    mutation: () => T
+  ): T => {
+    const lockKey = `${workspaceId}:${workerId}`
+    if (workerDispatchReservations.has(lockKey)) {
+      throw new ConflictError(`Worker already has a dispatch reservation in progress: ${workerId}`)
+    }
+    workerDispatchReservations.add(lockKey)
+    try {
+      return mutation()
+    } finally {
+      workerDispatchReservations.delete(lockKey)
+    }
+  }
+
   const ensureWorkerRun = async (workspaceId: string, workerId: string, hivePort: string) => {
     if (agentRuntime.getActiveRunByAgentId(workspaceId, workerId)) {
       return
@@ -345,40 +365,55 @@ export const createTeamOperations = ({
     input: DispatchTaskInput = {}
   ) => {
     const worker = workspaceStore.getWorker(workspaceId, workerId)
-    const existingSubmittedDispatch = listOpenDispatchesForWorkspace(workspaceId).find(
-      (dispatch) => dispatch.toAgentId === workerId && isActiveDispatchStatus(dispatch.status)
-    )
-    if (existingSubmittedDispatch) {
-      console.warn(
-        [
-          'team dispatch rejected: worker already has active dispatch',
-          `worker=${worker.name}`,
-          `worker_id=${workerId}`,
-          `existing_dispatch_id=${existingSubmittedDispatch.id}`,
-          `attempt_summary=${text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? ''}`,
-        ].join(' ')
-      )
-      throw new ConflictError(
-        `Worker ${worker.name} already has active dispatch ${existingSubmittedDispatch.id}; cancel it before sending another task`
-      )
-    }
-    const message = createSendMessage(workspaceId, workerId, text, input.fromAgentId)
-    const messageHandle = insertMessage(message)
+    let messageHandle: MessageLogHandle | undefined
     let dispatch: DispatchRecord | undefined
 
     try {
-      const dispatchInput: {
-        fromAgentId?: string
-        text: string
-        toAgentId: string
-        workspaceId: string
-      } = {
-        text,
-        toAgentId: workerId,
-        workspaceId,
-      }
-      if (input.fromAgentId) dispatchInput.fromAgentId = input.fromAgentId
-      dispatch = createDispatch(dispatchInput)
+      const reservation = withWorkerDispatchReservation(workspaceId, workerId, () => {
+        const existingOpenDispatch = listOpenDispatchesForWorkspace(workspaceId).find(
+          (candidate) => candidate.toAgentId === workerId && isOpenDispatchStatus(candidate.status)
+        )
+        if (existingOpenDispatch) {
+          console.warn(
+            [
+              'team dispatch rejected: worker already has open dispatch',
+              `worker=${worker.name}`,
+              `worker_id=${workerId}`,
+              `existing_dispatch_id=${existingOpenDispatch.id}`,
+              `existing_dispatch_status=${existingOpenDispatch.status}`,
+              `attempt_summary=${text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? ''}`,
+            ].join(' ')
+          )
+          throw new ConflictError(
+            `Worker ${worker.name} already has open dispatch ${existingOpenDispatch.id}; cancel it before sending another task`
+          )
+        }
+
+        const message = createSendMessage(workspaceId, workerId, text, input.fromAgentId)
+        const handle = insertMessage(message)
+        try {
+          const dispatchInput: {
+            fromAgentId?: string
+            text: string
+            toAgentId: string
+            workspaceId: string
+          } = {
+            text,
+            toAgentId: workerId,
+            workspaceId,
+          }
+          if (input.fromAgentId) dispatchInput.fromAgentId = input.fromAgentId
+          return {
+            dispatch: createDispatch(dispatchInput),
+            messageHandle: handle,
+          }
+        } catch (error) {
+          deleteMessage(handle)
+          throw error
+        }
+      })
+      dispatch = reservation.dispatch
+      messageHandle = reservation.messageHandle
       reconcileAgentStatus?.(workspaceId, workerId)
 
       const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, workerId)
@@ -438,7 +473,9 @@ export const createTeamOperations = ({
         deleteDispatch(dispatch.id)
         reconcileAgentStatus?.(workspaceId, workerId)
       }
-      deleteMessage(messageHandle)
+      if (messageHandle) {
+        deleteMessage(messageHandle)
+      }
       throw error
     }
   }

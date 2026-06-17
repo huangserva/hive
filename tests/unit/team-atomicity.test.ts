@@ -224,6 +224,125 @@ describe('team atomicity', () => {
     expect(deleteMessage).toHaveBeenCalledWith({ sequence: 1 })
   })
 
+  test('dispatchTask rejects a concurrent second task while the first dispatch is still queued', async () => {
+    const store = createRuntimeStore()
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected orchestrator')
+    }
+
+    const dispatches: DispatchRecord[] = []
+    const createDispatch = vi.fn(
+      (input: { fromAgentId?: string; text: string; toAgentId: string; workspaceId: string }) => {
+        const dispatch = withDispatchDefaults({
+          artifacts: [],
+          createdAt: Date.now(),
+          deliveredAt: null,
+          fromAgentId: input.fromAgentId ?? null,
+          id: `dispatch-${dispatches.length + 1}`,
+          reportedAt: null,
+          reportText: null,
+          sequence: dispatches.length + 1,
+          status: 'queued',
+          submittedAt: null,
+          text: input.text,
+          toAgentId: input.toAgentId,
+          workspaceId: input.workspaceId,
+        })
+        dispatches.push(dispatch)
+        return dispatch
+      }
+    )
+    const listOpenDispatchesForWorkspace = vi.fn((workspaceId: string) =>
+      dispatches.filter(
+        (dispatch) =>
+          dispatch.workspaceId === workspaceId && !isCompletedDispatchStatus(dispatch.status)
+      )
+    )
+    const markDispatchSubmitted = vi.fn((dispatchId: string) => {
+      const dispatch = dispatches.find((candidate) => candidate.id === dispatchId)
+      if (!dispatch) {
+        throw new Error(`Missing dispatch: ${dispatchId}`)
+      }
+      dispatch.status = 'running'
+      dispatch.submittedAt = Date.now()
+    })
+    let resolveStartAgent: ((run: { status: 'running' }) => void) | undefined
+    const startAgentReady = new Promise<{ status: 'running' }>((resolve) => {
+      resolveStartAgent = resolve
+    })
+    const writeSendPrompt = vi.fn()
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => undefined),
+        peekAgentLaunchConfig: vi.fn(() => ({ command: 'node' })),
+        startAgent: vi.fn(() => startAgentReady),
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt,
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch,
+      deleteDispatch: vi.fn((dispatchId: string) => {
+        const index = dispatches.findIndex((dispatch) => dispatch.id === dispatchId)
+        if (index >= 0) dispatches.splice(index, 1)
+      }),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace,
+      markDispatchCancelled: vi.fn(),
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted,
+      workspaceStore: {
+        getAgent: store.getAgent,
+        getWorker: store.getWorker,
+        getWorkspaceSnapshot: store.getWorkspaceSnapshot,
+        markAgentStarted: vi.fn(),
+        markAgentStopped: vi.fn(),
+        markTaskDispatched: vi.fn(),
+        markTaskReported: vi.fn(),
+      } as never,
+    })
+
+    const firstDispatch = ops.dispatchTask(workspace.id, worker.id, 'First task', {
+      fromAgentId: orchestrator.id,
+    })
+    await vi.waitFor(() => {
+      expect(dispatches).toHaveLength(1)
+      expect(dispatches[0]).toMatchObject({ status: 'queued', text: 'First task' })
+    })
+
+    const secondDispatch = ops.dispatchTask(workspace.id, worker.id, 'Second task', {
+      fromAgentId: orchestrator.id,
+    })
+    await Promise.resolve()
+    expect(createDispatch).toHaveBeenCalledTimes(1)
+    await expect(secondDispatch).rejects.toThrow(/already has open dispatch dispatch-1/)
+    expect(dispatches).toHaveLength(1)
+
+    if (!resolveStartAgent) {
+      throw new Error('Expected startAgent resolver')
+    }
+    resolveStartAgent({ status: 'running' })
+    await expect(firstDispatch).resolves.toMatchObject({ id: 'dispatch-1', text: 'First task' })
+    expect(writeSendPrompt).toHaveBeenCalledTimes(1)
+
+    const completedDispatch = dispatches[0]
+    if (!completedDispatch) {
+      throw new Error('Expected first dispatch')
+    }
+    completedDispatch.status = 'completed'
+
+    await expect(
+      ops.dispatchTask(workspace.id, worker.id, 'Third task', { fromAgentId: orchestrator.id })
+    ).resolves.toMatchObject({ id: 'dispatch-2', text: 'Third task' })
+    expect(createDispatch).toHaveBeenCalledTimes(2)
+  })
+
   test('reportTask with requireActiveRun closes dispatch and reconciles stopped when worker has no active run', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')

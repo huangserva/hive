@@ -631,7 +631,7 @@ describe('team API authz (R1.4)', () => {
       })
       expect(secondResponse.status).toBe(409)
       await expect(secondResponse.json()).resolves.toEqual({
-        error: `Worker Alice already has active dispatch ${firstBody.dispatch_id}; cancel it before sending another task`,
+        error: `Worker Alice already has open dispatch ${firstBody.dispatch_id}; cancel it before sending another task`,
       })
       expect(
         ctx.hive.store
