@@ -303,6 +303,42 @@ describe('relay connector', () => {
     ])
   })
 
+  it('dedupes retried workspace.prompt JSON-RPC requests by request id', async () => {
+    const relay = await startRelay()
+    const { calls, connector } = createConnector(configFor(relay))
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDevice(relay)
+    const channel = await completeHandshakeWithCapabilities(device, [
+      'read_dashboard',
+      'send_prompt',
+    ])
+    const request = {
+      id: 'prompt-rpc-1',
+      jsonrpc: '2.0',
+      method: 'workspace.prompt',
+      params: { text: 'same mobile prompt', workspace_id: 'workspace-1' },
+    }
+
+    device.send(JSON.stringify({ payload: channel.encrypt(encodeJson(request)), type: 'data' }))
+    const firstResponse = decodeJson(
+      channel.decrypt(await dataPayload(device)) ?? new Uint8Array()
+    ) as { id: string; result: unknown }
+    device.send(JSON.stringify({ payload: channel.encrypt(encodeJson(request)), type: 'data' }))
+    const secondResponse = decodeJson(
+      channel.decrypt(await dataPayload(device)) ?? new Uint8Array()
+    ) as { id: string; result: unknown }
+
+    expect(firstResponse).toEqual(secondResponse)
+    expect(calls).toEqual([
+      {
+        capabilities: ['read_dashboard', 'send_prompt'],
+        deviceId: 'device-1',
+        method: 'workspace.prompt',
+        params: { text: 'same mobile prompt', workspace_id: 'workspace-1' },
+      },
+    ])
+  })
+
   it('echoes encrypted voice_stream frames without dispatching them as JSON-RPC', async () => {
     const relay = await startRelay()
     const { calls, connector } = createConnector(configFor(relay))

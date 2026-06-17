@@ -114,6 +114,11 @@ interface RelayDeviceSession {
   deviceId: string
 }
 
+interface CachedRpcResponse {
+  createdAt: number
+  response: unknown
+}
+
 export interface VoiceStreamFrame {
   done?: boolean
   error?: string
@@ -132,7 +137,19 @@ export interface VoiceStreamFrame {
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 20_000
 const DEFAULT_RECONNECT_BASE_DELAY_MS = 1_000
 const DEFAULT_RECONNECT_MAX_DELAY_MS = 30_000
+const IDEMPOTENT_RPC_CACHE_TTL_MS = 5 * 60 * 1000
 const VOICE_STREAM_OPERATIONS = new Set(['ack', 'chunk', 'close', 'error', 'open'])
+const IDEMPOTENT_RPC_METHODS = new Set([
+  'approval.resolve',
+  'mobile.pushToken',
+  'worker.restart',
+  'worker.stop',
+  'workspace.approve',
+  'workspace.cockpit.question.answer',
+  'workspace.dispatch',
+  'workspace.prompt',
+  'workspace.upload',
+])
 
 const emptyStatus = (config: RelayConfig): RelayConnectionStatus => ({
   connected_at: null,
@@ -211,11 +228,24 @@ export const createRelayConnector = (
   const livenessTimeoutMs = options.livenessTimeoutMs ?? heartbeatIntervalMs * 2 + 5_000
   const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS
   const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS
+  const rpcResponseCache = new Map<string, CachedRpcResponse>()
 
   const sendRelayFrame = (frame: unknown) => {
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(frame))
     }
+  }
+
+  const pruneRpcResponseCache = (now = Date.now()) => {
+    for (const [key, cached] of rpcResponseCache) {
+      if (now - cached.createdAt > IDEMPOTENT_RPC_CACHE_TTL_MS) rpcResponseCache.delete(key)
+    }
+  }
+
+  const idempotentRpcKey = (session: RelayDeviceSession, id: unknown, method: string) => {
+    if (!IDEMPOTENT_RPC_METHODS.has(method)) return null
+    if (typeof id !== 'string' || id.length === 0) return null
+    return `${session.deviceId}:${method}:${id}`
   }
 
   const stopHeartbeat = () => {
@@ -444,6 +474,17 @@ export const createRelayConnector = (
         return
       }
 
+      const cacheKey = idempotentRpcKey(session, id, rpcRequest.method)
+      pruneRpcResponseCache()
+      if (cacheKey) {
+        const cached = rpcResponseCache.get(cacheKey)
+        if (cached) {
+          sendEncryptedResponse(session, cached.response)
+          return
+        }
+      }
+
+      let response: unknown
       try {
         const result = await rpcHandler(
           rpcRequest.method,
@@ -451,10 +492,12 @@ export const createRelayConnector = (
           session.deviceId,
           session.capabilities
         )
-        sendEncryptedResponse(session, { id, jsonrpc: '2.0', result })
+        response = { id, jsonrpc: '2.0', result }
+        if (cacheKey) rpcResponseCache.set(cacheKey, { createdAt: Date.now(), response })
       } catch (error) {
-        sendEncryptedResponse(session, { error: normalizeRpcError(error), id, jsonrpc: '2.0' })
+        response = { error: normalizeRpcError(error), id, jsonrpc: '2.0' }
       }
+      sendEncryptedResponse(session, response)
       return
     }
     sendRelayFrame({
@@ -468,7 +511,9 @@ export const createRelayConnector = (
     if (clearFrame && handleHandshake(clearFrame)) return
     // 防御性兜底：handleEncryptedRpc 内部已捕获所有畸形输入，这里再加 .catch 确保任何意外异常
     // 都不会变成 unhandled rejection 触发全局 handler 的 process.exit（bug ③a）。
-    void handleEncryptedRpc(frame.payload).catch(() => {})
+    void handleEncryptedRpc(frame.payload).catch((error) => {
+      log('encrypted RPC handling failed', error)
+    })
   }
 
   function connect() {
