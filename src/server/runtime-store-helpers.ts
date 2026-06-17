@@ -122,7 +122,7 @@ export const createRuntimeStoreServices = (
     },
   })
   const dispatchLedgerStore = createDispatchLedgerStore(db)
-  const approvalLedger = createApprovalLedger()
+  const approvalLedger = createApprovalLedger(db)
   const feishuBindingsStore = createFeishuBindingsStore(db)
   const agentRunStore = createAgentRunStore(db)
   const agentRunTimelineStore = createAgentRunTimelineStore(db)

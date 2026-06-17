@@ -240,7 +240,7 @@ export const feishuRoutes: RouteDefinition[] = [
         target,
         workspaceName: workspace.summary.name,
       })
-      approval.messageId = card.messageId
+      store.approvalLedger.setMessageId(approval.approvalId, card.messageId)
       await mobilePushService
         ?.notifyApprovalRequested(workspaceId, {
           action,

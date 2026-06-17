@@ -60,7 +60,7 @@ const createMockStore = () => {
     startAgent: store.startAgent,
     stopAgentRun: store.stopAgentRun,
     updateMobilePushToken: vi.fn(),
-  }
+  } as unknown as Parameters<typeof createRelayRpcHandler>[0]['store']
 }
 
 describe('relay RPC voice.transcribe', () => {
@@ -83,7 +83,7 @@ describe('relay RPC voice.transcribe', () => {
 
   test('rejects without send_prompt capability', async () => {
     const store = createMockStore()
-    store.requireMobileCapability.mockImplementation(() => {
+    ;(store.requireMobileCapability as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error('Missing capability: send_prompt')
     })
     const handler = createRelayRpcHandler({
@@ -187,6 +187,66 @@ describe('relay RPC voice.transcribe', () => {
       const activeRun = store.getLiveRun(run.runId)
       expect(activeRun.output).toContain(`approval_id=${approval.approvalId} DENIED`)
       expect(activeRun.output).toContain('action: Run production migration')
+    })
+  })
+
+  test('approval.resolve can finish an approval created before runtime restart', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-relay-approval-reload-'))
+    const workspacePath = join(dataDir, 'workspace')
+    mkdirSync(workspacePath, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const firstStore = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(firstStore)
+    const workspace = firstStore.createWorkspace(workspacePath, 'Relay Approval Reload')
+    const orchestratorId = `${workspace.id}:orchestrator`
+    const orchScript = join(workspacePath, 'orch-relay-approval-reload-echo.js')
+    writeFileSync(
+      orchScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+      ].join('\n'),
+      'utf8'
+    )
+    firstStore.configureAgentLaunch(workspace.id, orchestratorId, {
+      args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+      command: '/bin/bash',
+    })
+    const approval = firstStore.approvalLedger.create({
+      action: 'Approve relay after restart',
+      chatId: 'relay-chat',
+      messageId: 'relay-message',
+      orchAgentId: orchestratorId,
+      risk: 'high',
+      target: null,
+      workspaceId: workspace.id,
+    })
+    await firstStore.close()
+    stores.splice(stores.indexOf(firstStore), 1)
+
+    const restarted = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(restarted)
+    const run = await restarted.startAgent(workspace.id, orchestratorId, { hivePort: '4010' })
+    const handler = createRelayRpcHandler({
+      runtimeInfo: { dataDir, port: 0 },
+      store: restarted,
+    })
+
+    await expect(
+      handler(
+        'approval.resolve',
+        { approval_id: approval.approvalId, decision: 'allow' },
+        'device-1',
+        ['approve_risk']
+      )
+    ).resolves.toMatchObject({ approval_id: approval.approvalId, decision: 'allow', ok: true })
+    expect(restarted.approvalLedger.get(approval.approvalId)).toBeNull()
+
+    await waitFor(() => {
+      const activeRun = restarted.getLiveRun(run.runId)
+      expect(activeRun.output).toContain(`approval_id=${approval.approvalId} ALLOWED`)
+      expect(activeRun.output).toContain('action: Approve relay after restart')
     })
   })
 

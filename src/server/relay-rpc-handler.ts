@@ -393,6 +393,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const resolved = deps.store.approvalLedger.resolve(approvalId, decision, `relay:${deviceId}`)
       if (!resolved) throw new Error(`Approval not found or already resolved: ${approvalId}`)
       injectApprovalDecision(deps.store, resolved)
+      deps.store.approvalLedger.markResolved(resolved)
       return { approval_id: approvalId, decision, ok: true }
     }
 
@@ -411,6 +412,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const resolved = deps.store.approvalLedger.resolve(approvalId, decision, `relay:${deviceId}`)
       if (!resolved) throw new Error(`Approval not found or already resolved: ${approvalId}`)
       injectApprovalDecision(deps.store, resolved)
+      deps.store.approvalLedger.markResolved(resolved)
       return { approval_id: approvalId, decision, ok: true, status: 'recorded' }
     }
 

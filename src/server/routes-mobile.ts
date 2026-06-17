@@ -870,6 +870,7 @@ export const mobileRoutes: RouteDefinition[] = [
       const resolved = store.approvalLedger.resolve(approvalId, decision, `mobile:${device.id}`)
       if (!resolved) throw new BadRequestError(`Approval already resolved: ${approvalId}`)
       injectApprovalDecision(store, resolved)
+      store.approvalLedger.markResolved(resolved)
       sendJson(response, 200, {
         approval_id: approvalId,
         decision,

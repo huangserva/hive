@@ -986,12 +986,16 @@ export class FeishuTransport implements FeishuOutboundTransport {
     )
     const messageId =
       resolved.messageId || event.context?.open_message_id || event.open_message_id || ''
-    void this.finishResolvedApproval(resolved, messageId).catch((error) => {
+    try {
+      await this.finishResolvedApproval(resolved, messageId)
+      this.store.approvalLedger.markResolved(resolved)
+    } catch (error) {
       this.logger.error(
         `feishu approval post-resolve failed approval_id=${resolved.approvalId}`,
         error
       )
-    })
+      return { toast: { content: '审批处理失败，请重试', type: 'warning' } }
+    }
     return { toast: { content: '审批已处理', type: 'success' } }
   }
 

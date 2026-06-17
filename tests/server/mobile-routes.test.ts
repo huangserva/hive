@@ -2440,6 +2440,84 @@ fs.writeFileSync(outputPath, 'audio')
     }
   })
 
+  test('records mobile approval decisions after approval ledger reload', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-mobile-approval-reload-'))
+    tempDirs.push(dataDir)
+    const first = await startTestServer({ dataDir })
+    let workspaceId = ''
+    let orchestratorId = ''
+    let approvalId = ''
+    try {
+      const workspace = first.store.createWorkspace(workspacePath, 'Mobile Approval Reload')
+      workspaceId = workspace.id
+      orchestratorId = `${workspace.id}:orchestrator`
+      const orchScript = join(workspacePath, 'orch-approval-reload-echo.js')
+      writeFileSync(
+        orchScript,
+        [
+          "process.stdin.setEncoding('utf8')",
+          "process.stdin.on('data', (chunk) => process.stdout.write('ORCH:' + chunk))",
+        ].join('\n'),
+        'utf8'
+      )
+      first.store.configureAgentLaunch(workspace.id, orchestratorId, {
+        args: ['-lc', `"${process.execPath}" "${orchScript}"`],
+        command: '/bin/bash',
+      })
+      const approval = first.store.approvalLedger.create({
+        action: 'Approve after restart',
+        chatId: 'oc_mobile',
+        messageId: 'om_mobile',
+        orchAgentId: orchestratorId,
+        risk: 'high',
+        target: null,
+        workspaceId: workspace.id,
+      })
+      approvalId = approval.approvalId
+    } finally {
+      await first.close()
+    }
+
+    const restarted = await startTestServer({ dataDir })
+    try {
+      const run = await restarted.store.startAgent(workspaceId, orchestratorId, {
+        hivePort: '4010',
+      })
+      const approver = await createMobileTokenForTest(
+        restarted.baseUrl,
+        ['approve_risk'],
+        'Approver after reload'
+      )
+
+      const decided = await fetch(
+        `${restarted.baseUrl}/api/mobile/workspaces/${workspaceId}/approve/${approvalId}`,
+        {
+          headers: jsonHeaders({ host: '192.168.1.44:4010', token: approver.token }),
+          method: 'POST',
+          body: JSON.stringify({ decision: 'allow' }),
+        }
+      )
+      const body = (await decided.json()) as { approval_id: string; decision: string; ok: boolean }
+
+      expect(decided.status).toBe(200)
+      expect(body).toMatchObject({
+        approval_id: approvalId,
+        decision: 'allow',
+        ok: true,
+        status: 'recorded',
+      })
+      expect(restarted.store.approvalLedger.get(approvalId)).toBeNull()
+      await waitFor(() => {
+        const activeRun = restarted.store.getLiveRun(run.runId)
+        expect(activeRun.output).toContain(`approval_id=${approvalId} ALLOWED`)
+        expect(activeRun.output).toContain('action: Approve after restart')
+      })
+    } finally {
+      await restarted.close()
+    }
+  })
+
   test('requires admin_runtime capability for mobile worker stop control', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()

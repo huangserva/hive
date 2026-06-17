@@ -8,6 +8,8 @@ import { afterEach, describe, expect, test } from 'vitest'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
 import { initializeRuntimeDatabase } from '../../src/server/sqlite-schema.js'
 import { applySchemaVersion34 } from '../../src/server/sqlite-schema-v34.js'
+import { applySchemaVersion35 } from '../../src/server/sqlite-schema-v35.js'
+import { applySchemaVersion36 } from '../../src/server/sqlite-schema-v36.js'
 
 const tempDirs: string[] = []
 const stores: Array<ReturnType<typeof createRuntimeStore>> = []
@@ -1772,6 +1774,152 @@ describe('schema version', () => {
     }).not.toThrow()
     expect(tableColumns(db, 'workers').size).toBe(workerColumnCount)
     expect(tableColumns(db, 'agent_launch_configs').size).toBe(launchColumnCount)
+
+    db.close()
+  })
+
+  test('v35 migration persists Feishu approval ledger state and is idempotent', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v35-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21), (22, 22),
+        (23, 23), (24, 24), (25, 25), (26, 26), (27, 27), (28, 28), (29, 29),
+        (30, 30), (31, 31), (32, 32), (33, 33), (34, 34);
+    `)
+
+    expect(tableExists(db, 'feishu_approvals')).toBeUndefined()
+
+    initializeRuntimeDatabase(db)
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(35)).toEqual({
+      version: 35,
+    })
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(36)).toEqual({
+      version: 36,
+    })
+    const columns = tableColumns(db, 'feishu_approvals')
+    for (const column of [
+      'approval_id',
+      'workspace_id',
+      'orch_agent_id',
+      'chat_id',
+      'message_id',
+      'action',
+      'risk',
+      'target',
+      'status',
+      'decision',
+      'operator',
+      'created_at',
+      'resolved_at',
+    ]) {
+      expect(columns.has(column), `missing ${column}`).toBe(true)
+    }
+    expect(indexColumns(db, 'idx_feishu_approvals_status_created_at')).toEqual([
+      'status',
+      'created_at',
+    ])
+    expect(indexColumns(db, 'idx_feishu_approvals_workspace_status')).toEqual([
+      'workspace_id',
+      'status',
+    ])
+
+    const columnCount = columns.size
+    expect(() => {
+      applySchemaVersion35(db)
+      applySchemaVersion35(db)
+    }).not.toThrow()
+    expect(tableColumns(db, 'feishu_approvals').size).toBe(columnCount)
+
+    db.close()
+  })
+
+  test('v36 migration lets existing v35 Feishu approvals enter resolving state', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v36-'))
+    tempDirs.push(dataDir)
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    db.exec(`
+      CREATE TABLE schema_version (
+        version INTEGER PRIMARY KEY,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO schema_version (version, applied_at) VALUES
+        (1, 1), (2, 2), (3, 3), (4, 4), (5, 5), (6, 6), (7, 7), (8, 8),
+        (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (15, 15),
+        (16, 16), (17, 17), (18, 18), (19, 19), (20, 20), (21, 21), (22, 22),
+        (23, 23), (24, 24), (25, 25), (26, 26), (27, 27), (28, 28), (29, 29),
+        (30, 30), (31, 31), (32, 32), (33, 33), (34, 34), (35, 35);
+
+      CREATE TABLE feishu_approvals (
+        approval_id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        orch_agent_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        message_id TEXT NOT NULL DEFAULT '',
+        action TEXT NOT NULL,
+        risk TEXT NOT NULL CHECK (risk IN ('high', 'medium')),
+        target TEXT,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved')),
+        decision TEXT CHECK (decision IN ('allow', 'deny') OR decision IS NULL),
+        operator TEXT,
+        created_at INTEGER NOT NULL,
+        resolved_at INTEGER
+      );
+
+      INSERT INTO feishu_approvals (
+        approval_id, workspace_id, orch_agent_id, chat_id, message_id, action, risk, target,
+        status, decision, operator, created_at, resolved_at
+      ) VALUES (
+        'approval-1', 'ws-1', 'ws-1:orchestrator', 'oc_1', 'om_1', 'deploy', 'high', NULL,
+        'pending', NULL, NULL, 1, NULL
+      );
+    `)
+
+    initializeRuntimeDatabase(db)
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(36)).toEqual({
+      version: 36,
+    })
+    expect(() => {
+      db.prepare(
+        `UPDATE feishu_approvals
+         SET status = 'resolving', decision = 'allow', operator = 'ou_1', resolved_at = 2
+         WHERE approval_id = 'approval-1'`
+      ).run()
+    }).not.toThrow()
+    const row = db
+      .prepare(
+        'SELECT status, decision, operator, resolved_at FROM feishu_approvals WHERE approval_id = ?'
+      )
+      .get('approval-1') as {
+      decision: string
+      operator: string
+      resolved_at: number
+      status: string
+    }
+    expect(row).toEqual({
+      decision: 'allow',
+      operator: 'ou_1',
+      resolved_at: 2,
+      status: 'resolving',
+    })
+
+    const columnCount = tableColumns(db, 'feishu_approvals').size
+    expect(() => {
+      applySchemaVersion36(db)
+      applySchemaVersion36(db)
+    }).not.toThrow()
+    expect(tableColumns(db, 'feishu_approvals').size).toBe(columnCount)
 
     db.close()
   })

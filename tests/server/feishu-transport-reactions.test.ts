@@ -6,6 +6,7 @@ import { FeishuTransport } from '../../src/server/feishu-transport.js'
 import type { RuntimeStore } from '../../src/server/runtime-store.js'
 
 const makeLogger = () => ({
+  close: vi.fn().mockResolvedValue(undefined),
   debug: vi.fn(),
   error: vi.fn(),
   info: vi.fn(),
@@ -16,6 +17,7 @@ const makeStore = () =>
   ({
     approvalLedger: {
       cleanup: vi.fn(),
+      markResolved: vi.fn(),
       resolve: vi.fn(),
     },
     findFeishuBindingByChatId: vi.fn().mockReturnValue({
@@ -30,6 +32,12 @@ const makeStore = () =>
     getWorkspaceSnapshot: vi.fn().mockReturnValue({ summary: { id: 'ws-1' } }),
     recordUserInput: vi.fn(),
   }) as unknown as RuntimeStore
+
+const getFirstInjectedText = (store: RuntimeStore) => {
+  const call = (store.recordUserInput as ReturnType<typeof vi.fn>).mock.calls[0]
+  if (!call) throw new Error('expected recordUserInput to be called')
+  return call[2] as string
+}
 
 const makeMessageEvent = () => ({
   message: {
@@ -58,6 +66,21 @@ const makeAudioMessageEvent = () => ({
     sender_id: {
       user_id: 'ou_1',
     },
+  },
+})
+
+const makeApprovalActionEvent = () => ({
+  action: {
+    value: {
+      approval_id: 'approval-1',
+      decision: 'allow',
+    },
+  },
+  context: {
+    open_message_id: 'om_card',
+  },
+  operator: {
+    open_id: 'ou_approver',
   },
 })
 
@@ -92,6 +115,93 @@ const makeImageFileMessageEvent = () => ({
 })
 
 describe('FeishuTransport reactions', () => {
+  test('does not acknowledge approval when card update fails before orch injection', async () => {
+    const logger = makeLogger()
+    const store = makeStore()
+    const resolved = {
+      action: 'delete production data',
+      approvalId: 'approval-1',
+      chatId: 'oc_1',
+      createdAt: 1,
+      decision: 'allow',
+      messageId: 'om_card',
+      operator: 'ou_approver',
+      orchAgentId: 'ws-1:orchestrator',
+      resolvedAt: 2,
+      risk: 'high',
+      target: null,
+      workspaceId: 'ws-1',
+    } as const
+    vi.mocked(store.approvalLedger.resolve).mockReturnValue(resolved)
+    const transport = new FeishuTransport({
+      credentials: { appId: 'app_1', appSecret: 'secret_1' },
+      logger,
+      store,
+    })
+    vi.spyOn(
+      transport as unknown as { updateApprovalCard: FeishuTransport['updateApprovalCard'] },
+      'updateApprovalCard'
+    ).mockRejectedValue(new Error('lark unavailable'))
+
+    const response = await (
+      transport as unknown as {
+        handleCardAction: (event: ReturnType<typeof makeApprovalActionEvent>) => Promise<{
+          toast: { content: string; type: string }
+        }>
+      }
+    ).handleCardAction(makeApprovalActionEvent())
+
+    expect(response.toast.type).toBe('warning')
+    expect(response.toast.content).toContain('失败')
+    expect(store.recordUserInput).not.toHaveBeenCalled()
+    expect(store.approvalLedger.markResolved).not.toHaveBeenCalled()
+  })
+
+  test('keeps approval retryable when orch injection fails', async () => {
+    const logger = makeLogger()
+    const store = makeStore()
+    const resolved = {
+      action: 'restart service',
+      approvalId: 'approval-1',
+      chatId: 'oc_1',
+      createdAt: 1,
+      decision: 'allow',
+      messageId: 'om_card',
+      operator: 'ou_approver',
+      orchAgentId: 'ws-1:orchestrator',
+      resolvedAt: 2,
+      risk: 'high',
+      target: null,
+      workspaceId: 'ws-1',
+    } as const
+    vi.mocked(store.approvalLedger.resolve).mockReturnValue(resolved)
+    vi.mocked(store.recordUserInput).mockImplementation(() => {
+      throw new Error('orch stdin closed')
+    })
+    const transport = new FeishuTransport({
+      credentials: { appId: 'app_1', appSecret: 'secret_1' },
+      logger,
+      store,
+    })
+    vi.spyOn(
+      transport as unknown as { updateApprovalCard: FeishuTransport['updateApprovalCard'] },
+      'updateApprovalCard'
+    ).mockResolvedValue()
+
+    const response = await (
+      transport as unknown as {
+        handleCardAction: (event: ReturnType<typeof makeApprovalActionEvent>) => Promise<{
+          toast: { content: string; type: string }
+        }>
+      }
+    ).handleCardAction(makeApprovalActionEvent())
+
+    expect(response.toast.type).toBe('warning')
+    expect(response.toast.content).toContain('失败')
+    expect(store.approvalLedger.markResolved).not.toHaveBeenCalled()
+    expect(store.approvalLedger.resolve).toHaveBeenCalledWith('approval-1', 'allow', 'ou_approver')
+  })
+
   test('adds GLANCE reaction for routed inbound text messages and injects message_id', async () => {
     const logger = makeLogger()
     const store = makeStore()
@@ -285,7 +395,7 @@ describe('FeishuTransport reactions', () => {
         '[来自飞书 chat=oc_1，sender=ou_1 user_id=ou_1 message_id=om_image_1 image='
       )
     )
-    const injected = (store.recordUserInput as ReturnType<typeof vi.fn>).mock.calls[0][2] as string
+    const injected = getFirstInjectedText(store)
     const imagePath = /image=([^\]\n]+)/u.exec(injected)?.[1]
     expect(imagePath).toBeTruthy()
     if (!imagePath) return
@@ -338,7 +448,7 @@ describe('FeishuTransport reactions', () => {
       'ws-1:orchestrator',
       expect.stringContaining('收到图片但处理失败')
     )
-    const injected = (store.recordUserInput as ReturnType<typeof vi.fn>).mock.calls[0][2] as string
+    const injected = getFirstInjectedText(store)
     expect(injected).not.toContain('image=')
   })
 
@@ -383,7 +493,7 @@ describe('FeishuTransport reactions', () => {
       params: { type: 'file' },
       path: { file_key: 'file_key_1', message_id: 'om_file_1' },
     })
-    const injected = (store.recordUserInput as ReturnType<typeof vi.fn>).mock.calls[0][2] as string
+    const injected = getFirstInjectedText(store)
     const imagePath = /image=([^\]\n]+)/u.exec(injected)?.[1]
     expect(imagePath).toBeTruthy()
     if (!imagePath) return
