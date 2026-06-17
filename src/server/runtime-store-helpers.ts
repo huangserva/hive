@@ -7,7 +7,11 @@ import type { LiveAgentRun } from './agent-runtime-types.js'
 import { createAgentSessionStore } from './agent-session-store.js'
 import { reconcileAgentStatus } from './agent-status-reconciler.js'
 import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
-import { createDispatchLedgerStore } from './dispatch-ledger-store.js'
+import {
+  collectWorkspaceProgressSnapshot,
+  createCompactRecoveryWatchdog,
+} from './compact-recovery-watchdog.js'
+import { createDispatchLedgerStore, type DispatchRecord } from './dispatch-ledger-store.js'
 import { createApprovalLedger } from './feishu-approval-ledger.js'
 import { createFeishuBindingsStore } from './feishu-bindings-store.js'
 import type { HiveLogger } from './logger.js'
@@ -522,8 +526,69 @@ export const createRuntimeStoreLifecycle = ({
     return Promise.all(starts)
   }
 
+  const compactRecoveryWatchdog = agentManager
+    ? createCompactRecoveryWatchdog({
+        autoRecoverEnabled: process.env.HIVE_COMPACT_AUTORECOVER === '1',
+        getActiveRunByAgentId: (workspaceId, agentId) =>
+          services.agentRuntime.getActiveRunByAgentId(workspaceId, agentId),
+        getProgressSnapshot: async (workspace, dispatch, activeRun) => {
+          const output =
+            (await services.workerOutputTracker?.getSnapshot(workspace.id, dispatch.toAgentId)) ??
+            activeRun.output
+          return collectWorkspaceProgressSnapshot(workspace, dispatch, {
+            ...activeRun,
+            ...(output !== undefined ? { output } : {}),
+          })
+        },
+        getRunStatusByRunId: (runId) => {
+          try {
+            return agentManager.getRun(runId).status
+          } catch {
+            return undefined
+          }
+        },
+        listOpenDispatchesForWorkspace: (workspaceId) =>
+          services.dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
+        listWorkspaces: () => services.workspaceStore.listWorkspaces(),
+        markDispatchReportOverdue: services.dispatchLedgerStore.markReportOverdue,
+        notifyUserOfStaleDispatch: (
+          workspaceId: string,
+          dispatch: DispatchRecord,
+          notice: { escalated: boolean; minutesAgo: number }
+        ) => {
+          let workerName = dispatch.toAgentId
+          try {
+            workerName = services.workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name
+          } catch {
+            // Worker may have been deleted; agent id is still useful in the push.
+          }
+          void services.mobilePushService
+            .notifyStaleDispatch(workspaceId, {
+              dispatchId: dispatch.id,
+              escalated: notice.escalated,
+              minutesAgo: notice.minutesAgo,
+              taskSummary: dispatch.text.slice(0, 80),
+              workerName,
+            })
+            .catch(() => {
+              // Existing stale-dispatch push path is best-effort; recovery failure is still logged
+              // by the watchdog itself.
+            })
+        },
+        startAgent: (workspaceId, agentId) =>
+          startAgent(workspaceId, agentId, {
+            hivePort: process.env.HIVE_PORT ?? '',
+            source: 'internal',
+          }),
+        stopAgentRun: (runId) => services.agentRuntime.stopAgentRun(runId),
+        writeRunInput: (runId, input) => agentManager.writeInput(runId, input),
+      })
+    : null
+  compactRecoveryWatchdog?.start()
+
   return {
     close: async () => {
+      compactRecoveryWatchdog?.close()
       services.sentinelHeartbeat?.close()
       services.stalledDispatchNudge.close()
       services.shellRuntime.close()
