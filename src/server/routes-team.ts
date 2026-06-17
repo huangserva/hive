@@ -8,7 +8,9 @@ import { BadRequestError, ConflictError } from './http-errors.js'
 import { fulfillMobileReplyObligation } from './mobile-reply-obligation.js'
 import { readJsonBody, route, sendJson } from './route-helpers.js'
 import type {
+  AbandonTaskBody,
   CancelTaskBody,
+  RecoverTaskBody,
   ReportTaskBody,
   RouteDefinition,
   SendTaskBody,
@@ -129,6 +131,53 @@ export const teamRoutes: RouteDefinition[] = [
       forward_error: result.forwardError,
       forwarded: result.forwarded,
       ok: true,
+    })
+  }),
+  route('POST', '/api/team/recover', async ({ request, response, store }) => {
+    const body = await readJsonBody<RecoverTaskBody>(request)
+    const projectId = requireNonEmptyString(body.project_id, 'project_id')
+    const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
+    const dispatchId = requireNonEmptyString(body.dispatch_id, 'dispatch_id')
+    const agent = authenticateCliAgent({
+      fromAgentId,
+      getAgent: store.getAgent,
+      token: body.token,
+      validateToken: store.validateAgentToken,
+      workspaceId: projectId,
+    })
+    requireCommandForRole(agent, 'recover')
+    const result = store.recoverTask(projectId, dispatchId, { fromAgentId })
+    sendJson(response, 202, {
+      dispatch_id: result.dispatch.id,
+      forward_error: result.forwardError,
+      forwarded: result.forwarded,
+      ok: true,
+    })
+  }),
+  route('POST', '/api/team/abandon', async ({ request, response, store }) => {
+    const body = await readJsonBody<AbandonTaskBody>(request)
+    const projectId = requireNonEmptyString(body.project_id, 'project_id')
+    const fromAgentId = requireNonEmptyString(body.from_agent_id, 'from_agent_id')
+    const dispatchId = requireNonEmptyString(body.dispatch_id, 'dispatch_id')
+    const agent = authenticateCliAgent({
+      fromAgentId,
+      getAgent: store.getAgent,
+      token: body.token,
+      validateToken: store.validateAgentToken,
+      workspaceId: projectId,
+    })
+    requireCommandForRole(agent, 'abandon')
+    if (body.confirm_worker_stopped !== true) {
+      throw new BadRequestError('team abandon requires --confirm-worker-stopped')
+    }
+    const result = store.abandonTask(projectId, dispatchId, {
+      confirmWorkerStopped: true,
+      fromAgentId,
+    })
+    sendJson(response, 202, {
+      dispatch_id: result.dispatch.id,
+      ok: true,
+      status: result.dispatch.status,
     })
   }),
   route('POST', '/api/team/report', async ({ logger, request, response, store }) => {

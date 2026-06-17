@@ -3,6 +3,7 @@ import type { AgentLaunchSource } from './agent-launch-source.js'
 import type { PersistedAgentRun } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { AgentTokenRegistry } from './agent-tokens.js'
+import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 
 interface StartAgentOptions {
@@ -74,6 +75,11 @@ export interface AgentRuntime {
     text: string,
     cockpitSnapshot?: string,
     input?: { workflowAllowed?: boolean }
+  ) => void
+  writeRecoveryReplayPrompt: (
+    workspaceId: string,
+    workerId: string,
+    dispatch: DispatchRecord
   ) => void
   writeCancelPrompt: (
     workspaceId: string,

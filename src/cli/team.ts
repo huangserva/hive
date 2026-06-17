@@ -22,6 +22,8 @@ export const TEAM_USAGE = [
   '  team list',
   '  team send <worker-name> "<task>"',
   '  team cancel --dispatch <dispatch-id> "<reason>"',
+  '  team recover <dispatch-id>',
+  '  team abandon <dispatch-id> --confirm-worker-stopped',
   '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
   '  team mobile-reply "<text>"',
   '  team mobile-send-media --file <path> [--text "<caption>"]',
@@ -128,6 +130,8 @@ const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifac
 export const APPROVE_USAGE =
   'Usage: team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]'
 export const CANCEL_USAGE = 'Usage: team cancel --dispatch <dispatch-id> <reason>'
+export const RECOVER_USAGE = 'Usage: team recover <dispatch-id>'
+export const ABANDON_USAGE = 'Usage: team abandon <dispatch-id> --confirm-worker-stopped'
 export const FEISHU_REPLY_USAGE =
   'Usage: team feishu reply [--chat <chat_id>] [--message-id <message_id>] [--file <path>] (<text> | <caption> | omit when --file given)'
 
@@ -212,6 +216,15 @@ export interface ParsedApproveArgs {
 export interface ParsedCancelArgs {
   dispatchId: string
   reason: string
+}
+
+export interface ParsedRecoverArgs {
+  dispatchId: string
+}
+
+export interface ParsedAbandonArgs {
+  confirmWorkerStopped: boolean
+  dispatchId: string
 }
 
 export const parseApproveArgs = (args: string[]): ParsedApproveArgs => {
@@ -304,6 +317,35 @@ export const parseCancelArgs = (args: string[]): ParsedCancelArgs => {
   }
 
   return { dispatchId, reason }
+}
+
+export const parseRecoverArgs = (args: string[]): ParsedRecoverArgs => {
+  if (args.length !== 1 || !args[0]?.trim() || args[0].startsWith('--')) {
+    throw new Error(RECOVER_USAGE)
+  }
+  return { dispatchId: args[0].trim() }
+}
+
+export const parseAbandonArgs = (args: string[]): ParsedAbandonArgs => {
+  const positionals: string[] = []
+  let confirmWorkerStopped = false
+  for (const arg of args) {
+    if (arg === '--confirm-worker-stopped') {
+      confirmWorkerStopped = true
+      continue
+    }
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${ABANDON_USAGE}`)
+    }
+    positionals.push(arg)
+  }
+  if (positionals.length !== 1 || !positionals[0]?.trim()) {
+    throw new Error(`Missing <dispatch-id>\n\n${ABANDON_USAGE}`)
+  }
+  if (!confirmWorkerStopped) {
+    throw new Error(`Missing --confirm-worker-stopped\n\n${ABANDON_USAGE}`)
+  }
+  return { confirmWorkerStopped, dispatchId: positionals[0].trim() }
 }
 
 export const MOBILE_SEND_MEDIA_USAGE =
@@ -640,6 +682,35 @@ export const runTeamCommand = async (argv: string[]) => {
       token: env.HIVE_AGENT_TOKEN,
       reason: cancel.reason,
     })
+    return
+  }
+
+  if (command === 'recover') {
+    const recover = parseRecoverArgs(args)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await postJson(baseUrl, '/api/team/recover', {
+      dispatch_id: recover.dispatchId,
+      project_id: env.HIVE_PROJECT_ID,
+      from_agent_id: env.HIVE_AGENT_ID,
+      token: env.HIVE_AGENT_TOKEN,
+    })
+    console.log(JSON.stringify(await response.json()))
+    return
+  }
+
+  if (command === 'abandon') {
+    const abandon = parseAbandonArgs(args)
+    const env = getHiveEnv()
+    const baseUrl = getBaseUrl(env)
+    const response = await postJson(baseUrl, '/api/team/abandon', {
+      confirm_worker_stopped: abandon.confirmWorkerStopped,
+      dispatch_id: abandon.dispatchId,
+      project_id: env.HIVE_PROJECT_ID,
+      from_agent_id: env.HIVE_AGENT_ID,
+      token: env.HIVE_AGENT_TOKEN,
+    })
+    console.log(JSON.stringify(await response.json()))
     return
   }
 

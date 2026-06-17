@@ -25,11 +25,15 @@ import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
 import type { SettingsStore } from './settings-store.js'
 import type {
+  AbandonTaskInput,
+  AbandonTaskResult,
   AcceptTaskInput,
   AcceptTaskResult,
   CancelTaskInput,
   DispatchTaskInput,
   ReconcileOrphanedDispatchesInput,
+  RecoverTaskInput,
+  RecoverTaskResult,
   ReportTaskInput,
   ReportTaskResult,
   StatusTaskInput,
@@ -84,6 +88,16 @@ interface RuntimeStore {
   acceptTask: (workspaceId: string, input: AcceptTaskInput) => AcceptTaskResult
   statusTask: (workspaceId: string, workerId: string, input?: StatusTaskInput) => ReportTaskResult
   cancelTask: (workspaceId: string, dispatchId: string, input: CancelTaskInput) => ReportTaskResult
+  recoverTask: (
+    workspaceId: string,
+    dispatchId: string,
+    input: RecoverTaskInput
+  ) => RecoverTaskResult
+  abandonTask: (
+    workspaceId: string,
+    dispatchId: string,
+    input: AbandonTaskInput
+  ) => AbandonTaskResult
   reconcileOrphanedDispatches: (input?: ReconcileOrphanedDispatchesInput) => DispatchRecord[]
   listDispatches: (workspaceId: string, options?: ListDispatchesOptions) => DispatchRecord[]
   listWorkers: (workspaceId: string) => TeamListItem[]
@@ -252,6 +266,8 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       services.agentRuntime.writeQuestionAnsweredPrompt(workspaceId, questionId, answer)
     },
     cancelTask: services.teamOps.cancelTask,
+    recoverTask: services.teamOps.recoverTask,
+    abandonTask: services.teamOps.abandonTask,
     reconcileOrphanedDispatches: services.teamOps.reconcileOrphanedDispatches,
     dispatchTask: services.teamOps.dispatchTask,
     dispatchTaskByWorkerName: services.teamOps.dispatchTaskByWorkerName,

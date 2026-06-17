@@ -37,6 +37,21 @@ export interface CancelTaskBody {
   reason?: string
 }
 
+export interface RecoverTaskBody {
+  dispatch_id?: string
+  project_id: string
+  from_agent_id: string
+  token?: string
+}
+
+export interface AbandonTaskBody {
+  confirm_worker_stopped?: boolean
+  dispatch_id?: string
+  project_id: string
+  from_agent_id: string
+  token?: string
+}
+
 export interface CreateWorkspaceBody {
   path: string
   name: string

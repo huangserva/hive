@@ -166,6 +166,15 @@ export interface CancelTaskInput {
   reason: string
 }
 
+export interface RecoverTaskInput {
+  fromAgentId: string
+}
+
+export interface AbandonTaskInput {
+  confirmWorkerStopped: boolean
+  fromAgentId: string
+}
+
 export interface ReconcileOrphanedDispatchesInput {
   now?: number
   staleMs?: number
@@ -184,6 +193,16 @@ export interface ReportTaskResult {
   dispatch: DispatchRecord | null
   forwardError: string | null
   forwarded: boolean
+}
+
+export interface RecoverTaskResult {
+  dispatch: DispatchRecord
+  forwardError: string | null
+  forwarded: boolean
+}
+
+export interface AbandonTaskResult {
+  dispatch: DispatchRecord
 }
 
 const reportForwardErrorMessage = (error: unknown) =>
@@ -511,7 +530,81 @@ export const createTeamOperations = ({
     return workspaceStore.getWorker(workspaceId, dispatch.toAgentId).status === 'stopped'
   }
 
+  const requireReportOverdueDispatch = (workspaceId: string, dispatchId: string) => {
+    const dispatch = findOpenDispatchById(workspaceId, dispatchId)
+    if (!dispatch) {
+      throw new ConflictError(`No open dispatch: ${dispatchId}`)
+    }
+    if (dispatch.status !== 'report_overdue') {
+      throw new ConflictError(
+        `Dispatch ${dispatchId} is not report_overdue; current status=${dispatch.status}`
+      )
+    }
+    return dispatch
+  }
+
   return {
+    recoverTask(workspaceId: string, dispatchId: string, input: RecoverTaskInput) {
+      workspaceStore.getAgent(workspaceId, input.fromAgentId)
+      const dispatch = requireReportOverdueDispatch(workspaceId, dispatchId)
+      workspaceStore.getWorker(workspaceId, dispatch.toAgentId)
+      const activeRun = agentRuntime.getActiveRunByAgentId(workspaceId, dispatch.toAgentId)
+      if (!activeRun) {
+        throw new ConflictError(
+          `Cannot recover dispatch ${dispatchId}: worker has no active run; start/stop the worker or use team abandon after confirming it stopped`
+        )
+      }
+      try {
+        agentRuntime.writeRecoveryReplayPrompt(workspaceId, dispatch.toAgentId, dispatch)
+      } catch (error) {
+        return {
+          dispatch,
+          forwardError: reportForwardErrorMessage(error),
+          forwarded: false,
+        }
+      }
+      return { dispatch, forwardError: null, forwarded: true }
+    },
+    abandonTask(workspaceId: string, dispatchId: string, input: AbandonTaskInput) {
+      workspaceStore.getAgent(workspaceId, input.fromAgentId)
+      if (input.confirmWorkerStopped !== true) {
+        throw new ConflictError(
+          'team abandon requires --confirm-worker-stopped after verifying the worker is stopped'
+        )
+      }
+      const dispatch = requireReportOverdueDispatch(workspaceId, dispatchId)
+      workspaceStore.getWorker(workspaceId, dispatch.toAgentId)
+      const activeRun = agentRuntime.getActiveRunByAgentId(workspaceId, dispatch.toAgentId)
+      if (activeRun) {
+        throw new ConflictError(
+          `Cannot abandon dispatch ${dispatchId}: worker still has an active run ${activeRun.runId}; use team recover or stop the worker first`
+        )
+      }
+      const latestRun = agentRuntime.listAgentRuns(dispatch.toAgentId)[0]
+      if (!latestRun || (latestRun.status !== 'exited' && latestRun.status !== 'error')) {
+        throw new ConflictError(
+          `Cannot abandon dispatch ${dispatchId}: worker stop is not confirmed by a terminal run record`
+        )
+      }
+      const abandoned = markDispatchCancelled({
+        dispatchId,
+        reason: 'abandoned: worker stopped without report',
+        workspaceId,
+      })
+      if (!abandoned) {
+        throw new ConflictError(`No open dispatch: ${dispatchId}`)
+      }
+      workspaceStore.markTaskCancelled(workspaceId, abandoned.toAgentId)
+      reconcileAgentStatus?.(workspaceId, abandoned.toAgentId)
+      const workspacePath = getWorkspacePath(workspaceId)
+      if (workspacePath) {
+        tasksFileService.recordDispatchCancelled(workspacePath, {
+          dispatchId: abandoned.id,
+          reason: abandoned.reportText ?? 'abandoned',
+        })
+      }
+      return { dispatch: abandoned }
+    },
     cancelTask(workspaceId: string, dispatchId: string, input: CancelTaskInput) {
       workspaceStore.getAgent(workspaceId, input.fromAgentId)
       const openDispatch = findOpenDispatchById(workspaceId, dispatchId)

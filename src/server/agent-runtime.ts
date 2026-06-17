@@ -216,6 +216,9 @@ export const createAgentRuntime = (
         input
       )
     },
+    writeRecoveryReplayPrompt(workspaceId, workerId, dispatch) {
+      stdinDispatcher.writeRecoveryReplayPrompt(workspaceId, workerId, dispatch)
+    },
     writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input = {}) {
       stdinDispatcher.writeCancelPrompt(workspaceId, workerId, dispatchId, reason, input)
     },

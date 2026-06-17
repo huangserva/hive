@@ -2,6 +2,8 @@ import type { AgentManager } from './agent-manager.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { LiveAgentRun } from './agent-runtime-types.js'
 import type { ParsedCockpit } from './cockpit-doc.js'
+import { buildCompactRecoveryReplayInput } from './compact-recovery-watchdog.js'
+import type { DispatchRecord } from './dispatch-ledger-store.js'
 import {
   buildOrchestratorReminderTail,
   buildWorkerReminderTail,
@@ -288,6 +290,11 @@ export const createAgentStdinDispatcher = ({
         ),
         { requireActiveRun: true }
       )
+    },
+    writeRecoveryReplayPrompt(workspaceId: string, workerId: string, dispatch: DispatchRecord) {
+      writeToActiveAgentRun(workspaceId, workerId, buildCompactRecoveryReplayInput(dispatch), {
+        requireActiveRun: true,
+      })
     },
     writeCancelPrompt(
       workspaceId: string,
