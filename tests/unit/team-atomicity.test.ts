@@ -511,6 +511,8 @@ describe('team atomicity', () => {
     )
     const markTaskReported = vi.fn()
     const reportForwardError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const insertMobileChatMessage = vi.fn()
+    const notifyOrchestratorForwardFailure = vi.fn(async () => {})
 
     const ops = createTeamOperations({
       agentRuntime: {
@@ -527,10 +529,15 @@ describe('team atomicity', () => {
       findOpenDispatch: vi.fn(() => dispatch),
       findOpenDispatchById: vi.fn(),
       insertMessage: vi.fn(() => ({ sequence: 1 })),
+      insertMobileChatMessage,
       listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
       markDispatchCancelled: vi.fn(),
       markDispatchReportedByWorker,
       markDispatchSubmitted: vi.fn(),
+      mobilePushService: {
+        notifyOrchestratorForwardFailure,
+        notifyWorkerDone: vi.fn(async () => {}),
+      },
       workspaceStore: {
         getWorker: store.getWorker,
         markTaskReported,
@@ -560,6 +567,117 @@ describe('team atomicity', () => {
       forwardError: 'stdin write failed',
       forwarded: false,
     })
+    expect(insertMobileChatMessage).toHaveBeenCalledWith(
+      workspace.id,
+      'outbound',
+      'system_event',
+      expect.stringContaining('"type":"orchestrator_forward_failed"')
+    )
+    expect(insertMobileChatMessage).toHaveBeenCalledWith(
+      workspace.id,
+      'outbound',
+      'system_event',
+      expect.stringContaining('"operation":"report"')
+    )
+    expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({
+        dispatchId: dispatch.id,
+        error: 'stdin write failed',
+        operation: 'report',
+        workerName: 'Alice',
+      })
+    )
+  })
+
+  test('cancelTask and statusTask surface orchestrator forward failures to user', () => {
+    const store = createRuntimeStore()
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const dispatch = withDispatchDefaults({
+      artifacts: [],
+      createdAt: Date.now(),
+      deliveredAt: Date.now(),
+      fromAgentId: `${workspace.id}:orchestrator`,
+      id: 'dispatch-1',
+      reportedAt: null,
+      reportText: null,
+      sequence: 1,
+      status: 'running',
+      submittedAt: Date.now(),
+      text: 'Implement login',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const insertMobileChatMessage = vi.fn()
+    const notifyOrchestratorForwardFailure = vi.fn(async () => {})
+    const ops = createTeamOperations({
+      agentRuntime: {
+        writeCancelPrompt: vi.fn(() => {
+          throw new Error('cancel forward failed')
+        }),
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt: vi.fn(),
+        writeStatusPrompt: vi.fn(() => {
+          throw new Error('status forward failed')
+        }),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(() => dispatch),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      insertMobileChatMessage,
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(
+        (): DispatchRecord => ({
+          ...dispatch,
+          reportText: 'cancelled',
+          status: 'cancelled',
+        })
+      ),
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted: vi.fn(),
+      mobilePushService: {
+        notifyOrchestratorForwardFailure,
+        notifyWorkerDone: vi.fn(async () => {}),
+      },
+      workspaceStore: {
+        getAgent: store.getAgent,
+        getWorker: store.getWorker,
+        markTaskCancelled: vi.fn(),
+      } as never,
+    })
+
+    const cancelResult = ops.cancelTask(workspace.id, dispatch.id, {
+      fromAgentId: `${workspace.id}:orchestrator`,
+      reason: 'superseded',
+    })
+    const statusResult = ops.statusTask(workspace.id, worker.id, {
+      requireActiveRun: true,
+      text: 'Still working',
+    })
+
+    expect(cancelResult).toMatchObject({
+      forwardError: 'cancel forward failed',
+      forwarded: false,
+    })
+    expect(statusResult).toMatchObject({
+      forwardError: 'status forward failed',
+      forwarded: false,
+    })
+    expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ dispatchId: dispatch.id, operation: 'cancel' })
+    )
+    expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ dispatchId: null, operation: 'status' })
+    )
+    expect(insertMobileChatMessage).toHaveBeenCalledTimes(2)
   })
 
   test('reportTask sends a mobile push notification after a dispatch is reported', () => {

@@ -76,7 +76,8 @@ export interface TeamOperationsInput {
     workspaceId: string
   }) => DispatchRecord | undefined
   markDispatchSubmitted: (dispatchId: string) => void
-  mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'>
+  mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'> &
+    Partial<Pick<MobilePushService, 'notifyOrchestratorForwardFailure'>>
   onMobileUserInput?: (workspaceId: string) => void
   runDbTransaction?: <T>(mutation: () => T) => T
   tasksFileService?: Pick<
@@ -208,6 +209,22 @@ export interface AbandonTaskResult {
 const reportForwardErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error)
 
+const forwardFailureSystemEvent = (input: {
+  dispatchId: string | null
+  error: string
+  operation: 'cancel' | 'report' | 'status'
+  workerName: string
+}) =>
+  JSON.stringify({
+    dispatch_id: input.dispatchId,
+    error: input.error,
+    operation: input.operation,
+    severity: 'error',
+    text: `${input.workerName} ${input.operation} 已记录，但 Orchestrator 没收到：${input.error}`,
+    type: 'orchestrator_forward_failed',
+    worker_name: input.workerName,
+  })
+
 const noopTasksFileService: Pick<
   TasksFileService,
   | 'recordDispatchCancelled'
@@ -329,6 +346,28 @@ export const createTeamOperations = ({
     } catch (error) {
       console.error('[hive] swallowed:tasksNarrativeNudge.forward', error)
     }
+  }
+
+  const surfaceOrchestratorForwardFailure = (
+    workspaceId: string,
+    input: {
+      dispatchId: string | null
+      error: string
+      operation: 'cancel' | 'report' | 'status'
+      workerName: string
+    }
+  ) => {
+    insertMobileChatMessage?.(
+      workspaceId,
+      'outbound',
+      'system_event',
+      forwardFailureSystemEvent(input)
+    )
+    const notifyForwardFailure = mobilePushService?.notifyOrchestratorForwardFailure
+    if (!notifyForwardFailure) return
+    void notifyForwardFailure(workspaceId, input).catch((error) => {
+      console.error('[hive] swallowed:orchestratorForwardFailure.push', error)
+    })
   }
 
   const workerDispatchReservations = new Set<string>()
@@ -637,6 +676,12 @@ export const createTeamOperations = ({
       } catch (error) {
         forwardError = reportForwardErrorMessage(error)
         console.error('[hive] swallowed:teamCancel.forward', error)
+        surfaceOrchestratorForwardFailure(workspaceId, {
+          dispatchId: dispatch.id,
+          error: forwardError,
+          operation: 'cancel',
+          workerName: workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name,
+        })
       }
       return { dispatch, forwardError, forwarded }
     },
@@ -715,6 +760,12 @@ export const createTeamOperations = ({
           } catch (error) {
             forwardError = reportForwardErrorMessage(error)
             console.error('[hive] swallowed:teamStatus.forward', error)
+            surfaceOrchestratorForwardFailure(workspaceId, {
+              dispatchId: null,
+              error: forwardError,
+              operation: 'status',
+              workerName: worker.name,
+            })
           }
         }
         return { dispatch: null, forwardError, forwarded }
@@ -891,9 +942,21 @@ export const createTeamOperations = ({
           } catch (error) {
             forwardError = reportForwardErrorMessage(error)
             console.error('[hive] swallowed:teamReport.forward', error)
+            surfaceOrchestratorForwardFailure(workspaceId, {
+              dispatchId: dispatch.id,
+              error: forwardError,
+              operation: 'report',
+              workerName: worker.name,
+            })
           }
         } else {
           forwardError = 'Orchestrator PTY inactive, report recorded but not forwarded'
+          surfaceOrchestratorForwardFailure(workspaceId, {
+            dispatchId: dispatch.id,
+            error: forwardError,
+            operation: 'report',
+            workerName: worker.name,
+          })
         }
         return { dispatch, forwardError, forwarded }
       } catch (error) {

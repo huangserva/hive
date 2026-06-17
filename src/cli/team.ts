@@ -124,6 +124,12 @@ interface TeamReportResponse {
   ok: true
 }
 
+const assertForwardedToOrchestrator = (payload: TeamReportResponse, message: string) => {
+  if (payload.forwarded === false && payload.forward_error) {
+    throw new Error(`${message}: ${payload.forward_error}`)
+  }
+}
+
 const REPORT_USAGE =
   'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>]'
 const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifact <path>]'
@@ -675,13 +681,18 @@ export const runTeamCommand = async (argv: string[]) => {
     const cancel = parseCancelArgs(args)
     const env = getHiveEnv()
     const baseUrl = getBaseUrl(env)
-    await postJson(baseUrl, '/api/team/cancel', {
+    const response = await postJson(baseUrl, '/api/team/cancel', {
       dispatch_id: cancel.dispatchId,
       project_id: env.HIVE_PROJECT_ID,
       from_agent_id: env.HIVE_AGENT_ID,
       token: env.HIVE_AGENT_TOKEN,
       reason: cancel.reason,
     })
+    const payload = (await response.json()) as TeamReportResponse
+    assertForwardedToOrchestrator(
+      payload,
+      'Hive recorded the cancellation, but could not deliver it to Orchestrator in real time'
+    )
     return
   }
 
@@ -828,11 +839,10 @@ export const runTeamCommand = async (argv: string[]) => {
       artifacts: report.artifacts,
     })
     const payload = (await response.json()) as TeamReportResponse
-    if (payload.forwarded === false && payload.forward_error) {
-      console.error(
-        `Hive recorded the status update, but could not deliver it to Orchestrator in real time: ${payload.forward_error}`
-      )
-    }
+    assertForwardedToOrchestrator(
+      payload,
+      'Hive recorded the status update, but could not deliver it to Orchestrator in real time'
+    )
     return
   }
 
@@ -854,11 +864,10 @@ export const runTeamCommand = async (argv: string[]) => {
       ...(report.verdictReason ? { verdict_reason: report.verdictReason } : {}),
     })
     const payload = (await response.json()) as TeamReportResponse
-    if (payload.forwarded === false && payload.forward_error) {
-      console.error(
-        `Hive recorded the report, but could not deliver it to Orchestrator in real time: ${payload.forward_error}`
-      )
-    }
+    assertForwardedToOrchestrator(
+      payload,
+      'Hive recorded the report, but could not deliver it to Orchestrator in real time'
+    )
     return
   }
 

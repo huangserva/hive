@@ -26,6 +26,15 @@ export interface MobilePushService {
     taskSummary: string,
     dispatchId?: string
   ): Promise<void>
+  notifyOrchestratorForwardFailure(
+    workspaceId: string,
+    info: {
+      dispatchId: string | null
+      error: string
+      operation: 'cancel' | 'report' | 'status'
+      workerName: string
+    }
+  ): Promise<void>
   notifyApprovalRequested(
     workspaceId: string,
     approval: {
@@ -108,6 +117,21 @@ export const createMobilePushService = (deps: {
           body: taskSummary,
           data: { type: 'worker_done', workspaceId },
           title: `${workerName} completed a task`,
+          to: token,
+        }))
+      )
+    },
+    async notifyOrchestratorForwardFailure(workspaceId, info) {
+      await send(
+        recipients().map((token) => ({
+          body: `${info.workerName} ${info.operation} 已记录，但 Orchestrator 未收到：${info.error}`,
+          data: {
+            ...(info.dispatchId ? { dispatchId: info.dispatchId } : {}),
+            operation: info.operation,
+            type: 'orchestrator_forward_failed',
+            workspaceId,
+          },
+          title: 'Orchestrator missed a team update',
           to: token,
         }))
       )

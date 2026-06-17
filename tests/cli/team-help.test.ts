@@ -11,7 +11,7 @@ afterEach(() => {
 
 describe('team cli help', () => {
   test('prints usage without requiring Hive agent environment', async () => {
-    process.env = {}
+    process.env = { NODE_ENV: 'test' }
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await expect(runTeamCommand(['--help'])).resolves.toBeUndefined()
@@ -26,12 +26,13 @@ describe('team cli help', () => {
     expect(output).not.toContain('--failed')
   })
 
-  test('team report warns when Hive records the report but cannot live-deliver it', async () => {
+  test('team report fails when Hive records the report but cannot live-deliver it', async () => {
     process.env = {
       HIVE_AGENT_ID: 'worker-1',
       HIVE_AGENT_TOKEN: 'token-1',
       HIVE_PORT: '12345',
       HIVE_PROJECT_ID: 'workspace-1',
+      NODE_ENV: 'test',
     }
     vi.stubGlobal(
       'fetch',
@@ -48,12 +49,8 @@ describe('team cli help', () => {
           )
       )
     )
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    await runTeamCommand(['report', 'Done'])
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      'Hive recorded the report, but could not deliver it to Orchestrator in real time: No active run for agent: workspace-1:orchestrator'
+    await expect(runTeamCommand(['report', 'Done'])).rejects.toThrow(
+      /Hive recorded the report, but could not deliver it to Orchestrator in real time: No active run for agent: workspace-1:orchestrator/
     )
   })
 })
