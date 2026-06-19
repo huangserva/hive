@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -67,6 +67,58 @@ describe('codex image export', () => {
       sourcePath: latestRollout,
     })
     expect(readFileSync(outPath).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+  })
+
+  test('chooses the newest image event even when an older rollout file was touched later', () => {
+    const root = makeTempDir('hive-codex-image-event-order-')
+    const sessionRoot = join(root, 'sessions')
+    const dir = join(sessionRoot, '2026', '06', '19')
+    mkdirSync(dir, { recursive: true })
+    const olderImageNewerFile = join(dir, 'rollout-current-worker.jsonl')
+    const newerImageOlderFile = join(dir, 'rollout-codex-exec.jsonl')
+    writeFileSync(
+      olderImageNewerFile,
+      `${JSON.stringify({
+        payload: {
+          result: tinyPngBase64,
+          revised_prompt: 'older image event',
+          type: 'image_generation_end',
+        },
+        timestamp: '2026-06-19T10:00:00.000Z',
+        type: 'event_msg',
+      })}\n`,
+      'utf8'
+    )
+    writeFileSync(
+      newerImageOlderFile,
+      `${JSON.stringify({
+        payload: {
+          result: tinyPngBase64,
+          revised_prompt: 'newer E2E image event',
+          type: 'image_generation_end',
+        },
+        timestamp: '2026-06-19T11:00:00.000Z',
+        type: 'event_msg',
+      })}\n`,
+      'utf8'
+    )
+    utimesSync(
+      newerImageOlderFile,
+      new Date('2026-06-19T11:00:01.000Z'),
+      new Date('2026-06-19T11:00:01.000Z')
+    )
+    utimesSync(
+      olderImageNewerFile,
+      new Date('2026-06-19T11:01:00.000Z'),
+      new Date('2026-06-19T11:01:00.000Z')
+    )
+
+    const result = exportLatestCodexImageFromSessionRoot({
+      outPath: join(root, 'assets', 'fresh.png'),
+      sessionRoot,
+    })
+
+    expect(result.sourcePath).toBe(newerImageOlderFile)
   })
 
   test('rejects image_generation_end payloads that are not PNG data', () => {

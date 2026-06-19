@@ -11,6 +11,13 @@ export interface CodexImageExportResult {
   sourcePath: string
 }
 
+interface CodexImageCandidate {
+  bytes: Buffer
+  imageEventLine: number
+  sourcePath: string
+  timestampMs: number
+}
+
 const walkRolloutFiles = (dir: string): string[] => {
   try {
     return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -23,12 +30,7 @@ const walkRolloutFiles = (dir: string): string[] => {
   }
 }
 
-const listRolloutFilesNewestFirst = (sessionRoot: string) =>
-  walkRolloutFiles(sessionRoot).sort((left, right) => {
-    const rightMtime = statSync(right).mtimeMs
-    const leftMtime = statSync(left).mtimeMs
-    return rightMtime - leftMtime
-  })
+const listRolloutFiles = (sessionRoot: string) => walkRolloutFiles(sessionRoot)
 
 const decodePngResult = (value: unknown): Buffer | null => {
   if (typeof value !== 'string' || value.length < 16) return null
@@ -40,39 +42,56 @@ const decodePngResult = (value: unknown): Buffer | null => {
   }
 }
 
-const findImageResultInRollout = (filePath: string) => {
+const parseTimestampMs = (value: unknown, fallback: number) => {
+  if (typeof value !== 'string') return fallback
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+const findImageResultsInRollout = (filePath: string): CodexImageCandidate[] => {
+  const fallbackTimestamp = statSync(filePath).mtimeMs
   const lines = readFileSync(filePath, 'utf8').split(/\n/)
+  const results: CodexImageCandidate[] = []
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index]?.trim()
     if (!line?.includes('image_generation_end')) continue
     try {
-      const parsed = JSON.parse(line) as { payload?: { result?: unknown; type?: unknown } }
+      const parsed = JSON.parse(line) as {
+        payload?: { result?: unknown; type?: unknown }
+        timestamp?: unknown
+      }
       const payload = parsed.payload
       if (payload?.type !== 'image_generation_end') continue
       const decoded = decodePngResult(payload.result)
       if (!decoded) continue
-      return { bytes: decoded, line: index + 1 }
+      results.push({
+        bytes: decoded,
+        imageEventLine: index + 1,
+        sourcePath: filePath,
+        timestampMs: parseTimestampMs(parsed.timestamp, fallbackTimestamp),
+      })
     } catch {
       // Ignore malformed rollout lines; older Codex logs may contain partial writes.
     }
   }
-  return null
+  return results
 }
 
 export const exportLatestCodexImageFromSessionRoot = (options: {
   outPath: string
   sessionRoot: string
 }): CodexImageExportResult => {
-  for (const rolloutPath of listRolloutFilesNewestFirst(options.sessionRoot)) {
-    const found = findImageResultInRollout(rolloutPath)
-    if (!found) continue
+  const found = listRolloutFiles(options.sessionRoot)
+    .flatMap((rolloutPath) => findImageResultsInRollout(rolloutPath))
+    .sort((left, right) => right.timestampMs - left.timestampMs)[0]
+  if (found) {
     mkdirSync(dirname(options.outPath), { recursive: true })
     writeFileSync(options.outPath, found.bytes)
     return {
       bytes: found.bytes.length,
-      imageEventLine: found.line,
+      imageEventLine: found.imageEventLine,
       outPath: options.outPath,
-      sourcePath: rolloutPath,
+      sourcePath: found.sourcePath,
     }
   }
 
