@@ -9,10 +9,11 @@ import {
   doesCapturedSessionExist,
   snapshotSessionIdsForCapture,
 } from '../../src/server/session-capture.js'
-import { readCodexSessionFirstLine } from '../../src/server/session-capture-codex.js'
+import { getCodexHome, readCodexSessionFirstLine } from '../../src/server/session-capture-codex.js'
 
 const tempDirs: string[] = []
 const originalCodexHome = process.env.CODEX_HOME
+const originalCodexSessionRoot = process.env.CODEX_SESSION_ROOT
 const originalGeminiHome = process.env.HIVE_GEMINI_HOME
 const originalOpenCodeDbPath = process.env.HIVE_OPENCODE_DB_PATH
 
@@ -26,6 +27,8 @@ const makeTempDir = (prefix: string) => {
 afterEach(() => {
   if (originalCodexHome === undefined) delete process.env.CODEX_HOME
   else process.env.CODEX_HOME = originalCodexHome
+  if (originalCodexSessionRoot === undefined) delete process.env.CODEX_SESSION_ROOT
+  else process.env.CODEX_SESSION_ROOT = originalCodexSessionRoot
   if (originalGeminiHome === undefined) delete process.env.HIVE_GEMINI_HOME
   else process.env.HIVE_GEMINI_HOME = originalGeminiHome
   if (originalOpenCodeDbPath === undefined) delete process.env.HIVE_OPENCODE_DB_PATH
@@ -57,6 +60,15 @@ describe('multi-CLI session capture', () => {
     )
     expect(doesCapturedSessionExist(cwd, capture, sessionId)).toBe(true)
     expect(doesCapturedSessionExist(join(codexHome, 'other'), capture, sessionId)).toBe(false)
+  })
+
+  test('resolves Codex capture home from CODEX_SESSION_ROOT instead of hard-coded ~/.codex', () => {
+    const managedHome = makeTempDir('hive-managed-codex-home')
+    const sessionRoot = join(managedHome, 'sessions')
+    process.env.CODEX_HOME = join(makeTempDir('hive-global-codex-home'), '.codex')
+    process.env.CODEX_SESSION_ROOT = sessionRoot
+
+    expect(getCodexHome('$CODEX_SESSION_ROOT/**/*.jsonl')).toBe(managedHome)
   })
 
   test('reads only the bounded Codex jsonl header line instead of decoding the full rollout', () => {

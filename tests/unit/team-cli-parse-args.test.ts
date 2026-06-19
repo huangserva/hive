@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
-import { parseReportArgs } from '../../src/cli/team.js'
+import { parseCodexImageExportArgs, parseReportArgs } from '../../src/cli/team.js'
 
 describe('parseReportArgs', () => {
   test('accepts the legacy positional-first form', () => {
@@ -183,5 +183,27 @@ describe('parseReportArgs', () => {
       }
       throw new Error('expected parseReportArgs to throw')
     })
+  })
+})
+
+describe('parseCodexImageExportArgs', () => {
+  test('accepts an output path and optional session root', () => {
+    expect(
+      parseCodexImageExportArgs([
+        '--out',
+        '.hive/reports/assets/out.png',
+        '--session-root',
+        '/tmp/codex/sessions',
+      ])
+    ).toEqual({
+      outPath: '.hive/reports/assets/out.png',
+      sessionRoot: '/tmp/codex/sessions',
+    })
+  })
+
+  test('requires --out', () => {
+    expect(() => parseCodexImageExportArgs(['--session-root', '/tmp/codex/sessions'])).toThrow(
+      'Missing --out <path>'
+    )
   })
 })

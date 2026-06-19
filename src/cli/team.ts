@@ -1,6 +1,8 @@
 import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
+import { exportLatestCodexImageFromSessionRoot } from '../server/codex-image-export.js'
+
 const REQUIRED_ENV_KEYS = [
   'HIVE_PORT',
   'HIVE_PROJECT_ID',
@@ -27,6 +29,7 @@ export const TEAM_USAGE = [
   '  team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]',
   '  team mobile-reply "<text>"',
   '  team mobile-send-media --file <path> [--text "<caption>"]',
+  '  team codex-image-export --out <path> [--session-root <path>]',
   '  team feishu reply "<text>"',
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] "<text>"',
   '  team feishu reply [--chat <chat_id>] [--message-id <message_id>] --file <path> ["<caption>"]   # M44: 出站视频/图片/文件',
@@ -140,6 +143,48 @@ export const RECOVER_USAGE = 'Usage: team recover <dispatch-id>'
 export const ABANDON_USAGE = 'Usage: team abandon <dispatch-id> --confirm-worker-stopped'
 export const FEISHU_REPLY_USAGE =
   'Usage: team feishu reply [--chat <chat_id>] [--message-id <message_id>] [--file <path>] (<text> | <caption> | omit when --file given)'
+export const CODEX_IMAGE_EXPORT_USAGE =
+  'Usage: team codex-image-export --out <path> [--session-root <path>]'
+
+export interface ParsedCodexImageExportArgs {
+  outPath: string
+  sessionRoot: string | undefined
+}
+
+export const parseCodexImageExportArgs = (args: string[]): ParsedCodexImageExportArgs => {
+  let outPath: string | undefined
+  let sessionRoot: string | undefined
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === undefined) continue
+    if (arg === '--out') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--out requires a value\n\n${CODEX_IMAGE_EXPORT_USAGE}`)
+      }
+      outPath = next
+      index += 1
+      continue
+    }
+    if (arg === '--session-root') {
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(`--session-root requires a value\n\n${CODEX_IMAGE_EXPORT_USAGE}`)
+      }
+      sessionRoot = next
+      index += 1
+      continue
+    }
+    if (arg.startsWith('--')) {
+      throw new Error(`Unknown argument: ${arg}\n\n${CODEX_IMAGE_EXPORT_USAGE}`)
+    }
+    throw new Error(`Unexpected positional argument: ${arg}\n\n${CODEX_IMAGE_EXPORT_USAGE}`)
+  }
+  if (!outPath?.trim()) {
+    throw new Error(`Missing --out <path>\n\n${CODEX_IMAGE_EXPORT_USAGE}`)
+  }
+  return { outPath: outPath.trim(), sessionRoot: sessionRoot?.trim() || undefined }
+}
 
 const usageFor = (command: string) => (command === 'status' ? STATUS_USAGE : REPORT_USAGE)
 
@@ -770,6 +815,25 @@ export const runTeamCommand = async (argv: string[]) => {
     if (!response.ok) {
       await throwHttpError(response)
     }
+    return
+  }
+
+  if (command === 'codex-image-export') {
+    const parsed = parseCodexImageExportArgs(args)
+    const sessionRoot =
+      parsed.sessionRoot ??
+      process.env.CODEX_SESSION_ROOT ??
+      (process.env.CODEX_HOME ? `${process.env.CODEX_HOME}/sessions` : undefined)
+    if (!sessionRoot) {
+      throw new Error(
+        `Missing CODEX_SESSION_ROOT; pass --session-root <path>\n\n${CODEX_IMAGE_EXPORT_USAGE}`
+      )
+    }
+    const result = exportLatestCodexImageFromSessionRoot({
+      outPath: parsed.outPath,
+      sessionRoot,
+    })
+    console.log(JSON.stringify(result))
     return
   }
 

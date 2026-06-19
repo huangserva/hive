@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { captureSessionIdWithCoordinator } from './claude-session-coordinator.js'
 
@@ -25,6 +25,10 @@ const expandHome = (path: string) =>
 
 export const getCodexHome = (pattern?: string) => {
   if (!pattern) return getDefaultCodexHome()
+  if (pattern.startsWith('$CODEX_SESSION_ROOT/')) {
+    const sessionRoot = process.env.CODEX_SESSION_ROOT
+    return sessionRoot ? dirname(sessionRoot) : getDefaultCodexHome()
+  }
   const markerIndex = pattern.indexOf('/sessions/')
   if (markerIndex === -1) return getDefaultCodexHome()
   const rawRoot = pattern.slice(0, markerIndex)

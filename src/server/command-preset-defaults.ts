@@ -45,7 +45,7 @@ export const BUILTIN_COMMAND_PRESETS: BuiltinCommandPresetDefaults[] = [
     id: 'codex',
     resumeArgsTemplate: 'resume {session_id}',
     sessionIdCapture: {
-      pattern: '~/.codex/sessions/**/*.jsonl',
+      pattern: '$CODEX_SESSION_ROOT/**/*.jsonl',
       source: 'codex_session_jsonl_dir',
     },
     yoloArgsTemplate: CODEX_DEFAULT_YOLO_ARGS,
