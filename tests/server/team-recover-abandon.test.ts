@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { createAgentManager } from '../../src/server/agent-manager.js'
 import { createRuntimeStoreServices } from '../../src/server/runtime-store-helpers.js'
@@ -84,6 +84,48 @@ describe('team recover / abandon', () => {
           output.includes('继续修复 compact 卡死恢复')
         )
       }, 'expected recover replay prompt to reach worker PTY')
+    } finally {
+      await services.agentRuntime.close()
+      services.db.close()
+    }
+  })
+
+  test('recover surfaces replay injection failures to mobile system events', async () => {
+    const { services, worker, workspace } = setup()
+    try {
+      const run = await services.agentRuntime.startAgent(workspace, worker.id, { hivePort: '4010' })
+      const orchestrator = services.workspaceStore.getAgent(
+        workspace.id,
+        `${workspace.id}:orchestrator`
+      )
+      const dispatch = await services.teamOps.dispatchTask(
+        workspace.id,
+        worker.id,
+        '需要恢复但 PTY 写入失败的派单',
+        { fromAgentId: orchestrator.id, hivePort: '4010' }
+      )
+      services.dispatchLedgerStore.markReportOverdue(dispatch.id)
+      vi.spyOn(services.agentRuntime, 'getActiveRunByAgentId').mockReturnValue(run)
+      vi.spyOn(services.agentRuntime, 'writeRecoveryReplayPrompt').mockImplementation(() => {
+        throw new Error('pty closed')
+      })
+
+      const result = services.teamOps.recoverTask(workspace.id, dispatch.id, {
+        fromAgentId: orchestrator.id,
+      })
+
+      expect(result.forwarded).toBe(false)
+      expect(result.forwardError).toContain('pty closed')
+      const events = services.mobileChatStore
+        .listChatMessages(workspace.id)
+        .filter((message) => message.message_type === 'system_event')
+        .map((message) => JSON.parse(message.content_json) as { operation?: string; type?: string })
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          operation: 'recover',
+          type: 'orchestrator_forward_failed',
+        })
+      )
     } finally {
       await services.agentRuntime.close()
       services.db.close()

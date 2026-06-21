@@ -42,6 +42,7 @@ const makeSnapshot = (fingerprint: string): CompactProgressSnapshot => ({
 const makeHarness = () => {
   let now = 1_000
   let activeRun: { runId: string } | undefined = { runId: 'run-old' }
+  const stopRequestedRunIds = new Set<string>()
   const dispatch = makeDispatch()
   let snapshot = makeSnapshot('same')
   const softProbes: Array<{ input: string; runId: string }> = []
@@ -54,7 +55,8 @@ const makeHarness = () => {
     autoRecoverEnabled: true,
     getActiveRunByAgentId: () => activeRun,
     getProgressSnapshot: () => snapshot,
-    getRunStatusByRunId: (runId) => (runId === 'run-old' && !activeRun ? 'exited' : 'running'),
+    getRunStatusByRunId: (runId) =>
+      runId === 'run-old' && stopRequestedRunIds.has(runId) ? 'exited' : 'running',
     hardRecoveryMs: DEFAULT_COMPACT_HARD_RECOVERY_MS,
     listOpenDispatchesForWorkspace: () => [dispatch],
     listWorkspaces: () => [{ id: WS, name: 'Workspace', path: '/tmp/workspace' }],
@@ -69,6 +71,7 @@ const makeHarness = () => {
     },
     stopAgentRun: (runId) => {
       stoppedRuns.push(runId)
+      stopRequestedRunIds.add(runId)
       activeRun = undefined
     },
     writeRunInput: (runId, input) => {

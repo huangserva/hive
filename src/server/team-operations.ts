@@ -224,7 +224,7 @@ const reportForwardErrorMessage = (error: unknown) =>
 const forwardFailureSystemEvent = (input: {
   dispatchId: string | null
   error: string
-  operation: 'cancel' | 'report' | 'status'
+  operation: 'cancel' | 'recover' | 'report' | 'status'
   workerName: string
 }) =>
   JSON.stringify({
@@ -393,7 +393,7 @@ export const createTeamOperations = ({
     input: {
       dispatchId: string | null
       error: string
-      operation: 'cancel' | 'report' | 'status'
+      operation: 'cancel' | 'recover' | 'report' | 'status'
       workerName: string
     }
   ) => {
@@ -798,9 +798,17 @@ export const createTeamOperations = ({
       try {
         agentRuntime.writeRecoveryReplayPrompt(workspaceId, dispatch.toAgentId, dispatch)
       } catch (error) {
+        const forwardError = reportForwardErrorMessage(error)
+        console.error('[hive] swallowed:teamRecover.forward', error)
+        surfaceOrchestratorForwardFailure(workspaceId, {
+          dispatchId: dispatch.id,
+          error: forwardError,
+          operation: 'recover',
+          workerName: workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name,
+        })
         return {
           dispatch,
-          forwardError: reportForwardErrorMessage(error),
+          forwardError,
           forwarded: false,
         }
       }

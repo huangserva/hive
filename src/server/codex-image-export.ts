@@ -1,8 +1,18 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const CODEX_ROLLOUT_FILE = /^rollout-.*\.jsonl$/i
 const PNG_MAGIC_HEX = '89504e470d0a1a0a'
+const CODEX_IMAGE_ROLLOUT_READ_CHUNK_BYTES = 64 * 1024
+const CODEX_IMAGE_ROLLOUT_MAX_LINE_BYTES = 64 * 1024 * 1024
 
 export interface CodexImageExportResult {
   bytes: number
@@ -48,42 +58,114 @@ const parseTimestampMs = (value: unknown, fallback: number) => {
   return Number.isFinite(parsed) ? parsed : fallback
 }
 
-const findImageResultsInRollout = (filePath: string): CodexImageCandidate[] => {
-  const fallbackTimestamp = statSync(filePath).mtimeMs
-  const lines = readFileSync(filePath, 'utf8').split(/\n/)
-  const results: CodexImageCandidate[] = []
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]?.trim()
-    if (!line?.includes('image_generation_end')) continue
-    try {
-      const parsed = JSON.parse(line) as {
-        payload?: { result?: unknown; type?: unknown }
-        timestamp?: unknown
-      }
-      const payload = parsed.payload
-      if (payload?.type !== 'image_generation_end') continue
-      const decoded = decodePngResult(payload.result)
-      if (!decoded) continue
-      results.push({
-        bytes: decoded,
-        imageEventLine: index + 1,
-        sourcePath: filePath,
-        timestampMs: parseTimestampMs(parsed.timestamp, fallbackTimestamp),
-      })
-    } catch {
-      // Ignore malformed rollout lines; older Codex logs may contain partial writes.
+const parseImageCandidateLine = (
+  line: string,
+  filePath: string,
+  fallbackTimestamp: number,
+  lineNumber: number
+): CodexImageCandidate | null => {
+  const trimmed = line.trim()
+  if (!trimmed.includes('image_generation_end')) return null
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      payload?: { result?: unknown; type?: unknown }
+      timestamp?: unknown
     }
+    const payload = parsed.payload
+    if (payload?.type !== 'image_generation_end') return null
+    const decoded = decodePngResult(payload.result)
+    if (!decoded) return null
+    return {
+      bytes: decoded,
+      imageEventLine: lineNumber,
+      sourcePath: filePath,
+      timestampMs: parseTimestampMs(parsed.timestamp, fallbackTimestamp),
+    }
+  } catch {
+    // Ignore malformed rollout lines; older Codex logs may contain partial writes.
+    return null
   }
-  return results
+}
+
+const findLatestImageResultInRollout = (filePath: string): CodexImageCandidate | null => {
+  const fallbackTimestamp = statSync(filePath).mtimeMs
+  const fd = openSync(filePath, 'r')
+  try {
+    let best: CodexImageCandidate | null = null
+    let lineNumber = 1
+    let position = 0
+    let lineChunks: Buffer[] = []
+    let lineBytes = 0
+    let skippingOversizedLine = false
+
+    const processLine = () => {
+      if (!skippingOversizedLine && lineBytes > 0) {
+        const candidate = parseImageCandidateLine(
+          Buffer.concat(lineChunks, lineBytes).toString('utf8').replace(/\r$/, ''),
+          filePath,
+          fallbackTimestamp,
+          lineNumber
+        )
+        if (candidate && (!best || candidate.timestampMs > best.timestampMs)) best = candidate
+      }
+      lineNumber += 1
+      lineChunks = []
+      lineBytes = 0
+      skippingOversizedLine = false
+    }
+
+    while (true) {
+      const buffer = Buffer.allocUnsafe(CODEX_IMAGE_ROLLOUT_READ_CHUNK_BYTES)
+      const bytesRead = readSync(fd, buffer, 0, CODEX_IMAGE_ROLLOUT_READ_CHUNK_BYTES, position)
+      if (bytesRead === 0) break
+      position += bytesRead
+      let segmentStart = 0
+      const chunk = buffer.subarray(0, bytesRead)
+      for (let index = 0; index < chunk.length; index += 1) {
+        if (chunk[index] !== 0x0a) continue
+        const segment = chunk.subarray(segmentStart, index)
+        if (!skippingOversizedLine) {
+          lineBytes += segment.length
+          if (lineBytes > CODEX_IMAGE_ROLLOUT_MAX_LINE_BYTES) {
+            lineChunks = []
+            lineBytes = 0
+            skippingOversizedLine = true
+          } else if (segment.length > 0) {
+            lineChunks.push(segment)
+          }
+        }
+        processLine()
+        segmentStart = index + 1
+      }
+      const rest = chunk.subarray(segmentStart)
+      if (!skippingOversizedLine) {
+        lineBytes += rest.length
+        if (lineBytes > CODEX_IMAGE_ROLLOUT_MAX_LINE_BYTES) {
+          lineChunks = []
+          lineBytes = 0
+          skippingOversizedLine = true
+        } else if (rest.length > 0) {
+          lineChunks.push(rest)
+        }
+      }
+    }
+
+    if (lineBytes > 0 || skippingOversizedLine) processLine()
+    return best
+  } finally {
+    closeSync(fd)
+  }
 }
 
 export const exportLatestCodexImageFromSessionRoot = (options: {
   outPath: string
   sessionRoot: string
 }): CodexImageExportResult => {
-  const found = listRolloutFiles(options.sessionRoot)
-    .flatMap((rolloutPath) => findImageResultsInRollout(rolloutPath))
-    .sort((left, right) => right.timestampMs - left.timestampMs)[0]
+  let found: CodexImageCandidate | null = null
+  for (const rolloutPath of listRolloutFiles(options.sessionRoot)) {
+    const candidate = findLatestImageResultInRollout(rolloutPath)
+    if (candidate && (!found || candidate.timestampMs > found.timestampMs)) found = candidate
+  }
   if (found) {
     mkdirSync(dirname(options.outPath), { recursive: true })
     writeFileSync(options.outPath, found.bytes)

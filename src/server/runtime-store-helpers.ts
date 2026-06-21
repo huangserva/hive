@@ -1,4 +1,4 @@
-import type { AgentManager } from './agent-manager.js'
+import type { AgentManager, AgentRunSnapshot } from './agent-manager.js'
 import { type AgentLaunchConfigInput, createAgentRunStore } from './agent-run-store.js'
 import { createAgentRunTimelineStore } from './agent-run-timeline-store.js'
 import { createAgentRuntime } from './agent-runtime.js'
@@ -82,6 +82,29 @@ interface CreateRuntimeStoreServicesOptions {
 interface CreateRuntimeStoreLifecycleOptions {
   agentManager?: AgentManager
   services: RuntimeStoreServices
+}
+
+export const resolveCompactRecoveryRunStatus = (
+  runId: string,
+  input: {
+    getLiveRun: (runId: string) => LiveAgentRun
+    getManagerRun: (runId: string) => AgentRunSnapshot
+  }
+) => {
+  try {
+    const liveRun = input.getLiveRun(runId)
+    if (liveRun.stopRequested && (liveRun.status === 'running' || liveRun.status === 'starting')) {
+      return 'exited'
+    }
+    return liveRun.status
+  } catch {
+    // Fall through to AgentManager for runs that are not live in the runtime registry.
+  }
+  try {
+    return input.getManagerRun(runId).status
+  } catch {
+    return undefined
+  }
 }
 
 const notifyTasksUpdated = (
@@ -555,11 +578,10 @@ export const createRuntimeStoreLifecycle = ({
           })
         },
         getRunStatusByRunId: (runId) => {
-          try {
-            return agentManager.getRun(runId).status
-          } catch {
-            return undefined
-          }
+          return resolveCompactRecoveryRunStatus(runId, {
+            getLiveRun: services.agentRuntime.getLiveRun,
+            getManagerRun: agentManager.getRun,
+          })
         },
         listOpenDispatchesForWorkspace: (workspaceId) =>
           services.dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
@@ -630,6 +652,7 @@ export const createRuntimeStoreLifecycle = ({
       if (!agentManager) throw new Error('Agent manager is required for PTY output subscriptions')
       return agentManager.getOutputBus()
     },
+    reconcileAgentStatus: reconcileLifecycleAgentStatus,
     listTerminalRuns: (workspaceId: string) => [
       ...services.workspaceStore.getWorkspaceSnapshot(workspaceId).agents.flatMap((agent) => {
         const run = services.agentRuntime.getActiveRunByAgentId(workspaceId, agent.id)

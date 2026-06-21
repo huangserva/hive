@@ -29,6 +29,8 @@
 
 - [ ] **Q16 · 推送通知通道选型（M29）**（草案 `draft-2026-05-31-push-channel.md`，挂 2 天周瑜检出，2026-05-31 起）→ 你要 app 后台/锁屏收推送（微信式）。**硬事实**：你华为折叠屏无 GMS，现有 FCM 链对该设备物理不可达（不是缺凭据是选错通道）。**推荐 A→B 渐进**：A(先做)=前台服务保活 relay WebSocket+收 event 弹本地通知（零账号、几天出效果）；B(账号就绪)=华为 HMS Push Kit（app 被杀也能唤醒=真微信级）；放弃 FCM/Expo push；C(将来)=极光/个推聚合多品牌。**待你拍**：(1) A→B 渐进还是直接上 B？(2) 是否愿注册**华为开发者账号(实名)**——B 的硬前置，无它华为机做不到"被杀也能收"？(3) 将来是否兼容非华为设备→要不要一步到位上 C？
 
+- [ ] **Q21 · autostart 启动路径是否纳入自定义命令护栏（ship-review M4）**（andy 审查 2026-06-21 检出）→ 上一轮安全 commit 声称"堵 autostart 代跑"，但 `isRemoteAgentLaunchSource`（`agent-launch-source.ts:9`）只覆盖 mobile/relay/feishu，**autostart 不在内**（`agent-run-starter.ts:100`）。本地信任模型下 PC user 本有权限、远程 attacker 拿不到 PC UI token 注入不了配置 → **非直接 RCE，是 commit 承诺与实现的缺口**，非回归。**待你拍**：① 给 worker 配置加 `custom_command_approved` 标记、autostart 时校验（真堵）② 或确认本地信任边界、把 commit 措辞改成"堵远程代跑"（承认本地 autostart 受信任）。**不要**简单把 autostart 加进 isRemoteAgentLaunchSource（会误伤正常本地自启）。
+
 ### 🟢 low — 灰度区
 
 （暂无）

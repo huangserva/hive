@@ -20,6 +20,11 @@ afterEach(() => {
 
 const tinyPngBase64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lGlNtwAAAABJRU5ErkJggg=='
+const largePngBytes = Buffer.concat([
+  Buffer.from('89504e470d0a1a0a', 'hex'),
+  Buffer.alloc(800_000, 0xab),
+])
+const largePngBase64 = largePngBytes.toString('base64')
 
 describe('codex image export', () => {
   test('decodes the latest image_generation_end result from CODEX_SESSION_ROOT to a PNG file', () => {
@@ -119,6 +124,87 @@ describe('codex image export', () => {
     })
 
     expect(result.sourcePath).toBe(newerImageOlderFile)
+  })
+
+  test('exports a single image_generation_end line whose base64 payload is larger than 1MiB', () => {
+    expect(largePngBase64.length).toBeGreaterThan(1024 * 1024)
+    const root = makeTempDir('hive-codex-image-large-line-')
+    const sessionRoot = join(root, 'sessions')
+    const dir = join(sessionRoot, '2026', '06', '21')
+    mkdirSync(dir, { recursive: true })
+    const rollout = join(dir, 'rollout-large-line.jsonl')
+    writeFileSync(
+      rollout,
+      `${JSON.stringify({
+        payload: {
+          result: largePngBase64,
+          revised_prompt: 'large generated image',
+          type: 'image_generation_end',
+        },
+        timestamp: '2026-06-21T12:00:00.000Z',
+        type: 'event_msg',
+      })}\n`,
+      'utf8'
+    )
+
+    const outPath = join(root, 'assets', 'large.png')
+    const result = exportLatestCodexImageFromSessionRoot({ outPath, sessionRoot })
+
+    expect(result).toMatchObject({
+      bytes: largePngBytes.length,
+      imageEventLine: 1,
+      outPath,
+      sourcePath: rollout,
+    })
+    expect(readFileSync(outPath).subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a')
+  })
+
+  test('streams large rollouts while preserving timestamp ordering across distant lines', () => {
+    const root = makeTempDir('hive-codex-image-large-rollout-')
+    const sessionRoot = join(root, 'sessions')
+    const dir = join(sessionRoot, '2026', '06', '21')
+    mkdirSync(dir, { recursive: true })
+    const rollout = join(dir, 'rollout-large.jsonl')
+    const oldPrefixImage = JSON.stringify({
+      payload: {
+        result: tinyPngBase64,
+        revised_prompt: 'too old to scan in large rollout',
+        type: 'image_generation_end',
+      },
+      timestamp: '2026-06-21T23:59:00.000Z',
+      type: 'event_msg',
+    })
+    const tailOlder = JSON.stringify({
+      payload: {
+        result: tinyPngBase64,
+        revised_prompt: 'tail older',
+        type: 'image_generation_end',
+      },
+      timestamp: '2026-06-21T10:00:00.000Z',
+      type: 'event_msg',
+    })
+    const tailNewer = JSON.stringify({
+      payload: {
+        result: tinyPngBase64,
+        revised_prompt: 'tail newer',
+        type: 'image_generation_end',
+      },
+      timestamp: '2026-06-21T11:00:00.000Z',
+      type: 'event_msg',
+    })
+    writeFileSync(
+      rollout,
+      `${oldPrefixImage}\n${'x'.repeat(1024 * 1024 + 4096)}\n${tailOlder}\n${tailNewer}\n`,
+      'utf8'
+    )
+
+    const result = exportLatestCodexImageFromSessionRoot({
+      outPath: join(root, 'assets', 'tail.png'),
+      sessionRoot,
+    })
+
+    expect(result.sourcePath).toBe(rollout)
+    expect(result.imageEventLine).toBe(1)
   })
 
   test('rejects image_generation_end payloads that are not PNG data', () => {

@@ -109,6 +109,7 @@ interface RuntimeStore {
   getAgent: (workspaceId: string, agentId: string) => AgentSummary
   getPtyOutputBus: () => PtyOutputBus
   listTerminalRuns: (workspaceId: string) => TerminalRunSummary[]
+  reconcileAgentStatus: (workspaceId: string, agentId: string) => void
   closeWorkspaceShell: (workspaceId: string, runId: string) => boolean
   startWorkspaceShell: (workspaceId: string) => Promise<LiveAgentRun>
   configureAgentLaunch: (
@@ -287,6 +288,7 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       services.workspaceStore.getWorkerConfig(workspaceId, workerId),
     getAgent: (workspaceId, agentId) => services.workspaceStore.getAgent(workspaceId, agentId),
     getPtyOutputBus: lifecycle.getPtyOutputBus,
+    reconcileAgentStatus: lifecycle.reconcileAgentStatus,
     listTerminalRuns: lifecycle.listTerminalRuns,
     closeWorkspaceShell: lifecycle.closeWorkspaceShell,
     configureAgentLaunch: lifecycle.configureAgentLaunch,

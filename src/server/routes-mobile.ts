@@ -901,6 +901,7 @@ export const mobileRoutes: RouteDefinition[] = [
       store.getAgent(workspaceId, workerId)
       const activeRun = store.getActiveRunByAgentId(workspaceId, workerId)
       if (activeRun) store.stopAgentRun(activeRun.runId)
+      store.reconcileAgentStatus(workspaceId, workerId)
       sendJson(response, 200, {
         ok: true,
         status: store.getAgent(workspaceId, workerId).status,

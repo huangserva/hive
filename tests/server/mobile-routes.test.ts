@@ -2562,6 +2562,46 @@ fs.writeFileSync(outputPath, 'audio')
     }
   })
 
+  test('mobile worker stop returns reconciled stopped status immediately after stop request', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Mobile Stop Active')
+      const worker = server.store.addWorker(workspace.id, { name: 'Runner', role: 'coder' })
+      server.store.configureAgentLaunch(workspace.id, worker.id, {
+        args: ['-lc', `${process.execPath} -e "process.stdin.resume()"`],
+        command: '/bin/bash',
+      })
+      await server.store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+      expect(server.store.getAgent(workspace.id, worker.id).status).toBe('idle')
+
+      const admin = await createMobileTokenForTest(server.baseUrl)
+      const stopped = await fetch(
+        `${server.baseUrl}/api/mobile/workspaces/${workspace.id}/workers/${worker.id}/stop`,
+        {
+          headers: mobileHeaders(admin.token, '192.168.1.44:4010'),
+          method: 'POST',
+        }
+      )
+      const body = (await stopped.json()) as {
+        ok: boolean
+        status: string
+        worker_id: string
+        workspace_id: string
+      }
+
+      expect(stopped.status).toBe(200)
+      expect(body).toMatchObject({
+        ok: true,
+        status: 'stopped',
+        worker_id: worker.id,
+        workspace_id: workspace.id,
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
   test('returns a stripped worker transcript for a paired mobile client', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()

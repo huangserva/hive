@@ -31,7 +31,7 @@ export interface MobilePushService {
     info: {
       dispatchId: string | null
       error: string
-      operation: 'cancel' | 'report' | 'status'
+      operation: 'cancel' | 'recover' | 'report' | 'status'
       workerName: string
     }
   ): Promise<void>
