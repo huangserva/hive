@@ -16,3 +16,7 @@ coverage/
 /cockpit-*.png
 # Runtime database (contains workspace state, not source)
 hive.db
+
+# Electron 打包产物(spike)
+desktop/electron/release/
+desktop/electron/dist/

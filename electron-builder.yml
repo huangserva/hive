@@ -1,0 +1,39 @@
+appId: ai.hippoteam.desktop
+productName: HippoTeam
+
+extraMetadata:
+  main: desktop/electron/main.mjs
+
+directories:
+  output: desktop/electron/release
+  buildResources: desktop/electron/resources
+
+files:
+  - package.json
+  - desktop/electron/main.mjs
+  - dist/**/*
+  - web/dist/**/*
+  - node_modules/**/*
+
+asar: true
+asarUnpack:
+  - node_modules/**/*.node
+  - node_modules/better-sqlite3/**/*
+  - node_modules/node-pty/**/*
+
+npmRebuild: true
+buildDependenciesFromSource: false
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+    - target: zip
+
+win:
+  target:
+    - target: nsis
+
+publish:
+  provider: generic
+  url: https://updates.example.invalid/hippoteam/
