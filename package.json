@@ -65,8 +65,8 @@
     "test:windows": "vitest run tests/unit/agent-command-resolver.test.ts tests/unit/session-capture-multi-cli.test.ts tests/unit/claude-session-support.test.ts tests/unit/worker-name-generator.test.ts tests/server/fs-pick-folder.test.ts tests/server/fs-browse.test.ts tests/server/schema-version.test.ts tests/server/runtime-rehydration.test.ts tests/web/workspace-picker.test.tsx tests/web/confirm-dialog.test.tsx tests/web/toast.test.tsx --no-file-parallelism --maxWorkers=1 --testTimeout=30000 --hookTimeout=30000",
     "test:watch": "vitest",
     "desktop:rebuild": "electron-builder install-app-deps --config electron-builder.yml",
-    "desktop:dir": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --config electron-builder.yml",
-    "desktop:mac": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --config electron-builder.yml --publish never"
+    "desktop:dir": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --mac --universal --config electron-builder.yml",
+    "desktop:mac": "pnpm build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal --config electron-builder.yml --publish never"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.45.0",

@@ -13,7 +13,6 @@ files:
   - desktop/electron/main.mjs
   - dist/**/*
   - web/dist/**/*
-  - node_modules/**/*
 
 asar: true
 asarUnpack:
@@ -26,6 +25,7 @@ buildDependenciesFromSource: false
 
 mac:
   category: public.app-category.developer-tools
+  x64ArchFiles: "{**/node_modules/@roamhq/wrtc-darwin-arm64/**/*,**/node_modules/@tailwindcss/oxide-darwin-arm64/**/*,**/node_modules/lightningcss-darwin-arm64/**/*,**/node_modules/node-pty/prebuilds/darwin-*/**/*}"
   target:
     - target: dmg
     - target: zip

@@ -1,0 +1,91 @@
+name: Desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - desktop-packaging
+
+jobs:
+  mac:
+    name: macOS universal DMG
+    runs-on: macos-14
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build runtime and web
+        run: pnpm build
+
+      - name: Rebuild Electron native dependencies
+        run: pnpm exec electron-builder install-app-deps --config electron-builder.yml
+
+      - name: Build unsigned universal macOS package
+        run: pnpm exec electron-builder --mac --universal --config electron-builder.yml --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hippoteam-macos-universal
+          path: |
+            desktop/electron/release/*.dmg
+            desktop/electron/release/*.zip
+            desktop/electron/release/*.blockmap
+            desktop/electron/release/latest-mac.yml
+
+  windows:
+    name: Windows x64 NSIS
+    runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build runtime and web
+        run: pnpm build
+
+      - name: Rebuild Electron native dependencies
+        run: pnpm exec electron-builder install-app-deps --config electron-builder.yml
+
+      - name: Build unsigned Windows installer
+        run: pnpm exec electron-builder --win nsis --x64 --config electron-builder.yml --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hippoteam-windows-x64
+          path: |
+            desktop/electron/release/*.exe
+            desktop/electron/release/*.blockmap
+            desktop/electron/release/latest.yml
