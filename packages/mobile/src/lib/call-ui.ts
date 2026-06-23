@@ -3,10 +3,26 @@
 
 import type { VoiceCallStatePhase } from '../api/voice-call-state-protocol'
 
-export type CallPhase = 'connecting' | VoiceCallStatePhase | 'error' | 'ended'
+export type CallPhase = 'connecting' | VoiceCallStatePhase | 'error' | 'ended' | 'unavailable'
 
 export type WebRtcCallStatus = 'idle' | 'connecting' | 'connected' | 'error'
 export const MIN_CALL_PHASE_DWELL_MS = 900
+
+// Fail-closed gate state for the call page. `pending` = still checking whether
+// the native WebRTC module is registered; `ready` = registered, safe to start
+// the caller; `unavailable` = 普通 APK 没注册 react-native-webrtc 原生模块,
+// 进 native RTCPeerConnection 会闪退 → 必须降级显示而不是启动通话。
+export type CallGateState = 'pending' | 'ready' | 'unavailable'
+
+// Pure decision for the fail-closed call gate. `null` means the native-module
+// check has not resolved yet (show a transient "connecting" placeholder, never
+// start the caller); `true` opens the call; `false` degrades to the unavailable
+// screen. Keeping this here lets the dangerous-path guard be unit-tested without
+// a React Native renderer or the native module present.
+export const resolveCallGate = (hasNativeWebRtc: boolean | null): CallGateState => {
+  if (hasNativeWebRtc === null) return 'pending'
+  return hasNativeWebRtc ? 'ready' : 'unavailable'
+}
 
 export interface CallPhaseDisplayState {
   displayedPhase: VoiceCallStatePhase
@@ -50,7 +66,11 @@ export const resolveCallPhase = (input: {
   callStatePhase?: VoiceCallStatePhase
   ended: boolean
   status: WebRtcCallStatus
+  gate?: CallGateState
 }): CallPhase => {
+  // The fail-closed gate wins over everything: when the native module is
+  // missing we never started a call, so there is nothing to "end" or "error".
+  if (input.gate === 'unavailable') return 'unavailable'
   if (input.ended) return 'ended'
   if (input.status === 'error') return 'error'
   if (input.status === 'connected') return input.callStatePhase ?? 'listening'

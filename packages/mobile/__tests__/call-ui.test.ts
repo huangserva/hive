@@ -8,6 +8,7 @@ import {
   getCallPhaseLabelKey,
   isConnectedPhase,
   MIN_CALL_PHASE_DWELL_MS,
+  resolveCallGate,
   resolveCallPhase,
 } from '../src/lib/call-ui'
 
@@ -63,6 +64,60 @@ describe('resolveCallPhase', () => {
     expect(resolveCallPhase({ ended: false, status: 'idle' })).toBe('connecting')
     expect(resolveCallPhase({ ended: false, status: 'connecting' })).toBe('connecting')
   })
+
+  test('an unavailable gate wins over every hook status (fail-closed, never enters call UI)', () => {
+    // 命门：普通 APK 没注册 native WebRTC → gate='unavailable'。哪怕 hook status 还
+    // 是 idle/connecting/connected/error，都必须显示降级屏而不是正常通话 UI。产品
+    // 把 gate 漏接（不传 / 传 ready）→ 这几条断言挂红。
+    expect(resolveCallPhase({ ended: false, gate: 'unavailable', status: 'idle' })).toBe(
+      'unavailable'
+    )
+    expect(resolveCallPhase({ ended: false, gate: 'unavailable', status: 'connecting' })).toBe(
+      'unavailable'
+    )
+    expect(
+      resolveCallPhase({
+        callStatePhase: 'listening',
+        ended: false,
+        gate: 'unavailable',
+        status: 'connected',
+      })
+    ).toBe('unavailable')
+    expect(resolveCallPhase({ ended: true, gate: 'unavailable', status: 'error' })).toBe(
+      'unavailable'
+    )
+  })
+
+  test('pending / ready gates never force the unavailable screen', () => {
+    // gate 还没解析（pending）→ 正常按 status 走（短暂 connecting 占位，不闪退）。
+    // gate=ready（实验包探测通过）→ 正常通话流程，不被降级拦。
+    expect(resolveCallPhase({ ended: false, gate: 'pending', status: 'idle' })).toBe('connecting')
+    expect(
+      resolveCallPhase({
+        callStatePhase: 'responding',
+        ended: false,
+        gate: 'ready',
+        status: 'connected',
+      })
+    ).toBe('responding')
+    expect(resolveCallPhase({ ended: false, gate: 'ready', status: 'error' })).toBe('error')
+  })
+})
+
+describe('resolveCallGate (fail-closed native-module gate)', () => {
+  test('null (not yet probed) → pending: caller must not start, shows transient placeholder', () => {
+    expect(resolveCallGate(null)).toBe('pending')
+  })
+
+  test('native module present (WEBRTC_NATIVE_REGISTER=1 build) → ready: safe to start the caller', () => {
+    expect(resolveCallGate(true)).toBe('ready')
+  })
+
+  test('native module missing (普通 APK) → unavailable: degrade instead of crashing on RTCPeerConnection', () => {
+    // 这是止崩命门：探测到原生模块缺失就必须返回 unavailable，调用方据此不进危险路径。
+    // 产品把它改成 fail-open（缺失也当 ready）→ 真机点通话回到 native 闪退，本断言挂红。
+    expect(resolveCallGate(false)).toBe('unavailable')
+  })
 })
 
 describe('isConnectedPhase', () => {
@@ -75,6 +130,7 @@ describe('isConnectedPhase', () => {
       'responding',
       'error',
       'ended',
+      'unavailable',
     ]
     expect(phases.filter(isConnectedPhase)).toEqual([
       'listening',

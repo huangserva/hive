@@ -17,7 +17,7 @@ import * as FileSystem from 'expo-file-system/legacy'
 import * as Haptics from 'expo-haptics'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import {
   type MobileVoiceSynthesisResult,
@@ -73,6 +73,7 @@ import {
   DEFAULT_VAD_CONFIG,
   type VoiceVadState,
 } from '../../src/lib/voice-vad'
+import { hasWebRtcNativeModule } from '../../src/lib/webrtc-runtime-probe'
 import { colors, radius, spacing } from '../../src/theme'
 
 type TalkInputMode = 'push_to_talk' | 'continuous'
@@ -1076,6 +1077,23 @@ export default function TalkTab() {
     void stopContinuousMode({ preserveMode: true })
   }, [stopContinuousMode])
 
+  // Fail-closed before navigating into the call modal: 普通 APK 没注册
+  // react-native-webrtc 原生模块,/call 一进就启动 native WebRTC → 闪退。先做无权限
+  // 的原生模块探测,缺失就弹明确提示而不是把用户送进会崩的页面;有模块(实验包)才进。
+  const openCall = useCallback(async () => {
+    let available = false
+    try {
+      available = await hasWebRtcNativeModule()
+    } catch {
+      available = false
+    }
+    if (available) {
+      router.push('/call')
+      return
+    }
+    Alert.alert(t('call.unavailable.title'), t('call.unavailable.body'))
+  }, [router, t])
+
   const stopTalkbackPlayback = useCallback(() => {
     const interruptedReplyId = inFlightReplyIdRef.current ?? activePlaybackReplyIdRef.current
     if (interruptedReplyId) spokenReplyIdsRef.current.add(interruptedReplyId)
@@ -1367,7 +1385,7 @@ export default function TalkTab() {
               accessibilityLabel={t('call.a11y.open')}
               accessibilityRole="button"
               hitSlop={10}
-              onPress={() => router.push('/call')}
+              onPress={() => void openCall()}
               style={({ pressed }) => [styles.exitBadge, pressed && styles.exitBadgePressed]}
               testID="talk-open-call"
             >

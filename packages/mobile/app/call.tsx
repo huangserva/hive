@@ -10,6 +10,7 @@ import { GlowOrb, type GlowOrbKind, hexToRgba } from '../src/components/Orb'
 import { useT } from '../src/i18n'
 import {
   advanceCallPhaseDisplay,
+  type CallGateState,
   type CallPhase,
   type CallPhaseDisplayState,
   enqueueCallPhaseDisplay,
@@ -17,8 +18,10 @@ import {
   getCallPhaseLabelKey,
   isConnectedPhase,
   MIN_CALL_PHASE_DWELL_MS,
+  resolveCallGate,
   resolveCallPhase,
 } from '../src/lib/call-ui'
+import { hasWebRtcNativeModule } from '../src/lib/webrtc-runtime-probe'
 
 // Full-screen WebRTC call page (entered from the talk page 📞 icon as a
 // fullScreenModal). Reuses the talk page's premium glowing orb. Pure UI + state
@@ -88,6 +91,13 @@ const CALL_VISUALS: Record<CallPhase, CallVisual> = {
     panel: 'rgba(47, 128, 255, 0.18)',
     soft: '#9bc4ff',
   },
+  unavailable: {
+    accent: '#B5BDC8',
+    glyph: 'information-circle-outline',
+    kind: 'idle',
+    panel: 'rgba(181, 189, 200, 0.16)',
+    soft: '#d7dde4',
+  },
 }
 
 // A line of the rolling call transcript. The M39 streaming-ASR partial stream is
@@ -114,6 +124,7 @@ export default function CallScreen() {
 
   const [muted, setMuted] = useState(false)
   const [ended, setEnded] = useState(false)
+  const [callGate, setCallGate] = useState<CallGateState>('pending')
   const [elapsedMs, setElapsedMs] = useState(0)
   const [debugPhase, setDebugPhase] = useState<VoiceCallStatePhase | null>(null)
   const [phaseDisplay, setPhaseDisplay] = useState<CallPhaseDisplayState>({
@@ -129,13 +140,31 @@ export default function CallScreen() {
   // Placeholder until the M39 transcript stream is exposed (see CallTranscriptLine).
   const transcriptLines: CallTranscriptLine[] = []
 
-  // Start the call once when the page opens; tear it down if the page unmounts
-  // (e.g. swipe-back) so a call never leaks past the modal.
+  // Fail-closed start: probe the native WebRTC module BEFORE starting the caller.
+  // 普通 APK 不注册 react-native-webrtc → 直接进 native RTCPeerConnection 会闪退
+  // (uncatchable native crash, JS try/catch 救不了)。所以先做无权限的原生模块
+  // 探测,不可用就降级显示 unavailable 屏,绝不进入危险路径。WEBRTC_NATIVE_REGISTER=1
+  // 的实验包探测通过 → 照常启动通话。Tear down on unmount so no call leaks the modal.
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
-    void startWebRtcTestCall()
-    return () => stopWebRtcTestCall()
+    let cancelled = false
+    void (async () => {
+      let available = false
+      try {
+        available = await hasWebRtcNativeModule()
+      } catch {
+        available = false
+      }
+      if (cancelled) return
+      setCallGate(resolveCallGate(available))
+      if (available) void startWebRtcTestCall()
+      else console.warn('[WEBRTCDBG] call_gate_blocked_native_module_missing')
+    })()
+    return () => {
+      cancelled = true
+      stopWebRtcTestCall()
+    }
   }, [startWebRtcTestCall, stopWebRtcTestCall])
 
   // Begin counting once the call actually connects.
@@ -200,6 +229,7 @@ export default function CallScreen() {
   const phase = resolveCallPhase({
     callStatePhase: displayedCallStatePhase,
     ended,
+    gate: callGate,
     status: webRtcTestCall.status,
   })
   const connected = isConnectedPhase(phase)
@@ -328,7 +358,16 @@ export default function CallScreen() {
 
         {/* bottom: controls — mute + hangup (or cancel / retry+exit per phase) */}
         <View style={styles.controls}>
-          {phase === 'connecting' ? (
+          {phase === 'unavailable' ? (
+            <ControlButton
+              accent="#FF4B4B"
+              icon="close"
+              label={t('call.control.exit')}
+              onPress={exitCall}
+              testID="call-unavailable-exit"
+              variant="hangup"
+            />
+          ) : phase === 'connecting' ? (
             <ControlButton
               accent="#FF4B4B"
               icon="close"

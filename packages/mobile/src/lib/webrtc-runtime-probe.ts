@@ -48,7 +48,14 @@ const describeError = (error: unknown) => {
   return String(error)
 }
 
-const defaultHasNativeWebRtcModule = async () => {
+// Cheap, permission-free fail-closed gate: is the react-native-webrtc native
+// module actually registered in this APK? 普通包默认不 autolink/register
+// (only WEBRTC_NATIVE_REGISTER=1 实验包 does), and touching RTCPeerConnection
+// without it crashes at the native layer — an uncatchable JS throw. Callers MUST
+// check this before navigating into / starting the WebRTC caller. Unlike
+// runWebRtcRuntimeProbe this never calls getUserMedia, so it triggers no mic
+// permission prompt and is safe to run on a button tap.
+export const hasWebRtcNativeModule = async (): Promise<boolean> => {
   try {
     const reactNative = (await import(/* @vite-ignore */ 'react-native')) as ReactNativeRuntime
     return Boolean(reactNative.NativeModules?.[WEBRTC_NATIVE_MODULE_NAME])
@@ -56,6 +63,8 @@ const defaultHasNativeWebRtcModule = async () => {
     return false
   }
 }
+
+const defaultHasNativeWebRtcModule = hasWebRtcNativeModule
 
 const defaultLoadWebRtc = async () => import(/* @vite-ignore */ 'react-native-webrtc')
 
