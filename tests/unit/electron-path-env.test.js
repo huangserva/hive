@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
 
-import { resolveDesktopPathEnv } from '../../desktop/electron/path-env.mjs'
+import { repairDesktopPathEnv, resolveDesktopPathEnv } from '../../desktop/electron/path-env.mjs'
+
+const shellEnvOutput = (entries) =>
+  [
+    '__HIVE_DESKTOP_ENV_START__',
+    ...Object.entries(entries).map(([key, value]) => `${key}=${value}`),
+    '__HIVE_DESKTOP_ENV_END__',
+  ].join('\n')
 
 describe('desktop Electron PATH repair', () => {
   test('merges login shell PATH with common user CLI locations before runtime starts', () => {
@@ -13,7 +20,7 @@ describe('desktop Electron PATH repair', () => {
       },
       execSync: (command, options) => {
         calls.push({ command, options })
-        return Buffer.from('/opt/homebrew/bin:/custom/bin:/usr/bin:/bin\n')
+        return Buffer.from(shellEnvOutput({ PATH: '/opt/homebrew/bin:/custom/bin:/usr/bin:/bin' }))
       },
       platform: 'darwin',
     })
@@ -49,7 +56,7 @@ describe('desktop Electron PATH repair', () => {
         PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
         SHELL: '/bin/zsh',
       },
-      execSync: () => Buffer.from('/usr/bin:/bin:/usr/sbin:/sbin\n'),
+      execSync: () => Buffer.from(shellEnvOutput({ PATH: '/usr/bin:/bin:/usr/sbin:/sbin' })),
       platform: 'darwin',
       readdirSync: (directory, options) => {
         expect(directory).toBe('/Users/serva/.nvm/versions/node')
@@ -80,5 +87,31 @@ describe('desktop Electron PATH repair', () => {
         platform: 'win32',
       })
     ).toBe('C:\\Windows\\System32')
+  })
+
+  test('fills proxy variables from the login shell without overwriting existing values', () => {
+    const env = {
+      HOME: '/Users/alice',
+      HTTPS_PROXY: 'http://existing-proxy:7890',
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      SHELL: '/bin/zsh',
+    }
+
+    repairDesktopPathEnv(env, {
+      execSync: () =>
+        Buffer.from(
+          shellEnvOutput({
+            ALL_PROXY: 'socks5://127.0.0.1:7891',
+            HTTPS_PROXY: 'http://shell-proxy:7890',
+            PATH: '/usr/bin:/bin',
+            http_proxy: 'http://lower-proxy:7890',
+          })
+        ),
+      platform: 'darwin',
+    })
+
+    expect(env.HTTPS_PROXY).toBe('http://existing-proxy:7890')
+    expect(env.ALL_PROXY).toBe('socks5://127.0.0.1:7891')
+    expect(env.http_proxy).toBe('http://lower-proxy:7890')
   })
 })

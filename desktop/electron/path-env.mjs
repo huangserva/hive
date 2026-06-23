@@ -3,17 +3,42 @@ import { readdirSync as defaultReaddirSync } from 'node:fs'
 import { delimiter } from 'node:path'
 
 const DEFAULT_POSIX_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
-const PATH_MARKER_START = '__HIVE_DESKTOP_PATH_START__'
-const PATH_MARKER_END = '__HIVE_DESKTOP_PATH_END__'
+const SHELL_ENV_MARKER_START = '__HIVE_DESKTOP_ENV_START__'
+const SHELL_ENV_MARKER_END = '__HIVE_DESKTOP_ENV_END__'
+const PROXY_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+  'no_proxy',
+]
 
 const getPathValue = (env) => env.PATH ?? env.Path ?? env.path ?? ''
 
 const expandHome = (path, home) => (home ? path.replace(/^~(?=\/|$)/, home) : path)
 
-const readLoginShellPath = ({ env, execSync, platform }) => {
-  if (platform === 'win32') return ''
+const parseShellEnvOutput = (output) => {
+  const start = output.indexOf(SHELL_ENV_MARKER_START)
+  const end = output.indexOf(SHELL_ENV_MARKER_END, start + SHELL_ENV_MARKER_START.length)
+  if (start < 0 || end <= start) return {}
+  const body = output.slice(start + SHELL_ENV_MARKER_START.length, end)
+  const values = {}
+  for (const line of body.split(/\r?\n/)) {
+    const separator = line.indexOf('=')
+    if (separator <= 0) continue
+    values[line.slice(0, separator)] = line.slice(separator + 1)
+  }
+  return values
+}
+
+const readLoginShellEnv = ({ env, execSync, platform }) => {
+  if (platform === 'win32') return {}
   const shell = env.SHELL || '/bin/zsh'
-  const command = `${JSON.stringify(shell)} -l -i -c 'printf "${PATH_MARKER_START}%s${PATH_MARKER_END}" "$PATH"'`
+  const proxyKeys = PROXY_ENV_KEYS.join(' ')
+  const command = `${JSON.stringify(shell)} -l -i -c 'printf "${SHELL_ENV_MARKER_START}\\n"; printf "PATH=%s\\n" "$PATH"; for key in ${proxyKeys}; do value=$(printenv "$key" 2>/dev/null || true); if [ -n "$value" ]; then printf "%s=%s\\n" "$key" "$value"; fi; done; printf "${SHELL_ENV_MARKER_END}\\n"'`
   try {
     const output = String(
       execSync(command, {
@@ -23,14 +48,9 @@ const readLoginShellPath = ({ env, execSync, platform }) => {
         timeout: 2000,
       })
     ).trim()
-    const start = output.indexOf(PATH_MARKER_START)
-    const end = output.indexOf(PATH_MARKER_END, start + PATH_MARKER_START.length)
-    if (start >= 0 && end > start) {
-      return output.slice(start + PATH_MARKER_START.length, end).trim()
-    }
-    return output
+    return parseShellEnvOutput(output)
   } catch {
-    return ''
+    return {}
   }
 }
 
@@ -68,11 +88,13 @@ export const resolveDesktopPathEnv = ({
   execSync = defaultExecSync,
   platform = process.platform,
   readdirSync = defaultReaddirSync,
+  shellEnv,
 } = {}) => {
   const currentPath = getPathValue(env)
   if (platform === 'win32') return currentPath
 
-  const shellPath = readLoginShellPath({ env, execSync, platform })
+  const resolvedShellEnv = shellEnv ?? readLoginShellEnv({ env, execSync, platform })
+  const shellPath = resolvedShellEnv.PATH ?? ''
   const parts = [
     ...buildFallbackPathParts(env, platform, readdirSync),
     ...(shellPath || DEFAULT_POSIX_PATH).split(delimiter),
@@ -89,7 +111,31 @@ export const resolveDesktopPathEnv = ({
   return merged.join(delimiter)
 }
 
-export const repairDesktopPathEnv = (env = process.env) => {
-  env.PATH = resolveDesktopPathEnv({ env })
+const repairDesktopProxyEnv = (env, shellEnv) => {
+  for (const key of PROXY_ENV_KEYS) {
+    if (env[key] === undefined && shellEnv[key]) {
+      env[key] = shellEnv[key]
+    }
+  }
+}
+
+export const repairDesktopPathEnv = (env = process.env, options = {}) => {
+  const platform = options.platform ?? process.platform
+  const shellEnv =
+    platform === 'win32'
+      ? {}
+      : readLoginShellEnv({
+          env,
+          execSync: options.execSync ?? defaultExecSync,
+          platform,
+        })
+  env.PATH = resolveDesktopPathEnv({
+    env,
+    execSync: options.execSync ?? defaultExecSync,
+    platform,
+    readdirSync: options.readdirSync ?? defaultReaddirSync,
+    shellEnv,
+  })
+  repairDesktopProxyEnv(env, shellEnv)
   return env.PATH
 }
