@@ -11,6 +11,7 @@ directories:
 files:
   - package.json
   - desktop/electron/main.mjs
+  - desktop/electron/path-env.mjs
   - dist/**/*
   - web/dist/**/*
 

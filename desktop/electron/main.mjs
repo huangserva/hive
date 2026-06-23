@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 
 import { runHiveCommand } from '../../dist/src/cli/hive.js'
+import { repairDesktopPathEnv } from './path-env.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const appRoot = resolve(__dirname, '../..')
@@ -41,6 +42,7 @@ const createMainWindow = async (port) => {
 }
 
 const startRuntime = async () => {
+  repairDesktopPathEnv()
   process.env.HIVE_ELECTRON = '1'
   process.env.HIVE_STATIC_DIR ??= resolve(appRoot, 'web/dist')
 
