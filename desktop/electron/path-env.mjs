@@ -15,6 +15,7 @@ const PROXY_ENV_KEYS = [
   'all_proxy',
   'no_proxy',
 ]
+const LOGIN_SHELL_TIMEOUT_MS = 7000
 
 const getPathValue = (env) => env.PATH ?? env.Path ?? env.path ?? ''
 
@@ -45,10 +46,50 @@ const readLoginShellEnv = ({ env, execSync, platform }) => {
         encoding: 'utf8',
         env,
         shell: '/bin/sh',
-        timeout: 2000,
+        timeout: LOGIN_SHELL_TIMEOUT_MS,
       })
     ).trim()
     return parseShellEnvOutput(output)
+  } catch {
+    return {}
+  }
+}
+
+const parseScutilProxyOutput = (output) => {
+  const values = {}
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*([A-Za-z]+)\s*:\s*(.*?)\s*$/.exec(line)
+    if (!match) continue
+    values[match[1]] = match[2]
+  }
+  const proxyEnv = {}
+  if (values.HTTPEnable === '1' && values.HTTPProxy && values.HTTPPort) {
+    proxyEnv.HTTP_PROXY = `http://${values.HTTPProxy}:${values.HTTPPort}`
+    proxyEnv.http_proxy = proxyEnv.HTTP_PROXY
+  }
+  if (values.HTTPSEnable === '1' && values.HTTPSProxy && values.HTTPSPort) {
+    proxyEnv.HTTPS_PROXY = `http://${values.HTTPSProxy}:${values.HTTPSPort}`
+    proxyEnv.https_proxy = proxyEnv.HTTPS_PROXY
+  }
+  if (values.SOCKSEnable === '1' && values.SOCKSProxy && values.SOCKSPort) {
+    proxyEnv.ALL_PROXY = `socks5://${values.SOCKSProxy}:${values.SOCKSPort}`
+    proxyEnv.all_proxy = proxyEnv.ALL_PROXY
+  }
+  return proxyEnv
+}
+
+const readMacSystemProxyEnv = ({ execSync, platform }) => {
+  if (platform !== 'darwin') return {}
+  try {
+    return parseScutilProxyOutput(
+      String(
+        execSync('scutil --proxy', {
+          encoding: 'utf8',
+          shell: '/bin/sh',
+          timeout: 2000,
+        })
+      )
+    )
   } catch {
     return {}
   }
@@ -111,10 +152,14 @@ export const resolveDesktopPathEnv = ({
   return merged.join(delimiter)
 }
 
-const repairDesktopProxyEnv = (env, shellEnv) => {
+const repairDesktopProxyEnv = (env, ...sources) => {
   for (const key of PROXY_ENV_KEYS) {
-    if (env[key] === undefined && shellEnv[key]) {
-      env[key] = shellEnv[key]
+    if (env[key]) continue
+    for (const source of sources) {
+      if (source[key]) {
+        env[key] = source[key]
+        break
+      }
     }
   }
 }
@@ -129,6 +174,13 @@ export const repairDesktopPathEnv = (env = process.env, options = {}) => {
           execSync: options.execSync ?? defaultExecSync,
           platform,
         })
+  const systemProxyEnv =
+    platform === 'win32'
+      ? {}
+      : readMacSystemProxyEnv({
+          execSync: options.execSync ?? defaultExecSync,
+          platform,
+        })
   env.PATH = resolveDesktopPathEnv({
     env,
     execSync: options.execSync ?? defaultExecSync,
@@ -136,6 +188,6 @@ export const repairDesktopPathEnv = (env = process.env, options = {}) => {
     readdirSync: options.readdirSync ?? defaultReaddirSync,
     shellEnv,
   })
-  repairDesktopProxyEnv(env, shellEnv)
+  repairDesktopProxyEnv(env, shellEnv, systemProxyEnv)
   return env.PATH
 }

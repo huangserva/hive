@@ -10,13 +10,20 @@ directories:
 
 files:
   - package.json
+  - .env
   - desktop/electron/main.mjs
   - desktop/electron/path-env.mjs
+  - desktop/electron/runtime-launch.mjs
+  - bin/**/*
   - dist/**/*
   - web/dist/**/*
 
 asar: true
 asarUnpack:
+  - bin/**/*
+  - dist/bin/**/*
+  - dist/src/cli/team.js
+  - dist/src/server/codex-image-export.js
   - node_modules/**/*.node
   - node_modules/better-sqlite3/**/*
   - node_modules/node-pty/**/*

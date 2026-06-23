@@ -53,6 +53,28 @@ describe('hive root env file loading', () => {
     expect(env.NODE_ENV).toBe('test')
   })
 
+  it('loads GLM env from an explicit HIVE_ROOT_ENV_FILE path', () => {
+    const cwd = setupDir()
+    const appRoot = setupDir()
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(
+      join(appRoot, 'packaged.env'),
+      [
+        'GLM_API_KEY=from-packaged-env',
+        'HIVE_WEBRTC_ICE_SERVERS_JSON=[{"urls":"stun:relay"}]',
+      ].join('\n'),
+      'utf8'
+    )
+    const env: NodeJS.ProcessEnv = {
+      HIVE_ROOT_ENV_FILE: join(appRoot, 'packaged.env'),
+      NODE_ENV: 'test',
+    }
+
+    expect(loadRootEnvFile({ cwd, env })).toBe(true)
+    expect(env.GLM_API_KEY).toBe('from-packaged-env')
+    expect(env.HIVE_WEBRTC_ICE_SERVERS_JSON).toBe('[{"urls":"stun:relay"}]')
+  })
+
   it('returns false without throwing for a malformed .env with no assignments', () => {
     const cwd = setupDir()
     writeFileSync(join(cwd, '.env'), ['not an assignment', '# comment', ''].join('\n'), 'utf8')

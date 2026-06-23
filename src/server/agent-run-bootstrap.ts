@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { delimiter, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isThinkingLevelSupported } from '../shared/thinking-levels.js'
@@ -24,10 +25,19 @@ import {
   snapshotSessionIdsForCapture,
 } from './session-capture.js'
 
-const resolveHiveBinDir = () => {
-  const moduleDir = dirname(fileURLToPath(import.meta.url))
+export const resolveHiveBinDir = ({
+  moduleUrl = import.meta.url,
+  pathExists = existsSync,
+}: {
+  moduleUrl?: string
+  pathExists?: (path: string) => boolean
+} = {}) => {
+  const moduleDir = dirname(fileURLToPath(moduleUrl))
   const packageRoot = resolve(moduleDir, '../..')
-  return resolve(packageRoot, 'bin')
+  const binDir = resolve(packageRoot, 'bin')
+  const unpackedBinDir = binDir.replace(/([/\\])app\.asar([/\\])/, '$1app.asar.unpacked$2')
+  if (unpackedBinDir !== binDir && pathExists(unpackedBinDir)) return unpackedBinDir
+  return binDir
 }
 
 const HIVE_BIN_DIR = resolveHiveBinDir()

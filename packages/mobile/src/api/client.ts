@@ -276,7 +276,11 @@ export interface MobileCockpitData {
 
 export interface MobileRelayConfig {
   daemon_public_key: string
+  daemon_signing_public_key?: string
+  relay_auth_token?: string
+  relay_protocol_version?: 1 | 2
   relay_url: string
+  room_auth_token?: string
   room_id: string
 }
 

@@ -3,7 +3,7 @@
 import { once } from 'node:events'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createAgentManager } from '../server/agent-manager.js'
@@ -53,7 +53,12 @@ export const loadRootEnvFile = ({
   cwd?: string
   env?: NodeJS.ProcessEnv
 } = {}) => {
-  const envPath = join(cwd, '.env')
+  const configuredEnvPath = env.HIVE_ROOT_ENV_FILE
+  const envPath = configuredEnvPath
+    ? isAbsolute(configuredEnvPath)
+      ? configuredEnvPath
+      : join(cwd, configuredEnvPath)
+    : join(cwd, '.env')
   if (!existsSync(envPath)) return false
   try {
     let loaded = false

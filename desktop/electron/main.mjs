@@ -2,8 +2,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 
-import { runHiveCommand } from '../../dist/src/cli/hive.js'
 import { repairDesktopPathEnv } from './path-env.mjs'
+import { prepareElectronRuntimeEnv, startHiveRuntimeWithPortRetry } from './runtime-launch.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const appRoot = resolve(__dirname, '../..')
@@ -13,6 +13,13 @@ let runtime = null
 let quitting = false
 
 const resolvePort = () => process.env.HIVE_ELECTRON_PORT ?? '4010'
+const resolveInitialPort = () => Number.parseInt(resolvePort(), 10) || 4010
+
+const focusMainWindow = () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+}
 
 const createMainWindow = async (port) => {
   mainWindow = new BrowserWindow({
@@ -42,36 +49,53 @@ const createMainWindow = async (port) => {
 }
 
 const startRuntime = async () => {
-  repairDesktopPathEnv()
-  process.env.HIVE_ELECTRON = '1'
-  process.env.HIVE_STATIC_DIR ??= resolve(appRoot, 'web/dist')
+  prepareElectronRuntimeEnv({
+    repairDesktopPathEnv,
+    rootEnvFile: resolve(appRoot, '.env'),
+    staticDir: resolve(appRoot, 'web/dist'),
+  })
+  const { runHiveCommand } = await import('../../dist/src/cli/hive.js')
 
-  runtime = await runHiveCommand(['--port', resolvePort()], {
+  runtime = await startHiveRuntimeWithPortRetry({
     logger: console,
+    runHiveCommand,
+    startPort: resolveInitialPort(),
   })
   return runtime.port
 }
 
-app.whenReady().then(async () => {
-  try {
-    const port = await startRuntime()
-    await createMainWindow(port)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    await dialog.showMessageBox({
-      buttons: ['Quit'],
-      message: 'HippoTeam failed to start.',
-      detail: message,
-      type: 'error',
-    })
-    app.quit()
-  }
-})
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    focusMainWindow()
+  })
+
+  app.whenReady().then(async () => {
+    try {
+      const port = await startRuntime()
+      await createMainWindow(port)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await dialog.showMessageBox({
+        buttons: ['Quit'],
+        message: 'HippoTeam failed to start.',
+        detail: message,
+        type: 'error',
+      })
+      app.quit()
+    }
+  })
+}
 
 app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0 && runtime) {
     await createMainWindow(runtime.port)
+    return
   }
+  focusMainWindow()
 })
 
 app.on('before-quit', async (event) => {

@@ -28,7 +28,7 @@ describe('desktop Electron PATH repair', () => {
     expect(calls).toEqual([
       expect.objectContaining({
         command: expect.stringContaining('/bin/zsh'),
-        options: expect.objectContaining({ timeout: 2000 }),
+        options: expect.objectContaining({ timeout: 7000 }),
       }),
     ])
     expect(calls[0].command).toContain('-l')
@@ -113,5 +113,42 @@ describe('desktop Electron PATH repair', () => {
     expect(env.HTTPS_PROXY).toBe('http://existing-proxy:7890')
     expect(env.ALL_PROXY).toBe('socks5://127.0.0.1:7891')
     expect(env.http_proxy).toBe('http://lower-proxy:7890')
+  })
+
+  test('fills blank proxy variables and falls back to macOS system proxy settings', () => {
+    const env = {
+      HOME: '/Users/alice',
+      HTTPS_PROXY: '',
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      SHELL: '/bin/zsh',
+    }
+
+    repairDesktopPathEnv(env, {
+      execSync: (command) => {
+        if (String(command).includes('scutil --proxy')) {
+          return Buffer.from(
+            [
+              '<dictionary> {',
+              '  HTTPEnable : 1',
+              '  HTTPProxy : 127.0.0.1',
+              '  HTTPPort : 7890',
+              '  HTTPSEnable : 1',
+              '  HTTPSProxy : 127.0.0.1',
+              '  HTTPSPort : 7890',
+              '  SOCKSEnable : 1',
+              '  SOCKSProxy : 127.0.0.1',
+              '  SOCKSPort : 7891',
+              '}',
+            ].join('\n')
+          )
+        }
+        return Buffer.from(shellEnvOutput({ PATH: '/usr/bin:/bin' }))
+      },
+      platform: 'darwin',
+    })
+
+    expect(env.HTTP_PROXY).toBe('http://127.0.0.1:7890')
+    expect(env.HTTPS_PROXY).toBe('http://127.0.0.1:7890')
+    expect(env.ALL_PROXY).toBe('socks5://127.0.0.1:7891')
   })
 })
