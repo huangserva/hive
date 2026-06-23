@@ -101,6 +101,7 @@ export interface WebRtcRemoteAudioSession {
 export interface WebRtcRemoteAudioSink {
   start(input: {
     callId: string
+    isDownlinkPlaybackActive?: () => boolean
     receiver?: unknown
     sendCallState?: (frame: VoiceCallStateFrame) => void
     onSpeechStart?: (event?: WebRtcSpeechStartEvent) => void
@@ -133,6 +134,39 @@ type WebRtcCall = {
   peer: WebRtcPeerConnection
   timer: ReturnType<typeof setTimeout> | null
   workspaceId: string | null
+}
+
+const WEBRTC_DOWNLINK_ACTIVE_STATES = new Set(['sending', 'synthesizing'])
+const DEFAULT_WEBRTC_DOWNLINK_BARGE_RMS_THRESHOLD = 0.06
+
+const getPlaybackStateName = (state: unknown) =>
+  state && typeof state === 'object' && 'state' in state
+    ? typeof state.state === 'string'
+      ? state.state
+      : null
+    : null
+
+const isDownlinkPlaybackActiveState = (state: unknown) => {
+  const stateName = getPlaybackStateName(state)
+  return stateName !== null && WEBRTC_DOWNLINK_ACTIVE_STATES.has(stateName)
+}
+
+const shouldSuppressSpeechStartDuringDownlink = ({
+  downlinkState,
+  event,
+  fileDownlinkState,
+}: {
+  downlinkState: unknown
+  event?: WebRtcSpeechStartEvent | undefined
+  fileDownlinkState: unknown
+}) => {
+  if (
+    !isDownlinkPlaybackActiveState(downlinkState) &&
+    !isDownlinkPlaybackActiveState(fileDownlinkState)
+  ) {
+    return false
+  }
+  return (event?.rms ?? 0) < DEFAULT_WEBRTC_DOWNLINK_BARGE_RMS_THRESHOLD
 }
 
 const DEFAULT_WEBRTC_CALL_TIMEOUT_MS = 45_000
@@ -403,9 +437,24 @@ export const createWebRtcCallee = (options: WebRtcCalleeOptions) => {
         try {
           startedSession = options.audioSink.start({
             callId: frame.call_id,
+            isDownlinkPlaybackActive: () =>
+              isDownlinkPlaybackActiveState(call.downlinkSession?.getPlaybackState?.()) ||
+              isDownlinkPlaybackActiveState(call.fileDownlinkSession?.getPlaybackState?.()),
             onSpeechStart: (event) => {
               const downlinkState = call.downlinkSession?.getPlaybackState?.()
               const fileDownlinkState = call.fileDownlinkSession?.getPlaybackState?.()
+              if (
+                shouldSuppressSpeechStartDuringDownlink({
+                  downlinkState,
+                  event,
+                  fileDownlinkState,
+                })
+              ) {
+                log(
+                  `upstream speech-start suppressed during downlink playback: call_id=${frame.call_id} rms=${formatOptionalNumber(event?.rms)} threshold=${formatOptionalNumber(event?.threshold)} consecutive=${event?.consecutiveSpeechFrames ?? 'na'} downlink_state=${safeStringifyPlaybackState(downlinkState)} file_downlink_state=${safeStringifyPlaybackState(fileDownlinkState)}`
+                )
+                return
+              }
               log(
                 `upstream speech-start interrupt: call_id=${frame.call_id} rms=${formatOptionalNumber(event?.rms)} threshold=${formatOptionalNumber(event?.threshold)} consecutive=${event?.consecutiveSpeechFrames ?? 'na'} downlink_state=${safeStringifyPlaybackState(downlinkState)} file_downlink_state=${safeStringifyPlaybackState(fileDownlinkState)}`
               )

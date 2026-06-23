@@ -362,7 +362,7 @@ export const isDefaultPromptEcho = (text: string) => {
   return tokenCoverage >= PROMPT_ECHO_TOKEN_OVERLAP_RATIO && nonPromptCharacters.length === 0
 }
 
-type TranscriptQualityDecision =
+export type TranscriptQualityDecision =
   | {
       action: 'allow'
       metrics: Record<string, unknown>
@@ -386,7 +386,7 @@ const findConservativeGibberishFragments = (text: string) => {
 const isConservativeGibberishTranscript = (text: string) =>
   findConservativeGibberishFragments(text).length >= 2
 
-const assessTranscriptQuality = (text: string): TranscriptQualityDecision => {
+export const assessTranscriptQuality = (text: string): TranscriptQualityDecision => {
   const normalized = normalizeTranscriptForPromptEcho(text)
   const gibberishFragments = findConservativeGibberishFragments(text)
   const baseMetrics = {

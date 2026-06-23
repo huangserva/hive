@@ -431,6 +431,7 @@ describe('WebRTC callee', () => {
     expect(startedInputs).toEqual([
       {
         callId: 'call-audio',
+        isDownlinkPlaybackActive: expect.any(Function),
         onSpeechStart: expect.any(Function),
         receiver: { id: 'receiver-1' },
         sendCallState: expect.any(Function),
@@ -671,6 +672,67 @@ describe('WebRTC callee', () => {
 
     onSpeechStart?.()
 
+    expect(interrupts).toEqual(['interrupt'])
+  })
+
+  test('suppresses echo-level speech-start while file downlink is sending but keeps loud barge-in', async () => {
+    const peers: FakePeerConnection[] = []
+    const interrupts: string[] = []
+    let onSpeechStart:
+      | ((event: { consecutiveSpeechFrames: number; rms: number; threshold: number }) => void)
+      | undefined
+    const callee = createWebRtcCallee({
+      audioSink: {
+        start: (input) => {
+          onSpeechStart = input.onSpeechStart as typeof onSpeechStart
+          return { close: () => {} }
+        },
+      },
+      fileDownlinkAudio: {
+        startCall: () => ({
+          close: () => {},
+          getPlaybackState: () => ({
+            generation: 1,
+            state: 'sending',
+            updatedAtMs: Date.now(),
+          }),
+          interrupt: () => {
+            interrupts.push('interrupt')
+          },
+        }),
+      },
+      getIceServers: async () => [],
+      loadRuntime: async () => ({
+        RTCPeerConnection: class extends FakePeerConnection {
+          constructor(config: unknown) {
+            super(config)
+            peers.push(this)
+          }
+        },
+      }),
+    })
+
+    await callee.handleSignal(
+      {
+        call_id: 'call-echo-suppressed',
+        kind: 'offer',
+        sdp: 'offer-sdp',
+        sdp_type: 'offer',
+        type: 'webrtc_signal',
+        workspace_id: 'workspace-1',
+      },
+      { send: () => {} }
+    )
+    peers[0]?.ontrack?.({
+      receiver: { id: 'receiver-1' },
+      streams: [],
+      track: { kind: 'audio' },
+    })
+
+    onSpeechStart?.({ consecutiveSpeechFrames: 3, rms: 0.04, threshold: 0.03 })
+    expect(interrupts).toEqual([])
+
+    onSpeechStart?.({ consecutiveSpeechFrames: 3, rms: 0.07, threshold: 0.03 })
     expect(interrupts).toEqual(['interrupt'])
   })
 

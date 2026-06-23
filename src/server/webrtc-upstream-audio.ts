@@ -12,7 +12,11 @@ import {
   adaptFastVoiceReplyToGrmTurnDecision,
   adaptVoiceIntentToGrmTurnDecision,
 } from './grm-turn-decision.js'
-import { createLocalSttProvider, type LocalSttProvider } from './local-stt.js'
+import {
+  assessTranscriptQuality,
+  createLocalSttProvider,
+  type LocalSttProvider,
+} from './local-stt.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
 import {
@@ -539,6 +543,17 @@ export const injectWebRtcVoiceTranscript = async ({
   }
 }
 
+const logStreamingTranscriptQualityDecision = (
+  logger: Pick<HiveLogger, 'info' | 'warn'> | undefined,
+  text: string,
+  decision: ReturnType<typeof assessTranscriptQuality>
+) => {
+  const compactText = text.replace(/\s+/g, ' ').trim().slice(0, 160)
+  const message = `streaming STT transcript quality provider=streaming decision=${decision.action} reason=${decision.reason} text=${JSON.stringify(compactText)} metrics=${JSON.stringify(decision.metrics)}`
+  const log = logger?.info ?? logger?.warn
+  log?.(message)
+}
+
 export const createWebRtcUpstreamAudioSink = ({
   createSttProvider = () => createLocalSttProvider(),
   createStreamingRecognitionSession: createStreamingSession = createStreamingRecognitionSession,
@@ -552,6 +567,7 @@ export const createWebRtcUpstreamAudioSink = ({
 }: WebRtcUpstreamAudioSinkOptions): WebRtcRemoteAudioSink => ({
   async start({
     callId,
+    isDownlinkPlaybackActive,
     onSpeechStart,
     sendCallState,
     track,
@@ -584,6 +600,7 @@ export const createWebRtcUpstreamAudioSink = ({
       sendCallState(createVoiceCallStateFrame({ callId, phase, turnId }))
     }
     const nextStreamingTurnId = () => `${callId}-turn-${sessionTranscript.length + 1}`
+    const shouldSuppressStreamingInput = () => isDownlinkPlaybackActive?.() === true
     const voiceIntentSession = isVoiceIntentFrontEnabled()
       ? createIntentSession({
           callId,
@@ -672,6 +689,14 @@ export const createWebRtcUpstreamAudioSink = ({
     let streamingSession = await createStreamingSession(callId, {
       onError: (error) => logger?.warn?.('streaming WebRTC STT error', error),
       onFinal: async (text) => {
+        if (shouldSuppressStreamingInput()) {
+          streamingTurnSpeechStartAt = null
+          logDiagnostic(
+            logger,
+            `audioSink streaming final suppressed during downlink playback: call_id=${callId} text_len=${text.trim().length}`
+          )
+          return
+        }
         const priorContext = sessionTranscript.slice()
         const segment = priorContext.length + 1
         const speechStartAt = streamingTurnSpeechStartAt ?? Date.now()
@@ -683,6 +708,17 @@ export const createWebRtcUpstreamAudioSink = ({
           workspaceId,
         })
         emitCallState('processing', latencyTurn.turnId)
+        const transcriptQuality = assessTranscriptQuality(text)
+        logStreamingTranscriptQualityDecision(logger, text, transcriptQuality)
+        if (transcriptQuality.action === 'drop') {
+          logDiagnostic(
+            logger,
+            `audioSink streaming final dropped by quality gate: call_id=${callId} reason=${transcriptQuality.reason} text_len=${text.trim().length}`
+          )
+          finishWebRtcVoiceLatencyTurn(latencyTurn.turnId)
+          emitCallState('listening', latencyTurn.turnId)
+          return
+        }
         logDiagnostic(
           logger,
           `audioSink streaming final: call_id=${callId} turn_id=${latencyTurn.turnId} segments=${segment} text_len=${text.trim().length}`
@@ -713,6 +749,14 @@ export const createWebRtcUpstreamAudioSink = ({
         })
       },
       onPartial: async (text) => {
+        if (shouldSuppressStreamingInput()) {
+          streamingTurnSpeechStartAt = null
+          logDiagnostic(
+            logger,
+            `audioSink streaming partial suppressed during downlink playback: call_id=${callId} text_len=${text.length}`
+          )
+          return
+        }
         streamingTurnSpeechStartAt ??= Date.now()
         emitCallState('heard', nextStreamingTurnId())
         logDiagnostic(

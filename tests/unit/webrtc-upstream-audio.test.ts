@@ -1069,6 +1069,110 @@ describe('WebRTC upstream audio sink', () => {
     ])
   })
 
+  test('drops streaming partial and final while downlink playback is active and resumes afterward', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    const store = createStore()
+    let downlinkPlaybackActive = true
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: { info: () => {}, warn: () => {} },
+      store,
+    })
+
+    const session = await sink.start({
+      callId: 'call-streaming-suppress-playback',
+      isDownlinkPlaybackActive: () => downlinkPlaybackActive,
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions?.onPartial) throw new Error('streaming callbacks were not captured')
+
+    await capturedOptions.onPartial('播放期半截话')
+    await capturedOptions.onFinal('播放期回声幻觉')
+    expect(store.inputs).toEqual([])
+
+    downlinkPlaybackActive = false
+    await capturedOptions.onFinal('让关羽汇报进度')
+    expect(store.inputs).toEqual([
+      {
+        options: undefined,
+        text: '[来自手机 Mobile App]\n---\n让关羽汇报进度',
+        workspaceId: 'workspace-1',
+        workerId: 'workspace-1:orchestrator',
+      },
+    ])
+  })
+
+  test('applies transcript quality gate to streaming final text before injection', async () => {
+    vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
+    vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
+    const store = createStore()
+    const infoLogs: string[] = []
+    let capturedOptions:
+      | Parameters<
+          NonNullable<
+            Parameters<typeof createWebRtcUpstreamAudioSink>[0]['createStreamingRecognitionSession']
+          >
+        >[1]
+      | undefined
+    const sink = createWebRtcUpstreamAudioSink({
+      createStreamingRecognitionSession: async (_callId, options) => {
+        capturedOptions = options
+        return {
+          close: () => {},
+          flush: async () => {},
+          pushFrame: () => {},
+        }
+      },
+      fastVoiceReplyProvider: {
+        generate: async () => 'HIVE_GLM_GATEKEEPER: escalate\n收到，我让主管处理。',
+      },
+      loadAudioSink: async () => FakeAudioSink,
+      logger: { info: (message) => infoLogs.push(message), warn: () => {} },
+      store,
+    })
+
+    const session = await sink.start({
+      callId: 'call-streaming-quality-gate',
+      track: { kind: 'audio' },
+      workspaceId: 'workspace-1',
+    })
+    if (!session) throw new Error('audio session was not created')
+    if (!capturedOptions) throw new Error('streaming callbacks were not captured')
+
+    await capturedOptions.onFinal('中文普通话语音指令')
+
+    expect(store.inputs).toEqual([])
+    expect(store.chat).toEqual([])
+    expect(infoLogs).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          'streaming STT transcript quality provider=streaming decision=drop reason=known_silent_audio_hallucination'
+        ),
+      ])
+    )
+  })
+
   test('keeps barge-in onset detection alive while streaming STT handles transcription', async () => {
     vi.stubEnv('HIVE_GLM_GATEKEEPER', '0')
     vi.stubEnv('HIVE_VOICE_INTENT_FRONT', '0')
