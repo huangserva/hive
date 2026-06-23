@@ -28,13 +28,16 @@ import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-pro
 export interface RelayTransportConfig {
   capabilities: string[]
   daemon_public_key: string
+  daemon_signing_public_key?: string
   device_id: string
   device_keypair: { publicKey: string; secretKey: string }
   device_token: string
   // 进 relay room 的门禁 token，必须与 relay server 的 RELAY_AUTH_TOKEN 一致；
   // 随 join 帧上送，否则 relay server 直接以 unauthorized 拒绝。
   relay_auth_token: string
+  relay_protocol_version?: 1 | 2
   relay_url: string
+  room_auth_token?: string
   room_id: string
 }
 
@@ -315,8 +318,19 @@ export const createRelayTransport = (
       let settled = false
       // 本次 connect 是否已被 close() 取消。grace 链 resolve 后据此跳过 openNewSocket，绝不建 ghost socket。
       let aborted = false
+      const useRelayV2 =
+        config.relay_protocol_version === 2 &&
+        typeof config.daemon_signing_public_key === 'string' &&
+        typeof config.room_auth_token === 'string'
       let handshake: ReturnType<typeof createHandshakeInitiator> | null = createHandshakeInitiator(
-        decodeKeyPair(config.device_keypair)
+        decodeKeyPair(config.device_keypair),
+        useRelayV2
+          ? {
+              expectedResponderSigningPublicKey: decodeBase64(
+                config.daemon_signing_public_key ?? ''
+              ),
+            }
+          : {}
       )
 
       const failConnect = (error: Error) => {
@@ -342,12 +356,19 @@ export const createRelayTransport = (
         nextSocket.onopen = () => {
           try {
             sendFrame({
-              auth_token: config.relay_auth_token,
+              ...(useRelayV2
+                ? {
+                    room_auth_token: config.room_auth_token,
+                    version: 2,
+                  }
+                : {
+                    auth_token: config.relay_auth_token,
+                    version: 1,
+                  }),
               connection_id: config.device_id,
               role: 'device',
               room: config.room_id,
               type: 'join',
-              version: 1,
             })
           } catch (error) {
             failConnect(error instanceof Error ? error : new Error(String(error)))
@@ -407,6 +428,7 @@ export const createRelayTransport = (
                     handshake: handshake.getInitMessage(),
                     token: config.device_token,
                     type: 'e2ee_hello',
+                    version: useRelayV2 ? 2 : 1,
                   })
                 ),
                 room: config.room_id,
@@ -432,6 +454,19 @@ export const createRelayTransport = (
               }
               channel = handshake.processResponse({
                 ephemeral_public_key: ready.handshake.ephemeral_public_key,
+                ...((ready.handshake as { signature?: string }).signature !== undefined
+                  ? { signature: (ready.handshake as { signature: string }).signature }
+                  : {}),
+                ...((ready.handshake as { signing_public_key?: string }).signing_public_key !==
+                undefined
+                  ? {
+                      signing_public_key: (ready.handshake as { signing_public_key: string })
+                        .signing_public_key,
+                    }
+                  : {}),
+                ...((ready.handshake as { version?: number }).version !== undefined
+                  ? { version: (ready.handshake as { version: number }).version }
+                  : {}),
               })
               handshake = null
               // 注意：不在此清退避。「握手到 ready」会被下一条 socket 秒踢，ready 即清退避会

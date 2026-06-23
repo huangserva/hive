@@ -12,5 +12,8 @@ export {
   deriveSessionKey,
   generateEphemeralKeyPair,
   generateKeyPair,
+  generateSigningKeyPair,
   type KeyPair,
+  signDetached,
+  verifyDetached,
 } from './keys.js'

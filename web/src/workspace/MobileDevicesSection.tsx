@@ -52,10 +52,17 @@ export const buildMobileConnectionQrPayload = ({
     ? {
         capabilities,
         daemon_public_key: relayInfo.daemon_public_key,
+        ...(relayInfo.daemon_signing_public_key
+          ? { daemon_signing_public_key: relayInfo.daemon_signing_public_key }
+          : {}),
         device_id: deviceId,
         host,
         relay_auth_token: relayInfo.relay_auth_token,
+        ...(relayInfo.relay_protocol_version
+          ? { relay_protocol_version: relayInfo.relay_protocol_version }
+          : {}),
         relay_url: relayInfo.relay_url,
+        ...(relayInfo.room_auth_token ? { room_auth_token: relayInfo.room_auth_token } : {}),
         room_id: relayInfo.room_id,
         token,
       }

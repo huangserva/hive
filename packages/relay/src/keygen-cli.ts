@@ -1,4 +1,4 @@
-import { generateRelaySecrets } from './keygen.js'
+import { deriveRoomAuthToken, generateRelaySecrets } from './keygen.js'
 
 // 生成一套 relay 部署用的密钥/标识，打印成可直接复制的形式。
 // 用法：node dist/src/keygen-cli.js
@@ -16,6 +16,8 @@ console.log(
       enabled: true,
       relay_url: 'wss://relay.yunzhong2020.com',
       relay_auth_token: secrets.authToken,
+      relay_protocol_version: 2,
+      room_auth_token: deriveRoomAuthToken(secrets.authToken, secrets.roomId),
       room_id: secrets.roomId,
       runtime_id: secrets.runtimeId,
     },

@@ -10,6 +10,7 @@ import {
   encodeJson,
   generateEphemeralKeyPair,
   generateKeyPair,
+  generateSigningKeyPair,
 } from '../../src/index.js'
 
 describe('relay-crypto encoding', () => {
@@ -118,6 +119,17 @@ describe('relay-crypto channel', () => {
     const ch = createEncryptedChannel(alice.secretKey, bob.publicKey)
     expect(ch.decrypt(encodeBase64(new Uint8Array(5)))).toBeNull()
   })
+
+  test('rejects replayed encrypted frames by counter', () => {
+    const alice = generateKeyPair()
+    const bob = generateKeyPair()
+    const chA = createEncryptedChannel(alice.secretKey, bob.publicKey)
+    const chB = createEncryptedChannel(bob.secretKey, alice.publicKey)
+    const encrypted = chA.encrypt(new Uint8Array([9, 9, 9]))
+
+    expect(chB.decrypt(encrypted)).toEqual(new Uint8Array([9, 9, 9]))
+    expect(chB.decrypt(encrypted)).toBeNull()
+  })
 })
 
 describe('relay-crypto handshake', () => {
@@ -176,5 +188,47 @@ describe('relay-crypto handshake', () => {
     const msg = { ephemeral_public_key: encodeBase64(eph.publicKey) }
     initiator.processResponse(msg)
     expect(() => initiator.processResponse(msg)).toThrow(/already completed/)
+  })
+
+  test('v2 initiator verifies responder signature over both ephemeral keys', () => {
+    const daemonKP = generateKeyPair()
+    const daemonSigningKP = generateSigningKeyPair()
+    const mobileKP = generateKeyPair()
+    const initiator = createHandshakeInitiator(mobileKP, {
+      expectedResponderSigningPublicKey: daemonSigningKP.publicKey,
+    })
+    const responder = createHandshakeResponder(daemonKP, {
+      signingKeyPair: daemonSigningKP,
+    })
+
+    const initMsg = initiator.getInitMessage()
+    responder.processInit(initMsg)
+    const response = responder.getResponse()
+
+    expect(typeof response.signature).toBe('string')
+    const channelA = initiator.processResponse(response)
+    const channelB = responder.getChannel()
+    expect(
+      decodeJson(channelB.decrypt(channelA.encrypt(encodeJson({ ok: true }))) as Uint8Array)
+    ).toEqual({
+      ok: true,
+    })
+  })
+
+  test('v2 initiator rejects responder signature from an unpaired daemon key', () => {
+    const daemonKP = generateKeyPair()
+    const pairedSigningKP = generateSigningKeyPair()
+    const attackerSigningKP = generateSigningKeyPair()
+    const mobileKP = generateKeyPair()
+    const initiator = createHandshakeInitiator(mobileKP, {
+      expectedResponderSigningPublicKey: pairedSigningKP.publicKey,
+    })
+    const responder = createHandshakeResponder(daemonKP, {
+      signingKeyPair: attackerSigningKP,
+    })
+
+    responder.processInit(initiator.getInitMessage())
+
+    expect(() => initiator.processResponse(responder.getResponse())).toThrow(/signing|signature/i)
   })
 })

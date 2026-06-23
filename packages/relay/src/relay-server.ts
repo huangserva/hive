@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
+import { deriveRoomAuthToken } from './keygen.js'
 
 export type RelayRole = 'daemon' | 'device'
 
@@ -10,6 +11,7 @@ export interface RelayServerOptions {
   heartbeatIntervalMs?: number
   roomIdleTimeoutMs?: number
   cleanupIntervalMs?: number
+  allowLegacyV1?: boolean
   // 单 peer 探活超时：某 peer 在此时长内没发过任何帧（含 heartbeat）→ 视为死连接驱逐、释放它占的
   // daemon/device 槽（根因修复 ②）。比 room 空闲(默认 5min)快，且只踢死 peer 不影响活 room。
   peerIdleTimeoutMs?: number
@@ -37,7 +39,14 @@ type RelayRoom = {
 }
 
 type RelayFrame =
-  | { type: 'join'; room: string; role: RelayRole; auth_token?: string }
+  | {
+      type: 'join'
+      room: string
+      role: RelayRole
+      auth_token?: string
+      room_auth_token?: string
+      version?: number
+    }
   | { type: 'data'; payload: string }
   | { type: 'heartbeat' }
   | { type: 'leave' }
@@ -55,6 +64,11 @@ const sendJson = (ws: WebSocket, frame: unknown) => {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(frame))
   }
+}
+
+const unrefTimer = (timer: unknown) => {
+  const unref = (timer as { unref?: unknown }).unref
+  if (typeof unref === 'function') unref.call(timer)
 }
 
 const parseFrame = (data: WebSocket.RawData): RelayFrame | null => {
@@ -75,9 +89,11 @@ const getPeerSlot = (room: RelayRoom, role: RelayRole) => {
 
 const setPeerSlot = (room: RelayRoom, role: RelayRole, peer: JoinedPeer | undefined) => {
   if (role === 'daemon') {
-    room.daemon = peer
+    if (peer) room.daemon = peer
+    else delete room.daemon
   } else {
-    room.device = peer
+    if (peer) room.device = peer
+    else delete room.device
   }
 }
 
@@ -95,6 +111,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
   const roomIdleTimeoutMs = options.roomIdleTimeoutMs ?? DEFAULT_ROOM_IDLE_TIMEOUT_MS
   const cleanupIntervalMs = options.cleanupIntervalMs ?? DEFAULT_CLEANUP_INTERVAL_MS
   const peerIdleTimeoutMs = options.peerIdleTimeoutMs ?? DEFAULT_PEER_IDLE_TIMEOUT_MS
+  const allowLegacyV1 = options.allowLegacyV1 ?? process.env.HIVE_RELAY_ALLOW_LEGACY_V1 !== '0'
 
   const touchRoom = (room: RelayRoom) => {
     room.lastActivityAt = Date.now()
@@ -149,9 +166,20 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       reject(ws, 'invalid_role', 'Role must be daemon or device')
       return
     }
-    if (options.authToken && frame.auth_token !== options.authToken) {
-      reject(ws, 'unauthorized', 'Invalid relay auth token')
-      return
+    if (options.authToken) {
+      if (frame.version === 2) {
+        const expected = deriveRoomAuthToken(options.authToken, frame.room)
+        if (frame.room_auth_token !== expected) {
+          reject(ws, 'unauthorized', 'Invalid relay room auth token')
+          return
+        }
+      } else if (!allowLegacyV1) {
+        reject(ws, 'legacy_relay_v1_disabled', 'Legacy relay v1 auth is disabled')
+        return
+      } else if (frame.auth_token !== options.authToken) {
+        reject(ws, 'unauthorized', 'Invalid relay auth token')
+        return
+      }
     }
 
     const room = rooms.get(frame.room) ?? { lastActivityAt: Date.now() }
@@ -249,7 +277,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       sendJson(ws, { type: 'heartbeat' })
     }
   }, heartbeatIntervalMs)
-  heartbeatTimer.unref()
+  unrefTimer(heartbeatTimer)
 
   const cleanupTimer = setInterval(() => {
     const now = Date.now()
@@ -290,7 +318,7 @@ export const createRelayServer = (options: RelayServerOptions = {}): RelayServer
       rooms.delete(roomName)
     }
   }, cleanupIntervalMs)
-  cleanupTimer.unref()
+  unrefTimer(cleanupTimer)
 
   const ready = new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject)

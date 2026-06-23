@@ -12,9 +12,12 @@ import {
 const pairing: RelayPairingInput = {
   capabilities: ['read_dashboard', 'admin_runtime'],
   daemon_public_key: 'daemon-pub',
+  daemon_signing_public_key: 'daemon-signing-pub',
   device_id: 'dev-1',
   relay_auth_token: 'relay-secret',
+  relay_protocol_version: 2,
   relay_url: 'wss://relay.example.com',
+  room_auth_token: 'room-secret',
   room_id: 'room-1',
 }
 
@@ -33,6 +36,9 @@ describe('relay config store', () => {
     const built = buildStoredRelayConfig(pairing, keypair)
     expect(built.device_keypair).toEqual(keypair)
     expect(built.device_id).toBe('dev-1')
+    expect(built.relay_protocol_version).toBe(2)
+    expect(built.room_auth_token).toBe('room-secret')
+    expect(built.daemon_signing_public_key).toBe('daemon-signing-pub')
 
     const reparsed = parseStoredRelayConfig(JSON.stringify(built))
     expect(reparsed).toEqual(built)
@@ -79,6 +85,26 @@ describe('relay config store', () => {
     const broken: Record<string, unknown> = { ...built }
     broken.relay_auth_token = undefined
     expect(parseStoredRelayConfig(JSON.stringify(broken))).toBeNull()
+  })
+
+  test('parseStoredRelayConfig preserves legacy v1 relay configs without v2 fields', () => {
+    const built = buildStoredRelayConfig(
+      {
+        capabilities: ['read_dashboard'],
+        daemon_public_key: 'daemon-pub',
+        device_id: 'dev-legacy',
+        relay_auth_token: 'relay-secret',
+        relay_protocol_version: 1,
+        relay_url: 'wss://relay.example.com',
+        room_id: 'room-1',
+      },
+      generateDeviceKeypair()
+    )
+
+    const parsed = parseStoredRelayConfig(JSON.stringify(built))
+    expect(parsed?.relay_protocol_version).toBe(1)
+    expect(parsed).not.toHaveProperty('daemon_signing_public_key')
+    expect(parsed).not.toHaveProperty('room_auth_token')
   })
 
   test('parseStoredRelayConfig returns null for null / malformed input', () => {

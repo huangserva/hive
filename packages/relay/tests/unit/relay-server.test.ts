@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
+import { deriveRoomAuthToken } from '../../src/keygen.js'
 import { createRelayServer, type RelayServerHandle } from '../../src/relay-server.js'
 
 const servers: RelayServerHandle[] = []
@@ -8,6 +9,7 @@ const sockets: WebSocket[] = []
 const startRelay = async (
   options: {
     authToken?: string
+    allowLegacyV1?: boolean
     heartbeatIntervalMs?: number
     roomIdleTimeoutMs?: number
     cleanupIntervalMs?: number
@@ -18,6 +20,7 @@ const startRelay = async (
     host: '127.0.0.1',
     port: 0,
     authToken: options.authToken ?? 'secret',
+    ...(options.allowLegacyV1 !== undefined ? { allowLegacyV1: options.allowLegacyV1 } : {}),
     heartbeatIntervalMs: options.heartbeatIntervalMs ?? 30_000,
     roomIdleTimeoutMs: options.roomIdleTimeoutMs ?? 5 * 60_000,
     cleanupIntervalMs: options.cleanupIntervalMs ?? 30_000,
@@ -163,6 +166,76 @@ describe('relay server', () => {
     await expect(nextMessage(daemon)).resolves.toMatchObject({
       type: 'error',
       code: 'unauthorized',
+    })
+  })
+
+  it('accepts v2 joins with the per-room token derived from the root relay token', async () => {
+    const server = await startRelay({ authToken: 'root-secret' })
+    const daemon = await connect(server)
+    const room = 'room-bound'
+
+    sendJson(daemon, {
+      type: 'join',
+      room,
+      role: 'daemon',
+      room_auth_token: deriveRoomAuthToken('root-secret', room),
+      version: 2,
+    })
+
+    await expect(nextMessage(daemon)).resolves.toMatchObject({ type: 'joined', room })
+  })
+
+  it('rejects v2 joins whose room token was derived for a different room', async () => {
+    const server = await startRelay({ authToken: 'root-secret' })
+    const daemon = await connect(server)
+
+    sendJson(daemon, {
+      type: 'join',
+      room: 'room-a',
+      role: 'daemon',
+      room_auth_token: deriveRoomAuthToken('root-secret', 'room-b'),
+      version: 2,
+    })
+
+    await expect(nextMessage(daemon)).resolves.toMatchObject({
+      type: 'error',
+      code: 'unauthorized',
+    })
+  })
+
+  it('keeps legacy v1 auth_token joins enabled by default during the migration window', async () => {
+    const server = await startRelay({ authToken: 'root-secret' })
+    const daemon = await connect(server)
+
+    sendJson(daemon, {
+      type: 'join',
+      room: 'legacy-room',
+      role: 'daemon',
+      auth_token: 'root-secret',
+      version: 1,
+    })
+
+    await expect(nextMessage(daemon)).resolves.toMatchObject({
+      type: 'joined',
+      room: 'legacy-room',
+    })
+  })
+
+  it('can reject legacy v1 joins when the compatibility switch is disabled', async () => {
+    const server = await startRelay({ authToken: 'root-secret', allowLegacyV1: false })
+    const daemon = await connect(server)
+
+    sendJson(daemon, {
+      type: 'join',
+      room: 'legacy-room',
+      role: 'daemon',
+      auth_token: 'root-secret',
+      version: 1,
+    })
+
+    await expect(nextMessage(daemon)).resolves.toMatchObject({
+      type: 'error',
+      code: 'legacy_relay_v1_disabled',
     })
   })
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
-
+import { deriveRoomAuthToken } from '../../packages/relay/src/keygen.js'
 import { createRelayServer, type RelayServerHandle } from '../../packages/relay/src/relay-server.js'
 import {
   createHandshakeInitiator,
@@ -10,6 +10,7 @@ import {
   encodeBase64,
   encodeJson,
   generateKeyPair,
+  generateSigningKeyPair,
 } from '../../packages/relay-crypto/src/index.js'
 import {
   createRelayConnector,
@@ -55,6 +56,26 @@ const connectDevice = async (relay: RelayServerHandle) => {
   return socket
 }
 
+const connectDeviceV2 = async (relay: RelayServerHandle) => {
+  const socket = new WebSocket(`ws://127.0.0.1:${relay.port}`)
+  sockets.push(socket)
+  await new Promise<void>((resolve, reject) => {
+    socket.once('open', resolve)
+    socket.once('error', reject)
+  })
+  socket.send(
+    JSON.stringify({
+      role: 'device',
+      room: 'room-1',
+      room_auth_token: deriveRoomAuthToken('relay-secret', 'room-1'),
+      type: 'join',
+      version: 2,
+    })
+  )
+  await expect(nextRelayFrame(socket)).resolves.toMatchObject({ type: 'joined' })
+  return socket
+}
+
 const nextRelayFrame = async <T>(socket: WebSocket): Promise<T> =>
   await new Promise<T>((resolve) => {
     socket.once('message', (data) => {
@@ -85,6 +106,13 @@ const configFor = (relay: RelayServerHandle): RelayConfig => ({
   relay_url: `ws://127.0.0.1:${relay.port}`,
   room_id: 'room-1',
   runtime_id: 'runtime-1',
+})
+
+const configForV2 = (relay: RelayServerHandle): RelayConfig => ({
+  ...configFor(relay),
+  daemon_signing_keypair: generateSigningKeyPair(),
+  relay_protocol_version: 2,
+  room_auth_token: deriveRoomAuthToken('relay-secret', 'room-1'),
 })
 
 const createConnector = (config: RelayConfig) => {
@@ -226,6 +254,39 @@ const completeHandshakeWithCapabilities = async (
   return initiator.processResponse(ready.handshake)
 }
 
+const completeHandshakeV2 = async (
+  socket: WebSocket,
+  daemonSigningPublicKey: Uint8Array
+): Promise<EncryptedChannel> => {
+  const initiator = createHandshakeInitiator(generateKeyPair(), {
+    expectedResponderSigningPublicKey: daemonSigningPublicKey,
+  })
+  socket.send(
+    JSON.stringify({
+      payload: encodeBase64(
+        encodeJson({
+          capabilities: ['read_dashboard'],
+          device_id: 'device-1',
+          handshake: initiator.getInitMessage(),
+          token: 'device-token',
+          type: 'e2ee_hello',
+          version: 2,
+        })
+      ),
+      type: 'data',
+    })
+  )
+  const ready = decodeJson(decodeBase64(await dataPayload(socket))) as {
+    handshake: { ephemeral_public_key: string; signature?: string; signing_public_key?: string }
+    relay_protocol_version?: number
+    type: string
+  }
+  expect(ready.type).toBe('e2ee_ready')
+  expect(ready.relay_protocol_version).toBe(2)
+  expect(typeof ready.handshake.signature).toBe('string')
+  return initiator.processResponse(ready.handshake)
+}
+
 afterEach(async () => {
   for (const connector of connectors.splice(0)) connector.close()
   for (const socket of sockets.splice(0)) {
@@ -299,6 +360,47 @@ describe('relay connector', () => {
         deviceId: 'device-1',
         method: 'runtime.status',
         params: { verbose: true },
+      },
+    ])
+  })
+
+  it('performs v2 signed handshake and dispatches encrypted JSON-RPC to handler', async () => {
+    const relay = await startRelay()
+    const config = configForV2(relay)
+    const { calls, connector } = createConnector(config)
+    await waitFor(() => connector.status().mode === 'connected')
+    const device = await connectDeviceV2(relay)
+    if (!config.daemon_signing_keypair) throw new Error('expected v2 signing keypair')
+    const channel = await completeHandshakeV2(device, config.daemon_signing_keypair.publicKey)
+
+    device.send(
+      JSON.stringify({
+        payload: channel.encrypt(
+          encodeJson({
+            id: 'rpc-v2',
+            jsonrpc: '2.0',
+            method: 'runtime.status',
+            params: { signed: true },
+          })
+        ),
+        type: 'data',
+      })
+    )
+
+    const response = decodeJson(channel.decrypt(await dataPayload(device)) ?? new Uint8Array()) as {
+      id: string
+      result: unknown
+    }
+    expect(response).toMatchObject({
+      id: 'rpc-v2',
+      result: { ok: true, method: 'runtime.status', params: { signed: true } },
+    })
+    expect(calls).toEqual([
+      {
+        capabilities: ['read_dashboard'],
+        deviceId: 'device-1',
+        method: 'runtime.status',
+        params: { signed: true },
       },
     ])
   })

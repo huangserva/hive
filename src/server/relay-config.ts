@@ -2,15 +2,24 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { deriveRoomAuthToken } from '../../packages/relay/src/keygen.js'
 import {
   decodeBase64,
   encodeBase64,
   generateKeyPair,
+  generateSigningKeyPair,
   type KeyPair,
 } from '../../packages/relay-crypto/src/index.js'
 import type { RelayConfig } from './relay-connector.js'
 
-export type LoadedRelayConfig = RelayConfig | { enabled: false }
+type EnabledRelayConfig = RelayConfig & {
+  daemon_signing_keypair: KeyPair
+  enabled: true
+  relay_protocol_version: 2
+  room_auth_token: string
+}
+
+export type LoadedRelayConfig = EnabledRelayConfig | { enabled: false }
 
 interface LoadRelayConfigOptions {
   dataDir?: string
@@ -71,6 +80,30 @@ const readOrCreateKeypair = async (path: string): Promise<KeyPair> => {
   return generated
 }
 
+const readOrCreateSigningKeypair = async (path: string): Promise<KeyPair> => {
+  const existing = await readJsonFile<RelayKeypairFile>(path)
+  if (existing) {
+    return {
+      publicKey: decodeBase64(existing.publicKey),
+      secretKey: decodeBase64(existing.secretKey),
+    }
+  }
+
+  const generated = generateSigningKeyPair()
+  await writeFile(
+    path,
+    JSON.stringify(
+      {
+        publicKey: encodeBase64(generated.publicKey),
+        secretKey: encodeBase64(generated.secretKey),
+      },
+      null,
+      2
+    )
+  )
+  return generated
+}
+
 export const loadRelayConfig = async (
   options: LoadRelayConfigOptions = {}
 ): Promise<LoadedRelayConfig> => {
@@ -81,12 +114,19 @@ export const loadRelayConfig = async (
   }
 
   await mkdir(dataDir, { recursive: true })
+  const relayAuthToken = requireString(config.relay_auth_token, 'relay_auth_token')
+  const roomId = requireString(config.room_id, 'room_id')
   return {
     daemon_keypair: await readOrCreateKeypair(join(dataDir, 'relay-keypair.json')),
+    daemon_signing_keypair: await readOrCreateSigningKeypair(
+      join(dataDir, 'relay-signing-keypair.json')
+    ),
     enabled: true,
-    relay_auth_token: requireString(config.relay_auth_token, 'relay_auth_token'),
+    relay_auth_token: relayAuthToken,
+    relay_protocol_version: 2,
     relay_url: requireString(config.relay_url, 'relay_url'),
-    room_id: requireString(config.room_id, 'room_id'),
+    room_auth_token: deriveRoomAuthToken(relayAuthToken, roomId),
+    room_id: roomId,
     runtime_id: requireString(config.runtime_id, 'runtime_id'),
   }
 }
@@ -98,7 +138,10 @@ export type RelayConnectionInfo =
       relay_url: string
       room_id: string
       relay_auth_token: string
+      relay_protocol_version: 2
       daemon_public_key: string
+      daemon_signing_public_key: string
+      room_auth_token: string
     }
 
 /**
@@ -115,9 +158,12 @@ export const loadRelayConnectionInfo = async (
   if (!config.enabled) return { enabled: false }
   return {
     daemon_public_key: encodeBase64(config.daemon_keypair.publicKey),
+    daemon_signing_public_key: encodeBase64(config.daemon_signing_keypair.publicKey),
     enabled: true,
     relay_auth_token: config.relay_auth_token,
+    relay_protocol_version: 2,
     relay_url: config.relay_url,
+    room_auth_token: config.room_auth_token,
     room_id: config.room_id,
   }
 }

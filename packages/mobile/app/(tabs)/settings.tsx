@@ -276,6 +276,7 @@ export default function SettingsTab() {
       daemon_public_key: relayDaemonKey.trim(),
       device_id: relayDeviceId.trim(),
       relay_auth_token: relayAuthToken.trim(),
+      relay_protocol_version: 1,
       relay_url: relayUrl.trim(),
       room_id: relayRoom.trim(),
     }

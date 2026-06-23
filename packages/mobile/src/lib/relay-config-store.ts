@@ -33,11 +33,14 @@ export const parseStoredRelayConfigWithMigration = (
   if (!value) return null
   try {
     const parsed = JSON.parse(value) as StoredRelayConfig
+    const protocolVersion = parsed.relay_protocol_version === 2 ? 2 : 1
     if (
       typeof parsed.relay_url !== 'string' ||
       typeof parsed.room_id !== 'string' ||
       typeof parsed.relay_auth_token !== 'string' ||
       typeof parsed.daemon_public_key !== 'string' ||
+      (protocolVersion === 2 && typeof parsed.daemon_signing_public_key !== 'string') ||
+      (protocolVersion === 2 && typeof parsed.room_auth_token !== 'string') ||
       typeof parsed.device_id !== 'string' ||
       typeof parsed.device_keypair?.publicKey !== 'string' ||
       typeof parsed.device_keypair?.secretKey !== 'string' ||
@@ -59,10 +62,15 @@ export const buildStoredRelayConfig = (
 ): StoredRelayConfig => ({
   capabilities: input.capabilities,
   daemon_public_key: input.daemon_public_key,
+  ...(input.daemon_signing_public_key
+    ? { daemon_signing_public_key: input.daemon_signing_public_key }
+    : {}),
   device_id: input.device_id,
   device_keypair: keypair,
   relay_auth_token: input.relay_auth_token,
+  relay_protocol_version: input.relay_protocol_version ?? 1,
   relay_url: normalizeRelayUrl(input.relay_url),
+  ...(input.room_auth_token ? { room_auth_token: input.room_auth_token } : {}),
   room_id: input.room_id,
 })
 

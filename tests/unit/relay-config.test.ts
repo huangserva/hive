@@ -46,8 +46,14 @@ describe('relay config loader', () => {
     expect(first.enabled).toBe(true)
     if (!first.enabled || !second.enabled) throw new Error('expected enabled config')
     expect(first.daemon_keypair.publicKey.byteLength).toBeGreaterThan(0)
+    expect(first.daemon_signing_keypair.publicKey.byteLength).toBe(32)
+    expect(first.daemon_signing_keypair.secretKey.byteLength).toBe(64)
+    expect(first.room_auth_token).not.toBe(first.relay_auth_token)
     expect(Array.from(second.daemon_keypair.publicKey)).toEqual(
       Array.from(first.daemon_keypair.publicKey)
+    )
+    expect(Array.from(second.daemon_signing_keypair.publicKey)).toEqual(
+      Array.from(first.daemon_signing_keypair.publicKey)
     )
   })
 })

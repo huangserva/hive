@@ -22,9 +22,12 @@ export interface RelayConfig {
   enabled: boolean
   relay_url: string
   relay_auth_token: string
+  relay_protocol_version?: number
   runtime_id: string
   room_id: string
+  room_auth_token?: string
   daemon_keypair: KeyPair
+  daemon_signing_keypair?: KeyPair
 }
 
 export interface RelayConnectionStatus {
@@ -96,6 +99,7 @@ type RelayHandshakeHello = {
   handshake: HandshakeInitMessage
   token: string
   type: 'e2ee_hello'
+  version?: number
 }
 
 type RuntimeTimer = ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>
@@ -328,7 +332,12 @@ export const createRelayConnector = (
         return true
       }
 
-      const responder = createHandshakeResponder(config.daemon_keypair)
+      const responder = createHandshakeResponder(
+        config.daemon_keypair,
+        frame.version === 2 && config.daemon_signing_keypair
+          ? { signingKeyPair: config.daemon_signing_keypair }
+          : {}
+      )
       responder.processInit(frame.handshake)
       const response = responder.getResponse()
       sessions.set(frame.device_id, {
@@ -340,6 +349,7 @@ export const createRelayConnector = (
         payload: encodeClearFrame({
           device_id: frame.device_id,
           handshake: response,
+          relay_protocol_version: response.version === 2 ? 2 : 1,
           runtime_id: config.runtime_id,
           type: 'e2ee_ready',
         }),
@@ -528,7 +538,15 @@ export const createRelayConnector = (
     socket = new WebSocketCtor(config.relay_url)
     socket.on('open', () => {
       sendRelayFrame({
-        auth_token: config.relay_auth_token,
+        ...(config.relay_protocol_version === 2 && config.room_auth_token
+          ? {
+              room_auth_token: config.room_auth_token,
+              version: 2,
+            }
+          : {
+              auth_token: config.relay_auth_token,
+              version: 1,
+            }),
         role: 'daemon',
         room: config.room_id,
         type: 'join',

@@ -7,6 +7,8 @@ import {
   encodeBase64,
   encodeJson,
   generateKeyPair,
+  generateSigningKeyPair,
+  type KeyPair,
 } from '../../relay-crypto/src/index.js'
 import { createRuntimeClient } from '../src/api/client.js'
 import { createRelayTransport, type RelayTransportConfig } from '../src/api/relay-transport.js'
@@ -71,6 +73,20 @@ const buildConfig = (): RelayTransportConfig => {
   }
 }
 
+const buildV2Config = (): { config: RelayTransportConfig; daemonSigning: KeyPair } => {
+  const base = buildConfig()
+  const daemonSigning = generateSigningKeyPair()
+  return {
+    config: {
+      ...base,
+      daemon_signing_public_key: toBase64(daemonSigning.publicKey),
+      relay_protocol_version: 2,
+      room_auth_token: 'room-secret',
+    },
+    daemonSigning,
+  }
+}
+
 const latestSocket = () => {
   const socket = FakeRelaySocket.instances.at(-1)
   if (!socket) throw new Error('No fake socket')
@@ -124,6 +140,43 @@ const setupReadyRelay = async () => {
   return { channel: responder.getChannel(), socket, transport }
 }
 
+const setupReadyRelayV2 = async () => {
+  const { config, daemonSigning } = buildV2Config()
+  const transport = createRelayTransport(config, {
+    WebSocketCtor: FakeRelaySocket,
+    reconnectBaseMs: 10,
+  })
+  const connectPromise = transport.connect()
+  await vi.advanceTimersByTimeAsync(0)
+  const socket = latestSocket()
+  expect(socket.sent[0]).toMatchObject({
+    role: 'device',
+    room: 'room-1',
+    room_auth_token: 'room-secret',
+    type: 'join',
+    version: 2,
+  })
+  expect(socket.sent[0]).not.toHaveProperty('auth_token')
+  socket.receive({ type: 'joined' })
+  const helloFrame = socket.sent.at(-1) as { payload: string; type: string }
+  const hello = decodeJson(decodeBase64(helloFrame.payload)) as {
+    device_id: string
+    handshake: { ephemeral_public_key: string }
+    token: string
+    type: string
+    version: number
+  }
+  expect(hello.version).toBe(2)
+  const responder = createHandshakeResponder(generateKeyPair(), { signingKeyPair: daemonSigning })
+  responder.processInit(hello.handshake)
+  socket.receive({
+    payload: encodeBase64(encodeJson({ type: 'e2ee_ready', handshake: responder.getResponse() })),
+    type: 'data',
+  })
+  await connectPromise
+  return { channel: responder.getChannel(), socket, transport }
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
   FakeRelaySocket.instances = []
@@ -136,6 +189,12 @@ afterEach(() => {
 describe('relay transport', () => {
   test('connects, joins the relay room, and completes the E2E handshake', async () => {
     const { transport } = await setupReadyRelay()
+
+    expect(transport.status()).toBe('ready')
+  })
+
+  test('v2 joins with room_auth_token and verifies the daemon signing key', async () => {
+    const { transport } = await setupReadyRelayV2()
 
     expect(transport.status()).toBe('ready')
   })
@@ -372,23 +431,33 @@ describe('relay transport', () => {
     })
 
     for (let acked = 0; acked < 3; ) {
-      const outboundFrame = socket.sent.slice(sentCursor).find((frame) => {
+      let outbound:
+        | {
+            sent_at_ms?: number
+            seq: number
+            stream_id: string
+          }
+        | undefined
+      for (const frame of socket.sent.slice(sentCursor)) {
         const candidate = frame as { payload?: string; type?: string }
-        if (candidate.type !== 'data' || !candidate.payload) return false
-        const decoded = decodeJson(channel.decrypt(candidate.payload) ?? new Uint8Array()) as {
+        if (candidate.type !== 'data' || !candidate.payload) continue
+        const decrypted = channel.decrypt(candidate.payload)
+        if (!decrypted) continue
+        const decoded = decodeJson(decrypted) as {
           op?: string
+          sent_at_ms?: number
+          seq: number
+          stream_id: string
         }
-        return decoded.op === 'chunk'
-      }) as { payload: string } | undefined
+        if (decoded.op === 'chunk') {
+          outbound = decoded
+          break
+        }
+      }
       sentCursor = socket.sent.length
-      if (!outboundFrame) {
+      if (!outbound) {
         await vi.advanceTimersByTimeAsync(10)
         continue
-      }
-      const outbound = decodeJson(channel.decrypt(outboundFrame.payload) ?? new Uint8Array()) as {
-        sent_at_ms?: number
-        seq: number
-        stream_id: string
       }
       acked += 1
       await vi.advanceTimersByTimeAsync(acked * 5)

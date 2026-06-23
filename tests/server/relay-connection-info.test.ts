@@ -52,8 +52,11 @@ describe('loadRelayConnectionInfo', () => {
     expect(info.relay_url).toBe('wss://relay.example.com')
     expect(info.room_id).toBe('room-1')
     expect(info.relay_auth_token).toBe('relay-secret')
+    expect(info.relay_protocol_version).toBe(2)
+    expect(info.room_auth_token).not.toBe('relay-secret')
     // The public key must be a valid 32-byte NaCl box key (auto-generated on first load).
     expect(decodeBase64(info.daemon_public_key)).toHaveLength(32)
+    expect(decodeBase64(info.daemon_signing_public_key)).toHaveLength(32)
   })
 
   test('does not expose the daemon secret key', async () => {

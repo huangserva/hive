@@ -4,9 +4,12 @@
 export interface RelayPairingInput {
   capabilities: string[]
   daemon_public_key: string
+  daemon_signing_public_key?: string
   device_id: string
   relay_auth_token: string
+  relay_protocol_version?: 1 | 2
   relay_url: string
+  room_auth_token?: string
   room_id: string
 }
 
@@ -32,8 +35,12 @@ export const extractRelay = (value: Record<string, unknown>): RelayPairingInput 
   const roomId = str(value.room_id)
   const authToken = str(value.relay_auth_token)
   const daemonPublicKey = str(value.daemon_public_key)
+  const daemonSigningPublicKey = str(value.daemon_signing_public_key)
   const deviceId = str(value.device_id)
+  const protocolVersion = value.relay_protocol_version === 2 ? 2 : 1
+  const roomAuthToken = str(value.room_auth_token)
   if (!relayUrl || !roomId || !authToken || !daemonPublicKey || !deviceId) return undefined
+  if (protocolVersion === 2 && (!daemonSigningPublicKey || !roomAuthToken)) return undefined
   const capabilities =
     Array.isArray(value.capabilities) && value.capabilities.every((c) => typeof c === 'string')
       ? (value.capabilities as string[])
@@ -41,9 +48,12 @@ export const extractRelay = (value: Record<string, unknown>): RelayPairingInput 
   return {
     capabilities,
     daemon_public_key: daemonPublicKey,
+    ...(daemonSigningPublicKey ? { daemon_signing_public_key: daemonSigningPublicKey } : {}),
     device_id: deviceId,
     relay_auth_token: authToken,
+    relay_protocol_version: protocolVersion,
     relay_url: relayUrl,
+    ...(roomAuthToken ? { room_auth_token: roomAuthToken } : {}),
     room_id: roomId,
   }
 }

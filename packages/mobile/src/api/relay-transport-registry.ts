@@ -13,10 +13,13 @@ const relaySignature = (token: string, relayConfig: StoredRelayConfig | null) =>
   return JSON.stringify({
     capabilities: relayConfig.capabilities,
     daemon_public_key: relayConfig.daemon_public_key,
+    daemon_signing_public_key: relayConfig.daemon_signing_public_key,
     device_id: relayConfig.device_id,
     device_public_key: relayConfig.device_keypair.publicKey,
     relay_auth_token: relayConfig.relay_auth_token,
+    relay_protocol_version: relayConfig.relay_protocol_version,
     relay_url: relayConfig.relay_url,
+    room_auth_token: relayConfig.room_auth_token,
     room_id: relayConfig.room_id,
     token: deviceToken,
   })

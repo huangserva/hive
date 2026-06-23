@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 
 export interface RelaySecrets {
   /** Shared secret. Must be identical in the relay server's RELAY_AUTH_TOKEN env
@@ -12,6 +12,9 @@ export interface RelaySecrets {
 }
 
 const token = (bytes: number) => randomBytes(bytes).toString('base64url')
+
+export const deriveRoomAuthToken = (rootAuthToken: string, roomId: string): string =>
+  createHmac('sha256', rootAuthToken).update(`hive-relay-room-v2:${roomId}`).digest('base64url')
 
 /**
  * Generate the secrets a HippoTeam relay deployment needs. Pure + deterministic in
