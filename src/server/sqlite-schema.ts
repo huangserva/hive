@@ -31,8 +31,9 @@ import { applySchemaVersion33 } from './sqlite-schema-v33.js'
 import { applySchemaVersion34 } from './sqlite-schema-v34.js'
 import { applySchemaVersion35 } from './sqlite-schema-v35.js'
 import { applySchemaVersion36 } from './sqlite-schema-v36.js'
+import { applySchemaVersion37 } from './sqlite-schema-v37.js'
 
-export const CURRENT_SCHEMA_VERSION = 36
+export const CURRENT_SCHEMA_VERSION = 37
 
 const ensureBuiltinRoleTemplates = (db: Database) => {
   const table = db
@@ -162,7 +163,8 @@ export const initializeRuntimeDatabase = (db: Database) => {
       submitted_at INTEGER,
       reported_at INTEGER,
       report_text TEXT,
-      artifacts TEXT
+      artifacts TEXT,
+      evidence_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_dispatches_workspace_created_at
@@ -433,6 +435,16 @@ export const initializeRuntimeDatabase = (db: Database) => {
       applySchemaVersion36(db)
       db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
         36,
+        Date.now()
+      )
+    })()
+  }
+
+  if (!appliedVersions.has(37)) {
+    db.transaction(() => {
+      applySchemaVersion37(db)
+      db.prepare('INSERT INTO schema_version (version, applied_at) VALUES (?, ?)').run(
+        37,
         Date.now()
       )
     })()

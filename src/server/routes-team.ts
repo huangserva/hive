@@ -32,6 +32,9 @@ const requireNonEmptyString = (value: unknown, field: string) => {
 const getArtifacts = (value: unknown) =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 
+const getEvidence = (value: unknown) =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+
 const VIDEO_EXT_MIME: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.m4v': 'video/mp4',
@@ -257,6 +260,7 @@ export const teamRoutes: RouteDefinition[] = [
     const reportInput = {
       artifacts: getArtifacts(body.artifacts),
       dispatchId: requestDispatchId,
+      evidence: getEvidence(body.evidence),
       requireActiveRun: true,
       requireDispatchId: true,
       text: resultText,

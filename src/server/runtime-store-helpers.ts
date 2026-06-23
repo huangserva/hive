@@ -373,6 +373,7 @@ export const createRuntimeStoreServices = (
     deleteMessage: messageLogStore.deleteMessage,
     findOpenDispatch: dispatchLedgerStore.findOpenDispatch,
     findOpenDispatchById: dispatchLedgerStore.findOpenDispatchById,
+    findLatestClosedDispatchForWorker: dispatchLedgerStore.findLatestClosedDispatchForWorker,
     insertMessage: messageLogStore.insertMessage,
     listOpenDispatchesForWorkspace: dispatchLedgerStore.listOpenDispatchesForWorkspace,
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
@@ -392,6 +393,7 @@ export const createRuntimeStoreServices = (
     applyAcceptVerdict: dispatchLedgerStore.applyAcceptVerdict,
     linkReviewsDispatchId: dispatchLedgerStore.linkReviewsDispatchId,
     clearReviewStatus: dispatchLedgerStore.clearReviewStatus,
+    findDispatchesByIdPrefix: dispatchLedgerStore.findDispatchesByIdPrefix,
     listAllWorkspaceDispatches: (workspaceId) =>
       dispatchLedgerStore.listWorkspaceDispatches(workspaceId, { limit: 1_000 }),
     reconcileAgentStatus: reconcileAgentStatusForAgent,

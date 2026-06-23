@@ -27,16 +27,21 @@ describe('parseReportArgs', () => {
     const parsed = parseReportArgs([
       '--artifact',
       'src/a.ts',
+      '--evidence',
+      'pnpm test passed',
       'done',
       '--dispatch',
       'abc',
       '--artifact',
       'src/b.ts',
+      '--evidence',
+      '.hive/reports/review.html',
     ])
     expect(parsed).toEqual({
       result: 'done',
       dispatchId: 'abc',
       artifacts: ['src/a.ts', 'src/b.ts'],
+      evidence: ['pnpm test passed', '.hive/reports/review.html'],
       useStdin: false,
     })
   })

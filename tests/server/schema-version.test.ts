@@ -204,6 +204,7 @@ describe('schema version', () => {
         'reported_at',
         'report_text',
         'artifacts',
+        'evidence_json',
         // M43 schema v33: 三个旁挂字段，默认 NULL；不破 8 态 status 维度。
         'review_status',
         'reviews_dispatch_id',
@@ -1633,6 +1634,37 @@ describe('schema version', () => {
     // 列数仍是 16（13 旧 + 3 新），不会出现 review_status_1 之类的重命名。
     const colsAfter = dispatchColumns(db)
     expect(colsAfter.size).toBe(cols.size)
+    db.close()
+  })
+
+  test('M43 Phase 2 schema v37 adds nullable dispatch evidence_json + idempotent', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v37-'))
+    tempDirs.push(dataDir)
+    const store = createRuntimeStore({ dataDir })
+    stores.push(store)
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(37)).toEqual({
+      version: 37,
+    })
+    const cols = dispatchColumns(db)
+    expect(cols.has('evidence_json')).toBe(true)
+    const info = (
+      db.prepare('PRAGMA table_info(dispatches)').all() as Array<{
+        dflt_value: string | null
+        name: string
+        notnull: number
+      }>
+    ).find((column) => column.name === 'evidence_json')
+    expect(info?.notnull).toBe(0)
+    expect(info?.dflt_value).toBeNull()
+
+    const { applySchemaVersion37 } = await import('../../src/server/sqlite-schema-v37.js')
+    expect(() => {
+      applySchemaVersion37(db)
+      applySchemaVersion37(db)
+    }).not.toThrow()
+    expect(dispatchColumns(db).size).toBe(cols.size)
     db.close()
   })
 

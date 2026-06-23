@@ -50,6 +50,10 @@ export interface TeamOperationsInput {
     dispatchId?: string
   ) => DispatchRecord | undefined
   findOpenDispatchById: (workspaceId: string, dispatchId: string) => DispatchRecord | undefined
+  findLatestClosedDispatchForWorker?: (
+    workspaceId: string,
+    toAgentId: string
+  ) => DispatchRecord | undefined
   insertMessage: (record: MessageLogRecord) => MessageLogHandle
   insertMobileChatMessage?: (
     workspaceId: string,
@@ -71,6 +75,7 @@ export interface TeamOperationsInput {
   markDispatchReportedByWorker: (input: {
     artifacts: string[]
     dispatchId?: string
+    evidence?: string[]
     reportText: string
     toAgentId: string
     workspaceId: string
@@ -97,6 +102,7 @@ export interface TeamOperationsInput {
   resolveCommandPresetId?: (workspaceId: string, workerId: string) => string | undefined
   // M43 acceptTask 需查全 dispatches（含 reported reviewer dispatch）以校验 reason 引的 hex prefix 是 reviewer-role。
   listAllWorkspaceDispatches?: (workspaceId: string) => DispatchRecord[]
+  findDispatchesByIdPrefix?: (workspaceId: string, idPrefix: string) => DispatchRecord[]
   reconcileAgentStatus?: (workspaceId: string, agentId: string) => void
 }
 
@@ -109,6 +115,7 @@ export interface DispatchTaskInput {
 export interface ReportTaskInput {
   artifacts?: string[]
   dispatchId?: string
+  evidence?: string[]
   requireActiveRun?: boolean
   requireDispatchId?: boolean
   status?: string
@@ -305,6 +312,7 @@ export const createTeamOperations = ({
   deleteMessage,
   findOpenDispatch,
   findOpenDispatchById,
+  findLatestClosedDispatchForWorker,
   insertMessage,
   insertMobileChatMessage,
   listOpenDispatchesForWorkspace,
@@ -323,6 +331,7 @@ export const createTeamOperations = ({
   linkReviewsDispatchId,
   clearReviewStatus,
   resolveCommandPresetId,
+  findDispatchesByIdPrefix,
   listAllWorkspaceDispatches,
   reconcileAgentStatus,
 }: TeamOperationsInput) => {
@@ -408,6 +417,45 @@ export const createTeamOperations = ({
     void notifyForwardFailure(workspaceId, input).catch((error) => {
       console.error('[hive] swallowed:orchestratorForwardFailure.push', error)
     })
+  }
+
+  const findClosedDispatchForLateReport = (
+    workspaceId: string,
+    workerId: string,
+    dispatchId?: string
+  ) => {
+    const candidate = dispatchId
+      ? findDispatchById?.(workspaceId, dispatchId)
+      : findLatestClosedDispatchForWorker?.(workspaceId, workerId)
+    if (!candidate) return undefined
+    if (candidate.workspaceId !== workspaceId || candidate.toAgentId !== workerId) return undefined
+    return isOpenDispatchStatus(candidate.status) ? undefined : candidate
+  }
+
+  const recordLateWorkerReport = (
+    workspaceId: string,
+    worker: { id: string; name: string },
+    dispatch: DispatchRecord,
+    input: { artifacts: string[]; status?: string; text: string }
+  ) => {
+    insertMessage(
+      createReportMessage(workspaceId, worker.id, input.text, input.status, input.artifacts)
+    )
+    insertMobileChatMessage?.(
+      workspaceId,
+      'outbound',
+      'system_event',
+      JSON.stringify({
+        dispatch_id: dispatch.id,
+        original_status: dispatch.status,
+        summary: input.text.trim().split(/\r?\n/u)[0]?.slice(0, 240) ?? '',
+        type: 'late_worker_report',
+        worker_name: worker.name,
+      })
+    )
+    console.warn(
+      `[hive] late worker report recorded workspace_id=${workspaceId} worker=${worker.name} dispatch_id=${dispatch.id} status=${dispatch.status}`
+    )
   }
 
   const workerDispatchReservations = new Set<string>()
@@ -861,6 +909,26 @@ export const createTeamOperations = ({
         throw new ConflictError(`No open dispatch: ${dispatchId}`)
       }
       workspaceStore.getWorker(workspaceId, openDispatch.toAgentId)
+      let forwardError: string | null = null
+      try {
+        agentRuntime.writeCancelPrompt(
+          workspaceId,
+          openDispatch.toAgentId,
+          openDispatch.id,
+          input.reason,
+          { requireActiveRun: true }
+        )
+      } catch (error) {
+        forwardError = reportForwardErrorMessage(error)
+        console.error('[hive] swallowed:teamCancel.forward', error)
+        surfaceOrchestratorForwardFailure(workspaceId, {
+          dispatchId: openDispatch.id,
+          error: forwardError,
+          operation: 'cancel',
+          workerName: workspaceStore.getWorker(workspaceId, openDispatch.toAgentId).name,
+        })
+        return { dispatch: openDispatch, forwardError, forwarded: false }
+      }
       const dispatch = markDispatchCancelled({
         dispatchId,
         reason: input.reason,
@@ -878,22 +946,7 @@ export const createTeamOperations = ({
           reason: input.reason,
         })
       }
-      let forwardError: string | null = null
-      let forwarded = false
-      try {
-        agentRuntime.writeCancelPrompt(workspaceId, dispatch.toAgentId, dispatch.id, input.reason)
-        forwarded = true
-      } catch (error) {
-        forwardError = reportForwardErrorMessage(error)
-        console.error('[hive] swallowed:teamCancel.forward', error)
-        surfaceOrchestratorForwardFailure(workspaceId, {
-          dispatchId: dispatch.id,
-          error: forwardError,
-          operation: 'cancel',
-          workerName: workspaceStore.getWorker(workspaceId, dispatch.toAgentId).name,
-        })
-      }
-      return { dispatch, forwardError, forwarded }
+      return { dispatch, forwardError, forwarded: true }
     },
     reconcileOrphanedDispatches(input: ReconcileOrphanedDispatchesInput = {}) {
       const now = input.now ?? Date.now()
@@ -988,15 +1041,31 @@ export const createTeamOperations = ({
       const text = input.text ?? ''
       const status = input.status
       const artifacts = input.artifacts ?? []
+      const evidence = input.evidence ?? []
       const worker = workspaceStore.getWorker(workspaceId, workerId)
       if (input.requireDispatchId && !input.dispatchId) {
         throw new ConflictError(`Missing dispatch_id for worker report: ${worker.name}`)
       }
       const openDispatch = findOpenDispatch(workspaceId, workerId, input.dispatchId)
-      if (!openDispatch && input.dispatchId) {
-        throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
-      }
       if (!openDispatch) {
+        const closedDispatch = findClosedDispatchForLateReport(
+          workspaceId,
+          workerId,
+          input.dispatchId
+        )
+        if (closedDispatch) {
+          recordLateWorkerReport(workspaceId, worker, closedDispatch, {
+            artifacts,
+            ...(status !== undefined ? { status } : {}),
+            text,
+          })
+          return {
+            dispatch: closedDispatch,
+            forwardError: `Dispatch already closed (${closedDispatch.status}); late report recorded`,
+            forwarded: false,
+            lateReport: true,
+          }
+        }
         throw new ConflictError(`No open dispatch for worker: ${worker.name}`)
       }
       // M43: reviewer 主路径 — 若调用方传了 --reviews + --verdict，必须三个 hook 都接好才有效。
@@ -1029,6 +1098,7 @@ export const createTeamOperations = ({
           )
           const reportedDispatch = markDispatchReportedByWorker({
             artifacts,
+            evidence,
             ...(input.dispatchId ? { dispatchId: input.dispatchId } : {}),
             reportText: text,
             toAgentId: workerId,
@@ -1073,6 +1143,7 @@ export const createTeamOperations = ({
               at: Date.now(),
               reason: (input.verdictReason ?? '').trim(),
               reviewsDispatchId: reportedDispatch.id,
+              ...(coderDispatch.evidence?.length ? { evidence: coderDispatch.evidence } : {}),
             }
             applyAcceptVerdict?.(coderDispatch.id, verdict)
             // 同时在 reviewer dispatch 上写 reviews_dispatch_id 精确指向被审 coder dispatch。
@@ -1132,6 +1203,7 @@ export const createTeamOperations = ({
               : null
           tasksFileService.recordDispatchDone(workspacePath, {
             dispatchId: dispatch.id,
+            ...(evidence.length > 0 ? { evidence } : {}),
             ...(reviewStatusForLine !== null ? { reviewStatus: reviewStatusForLine } : {}),
           })
         }
@@ -1226,15 +1298,18 @@ export const createTeamOperations = ({
       if (coderSequence === null) {
         throw new ConflictError('coder dispatch has no sequence; accept gate invariant broken')
       }
-      const allDispatches = listAllWorkspaceDispatches?.(workspaceId) ?? []
+      const findReviewerCandidates = (prefix: string) => {
+        if (findDispatchesByIdPrefix) return findDispatchesByIdPrefix(workspaceId, prefix)
+        const allDispatches = listAllWorkspaceDispatches?.(workspaceId) ?? []
+        const lower = prefix.toLowerCase()
+        return lower.length === 36
+          ? allDispatches.filter((d) => d.id.toLowerCase() === lower)
+          : allDispatches.filter((d) => d.id.toLowerCase().startsWith(lower))
+      }
       let referencedReviewer = false
       let lastRejectReason: string | null = null
       for (const hex of matches) {
-        const lower = hex.toLowerCase()
-        const candidates =
-          lower.length === 36
-            ? allDispatches.filter((d) => d.id.toLowerCase() === lower)
-            : allDispatches.filter((d) => d.id.toLowerCase().startsWith(lower))
+        const candidates = findReviewerCandidates(hex)
         for (const candidate of candidates) {
           let refRole: string | undefined
           try {
@@ -1262,12 +1337,13 @@ export const createTeamOperations = ({
             lastRejectReason = `referenced reviewer dispatch ${candidate.id} did not report strictly after coder dispatch (reviewer_reported_at=${candidate.reportedAt}/seq=${candidate.sequence} coder_reported_at=${coderReportedAt}/seq=${coderSequence})`
             continue
           }
-          // ③ reviewer 若已显式 link 别条 coder，必须 == 本 coder
-          if (
-            candidate.reviewsDispatchId !== null &&
-            candidate.reviewsDispatchId !== coderDispatch.id
-          ) {
-            lastRejectReason = `referenced reviewer dispatch ${candidate.id} is linked to a different coder dispatch (reviews_dispatch_id=${candidate.reviewsDispatchId})`
+          // ③ reviewer 必须显式 link 本 coder。未 link 的普通 reviewer report 只能作为历史提示，
+          //    不能用于 PM accept 放行，否则 PM 可拿无关 reviewer dispatch_id 绕过 accept gate。
+          if (candidate.reviewsDispatchId !== coderDispatch.id) {
+            lastRejectReason =
+              candidate.reviewsDispatchId === null
+                ? `referenced reviewer dispatch ${candidate.id} is not linked to this coder dispatch (reviews_dispatch_id=null)`
+                : `referenced reviewer dispatch ${candidate.id} is linked to a different coder dispatch (reviews_dispatch_id=${candidate.reviewsDispatchId})`
             continue
           }
           referencedReviewer = true
@@ -1277,7 +1353,7 @@ export const createTeamOperations = ({
       }
       if (!referencedReviewer) {
         throw new BadRequestError(
-          `team accept --reason 引用的 dispatch_id 未能定位到一条合法 reviewer-role dispatch（必须：reviewer 已 reported + 报告时间晚于 coder 报告时间 + 显式 link 时必须 link 本 coder）；守 PM 自审反铁律${lastRejectReason ? ` · last reject: ${lastRejectReason}` : ''}`
+          `team accept --reason 引用的 dispatch_id 未能定位到一条合法 reviewer-role dispatch（必须：reviewer 已 reported + 报告时间晚于 coder 报告时间 + 显式 link 本 coder）；守 PM 自审反铁律${lastRejectReason ? ` · last reject: ${lastRejectReason}` : ''}`
         )
       }
       const verdictValue: 'accepted' | 'waived' = input.verdict ?? 'accepted'
@@ -1286,6 +1362,7 @@ export const createTeamOperations = ({
         byAgentId: input.fromAgentId,
         at: Date.now(),
         reason: trimmedReason,
+        ...(coderDispatch.evidence?.length ? { evidence: coderDispatch.evidence } : {}),
       }
       runDbTransaction(() => {
         applyAcceptVerdict(input.dispatchId, verdict)

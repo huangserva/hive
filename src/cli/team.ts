@@ -134,7 +134,7 @@ const assertForwardedToOrchestrator = (payload: TeamReportResponse, message: str
 }
 
 const REPORT_USAGE =
-  'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>]'
+  'Usage: team report (<result> | --stdin) [--dispatch <dispatch-id>] [--artifact <path>] [--evidence <text-or-ref>]'
 const STATUS_USAGE = 'Usage: team status (<current status> | --stdin) [--artifact <path>]'
 export const APPROVE_USAGE =
   'Usage: team approve "<action>" [--risk high|medium] [--target <worker-name>] [--chat <chat_id>]'
@@ -193,6 +193,7 @@ const withUsage = (message: string, command: string) => `${message}\n\n${usageFo
 export interface ParsedReportArgs {
   artifacts: string[]
   dispatchId: string | undefined
+  evidence?: string[]
   result: string | null
   useStdin: boolean
   // M43 accept-gate reviewer 主路径选项；只 report 命令使用，status 命令不支持。
@@ -519,6 +520,7 @@ export const parseFeishuReplyArgs = (args: string[]): ParsedFeishuReplyArgs => {
 export const parseReportArgs = (args: string[], command = 'report'): ParsedReportArgs => {
   const positionals: string[] = []
   const artifacts: string[] = []
+  const evidence: string[] = []
   let dispatchId: string | undefined
   let useStdin = false
   let reviewsDispatchId: string | undefined
@@ -543,6 +545,19 @@ export const parseReportArgs = (args: string[], command = 'report'): ParsedRepor
         throw new Error(withUsage('--artifact requires a value', command))
       }
       artifacts.push(next)
+      index += 1
+      continue
+    }
+
+    if (arg === '--evidence') {
+      if (command === 'status') {
+        throw new Error(withUsage('team status does not accept --evidence', command))
+      }
+      const next = args[index + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new Error(withUsage('--evidence requires a value', command))
+      }
+      evidence.push(next)
       index += 1
       continue
     }
@@ -647,6 +662,7 @@ export const parseReportArgs = (args: string[], command = 'report'): ParsedRepor
     result: useStdin ? null : (positionals[0] ?? null),
     artifacts,
     dispatchId,
+    ...(evidence.length > 0 ? { evidence } : {}),
     useStdin,
     ...(reviewsDispatchId !== undefined ? { reviewsDispatchId } : {}),
     ...(verdict !== undefined ? { verdict } : {}),
@@ -923,6 +939,7 @@ export const runTeamCommand = async (argv: string[]) => {
       token: env.HIVE_AGENT_TOKEN,
       result: body,
       artifacts: report.artifacts,
+      ...(report.evidence ? { evidence: report.evidence } : {}),
       ...(report.reviewsDispatchId ? { reviews_dispatch_id: report.reviewsDispatchId } : {}),
       ...(report.verdict ? { verdict: report.verdict } : {}),
       ...(report.verdictReason ? { verdict_reason: report.verdictReason } : {}),

@@ -552,6 +552,7 @@ describe('team atomicity', () => {
 
     expect(markDispatchReportedByWorker).toHaveBeenCalledWith({
       artifacts: [],
+      evidence: [],
       reportText: 'Done',
       toAgentId: worker.id,
       workspaceId: workspace.id,
@@ -590,10 +591,9 @@ describe('team atomicity', () => {
     )
   })
 
-  test('cancelTask and statusTask surface orchestrator forward failures to user', () => {
-    const store = createRuntimeStore()
-    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
-    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+  test('cancelTask keeps dispatch open when cancel prompt cannot reach worker', () => {
+    const workspace = { id: 'workspace-1' }
+    const worker = { id: 'worker-1', name: 'Alice', role: 'coder' }
     const dispatch = withDispatchDefaults({
       artifacts: [],
       createdAt: Date.now(),
@@ -612,11 +612,14 @@ describe('team atomicity', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const insertMobileChatMessage = vi.fn()
     const notifyOrchestratorForwardFailure = vi.fn(async () => {})
+    const markDispatchCancelled = vi.fn()
+    const markTaskCancelled = vi.fn()
+    const writeCancelPrompt = vi.fn(() => {
+      throw new Error('cancel forward failed')
+    })
     const ops = createTeamOperations({
       agentRuntime: {
-        writeCancelPrompt: vi.fn(() => {
-          throw new Error('cancel forward failed')
-        }),
+        writeCancelPrompt,
         writeReportPrompt: vi.fn(),
         writeSendPrompt: vi.fn(),
         writeStatusPrompt: vi.fn(() => {
@@ -632,13 +635,7 @@ describe('team atomicity', () => {
       insertMessage: vi.fn(() => ({ sequence: 1 })),
       insertMobileChatMessage,
       listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
-      markDispatchCancelled: vi.fn(
-        (): DispatchRecord => ({
-          ...dispatch,
-          reportText: 'cancelled',
-          status: 'cancelled',
-        })
-      ),
+      markDispatchCancelled,
       markDispatchReportedByWorker: vi.fn(),
       markDispatchSubmitted: vi.fn(),
       mobilePushService: {
@@ -646,9 +643,9 @@ describe('team atomicity', () => {
         notifyWorkerDone: vi.fn(async () => {}),
       },
       workspaceStore: {
-        getAgent: store.getAgent,
-        getWorker: store.getWorker,
-        markTaskCancelled: vi.fn(),
+        getAgent: vi.fn(() => ({ id: `${workspace.id}:orchestrator`, name: 'PM' })),
+        getWorker: vi.fn(() => worker),
+        markTaskCancelled,
       } as never,
     })
 
@@ -656,28 +653,151 @@ describe('team atomicity', () => {
       fromAgentId: `${workspace.id}:orchestrator`,
       reason: 'superseded',
     })
+
+    expect(cancelResult).toMatchObject({
+      dispatch,
+      forwardError: 'cancel forward failed',
+      forwarded: false,
+    })
+    expect(writeCancelPrompt).toHaveBeenCalledWith(
+      workspace.id,
+      worker.id,
+      dispatch.id,
+      'superseded',
+      { requireActiveRun: true }
+    )
+    expect(markDispatchCancelled).not.toHaveBeenCalled()
+    expect(markTaskCancelled).not.toHaveBeenCalled()
+    expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
+      workspace.id,
+      expect.objectContaining({ dispatchId: dispatch.id, operation: 'cancel' })
+    )
+    expect(insertMobileChatMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('statusTask surfaces orchestrator forward failures to user', () => {
+    const workspace = { id: 'workspace-1' }
+    const worker = { id: 'worker-1', name: 'Alice', role: 'coder' }
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const insertMobileChatMessage = vi.fn()
+    const notifyOrchestratorForwardFailure = vi.fn(async () => {})
+    const ops = createTeamOperations({
+      agentRuntime: {
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt: vi.fn(),
+        writeStatusPrompt: vi.fn(() => {
+          throw new Error('status forward failed')
+        }),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      insertMobileChatMessage,
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted: vi.fn(),
+      mobilePushService: {
+        notifyOrchestratorForwardFailure,
+        notifyWorkerDone: vi.fn(async () => {}),
+      },
+      workspaceStore: {
+        getWorker: vi.fn(() => worker),
+      } as never,
+    })
+
     const statusResult = ops.statusTask(workspace.id, worker.id, {
       requireActiveRun: true,
       text: 'Still working',
     })
 
-    expect(cancelResult).toMatchObject({
-      forwardError: 'cancel forward failed',
-      forwarded: false,
-    })
     expect(statusResult).toMatchObject({
       forwardError: 'status forward failed',
       forwarded: false,
     })
     expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
       workspace.id,
-      expect.objectContaining({ dispatchId: dispatch.id, operation: 'cancel' })
-    )
-    expect(notifyOrchestratorForwardFailure).toHaveBeenCalledWith(
-      workspace.id,
       expect.objectContaining({ dispatchId: null, operation: 'status' })
     )
-    expect(insertMobileChatMessage).toHaveBeenCalledTimes(2)
+    expect(insertMobileChatMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('reportTask records a late report for a cancelled dispatch instead of throwing a bare 409', () => {
+    const workspace = { id: 'workspace-1' }
+    const worker = { id: 'worker-1', name: 'Alice', role: 'coder' }
+    const dispatch = withDispatchDefaults({
+      artifacts: [],
+      createdAt: Date.now() - 10_000,
+      deliveredAt: Date.now() - 9_000,
+      fromAgentId: `${workspace.id}:orchestrator`,
+      id: 'dispatch-1',
+      reportedAt: Date.now() - 1_000,
+      reportText: 'cancelled by PM',
+      sequence: 1,
+      status: 'cancelled',
+      submittedAt: Date.now() - 8_000,
+      text: 'Implement login',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const insertMessage = vi.fn(() => ({ sequence: 1 }))
+    const insertMobileChatMessage = vi.fn()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt: vi.fn(),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findDispatchById: vi.fn(() => dispatch),
+      findOpenDispatch: vi.fn(() => undefined),
+      findOpenDispatchById: vi.fn(),
+      insertMessage,
+      insertMobileChatMessage,
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted: vi.fn(),
+      workspaceStore: {
+        getWorker: vi.fn(() => worker),
+      } as never,
+    })
+
+    const result = ops.reportTask(workspace.id, worker.id, {
+      dispatchId: dispatch.id,
+      requireDispatchId: true,
+      status: 'success',
+      text: 'Finished anyway',
+    })
+
+    expect(result).toMatchObject({
+      dispatch,
+      forwardError: expect.stringContaining('already closed'),
+      forwarded: false,
+      lateReport: true,
+    })
+    expect(insertMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'Finished anyway',
+        type: 'report',
+        workerId: worker.id,
+      })
+    )
+    expect(insertMobileChatMessage).toHaveBeenCalledWith(
+      workspace.id,
+      'outbound',
+      'system_event',
+      expect.stringContaining('"type":"late_worker_report"')
+    )
   })
 
   test('reportTask sends a mobile push notification after a dispatch is reported', () => {

@@ -27,6 +27,7 @@ export interface ReportTaskBody {
   result: string
   status?: string
   artifacts?: unknown[]
+  evidence?: unknown[]
 }
 
 export interface CancelTaskBody {

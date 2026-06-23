@@ -25,6 +25,8 @@ export interface AcceptVerdict {
   at: number
   /** verdict 原因；team accept 强制要求。 */
   reason: string
+  /** 被 accept/reject/waive 时 coder report 携带的证据快照。 */
+  evidence?: string[] | undefined
   /** 当 verdict 来自 reviewer dispatch 时，引回 reviewer dispatch.id。 */
   reviewsDispatchId?: string
 }
@@ -33,6 +35,7 @@ export interface DispatchRecord {
   artifacts: string[]
   createdAt: number
   deliveredAt: number | null
+  evidence?: string[]
   fromAgentId: string | null
   id: string
   reportedAt: number | null
@@ -55,6 +58,7 @@ interface DispatchRow {
   artifacts: string | null
   created_at: number
   delivered_at: number | null
+  evidence_json: string | null
   from_agent_id: string | null
   id: string
   reported_at: number | null
@@ -80,6 +84,7 @@ interface CreateDispatchInput {
 interface ReportDispatchInput {
   artifacts: string[]
   dispatchId?: string
+  evidence?: string[]
   reportText: string
   toAgentId: string
   workspaceId: string
@@ -121,6 +126,18 @@ const parseArtifacts = (value: string | null) => {
   }
 }
 
+const parseEvidence = (value: string | null) => {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
 const VALID_REVIEW_STATUSES = new Set<ReviewStatus>(['pending', 'accepted', 'rejected', 'waived'])
 
 const parseReviewStatus = (value: string | null): ReviewStatus | null => {
@@ -147,6 +164,10 @@ const parseAcceptVerdict = (value: string | null): AcceptVerdict | null => {
       at: parsed.at,
       reason: parsed.reason,
     }
+    if (Array.isArray(parsed.evidence)) {
+      const evidence = parsed.evidence.filter((item): item is string => typeof item === 'string')
+      if (evidence.length > 0) out.evidence = evidence
+    }
     if (typeof parsed.reviewsDispatchId === 'string' && parsed.reviewsDispatchId) {
       out.reviewsDispatchId = parsed.reviewsDispatchId
     }
@@ -160,6 +181,7 @@ const toRecord = (row: DispatchRow): DispatchRecord => ({
   artifacts: parseArtifacts(row.artifacts),
   createdAt: row.created_at,
   deliveredAt: row.delivered_at,
+  evidence: parseEvidence(row.evidence_json),
   fromAgentId: row.from_agent_id,
   id: row.id,
   reportedAt: row.reported_at,
@@ -181,6 +203,7 @@ export const createDispatchLedgerStore = (db: Database) => {
       artifacts: [],
       createdAt: Date.now(),
       deliveredAt: null,
+      evidence: [],
       fromAgentId: input.fromAgentId ?? null,
       id: randomUUID(),
       reportedAt: null,
@@ -210,8 +233,9 @@ export const createDispatchLedgerStore = (db: Database) => {
         submitted_at,
         reported_at,
         report_text,
-        artifacts
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        artifacts,
+        evidence_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         record.id,
@@ -225,7 +249,8 @@ export const createDispatchLedgerStore = (db: Database) => {
         record.submittedAt,
         record.reportedAt,
         record.reportText,
-        JSON.stringify(record.artifacts)
+        JSON.stringify(record.artifacts),
+        JSON.stringify(record.evidence)
       )
 
     return {
@@ -316,6 +341,22 @@ export const createDispatchLedgerStore = (db: Database) => {
     return row ? toRecord(row) : undefined
   }
 
+  const findLatestClosedDispatchForWorker = (workspaceId: string, toAgentId: string) => {
+    const row = db
+      .prepare(
+        `SELECT *
+         FROM dispatches
+         WHERE workspace_id = ?
+           AND to_agent_id = ?
+           AND status NOT IN (${openDispatchStatusSql})
+         ORDER BY COALESCE(reported_at, submitted_at, created_at) DESC, sequence DESC
+         LIMIT 1`
+      )
+      .get(workspaceId, toAgentId) as DispatchRow | undefined
+
+    return row ? toRecord(row) : undefined
+  }
+
   const listOpenDispatchesForWorker = (workspaceId: string, workerId: string) =>
     (
       db
@@ -355,13 +396,22 @@ export const createDispatchLedgerStore = (db: Database) => {
        SET status = ?,
            reported_at = ?,
            report_text = ?,
-           artifacts = ?
+           artifacts = ?,
+           evidence_json = ?
        WHERE id = ?`
-    ).run('completed', reportedAt, input.reportText, JSON.stringify(input.artifacts), dispatch.id)
+    ).run(
+      'completed',
+      reportedAt,
+      input.reportText,
+      JSON.stringify(input.artifacts),
+      JSON.stringify(input.evidence ?? []),
+      dispatch.id
+    )
 
     return {
       ...dispatch,
       artifacts: input.artifacts,
+      evidence: input.evidence ?? [],
       reportedAt,
       reportText: input.reportText,
       status: 'completed' as const,
@@ -486,6 +536,26 @@ export const createDispatchLedgerStore = (db: Database) => {
     return row ? toRecord(row) : undefined
   }
 
+  const findDispatchesByIdPrefix = (workspaceId: string, idPrefix: string): DispatchRecord[] => {
+    const prefix = idPrefix.trim().toLowerCase()
+    if (!/^[0-9a-f-]{8,36}$/iu.test(prefix)) return []
+    if (prefix.length === 36) {
+      const found = findDispatchById(workspaceId, prefix)
+      return found ? [found] : []
+    }
+    return (
+      db
+        .prepare(
+          `SELECT *
+           FROM dispatches
+           WHERE workspace_id = ?
+             AND id LIKE ?
+           ORDER BY sequence ASC`
+        )
+        .all(workspaceId, `${prefix}%`) as DispatchRow[]
+    ).map(toRecord)
+  }
+
   // M43 — 写 review_status 单字段（不动 status 8 态）。
   // 同时支持回退到 NULL（worker re-report 路径清回 pending 也走这里）。
   const setReviewStatus = (dispatchId: string, status: ReviewStatus | null): void => {
@@ -529,6 +599,8 @@ export const createDispatchLedgerStore = (db: Database) => {
     deleteWorkerDispatches,
     deleteWorkspaceDispatches,
     findDispatchById,
+    findDispatchesByIdPrefix,
+    findLatestClosedDispatchForWorker,
     findOpenDispatch,
     findOpenDispatchById,
     linkReviewsDispatchId,

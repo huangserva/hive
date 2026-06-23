@@ -170,9 +170,13 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     const coderDispatch = await store.dispatchTask(workspace.id, coder.id, '改 src/foo.ts')
     store.reportTask(workspace.id, coder.id, {
       dispatchId: coderDispatch.id,
+      evidence: ['diff: src/foo.ts +12/-2', 'pnpm exec vitest run tests/foo.test.ts'],
       text: '改了 src/foo.ts',
     })
     expect(findDispatchLine(readTasksLines(workspacePath), coderDispatch.id)).toMatch(/^- \[~\]/u)
+    expect(findDispatchLine(readTasksLines(workspacePath), coderDispatch.id)).toContain(
+      'diff: src/foo.ts +12/-2'
+    )
 
     // 2) reviewer report --reviews <coder.id> --verdict accepted --reason "..."
     const reviewerDispatch = await store.dispatchTask(
@@ -194,6 +198,10 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     expect(reloadCoder?.acceptVerdict?.verdict).toBe('accepted')
     expect(reloadCoder?.acceptVerdict?.byAgentId).toBe(reviewer.id)
     expect(reloadCoder?.acceptVerdict?.reason).toContain('测试覆盖')
+    expect(reloadCoder?.acceptVerdict?.evidence).toEqual([
+      'diff: src/foo.ts +12/-2',
+      'pnpm exec vitest run tests/foo.test.ts',
+    ])
     const reloadReviewer = store
       .listDispatches(workspace.id)
       .find((d) => d.id === reviewerDispatch.id)
@@ -305,6 +313,9 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     store.reportTask(workspace.id, reviewer.id, {
       dispatchId: reviewerDispatch.id,
       text: '0 blocking, ship',
+      reviewsDispatchId: coderDispatch.id,
+      verdict: 'accepted',
+      verdictReason: '0 blocking, ship',
     })
     const result = store.acceptTask(workspace.id, {
       dispatchId: coderDispatch.id,
@@ -313,6 +324,69 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     })
     expect(result.dispatch.reviewStatus).toBe('accepted')
     expect(result.dispatch.acceptVerdict?.byAgentId).toBe(orchestratorId)
+  })
+
+  test('PM acceptTask does not falsely reject when the referenced reviewer dispatch is beyond the first 1000 history rows', async () => {
+    const { dataDir, store, workspace } = setup({ gateOn: true })
+    const coder = addClaudeCoder(store, workspace.id)
+    const reviewer = addReviewer(store, workspace.id)
+    const orchestratorId = `${workspace.id}:orchestrator`
+    const filler = store.addWorker(workspace.id, { name: '历史工蜂', role: 'coder' })
+
+    const coderDispatch = await store.dispatchTask(workspace.id, coder.id, '改 src/foo.ts')
+    store.reportTask(workspace.id, coder.id, {
+      dispatchId: coderDispatch.id,
+      text: '改了 src/foo.ts',
+    })
+
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+    try {
+      const insert = db.prepare(
+        `INSERT INTO dispatches (
+           id, workspace_id, from_agent_id, to_agent_id, text, status, created_at,
+           delivered_at, submitted_at, reported_at, report_text, artifacts
+         ) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)`
+      )
+      const now = Date.now()
+      const tx = db.transaction(() => {
+        for (let index = 0; index < 1005; index += 1) {
+          insert.run(
+            `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+            workspace.id,
+            orchestratorId,
+            filler.id,
+            `历史派单 ${index}`,
+            now + index,
+            now + index,
+            now + index,
+            now + index,
+            '历史完成',
+            '[]'
+          )
+        }
+      })
+      tx()
+    } finally {
+      db.close()
+    }
+
+    const reviewerDispatch = await store.dispatchTask(workspace.id, reviewer.id, '审大历史尾部')
+    store.reportTask(workspace.id, reviewer.id, {
+      dispatchId: reviewerDispatch.id,
+      text: '0 blocking, ship',
+      reviewsDispatchId: coderDispatch.id,
+      verdict: 'accepted',
+      verdictReason: '0 blocking, ship',
+    })
+
+    const result = store.acceptTask(workspace.id, {
+      dispatchId: coderDispatch.id,
+      fromAgentId: orchestratorId,
+      reason: `钟馗 ${reviewerDispatch.id} 已审过，0 blocking`,
+    })
+
+    expect(result.dispatch.reviewStatus).toBe('accepted')
+    expect(result.dispatch.acceptVerdict?.reason).toContain(reviewerDispatch.id)
   })
 
   test('flag=0 时 acceptTask 直接拒（accept gate disabled）', async () => {
@@ -429,6 +503,9 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     store.reportTask(workspace.id, reviewer.id, {
       dispatchId: reviewerDispatch.id,
       text: '0 blocking',
+      reviewsDispatchId: coderDispatch.id,
+      verdict: 'accepted',
+      verdictReason: '0 blocking',
     })
 
     // 直接捅 sqlite：把 reviewer.reported_at 改成与 coder 同 ms；reviewer.sequence 早于 coder.sequence
@@ -496,6 +573,9 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     store.reportTask(workspace.id, reviewer.id, {
       dispatchId: reviewerDispatch.id,
       text: '0 blocking',
+      reviewsDispatchId: coderDispatch.id,
+      verdict: 'accepted',
+      verdictReason: '0 blocking',
     })
     expect(coderDispatch.sequence).not.toBeNull()
     expect(reviewerDispatch.sequence).not.toBeNull()
@@ -563,7 +643,7 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
     ).toThrow(/linked to a different coder dispatch|reviewer/i)
   })
 
-  test('B1 合法路径：reviewer 已 report + reportedAt 晚于 coder + 未 link 别条 → acceptTask 通过', async () => {
+  test('B1 绕过路径 4：reviewer 已 report 但未 link 本 coder → acceptTask 必拒', async () => {
     const { store, workspace } = setup({ gateOn: true })
     const coder = addClaudeCoder(store, workspace.id)
     const reviewer = addReviewer(store, workspace.id)
@@ -580,13 +660,13 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
       text: '0 blocking',
     })
 
-    const result = store.acceptTask(workspace.id, {
-      dispatchId: coderDispatch.id,
-      fromAgentId: orchestratorId,
-      reason: `钟馗 ${reviewerDispatch.id} 我看过`,
-    })
-    expect(result.dispatch.reviewStatus).toBe('accepted')
-    expect(result.dispatch.acceptVerdict?.byAgentId).toBe(orchestratorId)
+    expect(() =>
+      store.acceptTask(workspace.id, {
+        dispatchId: coderDispatch.id,
+        fromAgentId: orchestratorId,
+        reason: `钟馗 ${reviewerDispatch.id} 我看过`,
+      })
+    ).toThrow(/not linked to this coder dispatch|未显式 link 本 coder|reviewer/i)
   })
 
   test('reviewer 主路径 scope 一致性 guard：--reviews target 不在 scope → reportTask 拒', async () => {

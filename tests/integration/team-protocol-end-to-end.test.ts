@@ -208,6 +208,7 @@ describe('team protocol end to end', () => {
           result: '已完成登录接口',
           dispatch_id: sendBody.dispatch_id,
           artifacts: ['src/auth.ts'],
+          evidence: ['diff: src/auth.ts +42/-3', 'pnpm exec vitest run tests/auth.test.ts'],
         }),
       })
       expect(firstReportResponse.status).toBe(202)
@@ -260,6 +261,7 @@ describe('team protocol end to end', () => {
         state: string
         report_text: string | null
         artifacts: string[]
+        evidence: string[]
       }>
       expect(reportedDispatches).toEqual([
         expect.objectContaining({
@@ -267,12 +269,14 @@ describe('team protocol end to end', () => {
           state: 'completed',
           report_text: '已完成登录接口',
           artifacts: ['src/auth.ts'],
+          evidence: ['diff: src/auth.ts +42/-3', 'pnpm exec vitest run tests/auth.test.ts'],
         }),
         expect.objectContaining({
           id: secondSendBody.dispatch_id,
           state: 'completed',
           report_text: '补充测试已完成',
           artifacts: ['tests/auth.test.ts'],
+          evidence: [],
         }),
       ])
 
@@ -346,11 +350,13 @@ describe('team protocol end to end', () => {
       const persistedDispatches = runtimeStore.listDispatches(workspace.id)
       expect(persistedDispatches).toEqual([
         expect.objectContaining({
+          evidence: ['diff: src/auth.ts +42/-3', 'pnpm exec vitest run tests/auth.test.ts'],
           id: sendBody.dispatch_id,
           reportText: '已完成登录接口',
           status: 'completed',
         }),
         expect.objectContaining({
+          evidence: [],
           id: secondSendBody.dispatch_id,
           reportText: '补充测试已完成',
           status: 'completed',

@@ -43,6 +43,7 @@ interface TasksFileService {
     workspacePath: string,
     input: {
       dispatchId: string
+      evidence?: string[]
       reviewStatus?: 'pending' | 'accepted' | 'rejected' | 'waived' | null
     }
   ) => void
@@ -325,7 +326,13 @@ export const createTasksFileService = (
         }
         const currentLine = lines[lineIndex]
         if (!currentLine) return null
-        lines[lineIndex] = currentLine.replace(/^- \[[ x~]\]/, `- ${targetMark}`)
+        const evidence = input.evidence?.filter((item) => item.trim()).slice(0, 3) ?? []
+        const evidenceSuffix =
+          evidence.length > 0 ? ` · evidence: ${truncateText(evidence.join(' | '), 180)}` : ''
+        const baseLine = currentLine
+          .replace(/ · evidence: .+$/u, '')
+          .replace(/^- \[[ x~]\]/, `- ${targetMark}`)
+        lines[lineIndex] = `${baseLine}${evidenceSuffix}`
         return lines
       })
     },
