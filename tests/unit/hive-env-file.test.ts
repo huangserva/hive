@@ -75,6 +75,20 @@ describe('hive root env file loading', () => {
     expect(env.HIVE_WEBRTC_ICE_SERVERS_JSON).toBe('[{"urls":"stun:relay"}]')
   })
 
+  it('returns false without throwing when explicit HIVE_ROOT_ENV_FILE is absent', () => {
+    const cwd = setupDir()
+    const missingEnvPath = join(cwd, 'app.asar', '.env')
+    const env: NodeJS.ProcessEnv = {
+      HIVE_ROOT_ENV_FILE: missingEnvPath,
+      NODE_ENV: 'test',
+    }
+
+    expect(loadRootEnvFile({ cwd, env })).toBe(false)
+    expect(env.HIVE_ROOT_ENV_FILE).toBe(missingEnvPath)
+    expect(env.GLM_API_KEY).toBeUndefined()
+    expect(env.HIVE_WEBRTC_ICE_SERVERS_JSON).toBeUndefined()
+  })
+
   it('returns false without throwing for a malformed .env with no assignments', () => {
     const cwd = setupDir()
     writeFileSync(join(cwd, '.env'), ['not an assignment', '# comment', ''].join('\n'), 'utf8')

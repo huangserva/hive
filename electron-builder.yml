@@ -10,7 +10,6 @@ directories:
 
 files:
   - package.json
-  - .env
   - desktop/electron/main.mjs
   - desktop/electron/path-env.mjs
   - desktop/electron/runtime-launch.mjs
