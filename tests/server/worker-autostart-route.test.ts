@@ -255,6 +255,50 @@ describe('POST /api/workspaces/:workspaceId/workers autostart', () => {
     if (workerRun) server.store.stopAgentRun(workerRun.run_id)
   })
 
+  test('rejects autostart worker creation when the selected CLI cannot be detected', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+
+    const presetResponse = await fetch(`${server.baseUrl}/api/settings/command-presets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        display_name: 'Missing CLI',
+        command: '__hive_missing_worker_cli__',
+        args: [],
+        env: {},
+        resume_args_template: null,
+        session_id_capture: null,
+        yolo_args_template: null,
+      }),
+    })
+    expect(presetResponse.status).toBe(201)
+    const preset = (await presetResponse.json()) as { id: string }
+
+    const response = await fetch(`${server.baseUrl}/api/workspaces/${workspace.id}/workers`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({
+        autostart: true,
+        command_preset_id: preset.id,
+        hive_port: '4010',
+        name: 'Missing CLI Worker',
+        role: 'coder',
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error:
+        'Command preset CLI is not installed or not on PATH: __hive_missing_worker_cli__. Install it or set a manual CLI path first.',
+    })
+    expect(
+      server.store.listWorkers(workspace.id).some((worker) => worker.name === 'Missing CLI Worker')
+    ).toBe(false)
+  })
+
   test('starts a worker from a full startup command through the user shell', async () => {
     const binDir = mkdtempSync(join(tmpdir(), 'hive-worker-custom-start-bin-'))
     const dataDir = mkdtempSync(join(tmpdir(), 'hive-worker-custom-start-'))

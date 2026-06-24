@@ -1,5 +1,6 @@
 import type { IncomingMessage } from 'node:http'
-
+import { assertAutostartCommandPresetAvailable } from './agent-cli-autostart-gate.js'
+import { applyManualCliPathToLaunchConfig } from './agent-cli-manual-paths.js'
 import {
   resolveCommandPresetLaunchConfig,
   resolveStartupCommandLaunchConfig,
@@ -257,6 +258,14 @@ export const workspaceRoutes: RouteDefinition[] = [
       if (presetId && !startupCommand?.trim() && !launchConfig) {
         throw new Error(`Command preset not found: ${presetId}`)
       }
+      const launchConfigWithTemplate = applyManualCliPathToLaunchConfig(
+        store.settings,
+        applyRoleTemplateLaunchDefaults(launchConfig, roleTemplate, workflowAllowed)
+      )
+      if (workerBody.autostart === true) {
+        assertAutostartCommandPresetAvailable(launchConfigWithTemplate)
+      }
+
       const workerInput = {
         ...workerBody,
         workflowAllowed,
@@ -264,11 +273,6 @@ export const workspaceRoutes: RouteDefinition[] = [
       const description = workerBody.description ?? roleTemplate?.description
       if (description !== undefined) workerInput.description = description
       const worker = store.addWorker(workspaceId, workerInput)
-      const launchConfigWithTemplate = applyRoleTemplateLaunchDefaults(
-        launchConfig,
-        roleTemplate,
-        workflowAllowed
-      )
       if (launchConfigWithTemplate) {
         try {
           store.configureAgentLaunch(workspaceId, worker.id, launchConfigWithTemplate)

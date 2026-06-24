@@ -7,11 +7,14 @@ describe('agent CLI installer planning', () => {
     expect(
       detectAgentCli('claude', {
         commandExists: (command) => command === 'claude',
+        versionReader: () => null,
       })
     ).toEqual({
       command: 'claude',
       installed: true,
+      path: 'claude',
       presetId: 'claude',
+      version: null,
     })
   })
 
@@ -28,7 +31,9 @@ describe('agent CLI installer planning', () => {
         description: 'Install Codex CLI via npm.',
       },
       installed: false,
+      path: null,
       presetId: 'codex',
+      version: null,
     })
   })
 
@@ -41,7 +46,25 @@ describe('agent CLI installer planning', () => {
       command: 'custom-tool',
       install: null,
       installed: false,
+      path: null,
       presetId: 'custom-tool',
+      version: null,
+    })
+  })
+
+  test('reports resolved absolute path and version for a manually pointed CLI', () => {
+    expect(
+      detectAgentCli('codex', {
+        commandOverride: '/opt/hive/bin/codex',
+        commandExists: (command) => command === '/opt/hive/bin/codex',
+        versionReader: (command) => (command === '/opt/hive/bin/codex' ? 'codex 1.2.3' : null),
+      })
+    ).toEqual({
+      command: '/opt/hive/bin/codex',
+      installed: true,
+      path: '/opt/hive/bin/codex',
+      presetId: 'codex',
+      version: 'codex 1.2.3',
     })
   })
 })

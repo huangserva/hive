@@ -77,16 +77,64 @@ describe('desktop Electron PATH repair', () => {
     )
   })
 
-  test('keeps Windows PATH unchanged', () => {
-    expect(
-      resolveDesktopPathEnv({
-        env: { Path: 'C:\\Windows\\System32' },
-        execSync: () => {
-          throw new Error('should not run')
-        },
-        platform: 'win32',
-      })
-    ).toBe('C:\\Windows\\System32')
+  test('rebuilds Windows PATH from registry and common CLI fallback directories', () => {
+    const commands = []
+    const path = resolveDesktopPathEnv({
+      env: {
+        APPDATA: 'C:\\Users\\alice\\AppData\\Roaming',
+        LOCALAPPDATA: 'C:\\Users\\alice\\AppData\\Local',
+        PATH: 'C:\\Windows\\System32;C:\\Tools',
+        ProgramFiles: 'C:\\Program Files',
+        USERPROFILE: 'C:\\Users\\alice',
+      },
+      execSync: (command) => {
+        commands.push(command)
+        if (String(command).includes('HKCU\\Environment')) {
+          return Buffer.from(
+            [
+              'HKEY_CURRENT_USER\\Environment',
+              '    PATH    REG_EXPAND_SZ    %USERPROFILE%\\bin;C:\\Tools',
+            ].join('\r\n')
+          )
+        }
+        if (String(command).includes('Session Manager\\Environment')) {
+          return Buffer.from(
+            [
+              'HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment',
+              '    Path    REG_SZ    C:\\Windows\\System32;C:\\Program Files\\nodejs',
+            ].join('\r\n')
+          )
+        }
+        throw new Error(`unexpected command: ${command}`)
+      },
+      platform: 'win32',
+    })
+
+    expect(commands).toHaveLength(2)
+    expect(path.split(';')).toEqual([
+      'C:\\Users\\alice\\bin',
+      'C:\\Tools',
+      'C:\\Windows\\System32',
+      'C:\\Program Files\\nodejs',
+      'C:\\Users\\alice\\AppData\\Roaming\\npm',
+      'C:\\Users\\alice\\AppData\\Local\\Microsoft\\WinGet\\Links',
+      'C:\\Users\\alice\\AppData\\Roaming\\nvm',
+    ])
+  })
+
+  test('does not run Windows registry probing on non-Windows platforms', () => {
+    const path = resolveDesktopPathEnv({
+      env: {
+        HOME: '/Users/alice',
+        PATH: '/usr/bin:/bin',
+        SHELL: '/bin/zsh',
+      },
+      execSync: () => Buffer.from(shellEnvOutput({ PATH: '/custom/bin:/usr/bin:/bin' })),
+      platform: 'darwin',
+    })
+
+    expect(path.split(':')).toContain('/custom/bin')
+    expect(path.split(':')).not.toContain('C')
   })
 
   test('fills proxy variables from the login shell without overwriting existing values', () => {

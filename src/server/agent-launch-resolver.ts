@@ -1,3 +1,4 @@
+import { applyManualCliPathToLaunchConfig } from './agent-cli-manual-paths.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
 import type { SettingsStore } from './settings-store.js'
 import {
@@ -12,12 +13,12 @@ export const resolveCommandPresetLaunchConfig = (
 ): AgentLaunchConfigInput | undefined => {
   const preset = settings.getCommandPreset(commandPresetId)
   if (!preset) return undefined
-  return {
+  return applyManualCliPathToLaunchConfig(settings, {
     args: preset.args,
     command: preset.command,
     commandPresetId: preset.id,
     thinkingLevel,
-  }
+  })
 }
 
 const findPresetForStartupCommand = (

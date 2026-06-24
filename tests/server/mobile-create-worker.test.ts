@@ -231,6 +231,42 @@ describe('mobile create worker route', () => {
     }
   })
 
+  test('rejects mobile autostart when the selected builtin CLI is unavailable without creating a worker', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Create Worker Test')
+      server.store.settings.setAppState(
+        'agent_cli_manual_paths',
+        JSON.stringify({ codex: join(workspacePath, 'missing-codex') })
+      )
+      const { token } = await createMobileToken(server.baseUrl)
+
+      const response = await createWorkerRequest(server.baseUrl, workspace.id, token, {
+        autostart: true,
+        command_preset_id: 'codex',
+        name: 'Missing Codex Mobile Worker',
+        role: 'coder',
+      })
+      const body = (await response.json()) as { error?: string }
+
+      expect(response.status).toBe(400)
+      expect(body.error).toBe(
+        `Command preset CLI is not installed or not on PATH: ${join(
+          workspacePath,
+          'missing-codex'
+        )}. Install it or set a manual CLI path first.`
+      )
+      expect(
+        server.store
+          .listWorkers(workspace.id)
+          .some((worker) => worker.name === 'Missing Codex Mobile Worker')
+      ).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('rejects custom command presets from relay before they can be autostarted later', async () => {
     const workspacePath = createWorkspaceFixture()
     const server = await startTestServer()
@@ -272,6 +308,49 @@ describe('mobile create worker route', () => {
       const autostartResults = await server.store.autostartConfiguredAgents({ hivePort: '4010' })
       expect(
         autostartResults.some((result) => customWorker && result.agent_id === customWorker.id)
+      ).toBe(false)
+    } finally {
+      await server.close()
+    }
+  })
+
+  test('rejects relay autostart when the selected builtin CLI is unavailable without creating a worker', async () => {
+    const workspacePath = createWorkspaceFixture()
+    const server = await startTestServer()
+    try {
+      const workspace = server.store.createWorkspace(workspacePath, 'Create Worker Test')
+      server.store.settings.setAppState(
+        'agent_cli_manual_paths',
+        JSON.stringify({ codex: join(workspacePath, 'missing-codex') })
+      )
+      const handler = createRelayRpcHandler({
+        runtimeInfo: { dataDir: server.dataDir, port: 4010 },
+        store: server.store,
+      })
+
+      await expect(
+        handler(
+          'worker.create',
+          {
+            autostart: true,
+            command_preset_id: 'codex',
+            name: 'Missing Codex Relay Worker',
+            role: 'coder',
+            workspace_id: workspace.id,
+          },
+          'device-1',
+          ['admin_runtime']
+        )
+      ).rejects.toThrow(
+        `Command preset CLI is not installed or not on PATH: ${join(
+          workspacePath,
+          'missing-codex'
+        )}. Install it or set a manual CLI path first.`
+      )
+      expect(
+        server.store
+          .listWorkers(workspace.id)
+          .some((worker) => worker.name === 'Missing Codex Relay Worker')
       ).toBe(false)
     } finally {
       await server.close()

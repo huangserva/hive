@@ -1,6 +1,6 @@
 import { execSync as defaultExecSync } from 'node:child_process'
 import { readdirSync as defaultReaddirSync } from 'node:fs'
-import { delimiter } from 'node:path'
+import { delimiter, win32 as win32Path } from 'node:path'
 
 const DEFAULT_POSIX_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const SHELL_ENV_MARKER_START = '__HIVE_DESKTOP_ENV_START__'
@@ -20,6 +20,16 @@ const LOGIN_SHELL_TIMEOUT_MS = 7000
 const getPathValue = (env) => env.PATH ?? env.Path ?? env.path ?? ''
 
 const expandHome = (path, home) => (home ? path.replace(/^~(?=\/|$)/, home) : path)
+const getPathDelimiter = (platform) => (platform === 'win32' ? win32Path.delimiter : delimiter)
+
+const getEnvValue = (env, key, platform) => {
+  if (platform !== 'win32') return env[key]
+  const matchedKey = Object.keys(env).find((item) => item.toLowerCase() === key.toLowerCase())
+  return matchedKey ? env[matchedKey] : undefined
+}
+
+const expandWindowsEnvRefs = (value, env) =>
+  value.replace(/%([^%]+)%/g, (match, key) => getEnvValue(env, key, 'win32') ?? match)
 
 const parseShellEnvOutput = (output) => {
   const start = output.indexOf(SHELL_ENV_MARKER_START)
@@ -36,7 +46,7 @@ const parseShellEnvOutput = (output) => {
 }
 
 const readLoginShellEnv = ({ env, execSync, platform }) => {
-  if (platform === 'win32') return {}
+  if (platform === 'win32') return readWindowsRegistryPathEnv({ env, execSync })
   const shell = env.SHELL || '/bin/zsh'
   const proxyKeys = PROXY_ENV_KEYS.join(' ')
   const command = `${JSON.stringify(shell)} -l -i -c 'printf "${SHELL_ENV_MARKER_START}\\n"; printf "PATH=%s\\n" "$PATH"; for key in ${proxyKeys}; do value=$(printenv "$key" 2>/dev/null || true); if [ -n "$value" ]; then printf "%s=%s\\n" "$key" "$value"; fi; done; printf "${SHELL_ENV_MARKER_END}\\n"'`
@@ -53,6 +63,40 @@ const readLoginShellEnv = ({ env, execSync, platform }) => {
   } catch {
     return {}
   }
+}
+
+const parseWindowsRegistryPathOutput = (output, env) => {
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.+?)\s*$/i.exec(line)
+    if (!match) continue
+    return expandWindowsEnvRefs(match[1].trim(), env)
+  }
+  return ''
+}
+
+const readWindowsRegistryPathEnv = ({ env, execSync }) => {
+  const commands = [
+    'reg query HKCU\\Environment /v PATH',
+    'reg query "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment" /v PATH',
+  ]
+  const paths = []
+  for (const command of commands) {
+    try {
+      const output = String(
+        execSync(command, {
+          encoding: 'utf8',
+          env,
+          shell: true,
+          timeout: 2000,
+        })
+      )
+      const path = parseWindowsRegistryPathOutput(output, env)
+      if (path) paths.push(path)
+    } catch {
+      // Missing registry values are common on fresh machines; fallbacks below cover them.
+    }
+  }
+  return paths.length > 0 ? { PATH: paths.join(win32Path.delimiter) } : {}
 }
 
 const parseScutilProxyOutput = (output) => {
@@ -109,7 +153,25 @@ const listNvmVersionBins = (env, readdirSync) => {
 }
 
 const buildFallbackPathParts = (env, platform, readdirSync) => {
-  if (platform === 'win32') return []
+  if (platform === 'win32') {
+    return [
+      getEnvValue(env, 'APPDATA', platform)
+        ? `${getEnvValue(env, 'APPDATA', platform)}\\npm`
+        : undefined,
+      getEnvValue(env, 'LOCALAPPDATA', platform)
+        ? `${getEnvValue(env, 'LOCALAPPDATA', platform)}\\Microsoft\\WinGet\\Links`
+        : undefined,
+      getEnvValue(env, 'APPDATA', platform)
+        ? `${getEnvValue(env, 'APPDATA', platform)}\\nvm`
+        : undefined,
+      getEnvValue(env, 'ProgramFiles', platform)
+        ? `${getEnvValue(env, 'ProgramFiles', platform)}\\nodejs`
+        : undefined,
+      getEnvValue(env, 'ProgramFiles(x86)', platform)
+        ? `${getEnvValue(env, 'ProgramFiles(x86)', platform)}\\nodejs`
+        : undefined,
+    ].filter((part) => typeof part === 'string' && part.length > 0)
+  }
   const home = env.HOME ?? ''
   return [
     '/opt/homebrew/bin',
@@ -132,24 +194,32 @@ export const resolveDesktopPathEnv = ({
   shellEnv,
 } = {}) => {
   const currentPath = getPathValue(env)
-  if (platform === 'win32') return currentPath
 
   const resolvedShellEnv = shellEnv ?? readLoginShellEnv({ env, execSync, platform })
   const shellPath = resolvedShellEnv.PATH ?? ''
-  const parts = [
-    ...buildFallbackPathParts(env, platform, readdirSync),
-    ...(shellPath || DEFAULT_POSIX_PATH).split(delimiter),
-    ...currentPath.split(delimiter),
-  ]
+  const pathDelimiter = getPathDelimiter(platform)
+  const parts =
+    platform === 'win32'
+      ? [
+          ...(shellPath || '').split(pathDelimiter),
+          ...buildFallbackPathParts(env, platform, readdirSync),
+          ...currentPath.split(pathDelimiter),
+        ]
+      : [
+          ...buildFallbackPathParts(env, platform, readdirSync),
+          ...(shellPath || DEFAULT_POSIX_PATH).split(pathDelimiter),
+          ...currentPath.split(pathDelimiter),
+        ]
   const seen = new Set()
   const merged = []
   for (const part of parts) {
     const normalized = part.trim()
-    if (!normalized || seen.has(normalized)) continue
-    seen.add(normalized)
+    const key = platform === 'win32' ? normalized.toLowerCase() : normalized
+    if (!normalized || seen.has(key)) continue
+    seen.add(key)
     merged.push(normalized)
   }
-  return merged.join(delimiter)
+  return merged.join(pathDelimiter)
 }
 
 const repairDesktopProxyEnv = (env, ...sources) => {
@@ -166,14 +236,11 @@ const repairDesktopProxyEnv = (env, ...sources) => {
 
 export const repairDesktopPathEnv = (env = process.env, options = {}) => {
   const platform = options.platform ?? process.platform
-  const shellEnv =
-    platform === 'win32'
-      ? {}
-      : readLoginShellEnv({
-          env,
-          execSync: options.execSync ?? defaultExecSync,
-          platform,
-        })
+  const shellEnv = readLoginShellEnv({
+    env,
+    execSync: options.execSync ?? defaultExecSync,
+    platform,
+  })
   const systemProxyEnv =
     platform === 'win32'
       ? {}

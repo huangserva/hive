@@ -1,14 +1,20 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
 const servers: Array<Awaited<ReturnType<typeof startTestServer>>> = []
+const tempDirs: string[] = []
 
 afterEach(async () => {
   while (servers.length > 0) {
     await servers.pop()?.close()
   }
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
 })
 
 describe('settings api', () => {
@@ -350,6 +356,60 @@ describe('settings api', () => {
     const presets = (await listResponse.json()) as Array<{ available: boolean; command: string }>
     expect(presets.find((preset) => preset.command === '__hive_missing_cli__')).toMatchObject({
       available: false,
+    })
+  })
+
+  test('CLI detection endpoint reports manual absolute path without leaking host assumptions', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const binDir = mkdtempSync(join(tmpdir(), 'hive-cli-detection-'))
+    tempDirs.push(binDir)
+    const codexShim = join(binDir, 'codex-test')
+    writeFileSync(codexShim, '#!/bin/sh\necho codex-test 1.2.3\n')
+    chmodSync(codexShim, 0o755)
+
+    const writeResponse = await fetch(
+      `${server.baseUrl}/api/settings/cli-detection/codex/manual-path`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({ path: codexShim }),
+      }
+    )
+    expect(writeResponse.status).toBe(200)
+    await expect(writeResponse.json()).resolves.toEqual({
+      preset_id: 'codex',
+      manual_path: codexShim,
+      installed: true,
+    })
+
+    const detectResponse = await fetch(`${server.baseUrl}/api/settings/cli-detection`, {
+      headers: { cookie },
+    })
+    expect(detectResponse.status).toBe(200)
+    const body = (await detectResponse.json()) as {
+      agents: Record<
+        string,
+        {
+          command: string
+          installed: boolean
+          install_plan: unknown
+          path: string | null
+          preset_id: string
+          version: string | null
+        }
+      >
+    }
+
+    expect(Object.keys(body.agents).sort()).toEqual(['claude', 'codex', 'gemini', 'opencode'])
+    expect(body.agents.codex).toEqual({
+      command: codexShim,
+      installed: true,
+      install_plan: null,
+      path: codexShim,
+      preset_id: 'codex',
+      version: 'codex-test 1.2.3',
     })
   })
 })

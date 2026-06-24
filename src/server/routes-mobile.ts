@@ -12,6 +12,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 
 import type { WorkerRole } from '../shared/types.js'
+import { assertAutostartCommandPresetAvailable } from './agent-cli-autostart-gate.js'
 import { resolveCommandPresetLaunchConfig } from './agent-launch-resolver.js'
 import type { AgentLaunchSource } from './agent-launch-source.js'
 import { parseCockpit } from './cockpit-doc.js'
@@ -422,6 +423,9 @@ export const createMobileWorker = async (
   const launchConfig = presetId
     ? resolveCommandPresetLaunchConfig(store.settings, presetId, thinkingLevel)
     : undefined
+  if (body.autostart === true) {
+    assertAutostartCommandPresetAvailable(launchConfig)
+  }
 
   const worker = store.addWorker(workspaceId, {
     name,

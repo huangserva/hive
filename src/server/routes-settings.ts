@@ -1,4 +1,8 @@
+import { isAbsolute } from 'node:path'
+
 import { getThinkingLevelsForPreset } from '../shared/thinking-levels.js'
+import { buildAgentCliInstallPlan, SUPPORTED_AGENT_CLI_PRESETS } from './agent-cli-installer.js'
+import { getManualCliPath, setManualCliPath } from './agent-cli-manual-paths.js'
 import { resolveCommandPath } from './agent-command-resolver.js'
 import { getSerializedCommandPresetCapabilities } from './command-preset-capabilities.js'
 import { BadRequestError } from './http-errors.js'
@@ -35,6 +39,10 @@ type RoleTemplateBody = {
 type SecretBody = {
   key?: unknown
   value?: unknown
+}
+
+type ManualCliPathBody = {
+  path?: unknown
 }
 
 export const serializeCommandPreset = (preset: {
@@ -123,7 +131,65 @@ const readRoleTemplateBody = async (
   }
 }
 
+const serializeCliInstallPlan = (plan: ReturnType<typeof buildAgentCliInstallPlan>) => ({
+  command: plan.command,
+  installed: plan.installed,
+  install_plan: plan.install,
+  path: plan.path,
+  preset_id: plan.presetId,
+  version: plan.version,
+})
+
 export const settingsRoutes: RouteDefinition[] = [
+  route('GET', '/api/settings/cli-detection', ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    sendJson(response, 200, {
+      agents: Object.fromEntries(
+        SUPPORTED_AGENT_CLI_PRESETS.map((presetId) => {
+          const preset = store.settings.getCommandPreset(presetId)
+          const manualPath = getManualCliPath(store.settings, presetId)
+          const plan = buildAgentCliInstallPlan(presetId, {
+            commandOverride: manualPath ?? preset?.command ?? null,
+            env: preset?.env ? { ...process.env, ...preset.env } : process.env,
+          })
+          return [presetId, serializeCliInstallPlan(plan)]
+        })
+      ),
+    })
+  }),
+  route(
+    'PUT',
+    '/api/settings/cli-detection/:presetId/manual-path',
+    async ({ params, request, response, store }) => {
+      requireUiTokenFromRequest(request, store.validateUiToken)
+      const presetId = getRequiredParam(response, params, 'presetId', 'Preset id is required')
+      if (!presetId) return
+      if (
+        !SUPPORTED_AGENT_CLI_PRESETS.includes(
+          presetId as (typeof SUPPORTED_AGENT_CLI_PRESETS)[number]
+        )
+      ) {
+        throw new BadRequestError(`Unsupported CLI preset: ${presetId}`)
+      }
+      const body = await readJsonBody<ManualCliPathBody>(request)
+      if (typeof body.path !== 'string' || !body.path.trim()) {
+        throw new BadRequestError('path must be a non-empty string')
+      }
+      const manualPath = body.path.trim()
+      if (!isAbsolute(manualPath)) throw new BadRequestError('path must be absolute')
+      try {
+        resolveCommandPath(manualPath, process.cwd(), process.env)
+      } catch {
+        throw new BadRequestError(`CLI path is not executable: ${manualPath}`)
+      }
+      setManualCliPath(store.settings, presetId, manualPath)
+      sendJson(response, 200, {
+        installed: true,
+        manual_path: manualPath,
+        preset_id: presetId,
+      })
+    }
+  ),
   route('GET', '/api/settings/secrets', ({ request, response, store }) => {
     requireUiTokenFromRequest(request, store.validateUiToken)
     const present = store.listPresentSecrets()
