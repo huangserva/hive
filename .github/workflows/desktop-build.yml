@@ -33,9 +33,6 @@ jobs:
       - name: Build runtime and web
         run: pnpm build
 
-      - name: Rebuild Electron native dependencies
-        run: pnpm exec electron-builder install-app-deps --config electron-builder.yml
-
       - name: Build unsigned universal macOS package
         run: pnpm exec electron-builder --mac --universal --config electron-builder.yml --publish never
 
@@ -74,9 +71,6 @@ jobs:
 
       - name: Build runtime and web
         run: pnpm build
-
-      - name: Rebuild Electron native dependencies
-        run: pnpm exec electron-builder install-app-deps --config electron-builder.yml
 
       - name: Build unsigned Windows installer
         run: pnpm exec electron-builder --win nsis --x64 --config electron-builder.yml --publish never
