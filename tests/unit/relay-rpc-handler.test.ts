@@ -66,6 +66,7 @@ const createBaseStore = (overrides: Record<string, unknown> = {}) => {
   const base = {
     approvalLedger: {
       get: vi.fn(),
+      markResolved: vi.fn(),
       resolve: vi.fn(),
     },
     addWorker: vi.fn(() => agentSummary({ id: 'worker-2', name: 'Bob', status: 'idle' })),
@@ -80,6 +81,7 @@ const createBaseStore = (overrides: Record<string, unknown> = {}) => {
     getWorker: vi.fn(() => agentSummary()),
     getWorkerConfig: vi.fn(() => ({})),
     insertMobileChatMessage: createInsertMobileChatMessageMock('base-message'),
+    listActiveSentinelAlerts: vi.fn(() => []),
     listDispatches: vi.fn(() => []),
     listMobileChatMessages: vi.fn(() => []),
     listTerminalRuns: vi.fn(() => []),
@@ -118,6 +120,7 @@ const createBaseStore = (overrides: Record<string, unknown> = {}) => {
           yoloArgsTemplate: null,
         },
       ]),
+      getAppState: vi.fn(() => null),
     },
     startAgent: vi.fn(),
     stopAgentRun: vi.fn(),
@@ -324,6 +327,7 @@ describe('relay RPC handler', () => {
           target: null,
           workspaceId: 'ws-1',
         })),
+        markResolved: vi.fn(),
         resolve: vi.fn(() => ({
           action: 'Review screenshot',
           approvalId: 'approval-1',

@@ -32,6 +32,7 @@ import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
 import { buildRuntimeRestartPolicy } from './runtime-restart-policy.js'
+import { loadSecretValues, redactObject } from './secret-redactor.js'
 import { createSecretStore, injectSecretsIntoEnv } from './secret-store.js'
 import { createSentinelAlertStore } from './sentinel-alert-status.js'
 import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
@@ -326,30 +327,34 @@ export const createRuntimeStoreServices = (
         ...(options.logger ? { logger: options.logger } : {}),
         reconcileAgentStatus: reconcileAgentStatusForAgent,
         surfaceSentinelAlert: (workspaceId, alert: SentinelAlert) => {
+          const redactedAlert = redactObject(alert, loadSecretValues(options.dataDir))
           insertMobileChatMessage(
             workspaceId,
             'outbound',
             'system_event',
             JSON.stringify({
-              dedupe_key: alert.dedupeKey,
-              detail: alert.detail,
+              dedupe_key: redactedAlert.dedupeKey,
+              detail: redactedAlert.detail,
               event: 'sentinel_alert',
-              rule_id: alert.ruleId,
-              suggested_action: alert.suggestedAction,
-              tier: alert.tier,
-              title: alert.title,
+              rule_id: redactedAlert.ruleId,
+              suggested_action: redactedAlert.suggestedAction,
+              tier: redactedAlert.tier,
+              title: redactedAlert.title,
             })
           )
           for (const callback of cockpitFileWatchCallbacks) callback(workspaceId)
-          void mobilePushService.notifySentinelAlert(workspaceId, alert).catch((error) => {
+          void mobilePushService.notifySentinelAlert(workspaceId, redactedAlert).catch((error) => {
             options.logger?.warn(
-              `sentinel alert push failed workspace_id=${workspaceId} dedupe_key=${alert.dedupeKey}`,
+              `sentinel alert push failed workspace_id=${workspaceId} dedupe_key=${redactedAlert.dedupeKey}`,
               error
             )
           })
         },
         syncSentinelAlerts: (workspaceId, alerts) => {
-          sentinelAlertStore.replaceWorkspaceAlerts(workspaceId, alerts)
+          sentinelAlertStore.replaceWorkspaceAlerts(
+            workspaceId,
+            redactObject(alerts, loadSecretValues(options.dataDir))
+          )
           for (const callback of cockpitFileWatchCallbacks) callback(workspaceId)
         },
         writeRunInput: writeAgentRunInput,
@@ -442,6 +447,7 @@ export const createRuntimeStoreServices = (
     onMobileUserInput: (workspaceId) =>
       mobileOrchestratorReplyCapture?.startPendingReply(workspaceId),
     insertMobileChatMessage,
+    redactUserVisiblePayload: (value) => redactObject(value, loadSecretValues(options.dataDir)),
     mobilePushService,
     runDbTransaction: (mutation) => db.transaction(mutation)(),
     tasksFileService,

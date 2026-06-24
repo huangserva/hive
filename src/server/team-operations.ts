@@ -61,6 +61,7 @@ export interface TeamOperationsInput {
     messageType: MobileChatMessageType,
     contentJson: string
   ) => MobileChatMessage
+  redactUserVisiblePayload?: <T>(value: T) => T
   listOpenDispatchesForWorkspace: (workspaceId: string) => DispatchRecord[]
   markDispatchCancelled: (input: {
     dispatchId: string
@@ -315,6 +316,7 @@ export const createTeamOperations = ({
   findLatestClosedDispatchForWorker,
   insertMessage,
   insertMobileChatMessage,
+  redactUserVisiblePayload = (value) => value,
   listOpenDispatchesForWorkspace,
   markDispatchCancelled,
   markDispatchOrphaned,
@@ -628,20 +630,21 @@ export const createTeamOperations = ({
         if (deliveryStarted && !promptDelivered) {
           const launchConfig = agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
           try {
+            const spawnFailurePayload = redactUserVisiblePayload({
+              command: launchConfig?.command ?? null,
+              dispatch_id: dispatch.id,
+              error: error instanceof Error ? error.message : String(error),
+              event: 'dispatch_spawn_failed',
+              path: launchConfig?.env?.PATH ?? process.env.PATH ?? '',
+              task_summary: text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? '',
+              worker: worker.name,
+              worker_id: workerId,
+            })
             insertMobileChatMessage?.(
               workspaceId,
               'outbound',
               'system_event',
-              JSON.stringify({
-                command: launchConfig?.command ?? null,
-                dispatch_id: dispatch.id,
-                error: error instanceof Error ? error.message : String(error),
-                event: 'dispatch_spawn_failed',
-                path: launchConfig?.env?.PATH ?? process.env.PATH ?? '',
-                task_summary: text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? '',
-                worker: worker.name,
-                worker_id: workerId,
-              })
+              JSON.stringify(spawnFailurePayload)
             )
           } catch (diagnosticError) {
             console.error('[hive] swallowed:dispatchSpawnFailed.diagnostic', diagnosticError)

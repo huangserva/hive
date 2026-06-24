@@ -4,7 +4,8 @@ import { basename, join } from 'node:path'
 import { buildAgentCliInstallPlan, SUPPORTED_AGENT_CLI_PRESETS } from './agent-cli-installer.js'
 import { getManualCliPath } from './agent-cli-manual-paths.js'
 import type { RuntimeStore } from './runtime-store.js'
-import { createSecretStore, SECRET_ENV_KEYS, type SecretEnvKey } from './secret-store.js'
+import { loadSecretValues, redactObject, redactText } from './secret-redactor.js'
+import type { SecretEnvKey } from './secret-store.js'
 import type { VersionInfoPayload } from './version-service.js'
 
 const LOG_TAIL_MAX_BYTES = 256 * 1024
@@ -51,33 +52,6 @@ const findReadableRuntimeLogPath = (dataDir: string, port?: number) => {
     .map((name) => join(logsDir, name))
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)
   return candidates[0] ?? preferred
-}
-
-export const loadSecretValues = (dataDir: string): string[] => {
-  const store = createSecretStore(dataDir)
-  return SECRET_ENV_KEYS.flatMap((key) => [store.get(key), process.env[key]]).filter(
-    (value): value is string => typeof value === 'string' && value.length > 0
-  )
-}
-
-export const redactText = (text: string, secretValues: string[]) => {
-  let redacted = text
-  for (const secret of [...new Set(secretValues)].sort(
-    (left, right) => right.length - left.length
-  )) {
-    redacted = redacted.split(secret).join('[REDACTED]')
-  }
-  return redacted
-}
-
-const redactJson = <T>(value: T, secretValues: string[]): T => {
-  if (secretValues.length === 0) return value
-  if (typeof value === 'string') return redactText(value, secretValues) as T
-  if (Array.isArray(value)) return value.map((item) => redactJson(item, secretValues)) as T
-  if (!value || typeof value !== 'object') return value
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [key, redactJson(entry, secretValues)])
-  ) as T
 }
 
 const readTailText = (path: string, maxBytes: number) => {
@@ -167,11 +141,11 @@ export const collectDiagnosticEvents = (store: RuntimeStore, secretValues: strin
       })
     )
     .sort((left, right) => left.created_at - right.created_at)
-  return redactJson(events, secretValues)
+  return redactObject(events, secretValues)
 }
 
 export const collectActiveSentinelAlerts = (store: RuntimeStore, secretValues: string[]) =>
-  redactJson(
+  redactObject(
     store.listWorkspaces().flatMap((workspace) =>
       store.listActiveSentinelAlerts(workspace.id).map((alert) => ({
         ...alert,
@@ -225,7 +199,7 @@ export const collectDiagnostics = (input: DiagnosticsInput) => {
   )
   return {
     active_sentinel_alerts: collectActiveSentinelAlerts(input.store, secretValues),
-    cli_detection: redactJson(collectCliDetection(input.store), secretValues),
+    cli_detection: redactObject(collectCliDetection(input.store), secretValues),
     events: collectDiagnosticEvents(input.store, secretValues),
     generated_at: systemInfo.generated_at,
     log_tail: readRuntimeLogTail(input.dataDir, input.port, secretValues),
@@ -292,7 +266,7 @@ const readExportLogFiles = (dataDir: string, port: number | undefined, secretVal
 export const buildDiagnosticsArchive = (input: DiagnosticsInput) => {
   const secretValues = loadSecretValues(input.dataDir)
   const diagnostics = collectDiagnostics(input)
-  const configSummary = redactJson(collectConfigSummary(input.store), secretValues)
+  const configSummary = redactObject(collectConfigSummary(input.store), secretValues)
   const files: Array<{ content: string; name: string }> = [
     { content: JSON.stringify(diagnostics.system_info, null, 2), name: 'system-info.json' },
     { content: JSON.stringify(diagnostics.cli_detection, null, 2), name: 'cli-detection.json' },
