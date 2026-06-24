@@ -518,6 +518,8 @@ export const createTeamOperations = ({
     const worker = workspaceStore.getWorker(workspaceId, workerId)
     let messageHandle: MessageLogHandle | undefined
     let dispatch: DispatchRecord | undefined
+    let deliveryStarted = false
+    let promptDelivered = false
 
     try {
       const reservation = withWorkerDispatchReservation(workspaceId, workerId, () => {
@@ -570,6 +572,7 @@ export const createTeamOperations = ({
       const hasActiveRun = !!agentRuntime.getActiveRunByAgentId?.(workspaceId, workerId)
       const hasLaunchConfig = !!agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
       if (input.fromAgentId || hasActiveRun || hasLaunchConfig) {
+        deliveryStarted = true
         const senderName = input.fromAgentId
           ? workspaceStore.getAgent(workspaceId, input.fromAgentId).name
           : (input.senderName ?? 'mobile')
@@ -590,6 +593,7 @@ export const createTeamOperations = ({
           cockpitSnapshot,
           { workflowAllowed: promptWorker.workflowAllowed }
         )
+        promptDelivered = true
       }
 
       workspaceStore.markTaskDispatched(workspaceId, workerId)
@@ -621,6 +625,28 @@ export const createTeamOperations = ({
       return dispatch
     } catch (error) {
       if (dispatch) {
+        if (deliveryStarted && !promptDelivered) {
+          const launchConfig = agentRuntime.peekAgentLaunchConfig?.(workspaceId, workerId)
+          try {
+            insertMobileChatMessage?.(
+              workspaceId,
+              'outbound',
+              'system_event',
+              JSON.stringify({
+                command: launchConfig?.command ?? null,
+                dispatch_id: dispatch.id,
+                error: error instanceof Error ? error.message : String(error),
+                event: 'dispatch_spawn_failed',
+                path: launchConfig?.env?.PATH ?? process.env.PATH ?? '',
+                task_summary: text.trim().split(/\r?\n/u)[0]?.slice(0, 160) ?? '',
+                worker: worker.name,
+                worker_id: workerId,
+              })
+            )
+          } catch (diagnosticError) {
+            console.error('[hive] swallowed:dispatchSpawnFailed.diagnostic', diagnosticError)
+          }
+        }
         deleteDispatch(dispatch.id)
         reconcileAgentStatus?.(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)

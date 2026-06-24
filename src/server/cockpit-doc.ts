@@ -29,6 +29,7 @@ export type AIActionType =
   // buildAiActions/parseCockpit 产出（它们 file-only），而是在 serve-cockpit 边界经
   // augmentAiActionsWithUnreviewedCode 合并进来。见 unreviewed-code-status.ts。
   | 'unreviewed_code'
+  | 'sentinel_alert'
 export type CockpitTargetTab =
   | 'tasks'
   | 'questions'

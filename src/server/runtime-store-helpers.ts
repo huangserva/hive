@@ -32,7 +32,9 @@ import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
 import { buildRuntimeRestartPolicy } from './runtime-restart-policy.js'
+import { createSentinelAlertStore } from './sentinel-alert-status.js'
 import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
+import type { SentinelAlert, SentinelSpawnFailure } from './sentinel-rules.js'
 import { createSettingsStore } from './settings-store.js'
 import { createStalledDispatchNudge } from './stalled-dispatch-nudge.js'
 import { createTasksFileService } from './tasks-file.js'
@@ -62,6 +64,7 @@ export interface RuntimeStoreServices {
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
   planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
+  sentinelAlertStore: ReturnType<typeof createSentinelAlertStore>
   sentinelHeartbeat: ReturnType<typeof createSentinelHeartbeat> | null
   stalledDispatchNudge: ReturnType<typeof createStalledDispatchNudge>
   tasksFileWatcher: ReturnType<typeof createTasksFileWatcher>
@@ -123,6 +126,7 @@ export const createRuntimeStoreServices = (
   const db = openRuntimeDatabase(options.dataDir)
   const messageLogStore = createMessageLogStore(db)
   const mobileAuthStore = createMobileAuthStore(db)
+  const sentinelAlertStore = createSentinelAlertStore()
   const mobileChatStore = createMobileChatStore(db)
   const mobileChatWatchCallbacks = new Set<
     (workspaceId: string, message: MobileChatMessage) => void
@@ -289,10 +293,61 @@ export const createRuntimeStoreServices = (
           workspaceStore.getWorkerConfig(workspaceId, workerId),
         listOpenDispatches: (workspaceId) =>
           dispatchLedgerStore.listOpenDispatchesForWorkspace(workspaceId),
+        listSpawnFailures: (workspaceId) =>
+          mobileChatStore
+            .listChatMessages(workspaceId, undefined, 100)
+            .flatMap((message): SentinelSpawnFailure[] => {
+              if (message.message_type !== 'system_event') return []
+              try {
+                const event = JSON.parse(message.content_json) as Record<string, unknown>
+                if (event.event !== 'dispatch_spawn_failed') return []
+                return [
+                  {
+                    command: typeof event.command === 'string' ? event.command : 'unknown',
+                    createdAt: message.created_at,
+                    error: typeof event.error === 'string' ? event.error : 'unknown',
+                    path: typeof event.path === 'string' ? event.path : '',
+                    workerId:
+                      typeof event.worker_id === 'string' ? event.worker_id : 'unknown-worker',
+                    workerName: typeof event.worker === 'string' ? event.worker : 'unknown',
+                    workspaceId,
+                  },
+                ]
+              } catch {
+                return []
+              }
+            }),
         listWorkers: (workspaceId) => workspaceStore.listWorkers(workspaceId),
         listWorkspaces: () => workspaceStore.listWorkspaces(),
         ...(options.logger ? { logger: options.logger } : {}),
         reconcileAgentStatus: reconcileAgentStatusForAgent,
+        surfaceSentinelAlert: (workspaceId, alert: SentinelAlert) => {
+          insertMobileChatMessage(
+            workspaceId,
+            'outbound',
+            'system_event',
+            JSON.stringify({
+              dedupe_key: alert.dedupeKey,
+              detail: alert.detail,
+              event: 'sentinel_alert',
+              rule_id: alert.ruleId,
+              suggested_action: alert.suggestedAction,
+              tier: alert.tier,
+              title: alert.title,
+            })
+          )
+          for (const callback of cockpitFileWatchCallbacks) callback(workspaceId)
+          void mobilePushService.notifySentinelAlert(workspaceId, alert).catch((error) => {
+            options.logger?.warn(
+              `sentinel alert push failed workspace_id=${workspaceId} dedupe_key=${alert.dedupeKey}`,
+              error
+            )
+          })
+        },
+        syncSentinelAlerts: (workspaceId, alerts) => {
+          sentinelAlertStore.replaceWorkspaceAlerts(workspaceId, alerts)
+          for (const callback of cockpitFileWatchCallbacks) callback(workspaceId)
+        },
         writeRunInput: writeAgentRunInput,
       })
     : null
@@ -466,6 +521,7 @@ export const createRuntimeStoreServices = (
     settings,
     shellRuntime,
     planFileWatchCallbacks,
+    sentinelAlertStore,
     sentinelHeartbeat,
     stalledDispatchNudge,
     tasksFileWatcher,

@@ -9,6 +9,7 @@ import { type IdeaPromoteTarget, promoteIdeaInFile } from './pm-ideas-doc.js'
 import { answerQuestionInFile } from './pm-questions-doc.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
+import { augmentAiActionsWithSentinelAlerts } from './sentinel-alert-status.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
 interface AnswerQuestionBody {
@@ -99,7 +100,14 @@ export const cockpitRoutes: RouteDefinition[] = [
     requireUiTokenFromRequest(request, store.validateUiToken)
 
     const workspace = store.getWorkspaceSnapshot(workspaceId)
-    sendJson(response, 200, parseCockpit(workspace.summary.path))
+    const cockpit = parseCockpit(workspace.summary.path)
+    sendJson(response, 200, {
+      ...cockpit,
+      aiActions: augmentAiActionsWithSentinelAlerts(
+        cockpit.aiActions,
+        store.listActiveSentinelAlerts(workspaceId)
+      ),
+    })
   }),
   route(
     'GET',

@@ -38,6 +38,7 @@ import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers
 import type { RouteDefinition } from './route-types.js'
 import { serializeCommandPreset } from './routes-settings.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { augmentAiActionsWithSentinelAlerts } from './sentinel-alert-status.js'
 import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
@@ -162,7 +163,10 @@ export const buildMobileDashboard = (
   // M34「未审代码改动」醒目计数 + 合并进 aiActions（DB 派生，在边界合并，不污染 parseCockpit）。
   // 经 resolveCockpitUnreviewedCode 统一解析 commandPresetId（BLOCKER 返工：rawWorkers 不含 preset）。
   const unreviewedCode = resolveCockpitUnreviewedCode(store, workspaceId, now)
-  const aiActions = unreviewedCode.apply(cockpit.aiActions)
+  const aiActions = augmentAiActionsWithSentinelAlerts(
+    unreviewedCode.apply(cockpit.aiActions),
+    store.listActiveSentinelAlerts(workspaceId)
+  )
 
   return {
     cockpit: {
@@ -624,7 +628,10 @@ export const mobileRoutes: RouteDefinition[] = [
       const workspace = store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
       // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
-      const aiActions = resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions)
+      const aiActions = augmentAiActionsWithSentinelAlerts(
+        resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions),
+        store.listActiveSentinelAlerts(workspaceId)
+      )
       sendJson(response, 200, {
         aiActions,
         archive: cockpit.archive,

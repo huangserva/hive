@@ -5,6 +5,11 @@ import {
   createMobilePushService,
 } from '../../src/server/mobile-push.js'
 
+const firstPushBody = <T>(fetchImpl: ReturnType<typeof vi.fn>): T => {
+  const request = (fetchImpl.mock.calls as Array<[string, RequestInit]>)[0]?.[1]
+  return JSON.parse(String(request?.body)) as T
+}
+
 const device = (input: { id: string; push_token: string | null; revoked_at?: number | null }) => ({
   capabilities: ['read_dashboard'],
   created_at: 1,
@@ -35,12 +40,15 @@ describe('mobile push service', () => {
     await service.notifyWorkerDone('workspace-1', 'Alice', 'Implemented push support', 'dispatch-1')
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as Array<{
-      body: string
-      data: { type: string; workspaceId: string }
-      title: string
-      to: string
-    }>
+    const body =
+      firstPushBody<
+        Array<{
+          body: string
+          data: { type: string; workspaceId: string }
+          title: string
+          to: string
+        }>
+      >(fetchImpl)
     expect(body).toEqual([
       {
         body: 'Implemented push support',
@@ -113,12 +121,15 @@ describe('mobile push service', () => {
     })
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
-    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as Array<{
-      body: string
-      data: { action: string; approvalId: string; type: string; workspaceId: string }
-      title: string
-      to: string
-    }>
+    const body =
+      firstPushBody<
+        Array<{
+          body: string
+          data: { action: string; approvalId: string; type: string; workspaceId: string }
+          title: string
+          to: string
+        }>
+      >(fetchImpl)
     expect(body).toEqual([
       {
         body: 'Delete old files',
@@ -147,5 +158,56 @@ describe('mobile push service', () => {
 
     expect(notifyHighAiAction).toHaveBeenCalledTimes(1)
     expect(notifyHighAiAction).toHaveBeenCalledWith('workspace-1', 'Answer Q1')
+  })
+
+  test('sends critical sentinel alerts whenever heartbeat asks it to notify', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ data: [{ status: 'ok' }] }))
+    const service = createMobilePushService({
+      fetchImpl,
+      store: {
+        clearMobilePushToken: vi.fn(),
+        listMobileDevices: () => [
+          device({ id: 'active', push_token: 'ExponentPushToken[active]' }),
+        ],
+      } as never,
+    })
+
+    await service.notifySentinelAlert('workspace-1', {
+      dedupeKey: 'workspace-1:R2:dispatch-1',
+      detail: 'report_overdue for 11m',
+      ruleId: 'R2',
+      suggestedAction: 'team recover dispatch-1 或 team abandon dispatch-1',
+      tier: 'critical',
+      title: 'Coder report_overdue',
+      workspaceId: 'workspace-1',
+    })
+    await service.notifySentinelAlert('workspace-1', {
+      dedupeKey: 'workspace-1:R2:dispatch-1',
+      detail: 'report_overdue recurred after recovery',
+      ruleId: 'R2',
+      suggestedAction: 'team recover dispatch-1 或 team abandon dispatch-1',
+      tier: 'critical',
+      title: 'Coder report_overdue',
+      workspaceId: 'workspace-1',
+    })
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    const body =
+      firstPushBody<
+        Array<{
+          body: string
+          data: { ruleId: string; type: string; workspaceId: string }
+          title: string
+          to: string
+        }>
+      >(fetchImpl)
+    expect(body).toEqual([
+      {
+        body: 'team recover dispatch-1 或 team abandon dispatch-1',
+        data: { ruleId: 'R2', type: 'sentinel_alert', workspaceId: 'workspace-1' },
+        title: 'Coder report_overdue',
+        to: 'ExponentPushToken[active]',
+      },
+    ])
   })
 })

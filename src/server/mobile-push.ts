@@ -1,5 +1,6 @@
 import type { AIAction } from './cockpit-doc.js'
 import type { RuntimeStore } from './runtime-store.js'
+import type { SentinelAlert } from './sentinel-rules.js'
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
 
@@ -54,6 +55,7 @@ export interface MobilePushService {
       workerName: string
     }
   ): Promise<void>
+  notifySentinelAlert(workspaceId: string, alert: SentinelAlert): Promise<void>
   notifyUnreviewedCode(
     workspaceId: string,
     info: {
@@ -181,6 +183,21 @@ export const createMobilePushService = (deps: {
             workspaceId,
           },
           title,
+          to: token,
+        }))
+      )
+    },
+    async notifySentinelAlert(workspaceId, alert) {
+      if (alert.tier !== 'critical') return
+      await send(
+        recipients().map((token) => ({
+          body: alert.suggestedAction,
+          data: {
+            ruleId: alert.ruleId,
+            type: 'sentinel_alert',
+            workspaceId,
+          },
+          title: alert.title,
           to: token,
         }))
       )

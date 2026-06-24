@@ -14,6 +14,12 @@ import type { DispatchRecord } from './dispatch-ledger-store.js'
 import type { HiveLogger } from './logger.js'
 import { parseDecisionsDoc } from './pm-decisions-doc.js'
 import { buildSentinelHeartbeatPayload } from './sentinel-guidance.js'
+import {
+  evaluateSentinelRules,
+  type SentinelAlert,
+  type SentinelAlertTier,
+  type SentinelSpawnFailure,
+} from './sentinel-rules.js'
 import type { WorkerConfig } from './workspace-store.js'
 
 const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
@@ -40,11 +46,14 @@ export interface SentinelHeartbeatOptions {
   inspectArchiveAudit?: (workspacePath: string) => ArchiveAuditFinding[]
   intervalMs?: number
   listOpenDispatches?: (workspaceId: string) => DispatchRecord[]
+  listSpawnFailures?: (workspaceId: string) => SentinelSpawnFailure[]
   listWorkers: (workspaceId: string) => TeamListItem[]
   listWorkspaces: () => WorkspaceSummary[]
   logger?: HiveLogger
   now?: () => number
   reconcileAgentStatus?: (workspaceId: string, agentId: string) => void
+  surfaceSentinelAlert?: (workspaceId: string, alert: SentinelAlert) => void
+  syncSentinelAlerts?: (workspaceId: string, alerts: SentinelAlert[]) => void
   writeRunInput: (runId: string, input: string) => void
 }
 
@@ -137,15 +146,19 @@ export const createSentinelHeartbeat = ({
   inspectArchiveAudit,
   intervalMs = DEFAULT_CHECK_INTERVAL_MS,
   listOpenDispatches = () => [],
+  listSpawnFailures = () => [],
   listWorkers,
   listWorkspaces,
   logger,
   now = Date.now,
   reconcileAgentStatus,
+  surfaceSentinelAlert,
+  syncSentinelAlerts,
   writeRunInput,
 }: SentinelHeartbeatOptions) => {
   let timer: ReturnType<typeof setInterval> | null = null
   const lastTickAt = new Map<string, number>()
+  const notifiedAlertTierByKey = new Map<string, SentinelAlertTier>()
   const archiveAuditTrigger = createArchiveAuditTrigger()
 
   const getHeartbeatIntervalMs = (workspaceId: string, workerId: string) => {
@@ -199,6 +212,32 @@ export const createSentinelHeartbeat = ({
             `agent status reconcile failed workspace_id=${workspace.id} agent_id=${worker.id}`,
             error
           )
+        }
+      }
+      const alerts = evaluateSentinelRules({
+        dispatches: listOpenDispatches(workspace.id),
+        now: tickedAt,
+        spawnFailures: listSpawnFailures(workspace.id),
+        workers,
+      })
+      try {
+        syncSentinelAlerts?.(workspace.id, alerts)
+      } catch (error) {
+        logger?.warn(`sentinel alert sync failed workspace_id=${workspace.id}`, error)
+      }
+      const activeAlertKeys = new Set(alerts.map((alert) => alert.dedupeKey))
+      for (const key of notifiedAlertTierByKey.keys()) {
+        if (!activeAlertKeys.has(key)) notifiedAlertTierByKey.delete(key)
+      }
+      const tierRank: Record<SentinelAlertTier, number> = { critical: 3, warn: 2, info: 1 }
+      for (const alert of alerts) {
+        const previousTier = notifiedAlertTierByKey.get(alert.dedupeKey)
+        if (previousTier && tierRank[previousTier] >= tierRank[alert.tier]) continue
+        notifiedAlertTierByKey.set(alert.dedupeKey, alert.tier)
+        try {
+          surfaceSentinelAlert?.(workspace.id, alert)
+        } catch (error) {
+          logger?.warn(`sentinel alert surface failed workspace_id=${workspace.id}`, error)
         }
       }
       const sentinels = workers.filter((worker) => worker.role === 'sentinel')

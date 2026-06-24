@@ -42,6 +42,7 @@ import {
   normalizeMobileAudioFormat,
 } from './routes-mobile.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { augmentAiActionsWithSentinelAlerts } from './sentinel-alert-status.js'
 import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import { MOBILE_UPLOAD_MAX_BYTES } from './upload-limits.js'
 import {
@@ -77,6 +78,7 @@ interface RelayRpcHandlerDeps {
     | 'listWorkers'
     | 'listWorkspaces'
     | 'listMobileChatMessages'
+    | 'listActiveSentinelAlerts'
     | 'peekAgentLaunchConfig'
     | 'recordUserInput'
     | 'requireMobileCapability'
@@ -346,8 +348,9 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
       const cockpit = parseCockpit(workspace.summary.path)
       // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
-      const aiActions = resolveCockpitUnreviewedCode(deps.store, workspaceId).apply(
-        cockpit.aiActions
+      const aiActions = augmentAiActionsWithSentinelAlerts(
+        resolveCockpitUnreviewedCode(deps.store, workspaceId).apply(cockpit.aiActions),
+        deps.store.listActiveSentinelAlerts(workspaceId)
       )
       return {
         aiActions,

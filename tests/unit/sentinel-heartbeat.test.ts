@@ -422,6 +422,155 @@ describe('sentinel heartbeat', () => {
     expect(payload).toContain('手机新增 Worker')
     expect(payload).toContain('已挂 2 天')
   })
+
+  test('surfaces sentinel rule alerts every tick and only renotifies when severity upgrades', async () => {
+    let now = 1_700_001_000_000
+    let dispatchStatus: DispatchRecord['status'] = 'report_overdue'
+    const submittedAt = now - 9 * 60_000
+    const writeRunInput = vi.fn()
+    const surfaceSentinelAlert = vi.fn()
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({ heartbeat_interval_ms: 30 * 60 * 1000 }),
+      listOpenDispatches: (): DispatchRecord[] => [
+        {
+          acceptVerdict: null,
+          artifacts: [],
+          createdAt: now - 60_000,
+          deliveredAt: null,
+          fromAgentId: 'workspace-1:orchestrator',
+          id: 'dispatch-overdue',
+          reportedAt: null,
+          reportText: null,
+          reviewStatus: null,
+          reviewsDispatchId: null,
+          sequence: 1,
+          status: dispatchStatus,
+          submittedAt,
+          text: 'overdue task',
+          toAgentId: 'workspace-1:coder',
+          workspaceId: 'workspace-1',
+        },
+      ],
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+        {
+          id: 'workspace-1:coder',
+          name: 'Coder',
+          pendingTaskCount: 1,
+          role: 'coder',
+          status: 'working',
+        },
+      ],
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' }],
+      now: () => now,
+      surfaceSentinelAlert,
+      writeRunInput,
+    })
+
+    await heartbeat.tick()
+    await heartbeat.tick()
+    expect(writeRunInput).toHaveBeenCalledTimes(1)
+    expect(surfaceSentinelAlert).toHaveBeenCalledTimes(1)
+    expect(surfaceSentinelAlert.mock.calls[0]?.[1]).toMatchObject({
+      dedupeKey: 'workspace-1:R2:dispatch-overdue',
+      tier: 'warn',
+    })
+
+    now += 2 * 60_000
+    await heartbeat.tick()
+    expect(writeRunInput).toHaveBeenCalledTimes(1)
+    expect(surfaceSentinelAlert).toHaveBeenCalledTimes(2)
+    expect(surfaceSentinelAlert.mock.calls[1]?.[1]).toMatchObject({
+      dedupeKey: 'workspace-1:R2:dispatch-overdue',
+      tier: 'critical',
+    })
+
+    dispatchStatus = 'reported'
+    await heartbeat.tick()
+    now += 60_000
+    dispatchStatus = 'report_overdue'
+    await heartbeat.tick()
+    expect(surfaceSentinelAlert).toHaveBeenCalledTimes(3)
+  })
+
+  test('syncs active sentinel alerts so resolved alerts disappear and recurrence can notify again', async () => {
+    let now = 1_700_001_000_000
+    let dispatchStatus: DispatchRecord['status'] = 'report_overdue'
+    const submittedAt = now - 11 * 60_000
+    const activeAlertsByWorkspace = new Map<string, unknown[]>()
+    const surfaceSentinelAlert = vi.fn()
+    const heartbeat = createSentinelHeartbeat({
+      getActiveRunByAgentId: () => ({ runId: 'run-sentinel' }),
+      getWorkerConfig: () => ({ heartbeat_interval_ms: 30 * 60 * 1000 }),
+      listOpenDispatches: (): DispatchRecord[] =>
+        dispatchStatus === 'reported'
+          ? []
+          : [
+              {
+                acceptVerdict: null,
+                artifacts: [],
+                createdAt: now - 60_000,
+                deliveredAt: null,
+                fromAgentId: 'workspace-1:orchestrator',
+                id: 'dispatch-overdue',
+                reportedAt: null,
+                reportText: null,
+                reviewStatus: null,
+                reviewsDispatchId: null,
+                sequence: 1,
+                status: dispatchStatus,
+                submittedAt,
+                text: 'overdue task',
+                toAgentId: 'workspace-1:coder',
+                workspaceId: 'workspace-1',
+              },
+            ],
+      listWorkers: () => [
+        {
+          id: 'workspace-1:sentinel',
+          name: 'Sentinel',
+          pendingTaskCount: 0,
+          role: 'sentinel',
+          status: 'idle',
+        },
+        {
+          id: 'workspace-1:coder',
+          name: 'Coder',
+          pendingTaskCount: 1,
+          role: 'coder',
+          status: 'working',
+        },
+      ],
+      listWorkspaces: () => [{ id: 'workspace-1', name: 'Alpha', path: '/tmp/alpha' }],
+      now: () => now,
+      surfaceSentinelAlert,
+      syncSentinelAlerts: (workspaceId, alerts) => {
+        activeAlertsByWorkspace.set(workspaceId, alerts)
+      },
+      writeRunInput: vi.fn(),
+    })
+
+    await heartbeat.tick()
+    expect(activeAlertsByWorkspace.get('workspace-1')).toHaveLength(1)
+    expect(surfaceSentinelAlert).toHaveBeenCalledTimes(1)
+
+    dispatchStatus = 'reported'
+    await heartbeat.tick()
+    expect(activeAlertsByWorkspace.get('workspace-1')).toEqual([])
+
+    now += 60_000
+    dispatchStatus = 'report_overdue'
+    await heartbeat.tick()
+    expect(activeAlertsByWorkspace.get('workspace-1')).toHaveLength(1)
+    expect(surfaceSentinelAlert).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('listStaleDecisionDrafts', () => {

@@ -7,6 +7,7 @@ import { resolveCockpitUnreviewedCode } from './cockpit-unreviewed-augment.js'
 import { getLocalRequestRejection } from './local-request-guard.js'
 import type { HiveLogger } from './logger.js'
 import type { RuntimeStore } from './runtime-store.js'
+import { augmentAiActionsWithSentinelAlerts } from './sentinel-alert-status.js'
 import { readCookie } from './ui-auth-helpers.js'
 
 const matchCockpitPath = (pathname: string) => {
@@ -57,7 +58,10 @@ export const createCockpitWebSocketServer = (
     try {
       return {
         ...cockpit,
-        aiActions: resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions),
+        aiActions: augmentAiActionsWithSentinelAlerts(
+          resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions),
+          store.listActiveSentinelAlerts(workspaceId)
+        ),
       }
     } catch (error) {
       logger?.warn?.(`cockpit unreviewed-code augment failed workspace_id=${workspaceId}`, error)
