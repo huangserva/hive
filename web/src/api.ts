@@ -629,6 +629,102 @@ export const setSecret = async (key: SecretKey, value: string): Promise<void> =>
   }
 }
 
+// --- Diagnostics panel (backend: routes-diagnostics.ts, commit b212f48) -----
+
+export interface DiagnosticsSystemInfo {
+  app_version: string
+  arch: string
+  data_dir: string
+  generated_at: number
+  log_path: string
+  node_version: string
+  platform: string
+  port: number
+}
+
+export interface DiagnosticsEvent {
+  created_at: number
+  id: string
+  payload: Record<string, unknown>
+  type: string
+  workspace_id: string
+  workspace_name: string
+}
+
+export interface DiagnosticsSentinelAlert {
+  detail: string
+  ruleId: string
+  suggestedAction: string
+  tier: 'critical' | 'info' | 'warn'
+  title: string
+  workspace_name: string
+}
+
+export interface DiagnosticsLogTail {
+  exists: boolean
+  lines: string[]
+  path: string
+}
+
+export interface Diagnostics {
+  cliDetection: CliAgentDetection[]
+  events: DiagnosticsEvent[]
+  generatedAt: number
+  logTail: DiagnosticsLogTail
+  secrets: SecretsStatus
+  sentinelAlerts: DiagnosticsSentinelAlert[]
+  systemInfo: DiagnosticsSystemInfo
+}
+
+interface DiagnosticsPayload {
+  active_sentinel_alerts: DiagnosticsSentinelAlert[]
+  cli_detection: { agents: Record<string, CliAgentDetectionPayload> }
+  events: DiagnosticsEvent[]
+  generated_at: number
+  log_tail: DiagnosticsLogTail
+  secrets: SecretsStatus
+  system_info: DiagnosticsSystemInfo
+}
+
+export const fetchDiagnostics = async (): Promise<Diagnostics> => {
+  const response = await apiFetch('/api/diagnostics')
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load diagnostics'))
+  }
+  const payload = (await response.json()) as DiagnosticsPayload
+  return {
+    cliDetection: SUPPORTED_CLI_PRESETS.map((presetId) => payload.cli_detection.agents[presetId])
+      .filter((agent): agent is CliAgentDetectionPayload => Boolean(agent))
+      .map(mapCliDetection),
+    events: payload.events,
+    generatedAt: payload.generated_at,
+    logTail: payload.log_tail,
+    secrets: payload.secrets,
+    sentinelAlerts: payload.active_sentinel_alerts,
+    systemInfo: payload.system_info,
+  }
+}
+
+// Download the (redacted) diagnostics tar via the UI session, preserving the
+// server-provided filename. Goes through apiFetch so a stale UI token is retried.
+export const downloadDiagnosticsExport = async (): Promise<void> => {
+  const response = await apiFetch('/api/diagnostics/export')
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to export diagnostics'))
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('content-disposition') ?? ''
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'hive-diagnostics.tar'
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.download = filename
+  anchor.href = url
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
 export interface TerminalRunSummary {
   agent_id: string
   agent_name: string

@@ -11,6 +11,7 @@ import { type CockpitTab, CockpitTabs } from './CockpitTabs.js'
 import { ArchiveTab } from './tabs/ArchiveTab.js'
 import { BaselineTab } from './tabs/BaselineTab.js'
 import { DecisionsTab } from './tabs/DecisionsTab.js'
+import { DiagnosticsTab } from './tabs/DiagnosticsTab.js'
 import { IdeasTab } from './tabs/IdeasTab.js'
 import { PlanTab } from './tabs/PlanTab.js'
 import { QuestionsTab } from './tabs/QuestionsTab.js'
@@ -177,6 +178,8 @@ export const CockpitDrawer = ({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {activeTab === 'setup' ? (
               <SetupTab />
+            ) : activeTab === 'diagnostics' ? (
+              <DiagnosticsTab />
             ) : error ? (
               <div className="p-5 text-sm text-warn">{error}</div>
             ) : !cockpit ? (
