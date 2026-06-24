@@ -3,6 +3,11 @@ import { Hexagon } from 'lucide-react'
 import { useState } from 'react'
 
 import { useI18n } from '../i18n.js'
+import { ApiKeysPanel } from '../settings/ApiKeysPanel.js'
+import { CliDetectionPanel } from '../settings/CliDetectionPanel.js'
+
+const TOTAL_SLIDES = 5
+const LAST_SLIDE_IDX = TOTAL_SLIDES - 1
 
 type FirstRunWizardProps = {
   open: boolean
@@ -32,7 +37,7 @@ export const FirstRunWizard = ({
     onClose(shouldMarkSeen)
   }
 
-  const isLastSlide = slideIdx === 2
+  const isLastSlide = slideIdx === LAST_SLIDE_IDX
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -48,7 +53,7 @@ export const FirstRunWizard = ({
             }}
           >
             <Dialog.Description className="sr-only">
-              {t('firstRun.step', { current: slideIdx + 1, total: 3 })}
+              {t('firstRun.step', { current: slideIdx + 1, total: TOTAL_SLIDES })}
             </Dialog.Description>
 
             {/* Slide content */}
@@ -125,6 +130,30 @@ export const FirstRunWizard = ({
 
               {slideIdx === 2 && (
                 <div className="flex flex-col gap-3 py-2">
+                  <div>
+                    <h2 className="text-lg font-semibold text-pri">{t('firstRun.cliTitle')}</h2>
+                    <p className="mt-1 text-xs text-sec">{t('firstRun.cliDesc')}</p>
+                  </div>
+                  <div className="max-h-[52vh] overflow-y-auto pr-1">
+                    <CliDetectionPanel />
+                  </div>
+                </div>
+              )}
+
+              {slideIdx === 3 && (
+                <div className="flex flex-col gap-3 py-2">
+                  <div>
+                    <h2 className="text-lg font-semibold text-pri">{t('firstRun.keysTitle')}</h2>
+                    <p className="mt-1 text-xs text-sec">{t('firstRun.keysDesc')}</p>
+                  </div>
+                  <div className="max-h-[52vh] overflow-y-auto pr-1">
+                    <ApiKeysPanel />
+                  </div>
+                </div>
+              )}
+
+              {slideIdx === 4 && (
+                <div className="flex flex-col gap-3 py-2">
                   <h2 className="text-lg font-semibold text-pri">{t('firstRun.getStarted')}</h2>
                   <p className="text-sm text-sec">{t('firstRun.optionDesc')}</p>
                   <div className="mt-2 flex flex-col gap-2">
@@ -163,7 +192,7 @@ export const FirstRunWizard = ({
             {/* Footer */}
             <div className="mt-5 flex items-center justify-between">
               <span className="text-xs text-ter">
-                {t('firstRun.step', { current: slideIdx + 1, total: 3 })}
+                {t('firstRun.step', { current: slideIdx + 1, total: TOTAL_SLIDES })}
               </span>
               <div className="flex items-center gap-2">
                 {slideIdx > 0 && !isLastSlide && (

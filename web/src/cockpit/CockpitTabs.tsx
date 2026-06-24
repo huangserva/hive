@@ -9,6 +9,7 @@ import {
   History,
   Lightbulb,
   Map as MapIcon,
+  Wrench,
 } from 'lucide-react'
 
 import type { ParsedCockpit } from '../api.js'
@@ -25,6 +26,7 @@ export type CockpitTab =
   | 'timeline'
   | 'baseline'
   | 'archive'
+  | 'setup'
 
 const TABS: Array<{
   icon: typeof MapIcon
@@ -41,6 +43,7 @@ const TABS: Array<{
   { icon: History, id: 'timeline', labelKey: 'cockpit.tabs.timeline' },
   { icon: FileText, id: 'baseline', labelKey: 'cockpit.tabs.baseline' },
   { icon: Archive, id: 'archive', labelKey: 'cockpit.tabs.archive' },
+  { icon: Wrench, id: 'setup', labelKey: 'cockpit.tabs.setup' },
 ]
 
 const tabBadge = (cockpit: ParsedCockpit | null, tab: CockpitTab) => {

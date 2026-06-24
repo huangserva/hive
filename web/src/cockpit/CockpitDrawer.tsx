@@ -16,6 +16,7 @@ import { PlanTab } from './tabs/PlanTab.js'
 import { QuestionsTab } from './tabs/QuestionsTab.js'
 import { ReportsTab } from './tabs/ReportsTab.js'
 import { ResearchTab } from './tabs/ResearchTab.js'
+import { SetupTab } from './tabs/SetupTab.js'
 import { TasksTab } from './tabs/TasksTab.js'
 import { TimelineTab } from './tabs/TimelineTab.js'
 
@@ -174,7 +175,9 @@ export const CockpitDrawer = ({
           </header>
           <CockpitTabs activeTab={activeTab} cockpit={cockpit} onChange={setActiveTab} />
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {error ? (
+            {activeTab === 'setup' ? (
+              <SetupTab />
+            ) : error ? (
               <div className="p-5 text-sm text-warn">{error}</div>
             ) : !cockpit ? (
               <div className="flex h-full items-center justify-center px-6">

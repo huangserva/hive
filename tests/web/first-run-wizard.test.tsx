@@ -60,23 +60,39 @@ test('Skip closes the wizard from any slide', () => {
   expect(onClose).toHaveBeenCalledOnce()
 })
 
-test('Slide 3 Add Workspace button fires onAddWorkspace and closes without marking seen', () => {
+// The wizard now has 5 slides: Welcome → How it works → Detect CLIs → API keys
+// → Get started. The two onboarding cards (CLI / keys) sit before Get started,
+// so reaching the final slide takes four Next clicks.
+const advanceToGetStarted = () => {
+  for (let i = 0; i < 4; i += 1) {
+    fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  }
+}
+
+test('Next advances through the CLI-detection and API-keys onboarding cards', () => {
+  render(<FirstRunWizard open onClose={() => {}} onAddWorkspace={() => {}} onTryDemo={() => {}} />)
+  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  expect(screen.getByText(/detect agent clis/i)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  expect(screen.getByText(/your api keys/i)).toBeInTheDocument()
+})
+
+test('final slide Add Workspace button fires onAddWorkspace and closes without marking seen', () => {
   const onAdd = vi.fn()
   const onClose = vi.fn()
   render(<FirstRunWizard open onClose={onClose} onAddWorkspace={onAdd} onTryDemo={() => {}} />)
-  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
-  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  advanceToGetStarted()
   fireEvent.click(screen.getByRole('button', { name: /add workspace/i }))
   expect(onAdd).toHaveBeenCalledOnce()
   expect(onClose).toHaveBeenCalledWith(false)
 })
 
-test('Slide 3 Try Demo button fires onTryDemo and closes while marking seen', () => {
+test('final slide Try Demo button fires onTryDemo and closes while marking seen', () => {
   const onDemo = vi.fn()
   const onClose = vi.fn()
   render(<FirstRunWizard open onClose={onClose} onAddWorkspace={() => {}} onTryDemo={onDemo} />)
-  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
-  fireEvent.click(screen.getByRole('button', { name: /^next$/i }))
+  advanceToGetStarted()
   fireEvent.click(screen.getByRole('button', { name: /try demo/i }))
   expect(onDemo).toHaveBeenCalledOnce()
   expect(onClose).toHaveBeenCalledWith(true)

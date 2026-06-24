@@ -544,6 +544,91 @@ export const listCommandPresets = async (): Promise<CommandPreset[]> => {
   }))
 }
 
+// --- Settings: CLI detection + API key (secret) management ---------------
+// Backend: routes-settings.ts. All go through apiFetch (UI-token session).
+
+export interface CliInstallCommand {
+  args: string[]
+  command: string
+  description: string
+}
+
+export interface CliAgentDetection {
+  command: string
+  installPlan: CliInstallCommand | null
+  installed: boolean
+  path: string | null
+  presetId: string
+  version: string | null
+}
+
+interface CliAgentDetectionPayload {
+  command: string
+  installed: boolean
+  install_plan: CliInstallCommand | null
+  path: string | null
+  preset_id: string
+  version: string | null
+}
+
+export const SUPPORTED_CLI_PRESETS = ['claude', 'codex', 'opencode', 'gemini'] as const
+export type CliPresetId = (typeof SUPPORTED_CLI_PRESETS)[number]
+
+export const SECRET_KEYS = ['GLM_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const
+export type SecretKey = (typeof SECRET_KEYS)[number]
+export type SecretsStatus = Record<SecretKey, { present: boolean }>
+
+const mapCliDetection = (payload: CliAgentDetectionPayload): CliAgentDetection => ({
+  command: payload.command,
+  installPlan: payload.install_plan,
+  installed: payload.installed,
+  path: payload.path,
+  presetId: payload.preset_id,
+  version: payload.version,
+})
+
+export const fetchCliDetection = async (): Promise<CliAgentDetection[]> => {
+  const response = await apiFetch('/api/settings/cli-detection')
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to detect installed agent CLIs'))
+  }
+  const payload = (await response.json()) as { agents: Record<string, CliAgentDetectionPayload> }
+  return SUPPORTED_CLI_PRESETS.map((presetId) => payload.agents[presetId])
+    .filter((agent): agent is CliAgentDetectionPayload => Boolean(agent))
+    .map(mapCliDetection)
+}
+
+export const setManualCliPath = async (presetId: CliPresetId, path: string): Promise<void> => {
+  const response = await apiFetch(`/api/settings/cli-detection/${presetId}/manual-path`, {
+    body: JSON.stringify({ path }),
+    headers: { 'content-type': 'application/json' },
+    method: 'PUT',
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to set the CLI path'))
+  }
+}
+
+export const fetchSecretsStatus = async (): Promise<SecretsStatus> => {
+  const response = await apiFetch('/api/settings/secrets')
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to load API key status'))
+  }
+  const payload = (await response.json()) as { secrets: SecretsStatus }
+  return payload.secrets
+}
+
+export const setSecret = async (key: SecretKey, value: string): Promise<void> => {
+  const response = await apiFetch('/api/settings/secrets', {
+    body: JSON.stringify({ key, value }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, 'Failed to save the API key'))
+  }
+}
+
 export interface TerminalRunSummary {
   agent_id: string
   agent_name: string
