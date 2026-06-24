@@ -9,6 +9,7 @@ import {
 } from './marketplace-catalog.js'
 import { getRequiredParam, readJsonBody, route, sendJson } from './route-helpers.js'
 import type { RouteDefinition } from './route-types.js'
+import { isSecretEnvKey, SECRET_ENV_KEYS } from './secret-store.js'
 import type { SessionIdCaptureConfig } from './session-capture.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
 
@@ -29,6 +30,11 @@ type RoleTemplateBody = {
   default_command: string
   default_args: string[]
   default_env: Record<string, string>
+}
+
+type SecretBody = {
+  key?: unknown
+  value?: unknown
 }
 
 export const serializeCommandPreset = (preset: {
@@ -118,6 +124,29 @@ const readRoleTemplateBody = async (
 }
 
 export const settingsRoutes: RouteDefinition[] = [
+  route('GET', '/api/settings/secrets', ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    const present = store.listPresentSecrets()
+    sendJson(response, 200, {
+      secrets: SECRET_ENV_KEYS.reduce(
+        (result, key) => {
+          result[key] = { present: present[key] }
+          return result
+        },
+        {} as Record<(typeof SECRET_ENV_KEYS)[number], { present: boolean }>
+      ),
+    })
+  }),
+  route('POST', '/api/settings/secrets', async ({ request, response, store }) => {
+    requireUiTokenFromRequest(request, store.validateUiToken)
+    const body = await readJsonBody<SecretBody>(request)
+    if (!isSecretEnvKey(body.key)) throw new BadRequestError('unsupported secret key')
+    if (typeof body.value !== 'string' || body.value.length === 0) {
+      throw new BadRequestError('secret value is required')
+    }
+    store.setSecret(body.key, body.value)
+    sendJson(response, 200, { key: body.key, present: true })
+  }),
   route('GET', '/api/settings/command-presets', ({ request, response, store }) => {
     requireUiTokenFromRequest(request, store.validateUiToken)
     sendJson(response, 200, store.settings.listCommandPresets().map(serializeCommandPreset))

@@ -12,6 +12,36 @@ afterEach(async () => {
 })
 
 describe('settings api', () => {
+  test('settings secrets endpoints store keys and never return plaintext', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+
+    const writeResponse = await fetch(`${server.baseUrl}/api/settings/secrets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ key: 'GLM_API_KEY', value: 'glm-secret-from-ui' }),
+    })
+
+    expect(writeResponse.status).toBe(200)
+    expect(await writeResponse.json()).toEqual({ key: 'GLM_API_KEY', present: true })
+
+    const readResponse = await fetch(`${server.baseUrl}/api/settings/secrets`, {
+      headers: { cookie },
+    })
+    expect(readResponse.status).toBe(200)
+    const bodyText = await readResponse.text()
+
+    expect(bodyText).not.toContain('glm-secret-from-ui')
+    expect(JSON.parse(bodyText)).toEqual({
+      secrets: {
+        ANTHROPIC_API_KEY: { present: false },
+        ANTHROPIC_AUTH_TOKEN: { present: false },
+        GLM_API_KEY: { present: true },
+      },
+    })
+  })
+
   test('GET settings endpoints return builtin presets/templates and app_state can round-trip', async () => {
     const server = await startTestServer()
     servers.push(server)

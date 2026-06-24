@@ -32,6 +32,7 @@ import { createPostStartInputWriter } from './post-start-input-writer.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { openRuntimeDatabase } from './runtime-database.js'
 import { buildRuntimeRestartPolicy } from './runtime-restart-policy.js'
+import { createSecretStore, injectSecretsIntoEnv } from './secret-store.js'
 import { createSentinelAlertStore } from './sentinel-alert-status.js'
 import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
 import type { SentinelAlert, SentinelSpawnFailure } from './sentinel-rules.js'
@@ -63,6 +64,7 @@ export interface RuntimeStoreServices {
   cockpitFileWatchCallbacks: Set<(workspaceId: string) => void>
   settings: ReturnType<typeof createSettingsStore>
   shellRuntime: ReturnType<typeof createWorkspaceShellRuntime>
+  secretStore: ReturnType<typeof createSecretStore>
   planFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   sentinelAlertStore: ReturnType<typeof createSentinelAlertStore>
   sentinelHeartbeat: ReturnType<typeof createSentinelHeartbeat> | null
@@ -123,7 +125,9 @@ const notifyTasksUpdated = (
 export const createRuntimeStoreServices = (
   options: CreateRuntimeStoreServicesOptions = {}
 ): RuntimeStoreServices => {
+  injectSecretsIntoEnv({ dataDir: options.dataDir })
   const db = openRuntimeDatabase(options.dataDir)
+  const secretStore = createSecretStore(options.dataDir)
   const messageLogStore = createMessageLogStore(db)
   const mobileAuthStore = createMobileAuthStore(db)
   const sentinelAlertStore = createSentinelAlertStore()
@@ -520,6 +524,7 @@ export const createRuntimeStoreServices = (
     cockpitFileWatchCallbacks,
     settings,
     shellRuntime,
+    secretStore,
     planFileWatchCallbacks,
     sentinelAlertStore,
     sentinelHeartbeat,

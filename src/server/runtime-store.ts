@@ -23,6 +23,7 @@ import type {
 } from './mobile-chat-store.js'
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { createRuntimeStoreLifecycle, createRuntimeStoreServices } from './runtime-store-helpers.js'
+import type { SecretEnvKey } from './secret-store.js'
 import type { SentinelAlert } from './sentinel-rules.js'
 import type { SettingsStore } from './settings-store.js'
 import type {
@@ -172,6 +173,8 @@ interface RuntimeStore {
     limit?: number
   ) => MobileChatMessage[]
   listActiveSentinelAlerts: (workspaceId: string) => SentinelAlert[]
+  listPresentSecrets: () => Record<SecretEnvKey, boolean>
+  setSecret: (key: SecretEnvKey, value: string) => void
   authenticateMobileDevice: (token: string | undefined) => MobileDeviceRecord
   createMobileDeviceToken: (
     name: string,
@@ -340,6 +343,8 @@ export const createRuntimeStore = (options: RuntimeStoreOptions = {}): RuntimeSt
       services.mobileChatStore.listChatMessages(workspaceId, since, limit),
     listActiveSentinelAlerts: (workspaceId) =>
       services.sentinelAlertStore.listWorkspaceAlerts(workspaceId),
+    listPresentSecrets: () => services.secretStore.listPresent(),
+    setSecret: (key, value) => services.secretStore.set(key, value),
     authenticateMobileDevice: (token) => services.mobileAuthStore.authenticateDevice(token),
     createMobileDeviceToken: (name, capabilities) =>
       services.mobileAuthStore.createDeviceToken(name, capabilities),

@@ -21,6 +21,7 @@ import { createRelayConnector, type RelayConnectorHandle } from '../server/relay
 import { createRelayRpcHandler, resolveWebRtcIceServers } from '../server/relay-rpc-handler.js'
 import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
+import { injectSecretsIntoEnv } from '../server/secret-store.js'
 import { createVersionService, type VersionService } from '../server/version-service.js'
 import { createWebRtcCallee } from '../server/webrtc-callee.js'
 import { createWebRtcDownlinkAudio } from '../server/webrtc-downlink-audio.js'
@@ -196,6 +197,7 @@ export const runHiveCommand = async (
 ): Promise<RunHiveCommandResult> => {
   const port = parsePort(argv)
   const dataDir = resolveDataDir()
+  injectSecretsIntoEnv({ dataDir })
   const logger = createHiveLogger({ dataDir, port })
   const unregisterFatalLoggers = registerFatalProcessLoggers(logger)
   let feishuCredentials: FeishuCredentials | null = null
