@@ -1,0 +1,48 @@
+name: Republish Windows installer
+
+# 把已构建成功的 Windows 产物(run 28157766943, 含 ea3048a PTY/env 修复)
+# 重新发布成「公开 Release 资产」——Release 资产免登录直下,解决 artifact 必须登录才能下的问题。
+# 不重新编译,直接搬运既有产物。
+
+on:
+  push:
+    paths:
+      - '.github/workflows/republish-windows.yml'
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Source workflow run id to pull hippoteam-windows-x64 from'
+        required: false
+        default: '28157766943'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  republish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact from prior run
+        uses: actions/download-artifact@v4
+        with:
+          name: hippoteam-windows-x64
+          run-id: ${{ github.event.inputs.run_id || '28157766943' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: win
+
+      - name: List downloaded files
+        run: ls -laR win
+
+      - name: Publish public release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: win-pty-fix
+          name: HippoTeam Windows (PTY/env fix)
+          body: |
+            Windows x64 installer with the PTY/env-whitelist fix (ea3048a, 7e69880).
+            Fixes orchestrator/worker spawn-exit on Windows and the
+            "Cannot resize a pty that has already exited" error.
+            Public asset — no login required to download.
+          files: win/**/*.exe
+          fail_on_unmatched_files: true
