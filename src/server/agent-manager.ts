@@ -83,20 +83,35 @@ const NESTED_CLAUDE_CODE_ENV_KEYS = new Set([
 const isNestedClaudeCodeEnvKey = (key: string) => NESTED_CLAUDE_CODE_ENV_KEYS.has(key)
 
 const COMMON_PARENT_ENV_KEYS = new Set([
+  'APPDATA',
+  'ComSpec',
   'COLORTERM',
   'FORCE_COLOR',
   'HOME',
+  'HOMEDRIVE',
+  'HOMEPATH',
   'LANG',
+  'LOCALAPPDATA',
   'LOGNAME',
   'NO_COLOR',
   'PATH',
+  'PATHEXT',
+  'ProgramData',
+  'ProgramFiles',
+  'ProgramFiles(x86)',
   'SHELL',
+  'SystemDrive',
+  'SystemRoot',
   'TEMP',
   'TERM',
   'TMP',
   'TMPDIR',
   'USER',
+  'USERPROFILE',
 ])
+const COMMON_PARENT_ENV_KEY_LOOKUP = new Set(
+  [...COMMON_PARENT_ENV_KEYS].map((key) => key.toUpperCase())
+)
 
 const CLAUDE_PARENT_ENV_KEYS = new Set([
   'ANTHROPIC_API_KEY',
@@ -170,7 +185,7 @@ const VERTEX_PARENT_ENV_KEYS = new Set([
 const PROXY_PARENT_ENV_KEYS = new Set(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'])
 
 const isCommonParentEnvKey = (key: string) =>
-  COMMON_PARENT_ENV_KEYS.has(key) ||
+  COMMON_PARENT_ENV_KEY_LOOKUP.has(key.toUpperCase()) ||
   key.startsWith('LC_') ||
   PROXY_PARENT_ENV_KEYS.has(key.toUpperCase())
 

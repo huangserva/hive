@@ -341,6 +341,58 @@ describe('agent spawn env', () => {
     }
   })
 
+  test('Windows common system env is preserved with native Path casing', () => {
+    vi.stubEnv('Path', 'C:\\Users\\hippo\\AppData\\Roaming\\npm;C:\\Windows\\System32')
+    vi.stubEnv('USERPROFILE', 'C:\\Users\\hippo')
+    vi.stubEnv('APPDATA', 'C:\\Users\\hippo\\AppData\\Roaming')
+    vi.stubEnv('LOCALAPPDATA', 'C:\\Users\\hippo\\AppData\\Local')
+    vi.stubEnv('SystemRoot', 'C:\\Windows')
+    vi.stubEnv('SystemDrive', 'C:')
+    vi.stubEnv('ComSpec', 'C:\\Windows\\System32\\cmd.exe')
+    vi.stubEnv('PATHEXT', '.COM;.EXE;.BAT;.CMD')
+    vi.stubEnv('HOMEDRIVE', 'C:')
+    vi.stubEnv('HOMEPATH', '\\Users\\hippo')
+    vi.stubEnv('ProgramFiles', 'C:\\Program Files')
+    vi.stubEnv('ProgramFiles(x86)', 'C:\\Program Files (x86)')
+    vi.stubEnv('ProgramData', 'C:\\ProgramData')
+
+    const env = createAgentSpawnEnv(
+      { HIVE_AGENT_ID: 'windows-worker' },
+      { providerFamily: 'codex' }
+    )
+
+    expect(env.Path).toBe('C:\\Users\\hippo\\AppData\\Roaming\\npm;C:\\Windows\\System32')
+    expect(env.USERPROFILE).toBe('C:\\Users\\hippo')
+    expect(env.APPDATA).toBe('C:\\Users\\hippo\\AppData\\Roaming')
+    expect(env.LOCALAPPDATA).toBe('C:\\Users\\hippo\\AppData\\Local')
+    expect(env.SystemRoot).toBe('C:\\Windows')
+    expect(env.SystemDrive).toBe('C:')
+    expect(env.ComSpec).toBe('C:\\Windows\\System32\\cmd.exe')
+    expect(env.PATHEXT).toBe('.COM;.EXE;.BAT;.CMD')
+    expect(env.HOMEDRIVE).toBe('C:')
+    expect(env.HOMEPATH).toBe('\\Users\\hippo')
+    expect(env.ProgramFiles).toBe('C:\\Program Files')
+    expect(env['ProgramFiles(x86)']).toBe('C:\\Program Files (x86)')
+    expect(env.ProgramData).toBe('C:\\ProgramData')
+  })
+
+  test('common env case-insensitive match does not relax provider secret allowlists', () => {
+    vi.stubEnv('Path', 'C:\\Windows\\System32')
+    vi.stubEnv('openai_api_key', 'lower-openai-secret')
+    vi.stubEnv('anthropic_api_key', 'lower-anthropic-secret')
+    vi.stubEnv('glm_api_key', 'lower-glm-secret')
+
+    const env = createAgentSpawnEnv(
+      { HIVE_AGENT_ID: 'windows-codex-worker' },
+      { providerFamily: 'codex' }
+    )
+
+    expect(env.Path).toBe('C:\\Windows\\System32')
+    expect(env.openai_api_key).toBeUndefined()
+    expect(env.anthropic_api_key).toBeUndefined()
+    expect(env.glm_api_key).toBeUndefined()
+  })
+
   test('preserves outbound proxy env without leaking nested markers or Anthropic endpoint credentials', () => {
     vi.stubEnv('HTTPS_PROXY', 'http://127.0.0.1:7890')
     vi.stubEnv('https_proxy', 'http://127.0.0.1:7891')
