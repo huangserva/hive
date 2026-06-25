@@ -194,3 +194,45 @@ describe('attachAgentPty exit/error ordering', () => {
     vi.useRealTimers()
   })
 })
+
+describe('attachAgentPty resize safety', () => {
+  test('does not resize a run that is already exited', () => {
+    vi.mocked(execFileSync).mockReturnValue('4242\n')
+    const run = createRun()
+    run.status = 'exited'
+    const pty = createFakePty(4242)
+    vi.mocked(pty.resize).mockImplementation(() => {
+      throw new Error('Cannot resize a pty that has already exited')
+    })
+
+    attachAgentPty(run, pty, createOutputBus())
+
+    expect(() => run.process.resize(100, 40)).not.toThrow()
+    expect(pty.resize).not.toHaveBeenCalled()
+  })
+
+  test('passes resize dimensions through for an active run', () => {
+    vi.mocked(execFileSync).mockReturnValue('4242\n')
+    const run = createRun()
+    const pty = createFakePty(4242)
+
+    attachAgentPty(run, pty, createOutputBus())
+    run.process.resize(120, 36)
+
+    expect(pty.resize).toHaveBeenCalledWith(120, 36)
+  })
+
+  test('ignores an already-exited resize race for an active run', () => {
+    vi.mocked(execFileSync).mockReturnValue('4242\n')
+    const run = createRun()
+    const pty = createFakePty(4242)
+    vi.mocked(pty.resize).mockImplementation(() => {
+      throw new Error('Cannot resize a pty that has already exited')
+    })
+
+    attachAgentPty(run, pty, createOutputBus())
+
+    expect(() => run.process.resize(100, 40)).not.toThrow()
+    expect(pty.resize).toHaveBeenCalledWith(100, 40)
+  })
+})

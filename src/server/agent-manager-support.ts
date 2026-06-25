@@ -108,7 +108,9 @@ export const attachAgentPty = (
   const processGroupId = resolveProcessGroupId()
   const stopped = () => run.status === 'exited' || run.status === 'error'
   const ignoreMissingProcess = (error: unknown) => {
-    if ((error as NodeJS.ErrnoException | null)?.code !== 'ESRCH') throw error
+    const code = (error as NodeJS.ErrnoException | null)?.code
+    const message = error instanceof Error ? error.message : ''
+    if (code !== 'ESRCH' && !/already exited/iu.test(message)) throw error
   }
   const ignoreBestEffortGroupKillError = (error: unknown) => {
     const code = (error as NodeJS.ErrnoException | null)?.code
@@ -180,7 +182,12 @@ export const attachAgentPty = (
     },
     pid: pty.pid,
     resize(cols, rows) {
-      pty.resize(cols, rows)
+      if (stopped()) return
+      try {
+        pty.resize(cols, rows)
+      } catch (error) {
+        ignoreMissingProcess(error)
+      }
     },
     resume() {
       pty.resume()
