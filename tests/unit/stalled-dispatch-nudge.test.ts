@@ -33,6 +33,17 @@ describe('stalled dispatch nudge (Fix B)', () => {
     return { ...submitted, submittedAt: submitted.submittedAt }
   }
 
+  const setSubmittedAt = (dispatchId: string, submittedAt: number) => {
+    db.prepare('UPDATE dispatches SET submitted_at = ? WHERE id = ?').run(submittedAt, dispatchId)
+    const submitted = ledger
+      .listOpenDispatchesForWorkspace(WS)
+      .find((record) => record.id === dispatchId)
+    if (!submitted || submitted.submittedAt === null) {
+      throw new Error('setSubmittedAt failed')
+    }
+    return { ...submitted, submittedAt: submitted.submittedAt }
+  }
+
   const makeNudge = () =>
     createStalledDispatchNudge({
       getActiveRunByAgentId: (_workspaceId, agentId) =>
@@ -44,6 +55,21 @@ describe('stalled dispatch nudge (Fix B)', () => {
       markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
       now: () => clock,
       staleMs: STALE_MS,
+    })
+
+  const makeDeliveryNudge = () =>
+    createStalledDispatchNudge({
+      deliveryAckStaleMs: 90_000,
+      getActiveRunByAgentId: (_workspaceId, agentId) =>
+        aliveWorkers.has(agentId) ? { runId: `run-${agentId}` } : undefined,
+      injectNudge: (workspaceId, message) => nudges.push({ message, workspaceId }),
+      listOpenDispatchesForWorkspace: (workspaceId) =>
+        ledger.listOpenDispatchesForWorkspace(workspaceId),
+      listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
+      now: () => clock,
+      staleMs: 4 * 60_000,
+      startupAt: 0,
     })
 
   const makeIdleNudge = () =>
@@ -62,6 +88,7 @@ describe('stalled dispatch nudge (Fix B)', () => {
       markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
       now: () => clock,
       staleMs: STALE_MS,
+      startupAt: 0,
     })
 
   beforeEach(() => {
@@ -100,6 +127,109 @@ describe('stalled dispatch nudge (Fix B)', () => {
     makeNudge().tick()
 
     expect(nudges).toHaveLength(0)
+  })
+
+  test('quickly nudges orchestrator when submitted input was never acknowledged', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    clock = dispatch.submittedAt + 90_000
+
+    makeDeliveryNudge().tick()
+
+    expect(nudges).toHaveLength(1)
+    expect(nudges[0]?.workspaceId).toBe(WS)
+    expect(nudges[0]?.message).toContain(dispatch.id)
+    expect(nudges[0]?.message).toContain('派单可能没送达')
+    expect(nudges[0]?.message).toContain('不会自动重投')
+    expect(ledger.findOpenDispatch(WS, 'worker-1', dispatch.id)?.status).toBe('report_overdue')
+  })
+
+  test('does not delivery-nudge a submitted dispatch after input acknowledgement lands', () => {
+    const dispatch = seedSubmitted('worker-1')
+    ledger.markInputAcknowledged(dispatch.id)
+    aliveWorkers.add('worker-1')
+    clock = dispatch.submittedAt + 90_000
+
+    makeDeliveryNudge().tick()
+
+    expect(nudges).toHaveLength(0)
+    expect(ledger.findOpenDispatch(WS, 'worker-1', dispatch.id)?.status).toBe('running')
+  })
+
+  test('nudges immediately when input delivery was explicitly marked failed', () => {
+    const dispatch = seedSubmitted('worker-1')
+    ledger.markInputDeliveryFailed(dispatch.id)
+    aliveWorkers.add('worker-1')
+    clock = dispatch.submittedAt + 1000
+
+    makeDeliveryNudge().tick()
+
+    expect(nudges).toHaveLength(1)
+    expect(nudges[0]?.message).toContain(dispatch.id)
+    expect(nudges[0]?.message).toContain('input_delivery_failed')
+  })
+
+  test('does not delivery-nudge legacy in-flight dispatches submitted before startup', () => {
+    const startupAt = 1_000_000
+    const dispatch = seedSubmitted('worker-1')
+    const legacyDispatch = setSubmittedAt(dispatch.id, startupAt - 1)
+    aliveWorkers.add('worker-1')
+    clock = legacyDispatch.submittedAt + 5 * 60_000
+
+    createStalledDispatchNudge({
+      deliveryAckStaleMs: 90_000,
+      getActiveRunByAgentId: (_workspaceId, agentId) =>
+        aliveWorkers.has(agentId) ? { runId: `run-${agentId}` } : undefined,
+      injectNudge: (workspaceId, message) => nudges.push({ message, workspaceId }),
+      listOpenDispatchesForWorkspace: (workspaceId) =>
+        ledger.listOpenDispatchesForWorkspace(workspaceId),
+      listWorkspaces: () => [{ id: WS, name: WS, path: `/tmp/${WS}` }],
+      markDispatchReportOverdue: (dispatchId) => ledger.markReportOverdue(dispatchId),
+      now: () => clock,
+      staleMs: 10 * 60_000,
+      startupAt,
+    }).tick()
+
+    expect(nudges).toHaveLength(0)
+    expect(ledger.findOpenDispatch(WS, 'worker-1', dispatch.id)?.status).toBe('running')
+  })
+
+  test('does not send a second orchestrator nudge after delivery nudge reaches stale threshold', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    clock = dispatch.submittedAt + 90_000
+    const nudge = makeDeliveryNudge()
+
+    nudge.tick()
+    expect(nudges).toHaveLength(1)
+    expect(nudges[0]?.message).toContain('派单投递未确认')
+
+    clock = dispatch.submittedAt + 4 * 60_000 + 1
+    nudge.tick()
+
+    expect(nudges).toHaveLength(1)
+  })
+
+  test('does not send idle-self-heal fallback orchestrator nudge after delivery nudge', () => {
+    const dispatch = seedSubmitted('worker-1')
+    aliveWorkers.add('worker-1')
+    workerOutput.set('worker-1', 'ready\n❯ ')
+    clock = dispatch.submittedAt + 90_000
+    const nudge = makeIdleNudge()
+
+    nudge.tick()
+    expect(nudges).toHaveLength(1)
+    expect(workerNudges).toHaveLength(0)
+
+    clock += 20_000
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+    clock += 20_000
+    nudge.tick()
+
+    expect(workerNudges).toHaveLength(2)
+    expect(nudges).toHaveLength(1)
   })
 
   test('does not nudge when the worker is stopped (no active run) — left to reconcile', () => {

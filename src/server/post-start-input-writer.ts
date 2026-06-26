@@ -17,6 +17,11 @@ const COMMANDS_WITH_BRACKETED_PASTE = new Set(['claude', 'codex', 'opencode'])
 
 export const toBracketedPasteSubmission = (text: string) => `\u001b[200~${text}\u001b[201~`
 
+export interface PostStartInputWriterOptions {
+  onPasteAck?: () => void
+  onPasteGaveUp?: () => void
+}
+
 const getSubmitAfterPasteDelayMs = (text: string) =>
   Math.min(
     MAX_SUBMIT_AFTER_PASTE_DELAY_MS,
@@ -75,6 +80,7 @@ const submitPastedInteractiveInput = (
   text: string,
   baselineLength: number,
   waitForPasteAck: boolean,
+  onPasteAck?: () => void,
   onPasteAckTimeout?: () => void
 ) => {
   const pastedAt = Date.now()
@@ -110,6 +116,7 @@ const submitPastedInteractiveInput = (
     }
     if (acknowledgedAt === null && hasBracketedPasteAcknowledgement(output, baselineLength)) {
       acknowledgedAt = Date.now()
+      onPasteAck?.()
     }
 
     const elapsed = Date.now() - pastedAt
@@ -131,11 +138,12 @@ const submitPastedInteractiveInput = (
 
 export const createPostStartInputWriter = (
   agentManager: AgentManager,
-  command: string
+  command: string,
+  options: PostStartInputWriterOptions = {}
 ): ((runId: string, text: string) => void) => {
   if (!isInteractiveAgentCommand(command)) {
     return (runId, text) => {
-      writeIfRunWritable(agentManager, runId, `${text}\n`)
+      if (writeIfRunWritable(agentManager, runId, `${text}\n`)) options.onPasteAck?.()
     }
   }
 
@@ -151,6 +159,21 @@ export const createPostStartInputWriter = (
     let pasteInFlight = false
     let pasteAttempts = 0
     let requiresFreshPromptForRetry = false
+    let ackReported = false
+    let gaveUpReported = false
+
+    const reportAck = () => {
+      if (ackReported) return
+      ackReported = true
+      options.onPasteAck?.()
+    }
+
+    const reportGaveUp = () => {
+      if (ackReported || gaveUpReported) return
+      gaveUpReported = true
+      options.onPasteGaveUp?.()
+    }
+
     const tryWrite = () => {
       let output: string | null
       try {
@@ -182,7 +205,10 @@ export const createPostStartInputWriter = (
         !shouldKeepWaitingForClaudeBusy &&
         !requiresFreshPromptForRetry
       if (promptReady || timeoutFallbackReady) {
-        if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) return
+        if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
+          reportGaveUp()
+          return
+        }
         const baselineLength = output.length
         const input = usesBracketedPaste(command) ? toBracketedPasteSubmission(text) : text
         try {
@@ -193,12 +219,14 @@ export const createPostStartInputWriter = (
         }
         pasteAttempts += 1
         pasteInFlight = true
+        if (!isClaudeCommand(command)) reportAck()
         submitPastedInteractiveInput(
           agentManager,
           runId,
           text,
           baselineLength,
           isClaudeCommand(command),
+          isClaudeCommand(command) ? reportAck : undefined,
           isClaudeCommand(command)
             ? () => {
                 let latestOutputLength = baselineLength
@@ -207,6 +235,11 @@ export const createPostStartInputWriter = (
                   if (!isWritableRunStatus(run.status)) return
                   latestOutputLength = run.output.length
                 } catch {
+                  return
+                }
+                if (pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
+                  pasteInFlight = false
+                  reportGaveUp()
                   return
                 }
                 pasteInFlight = false

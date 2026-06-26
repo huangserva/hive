@@ -74,7 +74,7 @@ export interface AgentRuntime {
     workerDescription: string,
     text: string,
     cockpitSnapshot?: string,
-    input?: { workflowAllowed?: boolean }
+    input?: { onPasteAck?: () => void; onPasteGaveUp?: () => void; workflowAllowed?: boolean }
   ) => void
   writeRecoveryReplayPrompt: (
     workspaceId: string,

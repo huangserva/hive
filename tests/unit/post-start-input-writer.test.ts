@@ -72,6 +72,87 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
   })
 
+  test('reports Claude paste acknowledgement only after the bracketed paste ack lands', () => {
+    vi.useFakeTimers()
+    let output = 'Welcome back\n'
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+    const onPasteAck = vi.fn()
+    const onPasteGaveUp = vi.fn()
+
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      onPasteAck,
+      onPasteGaveUp,
+    })
+    write('run-1', 'payload')
+
+    output = 'Welcome back\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(onPasteAck).not.toHaveBeenCalled()
+
+    output += '[Pasted text #1 +1 lines]\n'
+    vi.advanceTimersByTime(700)
+
+    expect(onPasteAck).toHaveBeenCalledTimes(1)
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
+  })
+
+  test('reports paste gave-up after Claude misses acknowledgement for all allowed attempts', () => {
+    vi.useFakeTimers()
+    let output = 'Welcome back\n'
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+    const onPasteAck = vi.fn()
+    const onPasteGaveUp = vi.fn()
+
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      onPasteAck,
+      onPasteGaveUp,
+    })
+    write('run-1', 'payload')
+
+    output = 'Welcome back\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(3000)
+    output += 'retry prompt\n❯ '
+    vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(2)
+
+    vi.advanceTimersByTime(3000)
+
+    expect(onPasteAck).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
+
+    output += 'another prompt\n❯ '
+    vi.advanceTimersByTime(5000)
+    expect(manager.writeInput).toHaveBeenCalledTimes(2)
+  })
+
+  test('reports non-Claude interactive input as acknowledged after writing it', () => {
+    vi.useFakeTimers()
+    let output = 'OpenCode\n'
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+    const onPasteAck = vi.fn()
+
+    const write = createPostStartInputWriter(manager as never, 'opencode', { onPasteAck })
+    write('run-1', 'payload')
+
+    output = 'OpenCode\nAsk anything'
+    vi.advanceTimersByTime(50)
+
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(onPasteAck).toHaveBeenCalledTimes(1)
+  })
+
   test('waits longer before submitting large pasted prompts after acknowledgement', () => {
     vi.useFakeTimers()
     let output = 'Welcome back\n'

@@ -441,6 +441,8 @@ export const createRuntimeStoreServices = (
     insertMessage: messageLogStore.insertMessage,
     listOpenDispatchesForWorkspace: dispatchLedgerStore.listOpenDispatchesForWorkspace,
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
+    markDispatchInputAcknowledged: dispatchLedgerStore.markInputAcknowledged,
+    markDispatchInputDeliveryFailed: dispatchLedgerStore.markInputDeliveryFailed,
     markDispatchOrphaned: dispatchLedgerStore.markOrphaned,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,

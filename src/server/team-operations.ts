@@ -81,6 +81,8 @@ export interface TeamOperationsInput {
     toAgentId: string
     workspaceId: string
   }) => DispatchRecord | undefined
+  markDispatchInputAcknowledged?: (dispatchId: string) => void
+  markDispatchInputDeliveryFailed?: (dispatchId: string) => void
   markDispatchSubmitted: (dispatchId: string) => void
   mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'> &
     Partial<Pick<MobilePushService, 'notifyOrchestratorForwardFailure'>>
@@ -319,6 +321,8 @@ export const createTeamOperations = ({
   redactUserVisiblePayload = (value) => value,
   listOpenDispatchesForWorkspace,
   markDispatchCancelled,
+  markDispatchInputAcknowledged,
+  markDispatchInputDeliveryFailed,
   markDispatchOrphaned,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
@@ -585,15 +589,20 @@ export const createTeamOperations = ({
           ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
           : undefined
         markDispatchSubmitted(dispatch.id)
+        const dispatchId = dispatch.id
         agentRuntime.writeSendPrompt(
           workspaceId,
           workerId,
-          dispatch.id,
+          dispatchId,
           senderName,
           promptWorker.description,
           text,
           cockpitSnapshot,
-          { workflowAllowed: promptWorker.workflowAllowed }
+          {
+            onPasteAck: () => markDispatchInputAcknowledged?.(dispatchId),
+            onPasteGaveUp: () => markDispatchInputDeliveryFailed?.(dispatchId),
+            workflowAllowed: promptWorker.workflowAllowed,
+          }
         )
         promptDelivered = true
       }
@@ -801,15 +810,20 @@ export const createTeamOperations = ({
         ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
         : undefined
       markDispatchSubmitted(dispatch.id)
+      const dispatchId = dispatch.id
       agentRuntime.writeSendPrompt(
         workspaceId,
         dispatch.toAgentId,
-        dispatch.id,
+        dispatchId,
         senderName,
         promptWorker.description,
         dispatch.text,
         cockpitSnapshot,
-        { workflowAllowed: promptWorker.workflowAllowed }
+        {
+          onPasteAck: () => markDispatchInputAcknowledged?.(dispatchId),
+          onPasteGaveUp: () => markDispatchInputDeliveryFailed?.(dispatchId),
+          workflowAllowed: promptWorker.workflowAllowed,
+        }
       )
     } catch (error) {
       return orphanQueuedDispatch(

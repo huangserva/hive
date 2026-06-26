@@ -343,6 +343,84 @@ describe('team atomicity', () => {
     expect(createDispatch).toHaveBeenCalledTimes(2)
   })
 
+  test('dispatchTask wires input delivery callbacks to dispatch ledger hooks', async () => {
+    const store = createRuntimeStore()
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) throw new Error('Expected orchestrator')
+
+    const dispatch = withDispatchDefaults({
+      artifacts: [],
+      createdAt: Date.now(),
+      deliveredAt: null,
+      fromAgentId: orchestrator.id,
+      id: 'dispatch-1',
+      inputAcknowledgedAt: null,
+      inputDeliveryFailedAt: null,
+      reportedAt: null,
+      reportText: null,
+      sequence: 1,
+      status: 'queued',
+      submittedAt: null,
+      text: 'Deliver this task',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const writeSendPrompt = vi.fn()
+    const markDispatchInputAcknowledged = vi.fn()
+    const markDispatchInputDeliveryFailed = vi.fn()
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        peekAgentLaunchConfig: vi.fn(() => undefined),
+        writeReportPrompt: vi.fn(),
+        writeSendPrompt,
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(() => dispatch),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(),
+      findOpenDispatchById: vi.fn(),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn(() => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchInputAcknowledged,
+      markDispatchInputDeliveryFailed,
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted: vi.fn(() => {
+        dispatch.status = 'running'
+        dispatch.submittedAt = Date.now()
+      }),
+      workspaceStore: {
+        getAgent: store.getAgent,
+        getWorker: store.getWorker,
+        getWorkspaceSnapshot: store.getWorkspaceSnapshot,
+        markTaskDispatched: vi.fn(),
+        markTaskReported: vi.fn(),
+      } as never,
+    })
+
+    await expect(
+      ops.dispatchTask(workspace.id, worker.id, 'Deliver this task', {
+        fromAgentId: orchestrator.id,
+      })
+    ).resolves.toBe(dispatch)
+
+    expect(writeSendPrompt).toHaveBeenCalledTimes(1)
+    const input = writeSendPrompt.mock.calls[0]?.[7]
+    expect(typeof input?.onPasteAck).toBe('function')
+    expect(typeof input?.onPasteGaveUp).toBe('function')
+
+    input?.onPasteAck?.()
+    input?.onPasteGaveUp?.()
+
+    expect(markDispatchInputAcknowledged).toHaveBeenCalledWith('dispatch-1')
+    expect(markDispatchInputDeliveryFailed).toHaveBeenCalledWith('dispatch-1')
+  })
+
   test('reportTask with requireActiveRun closes dispatch and reconciles stopped when worker has no active run', () => {
     const store = createRuntimeStore()
     const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')

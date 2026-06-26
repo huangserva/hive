@@ -9,6 +9,7 @@ const DEFAULT_CHECK_INTERVAL_MS = 60 * 1000
 // dispatch active 后多久未 report 算「活着但卡住」。默认 ~4 分钟：比正常一轮注入+开工长得多，
 // 又比 sentinel-heartbeat 的 15/30 分钟 stale 阈值短，能更快兜住 Fix A 漏网的注入失败。
 const DEFAULT_STALLED_SUBMITTED_MS = 4 * 60 * 1000
+const DEFAULT_DELIVERY_ACK_STALE_MS = 90 * 1000
 const DEFAULT_IDLE_GRACE_MS = 20 * 1000
 const DEFAULT_MAX_WORKER_NUDGES = 2
 
@@ -22,6 +23,7 @@ export interface StaleDispatchUserNotice {
 type ActiveRunRef = { output?: string; runId: string } | undefined
 
 export interface StalledDispatchNudgeOptions {
+  deliveryAckStaleMs?: number
   escalatedMs?: number
   getActiveRunByAgentId: (workspaceId: string, agentId: string) => ActiveRunRef
   getWorkerOutputSinceActivity?: (workspaceId: string, agentId: string) => string
@@ -40,6 +42,7 @@ export interface StalledDispatchNudgeOptions {
     notice: StaleDispatchUserNotice
   ) => void
   now?: () => number
+  startupAt?: number
   staleMs?: number
   // M34：复用本 tick（已每分钟巡检每 workspace）做「未审代码改动」的 never-silent push 兜底。
   // 独立、best-effort：与 stale-dispatch 逻辑互不影响；不传则不做（M30 行为不变）。
@@ -64,6 +67,26 @@ export const buildStalledDispatchNudgeMessage = (
     '（本提醒不会自动重投，避免双重执行。）',
   ].join('\n')
 
+export const buildUnacknowledgedDispatchNudgeMessage = (
+  dispatches: Array<{
+    dispatchId: string
+    minutesAgo: number
+    reason: string
+    submittedAt: number | null
+    workerId: string
+  }>
+) =>
+  [
+    '[Hive 系统消息：派单投递未确认]',
+    '以下 dispatch 已标记 submitted/running，但尚未确认 worker 收到输入，派单可能没送达 worker。请不要假设它正在执行：',
+    ...dispatches.map(
+      (dispatch) =>
+        `- dispatch_id=${dispatch.dispatchId}, worker_id=${dispatch.workerId}, active_since=${formatSubmittedAt(dispatch.submittedAt)}（约 ${dispatch.minutesAgo} 分钟前）, reason=${dispatch.reason}`
+    ),
+    '建议检查对应 worker 终端；如确认未送达，请由 orchestrator/user 决定 cancel 后重发或检查 compact/PTY 状态。',
+    '（本提醒不会自动重投，避免双重执行。）',
+  ].join('\n')
+
 export const buildIdleWorkerReportReminderMessage = (dispatch: DispatchRecord) =>
   [
     '[Hive 系统消息]',
@@ -78,6 +101,7 @@ export const buildIdleWorkerReportReminderMessage = (dispatch: DispatchRecord) =
 // worker 已 stopped（无 active run）的孤儿不在本机制处理 —— 交 reconcileOrphanedDispatches。
 // 防重复：同一 dispatch 最多直提醒 maxWorkerNudgesPerDispatch 次，再回退 orchestrator nudge 一次。
 export const createStalledDispatchNudge = ({
+  deliveryAckStaleMs = DEFAULT_DELIVERY_ACK_STALE_MS,
   escalatedMs = DEFAULT_ESCALATED_DISPATCH_MS,
   getActiveRunByAgentId,
   getWorkerOutputSinceActivity,
@@ -92,6 +116,7 @@ export const createStalledDispatchNudge = ({
   maxWorkerNudgesPerDispatch = DEFAULT_MAX_WORKER_NUDGES,
   notifyUserOfStaleDispatch,
   now = Date.now,
+  startupAt,
   staleMs = DEFAULT_STALLED_SUBMITTED_MS,
   surfaceUnreviewedCode,
   writeRunInput,
@@ -101,8 +126,10 @@ export const createStalledDispatchNudge = ({
   const idleReadySinceByDispatchId = new Map<string, number>()
   const outputBaselineByDispatchId = new Map<string, number>()
   const workerNudgeCountsByDispatchId = new Map<string, number>()
+  const deliveryNudgedDispatchIds = new Set<string>()
   const userNotifiedStaleIds = new Set<string>()
   const userNotifiedEscalatedIds = new Set<string>()
+  const deliveryAckTrackingStartedAt = startupAt ?? now()
 
   const hasIdleSelfHeal = Boolean(injectWorkerNudge || writeRunInput)
 
@@ -117,11 +144,58 @@ export const createStalledDispatchNudge = ({
     for (const dispatchId of workerNudgeCountsByDispatchId.keys()) {
       if (!openIds.has(dispatchId)) workerNudgeCountsByDispatchId.delete(dispatchId)
     }
+    for (const dispatchId of deliveryNudgedDispatchIds) {
+      if (!openIds.has(dispatchId)) deliveryNudgedDispatchIds.delete(dispatchId)
+    }
     for (const dispatchId of userNotifiedStaleIds) {
       if (!openIds.has(dispatchId)) userNotifiedStaleIds.delete(dispatchId)
     }
     for (const dispatchId of userNotifiedEscalatedIds) {
       if (!openIds.has(dispatchId)) userNotifiedEscalatedIds.delete(dispatchId)
+    }
+  }
+
+  const surfaceUnacknowledgedDeliveries = (workspaceId: string, tickedAt: number) => {
+    const openDispatches = listOpenDispatchesForWorkspace(workspaceId)
+    cleanupClosedDispatchState(openDispatches)
+    const unacknowledged = openDispatches.flatMap((dispatch) => {
+      if (!isActiveDispatchStatus(dispatch.status) || dispatch.submittedAt === null) return []
+      if (dispatch.inputAcknowledgedAt !== null && dispatch.inputAcknowledgedAt !== undefined) {
+        return []
+      }
+      if (deliveryNudgedDispatchIds.has(dispatch.id)) return []
+      if (nudgedDispatchIds.has(dispatch.id)) return []
+      const explicitFailure =
+        dispatch.inputDeliveryFailedAt !== null && dispatch.inputDeliveryFailedAt !== undefined
+      if (!explicitFailure && dispatch.submittedAt < deliveryAckTrackingStartedAt) return []
+      const age = tickedAt - dispatch.submittedAt
+      if (!explicitFailure && age < deliveryAckStaleMs) return []
+      return [
+        {
+          dispatch,
+          minutesAgo: Math.floor(age / 60_000),
+          reason: explicitFailure ? 'input_delivery_failed' : 'input_ack_timeout',
+        },
+      ]
+    })
+    if (unacknowledged.length === 0) return
+
+    for (const { dispatch } of unacknowledged) markDispatchReportOverdue?.(dispatch.id)
+    injectNudge(
+      workspaceId,
+      buildUnacknowledgedDispatchNudgeMessage(
+        unacknowledged.map(({ dispatch, minutesAgo, reason }) => ({
+          dispatchId: dispatch.id,
+          minutesAgo,
+          reason,
+          submittedAt: dispatch.submittedAt,
+          workerId: dispatch.toAgentId,
+        }))
+      )
+    )
+    for (const { dispatch } of unacknowledged) {
+      deliveryNudgedDispatchIds.add(dispatch.id)
+      nudgedDispatchIds.add(dispatch.id)
     }
   }
 
@@ -257,6 +331,7 @@ export const createStalledDispatchNudge = ({
     for (const workspace of listWorkspaces()) {
       try {
         // 先 surface 给 user（never silent），再做 LLM 层 nudge（best-effort）。
+        surfaceUnacknowledgedDeliveries(workspace.id, tickedAt)
         surfaceStaleDispatchesToUser(workspace.id, tickedAt)
         // M34：未审代码改动 push 兜底（独立、best-effort，不影响下面 stale/idle 逻辑）。
         surfaceUnreviewedCode?.(workspace.id)

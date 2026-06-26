@@ -205,6 +205,8 @@ describe('schema version', () => {
         'report_text',
         'artifacts',
         'evidence_json',
+        'input_acknowledged_at',
+        'input_delivery_failed_at',
         // M43 schema v33: 三个旁挂字段，默认 NULL；不破 8 态 status 维度。
         'review_status',
         'reviews_dispatch_id',
@@ -1663,6 +1665,40 @@ describe('schema version', () => {
     expect(() => {
       applySchemaVersion37(db)
       applySchemaVersion37(db)
+    }).not.toThrow()
+    expect(dispatchColumns(db).size).toBe(cols.size)
+    db.close()
+  })
+
+  test('dispatch input delivery schema v38 adds nullable acknowledgement columns + idempotent', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v38-'))
+    tempDirs.push(dataDir)
+    const store = createRuntimeStore({ dataDir })
+    stores.push(store)
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(38)).toEqual({
+      version: 38,
+    })
+    const cols = dispatchColumns(db)
+    expect(cols.has('input_acknowledged_at')).toBe(true)
+    expect(cols.has('input_delivery_failed_at')).toBe(true)
+    const fullColInfo = db.prepare('PRAGMA table_info(dispatches)').all() as Array<{
+      dflt_value: string | null
+      name: string
+      notnull: number
+    }>
+    for (const colName of ['input_acknowledged_at', 'input_delivery_failed_at']) {
+      const info = fullColInfo.find((column) => column.name === colName)
+      expect(info, `column ${colName} must exist`).toBeDefined()
+      expect(info?.notnull, `${colName} must be nullable`).toBe(0)
+      expect(info?.dflt_value, `${colName} default must be NULL`).toBeNull()
+    }
+
+    const { applySchemaVersion38 } = await import('../../src/server/sqlite-schema-v38.js')
+    expect(() => {
+      applySchemaVersion38(db)
+      applySchemaVersion38(db)
     }).not.toThrow()
     expect(dispatchColumns(db).size).toBe(cols.size)
     db.close()

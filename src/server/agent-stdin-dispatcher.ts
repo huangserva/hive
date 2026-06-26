@@ -13,6 +13,19 @@ import { PtyInactiveError } from './http-errors.js'
 import type { LiveRunRegistry } from './live-run-registry.js'
 import { createPostStartInputWriter } from './post-start-input-writer.js'
 
+interface SendPromptInput {
+  onPasteAck?: () => void
+  onPasteGaveUp?: () => void
+  workflowAllowed?: boolean
+}
+
+const postStartWriterOptions = (input: { onPasteAck?: () => void; onPasteGaveUp?: () => void }) => {
+  const options: { onPasteAck?: () => void; onPasteGaveUp?: () => void } = {}
+  if (input.onPasteAck) options.onPasteAck = input.onPasteAck
+  if (input.onPasteGaveUp) options.onPasteGaveUp = input.onPasteGaveUp
+  return options
+}
+
 interface AgentStdinDispatcherInput {
   agentManager: AgentManager | undefined
   getLaunchConfig: (workspaceId: string, agentId: string) => AgentLaunchConfigInput | undefined
@@ -162,7 +175,7 @@ export const createAgentStdinDispatcher = ({
     workspaceId: string,
     agentId: string,
     text: string,
-    input: { requireActiveRun?: boolean } = {}
+    input: { onPasteAck?: () => void; onPasteGaveUp?: () => void; requireActiveRun?: boolean } = {}
   ) => {
     const run = registry
       .list()
@@ -182,12 +195,14 @@ export const createAgentStdinDispatcher = ({
     try {
       const config = getLaunchConfig(workspaceId, agentId)
       if (agentManager && config) {
-        createPostStartInputWriter(agentManager, config.interactiveCommand ?? config.command)(
-          run.runId,
-          text
-        )
+        createPostStartInputWriter(
+          agentManager,
+          config.interactiveCommand ?? config.command,
+          postStartWriterOptions(input)
+        )(run.runId, text)
       } else {
         agentManager?.writeInput(run.runId, text)
+        input.onPasteAck?.()
       }
     } catch (error) {
       throw new PtyInactiveError(error instanceof Error ? error.message : String(error))
@@ -274,7 +289,7 @@ export const createAgentStdinDispatcher = ({
       text: string,
       cockpitSnapshot?: string,
       workerCapabilitySummary?: string,
-      input: { workflowAllowed?: boolean } = {}
+      input: SendPromptInput = {}
     ) {
       writeToActiveAgentRun(
         workspaceId,
@@ -288,7 +303,7 @@ export const createAgentStdinDispatcher = ({
           workerCapabilitySummary,
           input
         ),
-        { requireActiveRun: true }
+        { ...postStartWriterOptions(input), requireActiveRun: true }
       )
     },
     writeRecoveryReplayPrompt(workspaceId: string, workerId: string, dispatch: DispatchRecord) {
