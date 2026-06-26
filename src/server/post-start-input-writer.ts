@@ -5,12 +5,14 @@ import type { AgentManager } from './agent-manager.js'
 const INTERACTIVE_COMMANDS = new Set(['claude', 'codex', 'gemini', 'opencode'])
 const READY_CHECK_INTERVAL_MS = 50
 const READY_TIMEOUT_MS = 8000
+const CLAUDE_BUSY_READY_TIMEOUT_MS = 120_000
 const MIN_SUBMIT_AFTER_PASTE_DELAY_MS = 600
 const MAX_SUBMIT_AFTER_PASTE_DELAY_MS = 1500
 const PASTE_CHARS_PER_DELAY_MS = 4
 const PASTE_ACK_CHECK_INTERVAL_MS = 50
 const PASTE_ACK_SETTLE_DELAY_MS = 100
 const PASTE_ACK_TIMEOUT_MS = 3000
+const CLAUDE_MAX_PASTE_ATTEMPTS = 2
 const COMMANDS_WITH_BRACKETED_PASTE = new Set(['claude', 'codex', 'opencode'])
 
 export const toBracketedPasteSubmission = (text: string) => `\u001b[200~${text}\u001b[201~`
@@ -37,6 +39,13 @@ export const hasInteractivePromptReady = (output: string, command = '') => {
     (commandName === 'opencode' && hasOpenCodePromptReady(output))
   )
 }
+
+const CLAUDE_WORKING_WITH_INTERRUPT_PATTERN =
+  /(?:\b(?:Working|Thinking|Processing)\b[\s\S]{0,120}\besc(?:ape)? to interrupt\b|\besc(?:ape)? to interrupt\b[\s\S]{0,120}\b(?:Working|Thinking|Processing)\b)/iu
+
+export const hasClaudeBusyOutput = (output: string) =>
+  /Compacting conversation(?:\.{3}|…)?/iu.test(output) ||
+  CLAUDE_WORKING_WITH_INTERRUPT_PATTERN.test(output)
 
 export const hasBracketedPasteAcknowledgement = (output: string, baselineLength: number) =>
   /\[Pasted text #\d+/u.test(output.slice(baselineLength))
@@ -65,7 +74,8 @@ const submitPastedInteractiveInput = (
   runId: string,
   text: string,
   baselineLength: number,
-  waitForPasteAck: boolean
+  waitForPasteAck: boolean,
+  onPasteAckTimeout?: () => void
 ) => {
   const pastedAt = Date.now()
   const minDelay = getSubmitAfterPasteDelayMs(text)
@@ -105,8 +115,12 @@ const submitPastedInteractiveInput = (
     const elapsed = Date.now() - pastedAt
     const ackSettled =
       acknowledgedAt !== null && Date.now() - acknowledgedAt >= PASTE_ACK_SETTLE_DELAY_MS
-    if ((ackSettled && elapsed >= minDelay) || elapsed >= PASTE_ACK_TIMEOUT_MS) {
+    if (ackSettled && elapsed >= minDelay) {
       submit()
+      return
+    }
+    if (elapsed >= PASTE_ACK_TIMEOUT_MS) {
+      onPasteAckTimeout?.()
       return
     }
     setTimeout(trySubmit, PASTE_ACK_CHECK_INTERVAL_MS)
@@ -133,6 +147,10 @@ export const createPostStartInputWriter = (
     // 立刻误触发——在 CLI 还没真正就绪时就粘贴 + 回车，注入落空，派单卡在 submitted。
     // 故提示符就绪只检测 baseline 之后的【新输出】，让 resume 后等真正的新提示符再注入。
     let readinessBaseline: number | null = null
+    let firstBusyAt: number | null = null
+    let pasteInFlight = false
+    let pasteAttempts = 0
+    let requiresFreshPromptForRetry = false
     const tryWrite = () => {
       let output: string | null
       try {
@@ -143,11 +161,28 @@ export const createPostStartInputWriter = (
       }
       if (output === null) return
       if (readinessBaseline === null) readinessBaseline = output.length
-      const timedOut = Date.now() - startedAt >= READY_TIMEOUT_MS
+      if (pasteInFlight) return
+      const outputSinceBaseline = output.slice(readinessBaseline)
       if (
-        hasInteractivePromptReady(output.slice(readinessBaseline), command) ||
-        (canTimeoutBeforePromptReady(command) && timedOut)
+        isClaudeCommand(command) &&
+        hasClaudeBusyOutput(outputSinceBaseline) &&
+        firstBusyAt === null
       ) {
+        firstBusyAt = Date.now()
+      }
+      const timedOut = Date.now() - startedAt >= READY_TIMEOUT_MS
+      const claudeBusyTimedOut =
+        firstBusyAt !== null && Date.now() - firstBusyAt >= CLAUDE_BUSY_READY_TIMEOUT_MS
+      const shouldKeepWaitingForClaudeBusy =
+        isClaudeCommand(command) && firstBusyAt !== null && !claudeBusyTimedOut
+      const promptReady = hasInteractivePromptReady(outputSinceBaseline, command)
+      const timeoutFallbackReady =
+        canTimeoutBeforePromptReady(command) &&
+        timedOut &&
+        !shouldKeepWaitingForClaudeBusy &&
+        !requiresFreshPromptForRetry
+      if (promptReady || timeoutFallbackReady) {
+        if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) return
         const baselineLength = output.length
         const input = usesBracketedPaste(command) ? toBracketedPasteSubmission(text) : text
         try {
@@ -156,16 +191,35 @@ export const createPostStartInputWriter = (
           if (isInitialAttempt) throw error
           return
         }
+        pasteAttempts += 1
+        pasteInFlight = true
         submitPastedInteractiveInput(
           agentManager,
           runId,
           text,
           baselineLength,
+          isClaudeCommand(command),
           isClaudeCommand(command)
+            ? () => {
+                let latestOutputLength = baselineLength
+                try {
+                  const run = agentManager.getRun(runId)
+                  if (!isWritableRunStatus(run.status)) return
+                  latestOutputLength = run.output.length
+                } catch {
+                  return
+                }
+                pasteInFlight = false
+                readinessBaseline = latestOutputLength
+                firstBusyAt = null
+                requiresFreshPromptForRetry = true
+                setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
+              }
+            : undefined
         )
         return
       }
-      if (timedOut) return
+      if (timedOut && !shouldKeepWaitingForClaudeBusy && !requiresFreshPromptForRetry) return
       setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
     }
     try {

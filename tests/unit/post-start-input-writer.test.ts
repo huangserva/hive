@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   createPostStartInputWriter,
   hasBracketedPasteAcknowledgement,
+  hasClaudeBusyOutput,
   hasInteractivePromptReady,
 } from '../../src/server/post-start-input-writer.js'
 
@@ -28,6 +29,17 @@ describe('post-start input writer', () => {
     ).toBe(true)
     const oldOutput = `${baseline}old [Pasted text #1]`
     expect(hasBracketedPasteAcknowledgement(oldOutput, oldOutput.length)).toBe(false)
+  })
+
+  test('recognizes Claude compact/busy output without treating it as prompt readiness', () => {
+    expect(hasClaudeBusyOutput('Compacting conversation…\nPress esc to interrupt')).toBe(true)
+    expect(hasClaudeBusyOutput('Compacting conversation...\nesc to interrupt')).toBe(true)
+    expect(hasClaudeBusyOutput('Working… press esc to interrupt')).toBe(true)
+    expect(hasClaudeBusyOutput('The task text says: press esc to interrupt')).toBe(false)
+    expect(hasClaudeBusyOutput('Welcome back\n❯ ')).toBe(false)
+    expect(hasInteractivePromptReady('Compacting conversation…\nesc to interrupt', 'claude')).toBe(
+      false
+    )
   })
 
   test('defers Claude input until prompt and paste acknowledgement are ready, then submits Enter', () => {
@@ -83,7 +95,7 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
   })
 
-  test('submits Claude pasted input after timeout when no paste acknowledgement is emitted', () => {
+  test('does not submit Claude pasted input without acknowledgement and retries after prompt returns', () => {
     vi.useFakeTimers()
     let output = 'Welcome back\n'
     const manager = {
@@ -102,8 +114,50 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(1)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+
+    output += 'Compacting conversation…\nesc to interrupt\n'
+    vi.advanceTimersByTime(8000)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+
+    output += 'Done\n❯ '
+    vi.advanceTimersByTime(100)
     expect(manager.writeInput).toHaveBeenCalledTimes(2)
-    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
+    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\u001b[200~payload\u001b[201~')
+
+    output += '[Pasted text #2 +1 lines]\n'
+    vi.advanceTimersByTime(700)
+    expect(manager.writeInput).toHaveBeenCalledTimes(3)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(3, 'run-1', '\r')
+  })
+
+  test('does not repeatedly paste when Claude stays busy after a missing acknowledgement', () => {
+    vi.useFakeTimers()
+    let output = 'Welcome back after restart\n❯ '
+    const manager = {
+      getRun: vi.fn(() => ({ output, status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'claude')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(7999)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output += 'Compacting conversation…\nesc to interrupt\n'
+    vi.advanceTimersByTime(1)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(120_000)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '\u001b[200~payload\u001b[201~')
+
+    vi.advanceTimersByTime(3_000)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(30_000)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
   })
 
   test('waits for Gemini prompt readiness and writes plain input without bracketed paste', () => {
@@ -246,15 +300,41 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
   })
 
-  test('claude timeout fallback still fires when no fresh prompt appears after resume', () => {
+  test('claude compact/busy output extends readiness wait instead of forcing 8s fallback', () => {
     vi.useFakeTimers()
-    // 旧提示符在 baseline 之前，新提示符始终不来：到 8s 仍按 timeout 兜底注入（claude 允许）。
+    let output = 'Welcome back after restart\n❯ '
     const manager = {
-      getRun: vi.fn(() => ({ output: 'Welcome back after restart\n❯ ', status: 'running' })),
+      getRun: vi.fn(() => ({ output, status: 'running' })),
       writeInput: vi.fn(),
     }
 
     const write = createPostStartInputWriter(manager as never, 'claude')
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(7999)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output += 'Compacting conversation…\nesc to interrupt\n'
+    vi.advanceTimersByTime(1)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(60_000)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+
+    output += 'Compacted\n❯ '
+    vi.advanceTimersByTime(100)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
+  })
+
+  test('codex keeps the existing 8s timeout fallback behavior', () => {
+    vi.useFakeTimers()
+    const manager = {
+      getRun: vi.fn(() => ({ output: 'Codex starting without prompt', status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'codex')
     write('run-1', 'payload')
 
     vi.advanceTimersByTime(7999)
