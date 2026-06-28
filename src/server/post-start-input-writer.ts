@@ -80,8 +80,7 @@ const submitPastedInteractiveInput = (
   text: string,
   baselineLength: number,
   waitForPasteAck: boolean,
-  onPasteAck?: () => void,
-  onPasteAckTimeout?: () => void
+  onPasteAck?: () => void
 ) => {
   const pastedAt = Date.now()
   const minDelay = getSubmitAfterPasteDelayMs(text)
@@ -127,7 +126,8 @@ const submitPastedInteractiveInput = (
       return
     }
     if (elapsed >= PASTE_ACK_TIMEOUT_MS) {
-      onPasteAckTimeout?.()
+      submit()
+      onPasteAck?.()
       return
     }
     setTimeout(trySubmit, PASTE_ACK_CHECK_INTERVAL_MS)
@@ -158,7 +158,6 @@ export const createPostStartInputWriter = (
     let firstBusyAt: number | null = null
     let pasteInFlight = false
     let pasteAttempts = 0
-    let requiresFreshPromptForRetry = false
     let ackReported = false
     let gaveUpReported = false
 
@@ -200,10 +199,7 @@ export const createPostStartInputWriter = (
         isClaudeCommand(command) && firstBusyAt !== null && !claudeBusyTimedOut
       const promptReady = hasInteractivePromptReady(outputSinceBaseline, command)
       const timeoutFallbackReady =
-        canTimeoutBeforePromptReady(command) &&
-        timedOut &&
-        !shouldKeepWaitingForClaudeBusy &&
-        !requiresFreshPromptForRetry
+        canTimeoutBeforePromptReady(command) && timedOut && !shouldKeepWaitingForClaudeBusy
       if (promptReady || timeoutFallbackReady) {
         if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
           reportGaveUp()
@@ -226,33 +222,11 @@ export const createPostStartInputWriter = (
           text,
           baselineLength,
           isClaudeCommand(command),
-          isClaudeCommand(command) ? reportAck : undefined,
-          isClaudeCommand(command)
-            ? () => {
-                let latestOutputLength = baselineLength
-                try {
-                  const run = agentManager.getRun(runId)
-                  if (!isWritableRunStatus(run.status)) return
-                  latestOutputLength = run.output.length
-                } catch {
-                  return
-                }
-                if (pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
-                  pasteInFlight = false
-                  reportGaveUp()
-                  return
-                }
-                pasteInFlight = false
-                readinessBaseline = latestOutputLength
-                firstBusyAt = null
-                requiresFreshPromptForRetry = true
-                setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
-              }
-            : undefined
+          isClaudeCommand(command) ? reportAck : undefined
         )
         return
       }
-      if (timedOut && !shouldKeepWaitingForClaudeBusy && !requiresFreshPromptForRetry) return
+      if (timedOut && !shouldKeepWaitingForClaudeBusy) return
       setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
     }
     try {

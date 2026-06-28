@@ -99,7 +99,7 @@ describe('post-start input writer', () => {
     expect(onPasteGaveUp).not.toHaveBeenCalled()
   })
 
-  test('reports paste gave-up after Claude misses acknowledgement for all allowed attempts', () => {
+  test('reports Claude paste as acknowledged after timeout fallback submit', () => {
     vi.useFakeTimers()
     let output = 'Welcome back\n'
     const manager = {
@@ -120,16 +120,12 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(3000)
-    output += 'retry prompt\n❯ '
-    vi.advanceTimersByTime(50)
     expect(manager.writeInput).toHaveBeenCalledTimes(2)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
+    expect(onPasteAck).toHaveBeenCalledTimes(1)
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
 
-    vi.advanceTimersByTime(3000)
-
-    expect(onPasteAck).not.toHaveBeenCalled()
-    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
-
-    output += 'another prompt\n❯ '
+    output += 'retry prompt\n❯ '
     vi.advanceTimersByTime(5000)
     expect(manager.writeInput).toHaveBeenCalledTimes(2)
   })
@@ -176,15 +172,20 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
   })
 
-  test('does not submit Claude pasted input without acknowledgement and retries after prompt returns', () => {
+  test('submits Claude short pasted input when no bracketed paste acknowledgement appears', () => {
     vi.useFakeTimers()
     let output = 'Welcome back\n'
     const manager = {
-      getRun: vi.fn(() => ({ output })),
+      getRun: vi.fn(() => ({ output, status: 'running' })),
       writeInput: vi.fn(),
     }
+    const onPasteAck = vi.fn()
+    const onPasteGaveUp = vi.fn()
 
-    const write = createPostStartInputWriter(manager as never, 'claude')
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      onPasteAck,
+      onPasteGaveUp,
+    })
     write('run-1', 'payload')
 
     output = 'Welcome back\n❯ '
@@ -193,23 +194,17 @@ describe('post-start input writer', () => {
 
     vi.advanceTimersByTime(2999)
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(onPasteAck).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(1)
-    expect(manager.writeInput).toHaveBeenCalledTimes(1)
-
-    output += 'Compacting conversation…\nesc to interrupt\n'
-    vi.advanceTimersByTime(8000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenCalledTimes(2)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
+    expect(onPasteAck).toHaveBeenCalledTimes(1)
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
 
     output += 'Done\n❯ '
-    vi.advanceTimersByTime(100)
+    vi.advanceTimersByTime(5000)
     expect(manager.writeInput).toHaveBeenCalledTimes(2)
-    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\u001b[200~payload\u001b[201~')
-
-    output += '[Pasted text #2 +1 lines]\n'
-    vi.advanceTimersByTime(700)
-    expect(manager.writeInput).toHaveBeenCalledTimes(3)
-    expect(manager.writeInput).toHaveBeenNthCalledWith(3, 'run-1', '\r')
   })
 
   test('does not repeatedly paste when Claude stays busy after a missing acknowledgement', () => {
@@ -235,10 +230,11 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '\u001b[200~payload\u001b[201~')
 
     vi.advanceTimersByTime(3_000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenCalledTimes(2)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
 
     vi.advanceTimersByTime(30_000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenCalledTimes(2)
   })
 
   test('waits for Gemini prompt readiness and writes plain input without bracketed paste', () => {
