@@ -11,6 +11,102 @@ const MAX_ERROR_TAIL_LINES = 200
 const FORCE_KILL_DELAY_MS = 750
 type ForceKillTimer = ReturnType<typeof setTimeout> & { unref?: () => void }
 
+export interface RunOutputBuffer {
+  append: (chunk: string) => void
+  read: () => string
+  readStats: () => { headIndex: number; rebuilds: number; retainedChunks: number }
+  reset: (value: string) => void
+}
+
+export const createRunOutputBuffer = (maxLength = MAX_RUN_OUTPUT_LENGTH): RunOutputBuffer => {
+  let chunks: string[] = []
+  let headIndex = 0
+  let totalLength = 0
+  let cached = ''
+  let dirty = false
+  let rebuilds = 0
+
+  const trimToMaxLength = () => {
+    while (totalLength > maxLength && headIndex < chunks.length) {
+      const overflow = totalLength - maxLength
+      const first = chunks[headIndex] ?? ''
+      if (first.length <= overflow) {
+        headIndex += 1
+        totalLength -= first.length
+        continue
+      }
+      chunks[headIndex] = first.slice(overflow)
+      totalLength -= overflow
+    }
+  }
+
+  const compactDiscardedChunks = () => {
+    if (headIndex === 0) return
+    if (headIndex <= chunks.length / 2) return
+    chunks = chunks.slice(headIndex)
+    headIndex = 0
+  }
+
+  return {
+    append(chunk: string) {
+      if (!chunk) return
+      if (chunk.length >= maxLength) {
+        chunks = [chunk.slice(-maxLength)]
+        headIndex = 0
+        totalLength = chunks[0]?.length ?? 0
+        dirty = true
+        return
+      }
+      chunks.push(chunk)
+      totalLength += chunk.length
+      trimToMaxLength()
+      compactDiscardedChunks()
+      dirty = true
+    },
+    read() {
+      if (dirty) {
+        cached = chunks.slice(headIndex).join('')
+        chunks = cached ? [cached] : []
+        headIndex = 0
+        dirty = false
+        rebuilds += 1
+      }
+      return cached
+    },
+    readStats() {
+      return { headIndex, rebuilds, retainedChunks: chunks.length }
+    },
+    reset(value: string) {
+      chunks = []
+      headIndex = 0
+      totalLength = 0
+      cached = ''
+      dirty = false
+      rebuilds = 0
+      this.append(value)
+    },
+  }
+}
+
+export const installRunOutputBuffer = (run: AgentRunRecord) => {
+  if (!run.outputBuffer) {
+    const initialOutput = run.output
+    run.outputBuffer = createRunOutputBuffer()
+    run.outputBuffer.append(initialOutput)
+  }
+  Object.defineProperty(run, 'output', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return run.outputBuffer?.read() ?? ''
+    },
+    set(value: string) {
+      if (!run.outputBuffer) run.outputBuffer = createRunOutputBuffer()
+      run.outputBuffer.reset(value)
+    },
+  })
+}
+
 export const createOutputTailBuffer = (maxLines = MAX_ERROR_TAIL_LINES) => {
   const lines: string[] = []
   let pending = ''
@@ -212,10 +308,9 @@ export const attachAgentPty = (
   pty.onData((chunk) => {
     try {
       if (run.status === 'starting') run.status = 'running'
-      run.output += chunk
+      if (!run.outputBuffer) installRunOutputBuffer(run)
+      run.outputBuffer?.append(chunk)
       run.errorTailBuffer.append(chunk)
-      if (run.output.length > MAX_RUN_OUTPUT_LENGTH)
-        run.output = run.output.slice(-MAX_RUN_OUTPUT_LENGTH)
       ptyOutputBus.publish(run.runId, chunk)
     } catch (error) {
       logHandlerError(logger, 'pty.onData', error)

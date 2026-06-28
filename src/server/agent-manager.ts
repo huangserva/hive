@@ -5,6 +5,8 @@ import { resolveSpawnCommand } from './agent-command-resolver.js'
 import {
   attachAgentPty,
   createOutputTailBuffer,
+  createRunOutputBuffer,
+  installRunOutputBuffer,
   toAgentRunSnapshot,
 } from './agent-manager-support.js'
 import type { HiveLogger } from './logger.js'
@@ -54,6 +56,12 @@ interface AgentRunRecord extends AgentRunSnapshot {
   errorTailBuffer: {
     append: (chunk: string) => void
     read: () => string | null
+  }
+  outputBuffer?: {
+    append: (chunk: string) => void
+    read: () => string
+    readStats: () => { headIndex: number; rebuilds: number; retainedChunks: number }
+    reset: (value: string) => void
   }
 }
 
@@ -294,6 +302,7 @@ export const createAgentManager = ({
         exitCode: null,
         errorTail: null,
         errorTailBuffer: createOutputTailBuffer(),
+        outputBuffer: createRunOutputBuffer(),
         process: {
           isStopped() {
             return false
@@ -306,6 +315,7 @@ export const createAgentManager = ({
           write() {},
         },
       }
+      installRunOutputBuffer(run)
 
       if (input.onExit) run.onExit = input.onExit
 
