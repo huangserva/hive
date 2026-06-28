@@ -12,14 +12,19 @@ import {
 } from '../../packages/relay-crypto/src/index.js'
 import type { RelayConfig } from './relay-connector.js'
 
-type EnabledRelayConfig = RelayConfig & {
+type EnabledRelayConfigV1 = RelayConfig & {
+  enabled: true
+  relay_protocol_version: 1
+}
+
+type EnabledRelayConfigV2 = RelayConfig & {
   daemon_signing_keypair: KeyPair
   enabled: true
   relay_protocol_version: 2
   room_auth_token: string
 }
 
-export type LoadedRelayConfig = EnabledRelayConfig | { enabled: false }
+export type LoadedRelayConfig = EnabledRelayConfigV1 | EnabledRelayConfigV2 | { enabled: false }
 
 interface LoadRelayConfigOptions {
   dataDir?: string
@@ -39,6 +44,9 @@ interface RelayKeypairFile {
 }
 
 const defaultDataDir = () => process.env.HIVE_DATA_DIR ?? join(homedir(), '.config', 'hive')
+
+const resolveRelayProtocolVersion = (env: NodeJS.ProcessEnv = process.env): 1 | 2 =>
+  env.HIVE_RELAY_PROTOCOL_VERSION === '2' ? 2 : 1
 
 const readJsonFile = async <T>(path: string): Promise<T | null> => {
   try {
@@ -116,32 +124,51 @@ export const loadRelayConfig = async (
   await mkdir(dataDir, { recursive: true })
   const relayAuthToken = requireString(config.relay_auth_token, 'relay_auth_token')
   const roomId = requireString(config.room_id, 'room_id')
-  return {
+  const baseConfig = {
     daemon_keypair: await readOrCreateKeypair(join(dataDir, 'relay-keypair.json')),
+    enabled: true,
+    relay_auth_token: relayAuthToken,
+    relay_url: requireString(config.relay_url, 'relay_url'),
+    room_id: roomId,
+    runtime_id: requireString(config.runtime_id, 'runtime_id'),
+  } satisfies Omit<EnabledRelayConfigV1, 'relay_protocol_version'>
+
+  if (resolveRelayProtocolVersion() === 1) {
+    return {
+      ...baseConfig,
+      relay_protocol_version: 1,
+    }
+  }
+
+  return {
+    ...baseConfig,
     daemon_signing_keypair: await readOrCreateSigningKeypair(
       join(dataDir, 'relay-signing-keypair.json')
     ),
-    enabled: true,
-    relay_auth_token: relayAuthToken,
     relay_protocol_version: 2,
-    relay_url: requireString(config.relay_url, 'relay_url'),
     room_auth_token: deriveRoomAuthToken(relayAuthToken, roomId),
-    room_id: roomId,
-    runtime_id: requireString(config.runtime_id, 'runtime_id'),
   }
 }
 
 export type RelayConnectionInfo =
   | { enabled: false }
   | {
+      daemon_public_key: string
       enabled: true
+      relay_auth_token: string
+      relay_protocol_version: 1
       relay_url: string
       room_id: string
-      relay_auth_token: string
-      relay_protocol_version: 2
+    }
+  | {
       daemon_public_key: string
       daemon_signing_public_key: string
+      enabled: true
+      relay_auth_token: string
+      relay_protocol_version: 2
+      relay_url: string
       room_auth_token: string
+      room_id: string
     }
 
 /**
@@ -156,14 +183,25 @@ export const loadRelayConnectionInfo = async (
 ): Promise<RelayConnectionInfo> => {
   const config = await loadRelayConfig(options)
   if (!config.enabled) return { enabled: false }
-  return {
+  const baseInfo = {
     daemon_public_key: encodeBase64(config.daemon_keypair.publicKey),
-    daemon_signing_public_key: encodeBase64(config.daemon_signing_keypair.publicKey),
     enabled: true,
     relay_auth_token: config.relay_auth_token,
-    relay_protocol_version: 2,
     relay_url: config.relay_url,
-    room_auth_token: config.room_auth_token,
     room_id: config.room_id,
+  } satisfies Omit<RelayConnectionInfo & { enabled: true }, 'relay_protocol_version'>
+
+  if (config.relay_protocol_version === 1) {
+    return {
+      ...baseInfo,
+      relay_protocol_version: 1,
+    }
+  }
+
+  return {
+    ...baseInfo,
+    daemon_signing_public_key: encodeBase64(config.daemon_signing_keypair.publicKey),
+    relay_protocol_version: 2,
+    room_auth_token: config.room_auth_token,
   }
 }
