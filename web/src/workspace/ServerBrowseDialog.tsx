@@ -71,14 +71,15 @@ export const ServerBrowseDialog = ({
   const presetAvailabilityError = selectedPresetUnavailable
     ? t('workspace.preset.notInstalled', { name: selectedPreset.displayName })
     : null
+  const manualPathClean = manualPath.trim()
   const canCreate =
     name.trim().length > 0 &&
-    (probe?.is_dir === true || (advanced && manualPath.trim().length > 0)) &&
+    (probe?.is_dir === true || (advanced && manualPathClean.length > 0)) &&
     !presetsLoading &&
     !selectedPresetUnavailable
 
   const handleCreate = () => {
-    const path = advanced && manualPath.trim().length > 0 ? manualPath.trim() : (probe?.path ?? '')
+    const path = advanced && manualPathClean.length > 0 ? manualPathClean : (probe?.path ?? '')
     if (!path) return
     onCreate({
       commandPresetId: startupClean && !commandPresetTouched ? null : commandPresetId || null,
@@ -199,6 +200,8 @@ export const ServerBrowseDialog = ({
                 style={{ borderColor: 'var(--border)' }}
               >
                 <FsSelectionPreview
+                  displayPath={advanced && manualPathClean ? manualPathClean : undefined}
+                  nameEditable={advanced && manualPathClean.length > 0}
                   onSuggestedNameChange={setName}
                   probe={probe}
                   suggestedName={name}

@@ -76,7 +76,7 @@ describe('pickFolder — platform dispatch', () => {
       calls.push({ command, args, timeout: options.timeout })
       return { ...emptySpawn, stdout: `${insideDir}\n` }
     }
-    const result = await pickFolder({ platform: 'linux', runCommand })
+    const result = await pickFolder({ env: { DISPLAY: ':99' }, platform: 'linux', runCommand })
     expect(result.path).toBe(insideDir)
     expect(result.probe?.is_git_repository).toBe(true)
     expect(calls[0]?.command).toBe('zenity')
@@ -86,7 +86,7 @@ describe('pickFolder — platform dispatch', () => {
 
   test('linux: zenity cancel (exit 1) is canceled, not an error', async () => {
     const runCommand: RunPickCommand = async () => ({ ...emptySpawn, status: 1 })
-    const result = await pickFolder({ platform: 'linux', runCommand })
+    const result = await pickFolder({ env: { DISPLAY: ':99' }, platform: 'linux', runCommand })
     expect(result.canceled).toBe(true)
     expect(result.error).toBeNull()
   })
@@ -131,9 +131,30 @@ describe('pickFolder — platform dispatch', () => {
       status: 127,
       spawnError: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }),
     })
-    const result = await pickFolder({ platform: 'linux', runCommand })
+    const result = await pickFolder({ env: { DISPLAY: ':99' }, platform: 'linux', runCommand })
     expect(result.supported).toBe(false)
     expect(result.canceled).toBe(false)
+  })
+
+  test('linux: headless environment returns unsupported without spawning zenity', async () => {
+    const runCommand = vi.fn<RunPickCommand>()
+    const result = await pickFolder({ env: {}, platform: 'linux', runCommand })
+    expect(result.supported).toBe(false)
+    expect(result.canceled).toBe(false)
+    expect(result.error).toMatch(/server directory browser|paste a server path/i)
+    expect(runCommand).not.toHaveBeenCalled()
+  })
+
+  test('linux: zenity display failures return unsupported for browser fallback', async () => {
+    const runCommand: RunPickCommand = async () => ({
+      ...emptySpawn,
+      status: 1,
+      stderr: 'Gtk-WARNING **: cannot open display:',
+    })
+    const result = await pickFolder({ env: { DISPLAY: ':99' }, platform: 'linux', runCommand })
+    expect(result.supported).toBe(false)
+    expect(result.canceled).toBe(false)
+    expect(result.error).toMatch(/server directory browser|paste a server path/i)
   })
 
   test('picked path outside the sandbox is rejected by probeDirectory', async () => {
