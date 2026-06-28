@@ -107,9 +107,19 @@ export const useTasksFile = (workspaceId: string | null, demoContent?: string) =
       },
       onMessage(event) {
         if (closed) return
-        const payload = JSON.parse(event.data) as { content: string; type: string }
-        if (payload.type !== 'tasks-updated') return
-        applyRemoteContent(payload.content, contentRef.current)
+        // Drop malformed / unexpected frames instead of letting a parse error or
+        // a non-string content propagate into React state.
+        let payload: unknown
+        try {
+          payload = typeof event.data === 'string' ? JSON.parse(event.data) : null
+        } catch (error) {
+          console.error('[hive] dropped malformed tasks WS frame', error)
+          return
+        }
+        if (!payload || typeof payload !== 'object') return
+        const frame = payload as { content?: unknown; type?: unknown }
+        if (frame.type !== 'tasks-updated' || typeof frame.content !== 'string') return
+        applyRemoteContent(frame.content, contentRef.current)
       },
     })
     return () => {

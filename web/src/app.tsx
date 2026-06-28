@@ -15,6 +15,8 @@ import { parseTaskMarkdown } from './tasks/task-markdown.js'
 import { useTasksFile } from './tasks/useTasksFile.js'
 import { useOptimisticTerminalRuns } from './terminal/useOptimisticTerminalRuns.js'
 import { useTerminalRuns } from './terminal/useTerminalRuns.js'
+import { ErrorBoundary } from './ui/ErrorBoundary.js'
+import { AppErrorFallback } from './ui/ErrorFallback.js'
 import { useToast } from './ui/useToast.js'
 import { useAppShortcuts } from './useAppShortcuts.js'
 import { useInitializeUiSession } from './useInitializeUiSession.js'
@@ -190,7 +192,12 @@ const AppInner = () => {
 }
 
 export const App = () => (
-  <AppProviders>
-    <AppInner />
-  </AppProviders>
+  <ErrorBoundary
+    fallback={(error, reset) => <AppErrorFallback error={error} reset={reset} />}
+    label="app-root"
+  >
+    <AppProviders>
+      <AppInner />
+    </AppProviders>
+  </ErrorBoundary>
 )

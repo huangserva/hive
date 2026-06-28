@@ -38,6 +38,7 @@ export type {
 } from '../../src/server/pm-tasks-doc.js'
 
 import type { ParsedCockpit } from '../../src/server/cockpit-doc.js'
+import { normalizeCockpit, normalizePlan } from './cockpit/cockpit-normalize.js'
 import {
   createReconnectingWebSocket,
   type ReconnectingWebSocket,
@@ -884,7 +885,7 @@ export const fetchPlan = async (workspaceId: string): Promise<ParsedPlan> => {
     throw new Error(await readErrorMessage(response, 'Failed to load plan'))
   }
 
-  return (await response.json()) as ParsedPlan
+  return normalizePlan(await response.json())
 }
 
 export const fetchCockpit = async (workspaceId: string): Promise<ParsedCockpit> => {
@@ -894,7 +895,7 @@ export const fetchCockpit = async (workspaceId: string): Promise<ParsedCockpit> 
     throw new Error(await readErrorMessage(response, 'Failed to load cockpit'))
   }
 
-  return (await response.json()) as ParsedCockpit
+  return normalizeCockpit(await response.json())
 }
 
 export const answerCockpitQuestion = async (
@@ -972,15 +973,30 @@ const toWorkspaceSocketUrl = (path: string) => {
   return `${protocol}//${window.location.host}${path}`
 }
 
+// Safely parse a JSON WS frame. A malformed frame is dropped (logged), never
+// thrown — a parse error must not propagate into React state / the render tree.
+const parseJsonFrame = (data: unknown, label: string): Record<string, unknown> | null => {
+  if (typeof data !== 'string') return null
+  try {
+    const parsed = JSON.parse(data) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+  } catch (error) {
+    console.error(`[hive] dropped malformed ${label} WS frame`, error)
+    return null
+  }
+}
+
 export const connectPlanStream = (
   workspaceId: string,
   onUpdate: (plan: ParsedPlan) => void
 ): ReconnectingWebSocket => {
   return createReconnectingWebSocket(toWorkspaceSocketUrl(`/ws/plan/${workspaceId}`), {
     onMessage(event) {
-      const payload = JSON.parse(event.data) as { plan?: ParsedPlan; type: string }
-      if ((payload.type === 'plan-snapshot' || payload.type === 'plan-updated') && payload.plan) {
-        onUpdate(payload.plan)
+      const message = parseJsonFrame(event.data, 'plan')
+      if (!message) return
+      if ((message.type === 'plan-snapshot' || message.type === 'plan-updated') && message.plan) {
+        // normalize before it reaches React state — never store a raw/partial shape.
+        onUpdate(normalizePlan(message.plan))
       }
     },
   })
@@ -992,12 +1008,13 @@ export const connectCockpitStream = (
 ): { close: () => void } => {
   const socket = createReconnectingWebSocket(toWorkspaceSocketUrl(`/ws/cockpit/${workspaceId}`), {
     onMessage(event) {
-      const message = JSON.parse(event.data) as { kind?: string; payload?: ParsedCockpit }
+      const message = parseJsonFrame(event.data, 'cockpit')
+      if (!message) return
       if (
         (message.kind === 'cockpit-snapshot' || message.kind === 'cockpit-update') &&
         message.payload
       ) {
-        onUpdate(message.payload)
+        onUpdate(normalizeCockpit(message.payload))
       }
     },
   })

@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom'
 import type { TerminalInputProfile } from '../api.js'
 import type { TranslationKey } from '../i18n.js'
 import { useI18n } from '../i18n.js'
+import { ErrorBoundary } from '../ui/ErrorBoundary.js'
+import { InlineErrorFallback } from '../ui/ErrorFallback.js'
 import { useTerminalRun } from './useTerminalRun.js'
 
 const STATUS_KEYS: Record<string, TranslationKey> = {
@@ -201,7 +203,13 @@ export const TerminalView = ({ inputProfile = 'default', runId, title }: Termina
 
   if (!host) return null
   return createPortal(
-    <TerminalPtyView inputProfile={inputProfile} runId={runId} title={title} />,
+    <ErrorBoundary
+      fallback={(error, reset) => <InlineErrorFallback error={error} reset={reset} />}
+      label="terminal"
+      resetKeys={[runId]}
+    >
+      <TerminalPtyView inputProfile={inputProfile} runId={runId} title={title} />
+    </ErrorBoundary>,
     host
   )
 }

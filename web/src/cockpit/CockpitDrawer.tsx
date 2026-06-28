@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { type AIAction, openWorkspaceFile, type ParsedCockpit } from '../api.js'
 import { useI18n } from '../i18n.js'
 import { EmptyState } from '../ui/EmptyState.js'
+import { ErrorBoundary } from '../ui/ErrorBoundary.js'
+import { InlineErrorFallback } from '../ui/ErrorFallback.js'
 import { Tooltip } from '../ui/Tooltip.js'
 import { ActionBar } from './ActionBar.js'
 import { type CockpitTab, CockpitTabs } from './CockpitTabs.js'
@@ -176,25 +178,33 @@ export const CockpitDrawer = ({
           </header>
           <CockpitTabs activeTab={activeTab} cockpit={cockpit} onChange={setActiveTab} />
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {activeTab === 'setup' ? (
-              <SetupTab />
-            ) : activeTab === 'diagnostics' ? (
-              <DiagnosticsTab />
-            ) : error ? (
-              <div className="p-5 text-sm text-warn">{error}</div>
-            ) : !cockpit ? (
-              <div className="flex h-full items-center justify-center px-6">
-                <EmptyState
-                  icon={<Gauge size={20} />}
-                  title={t('cockpit.loading')}
-                  description={t('cockpit.loadingDescription')}
-                />
-              </div>
-            ) : (
-              renderTab(cockpit, activeTab, workspaceId, pendingAction, () =>
-                setPendingAction(null)
-              )
-            )}
+            <ErrorBoundary
+              fallback={(boundaryError, reset) => (
+                <InlineErrorFallback error={boundaryError} reset={reset} />
+              )}
+              label="cockpit-tab"
+              resetKeys={[activeTab, cockpit?.generatedAt]}
+            >
+              {activeTab === 'setup' ? (
+                <SetupTab />
+              ) : activeTab === 'diagnostics' ? (
+                <DiagnosticsTab />
+              ) : error ? (
+                <div className="p-5 text-sm text-warn">{error}</div>
+              ) : !cockpit ? (
+                <div className="flex h-full items-center justify-center px-6">
+                  <EmptyState
+                    icon={<Gauge size={20} />}
+                    title={t('cockpit.loading')}
+                    description={t('cockpit.loadingDescription')}
+                  />
+                </div>
+              ) : (
+                renderTab(cockpit, activeTab, workspaceId, pendingAction, () =>
+                  setPendingAction(null)
+                )
+              )}
+            </ErrorBoundary>
           </div>
           <ActionBar actions={cockpit?.aiActions ?? []} onAction={handleAction} />
         </Dialog.Content>

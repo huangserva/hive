@@ -1,7 +1,15 @@
-type TerminalControlServerMessage =
-  | { type: 'error'; message: string }
-  | { type: 'exit'; code: number | null }
-  | { type: 'restore'; snapshot: string }
+import {
+  createPendingOutputBuffer,
+  type PendingOutputBufferOptions,
+} from './pending-output-buffer.js'
+import { parseTerminalControlFrame } from './terminal-control-frame.js'
+
+// If the restore snapshot never arrives (server stall) we stop buffering and go
+// live so pre-restore output can't accumulate indefinitely. The buffer cap is
+// the hard memory bound; this is the "don't wait forever" backstop.
+const RESTORE_TIMEOUT_MS = 15_000
+
+const byteLength = (value: string) => new TextEncoder().encode(value).byteLength
 
 interface TerminalClientOptions {
   initialSize?: {
@@ -14,6 +22,8 @@ interface TerminalClientOptions {
   onExit: (code: number | null) => void
   onOutput: (chunk: string, acknowledge: (bytes: number) => void) => void
   onRestore: (snapshot: string) => void
+  // Caps for the pre-restore output buffer; defaults to DEFAULT_PENDING_OUTPUT_LIMITS.
+  pendingOutputLimits?: PendingOutputBufferOptions
   runId: string
 }
 
@@ -41,6 +51,7 @@ export const createTerminalClient = ({
   onExit,
   onOutput,
   onRestore,
+  pendingOutputLimits,
   runId,
 }: TerminalClientOptions): TerminalClient => {
   const clientId = crypto.randomUUID()
@@ -51,7 +62,40 @@ export const createTerminalClient = ({
   let disposed = false
   let reconnectAttempt = 0
   let reconnectTimer: ReturnType<typeof window.setTimeout> | null = null
-  const pendingOutput: Array<{ chunk: string; acknowledge: (bytes: number) => void }> = []
+  let restoreTimer: ReturnType<typeof window.setTimeout> | null = null
+  const pendingOutput = createPendingOutputBuffer(pendingOutputLimits)
+  // Output-ack bytes that could not be sent yet because the control socket was
+  // not open. Without this, acks for dropped/buffered output before control opens
+  // are lost forever → server terminal-flow-control unackedBytes stays high → PTY
+  // output gets paused (stuck). We accumulate and flush once control is writable.
+  let pendingAckBytes = 0
+
+  const sendAck = (bytes: number) => {
+    if (bytes <= 0) return
+    if (controlSocket?.readyState === WS_OPEN) {
+      controlSocket.send(JSON.stringify({ type: 'output_ack', bytes }))
+    } else {
+      pendingAckBytes += bytes
+    }
+  }
+
+  const flushPendingAck = () => {
+    if (pendingAckBytes > 0 && controlSocket?.readyState === WS_OPEN) {
+      controlSocket.send(JSON.stringify({ type: 'output_ack', bytes: pendingAckBytes }))
+      pendingAckBytes = 0
+    }
+  }
+
+  const flushPendingOutput = () => {
+    for (const output of pendingOutput.drain()) onOutput(output.chunk, output.acknowledge)
+  }
+
+  const clearRestoreTimer = () => {
+    if (restoreTimer) {
+      window.clearTimeout(restoreTimer)
+      restoreTimer = null
+    }
+  }
   let pendingResize: {
     cols: number
     rows: number
@@ -88,7 +132,20 @@ export const createTerminalClient = ({
     ioSocket?.close()
     controlSocket?.close()
     restored = false
-    pendingOutput.splice(0)
+    clearRestoreTimer()
+    pendingOutput.clear()
+    // Stale acks from a previous (dead) connection must not be sent to the fresh
+    // flow controller, which starts at 0 unacked bytes.
+    pendingAckBytes = 0
+    restoreTimer = window.setTimeout(() => {
+      restoreTimer = null
+      if (disposed || restored) return
+      // Restore never arrived — go live so the buffer stops growing. We lose the
+      // historical snapshot but keep streaming current output (graceful degrade).
+      console.warn('[hive] terminal restore timed out; going live without snapshot')
+      restored = true
+      flushPendingOutput()
+    }, RESTORE_TIMEOUT_MS)
     ioSocket = new WebSocket(toWebSocketUrl(`/ws/terminal/${runId}/io`, connectionParams))
     controlSocket = new WebSocket(toWebSocketUrl(`/ws/terminal/${runId}/control`, connectionParams))
 
@@ -101,33 +158,37 @@ export const createTerminalClient = ({
     controlSocket.onerror = () => scheduleReconnect()
     ioSocket.onmessage = (event) => {
       const chunk = typeof event.data === 'string' ? event.data : ''
-      const acknowledge = (bytes: number) => {
-        if (controlSocket?.readyState !== WS_OPEN) return
-        controlSocket.send(JSON.stringify({ type: 'output_ack', bytes }))
-      }
+      // Route every ack through sendAck so it is accumulated (not lost) when the
+      // control socket is not yet open.
       if (!restored) {
-        pendingOutput.push({ chunk, acknowledge })
+        pendingOutput.push({ acknowledge: sendAck, bytes: byteLength(chunk), chunk })
         return
       }
-      onOutput(chunk, acknowledge)
+      onOutput(chunk, sendAck)
     }
     controlSocket.onopen = () => {
       reconnectAttempt = 0
       sendResize()
+      flushPendingAck()
     }
     controlSocket.onmessage = (event) => {
-      const message = JSON.parse(String(event.data)) as TerminalControlServerMessage
+      // Validate the frame shape before touching state/callbacks — a stale or
+      // malformed frame in this async handler would throw past every ErrorBoundary.
+      const message = parseTerminalControlFrame(event.data)
+      if (!message) {
+        console.error('[hive] dropped invalid terminal control frame', event.data)
+        return
+      }
       if (message.type === 'exit') onExit(message.code)
       if (message.type === 'error') onError(message.message)
       if (message.type === 'restore') {
+        clearRestoreTimer()
         onRestore(message.snapshot)
         restored = true
         if (controlSocket?.readyState === WS_OPEN) {
           controlSocket.send(JSON.stringify({ type: 'restore_complete' }))
         }
-        for (const output of pendingOutput.splice(0)) {
-          onOutput(output.chunk, output.acknowledge)
-        }
+        flushPendingOutput()
       }
     }
   }
@@ -138,6 +199,7 @@ export const createTerminalClient = ({
     dispose() {
       disposed = true
       if (reconnectTimer) window.clearTimeout(reconnectTimer)
+      clearRestoreTimer()
       ioSocket?.close()
       controlSocket?.close()
     },
