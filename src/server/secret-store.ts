@@ -1,7 +1,26 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export const SECRET_ENV_KEYS = ['GLM_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as const
+export const SECRET_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'DEEPSEEK_API_KEY',
+  'FEISHU_APP_SECRET',
+  'GEMINI_API_KEY',
+  'GLM_API_KEY',
+  'GOOGLE_API_KEY',
+  'GROQ_API_KEY',
+  'HIVE_WEBRTC_ICE_SERVERS_JSON',
+  'MISTRAL_API_KEY',
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'RELAY_AUTH_TOKEN',
+  'XAI_API_KEY',
+] as const
 
 export type SecretEnvKey = (typeof SECRET_ENV_KEYS)[number]
 
@@ -16,11 +35,14 @@ export interface SecretStore {
 export const isSecretEnvKey = (value: unknown): value is SecretEnvKey =>
   typeof value === 'string' && (SECRET_ENV_KEYS as readonly string[]).includes(value)
 
-const emptyPresent = (): Record<SecretEnvKey, boolean> => ({
-  ANTHROPIC_API_KEY: false,
-  ANTHROPIC_AUTH_TOKEN: false,
-  GLM_API_KEY: false,
-})
+const emptyPresent = (): Record<SecretEnvKey, boolean> =>
+  SECRET_ENV_KEYS.reduce(
+    (present, key) => {
+      present[key] = false
+      return present
+    },
+    {} as Record<SecretEnvKey, boolean>
+  )
 
 const isSecretRecord = (value: unknown): value is SecretRecord => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -33,11 +55,11 @@ const createInMemorySecretStore = (): SecretStore => {
   const record: SecretRecord = {}
   return {
     get: (key) => record[key] ?? null,
-    listPresent: () => ({
-      ANTHROPIC_API_KEY: typeof record.ANTHROPIC_API_KEY === 'string',
-      ANTHROPIC_AUTH_TOKEN: typeof record.ANTHROPIC_AUTH_TOKEN === 'string',
-      GLM_API_KEY: typeof record.GLM_API_KEY === 'string',
-    }),
+    listPresent: () =>
+      SECRET_ENV_KEYS.reduce((present, key) => {
+        present[key] = typeof record[key] === 'string'
+        return present
+      }, emptyPresent()),
     set: (key, value) => {
       record[key] = value
     },

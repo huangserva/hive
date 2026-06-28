@@ -18,6 +18,7 @@ import {
   type RelayConnectorHandle,
   type RelayConnectorOptions,
 } from '../../src/server/relay-connector.js'
+import type { RelayConnectorDiagnosticEvent } from '../../src/server/relay-connector-observability.js'
 
 const relayServers: RelayServerHandle[] = []
 const connectors: RelayConnectorHandle[] = []
@@ -362,6 +363,59 @@ describe('relay connector', () => {
         params: { verbose: true },
       },
     ])
+  })
+
+  it('emits relay observability events to logger and diagnostics sink during handshake', async () => {
+    const relay = await startRelay()
+    const config = configFor(relay)
+    const diagnosticEvents: RelayConnectorDiagnosticEvent[] = []
+    const logLines: string[] = []
+    const connector = createRelayConnector(config, async () => ({ ok: true }), {
+      authenticateDevice: (token) => {
+        if (token !== 'device-token') throw new Error('bad token')
+        return {
+          capabilities: ['read_dashboard', 'send_prompt'],
+          id: 'device-1',
+        }
+      },
+      heartbeatIntervalMs: 25,
+      logger: {
+        info: (message) => logLines.push(message),
+        warn: (message) => logLines.push(message),
+      },
+      recordDiagnosticEvent: (event) => diagnosticEvents.push(event),
+      reconnectBaseDelayMs: 20,
+      reconnectMaxDelayMs: 50,
+    })
+    connectors.push(connector)
+    const socket = await connectDevice(relay)
+
+    await waitFor(() => diagnosticEvents.some((event) => event.event === 'peer_connected'))
+    await completeHandshake(socket)
+
+    expect(diagnosticEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'peer_connected',
+          protocol_version: 'unknown',
+          room_id: 'room-1',
+        }),
+        expect.objectContaining({
+          device_id: 'device-1',
+          event: 'handshake_start',
+          protocol_version: 'unknown',
+          room_id: 'room-1',
+        }),
+        expect.objectContaining({
+          device_id: 'device-1',
+          event: 'handshake_ok',
+          protocol_version: 'v1',
+          room_id: 'room-1',
+        }),
+      ])
+    )
+    expect(logLines.join('\n')).toContain('relay_connector event=handshake_ok')
+    expect(logLines.join('\n')).not.toContain('device-token')
   })
 
   it('performs v2 signed handshake and dispatches encrypted JSON-RPC to handler', async () => {

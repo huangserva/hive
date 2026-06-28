@@ -10,6 +10,13 @@ import {
   type HandshakeInitMessage,
   type KeyPair,
 } from '../../packages/relay-crypto/src/index.js'
+import type { HiveLogger } from './logger.js'
+import {
+  formatRelayConnectorLogLine,
+  type RelayConnectorDiagnosticEvent,
+  type RelayConnectorEventName,
+  toRelayConnectorDiagnosticEvent,
+} from './relay-connector-observability.js'
 import { isWebRtcSignalFrame, type WebRtcSignalFrame } from './webrtc-signal-protocol.js'
 
 const log = (message: string, error?: unknown) => {
@@ -83,6 +90,8 @@ export interface RelayConnectorOptions {
       sendData: (frame: unknown) => void
     }
   ) => Promise<boolean> | boolean
+  logger?: Pick<HiveLogger, 'info' | 'warn'>
+  recordDiagnosticEvent?: (event: RelayConnectorDiagnosticEvent) => void
 }
 
 type RelayDataFrame = { payload: string; type: 'data' }
@@ -233,6 +242,49 @@ export const createRelayConnector = (
   const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS
   const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS
   const rpcResponseCache = new Map<string, CachedRpcResponse>()
+  const relaySecretValues = [
+    config.relay_auth_token,
+    config.room_auth_token,
+    config.daemon_keypair.secretKey,
+    config.daemon_signing_keypair?.secretKey,
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+  const emitRelayEvent = (
+    event: RelayConnectorEventName,
+    input: {
+      deviceId?: string | null | undefined
+      error?: unknown
+      errorCode?: string | undefined
+      protocolVersion?: number | null | undefined
+      secretValues?: string[] | undefined
+    } = {}
+  ) => {
+    const diagnosticEvent = toRelayConnectorDiagnosticEvent({
+      deviceId: input.deviceId,
+      error: input.error,
+      errorCode: input.errorCode,
+      event,
+      protocolVersion: input.protocolVersion ?? config.relay_protocol_version,
+      roomId: config.room_id,
+      secretValues: [...relaySecretValues, ...(input.secretValues ?? [])],
+    })
+    const line = formatRelayConnectorLogLine(diagnosticEvent)
+    log(line)
+    const level: 'info' | 'warn' =
+      event === 'handshake_failed' ||
+      event === 'device_mismatch' ||
+      event === 'capability_denied' ||
+      event === 'liveness_timeout' ||
+      event === 'decode_error'
+        ? 'warn'
+        : 'info'
+    options.logger?.[level]?.(line)
+    try {
+      options.recordDiagnosticEvent?.(diagnosticEvent)
+    } catch (error) {
+      options.logger?.warn?.('relay connector diagnostic event write failed', error)
+    }
+  }
 
   const sendRelayFrame = (frame: unknown) => {
     if (socket?.readyState === WebSocket.OPEN) {
@@ -267,6 +319,10 @@ export const createRelayConnector = (
       // 判连接死 → terminate（→ onclose → sessions.clear + scheduleReconnect → 重 join，relay newest-wins
       // 顶掉僵尸槽，daemon 侧自愈，不必重启 4010）。
       if (Date.now() - lastInboundAt > livenessTimeoutMs) {
+        emitRelayEvent('liveness_timeout', {
+          error: 'Relay liveness timeout: no frames from peer',
+          errorCode: 'liveness_timeout',
+        })
         status = {
           ...status,
           last_error: 'Relay liveness timeout: no frames from peer',
@@ -310,12 +366,24 @@ export const createRelayConnector = (
 
   const handleHandshake = (frame: ClearHandshakeFrame) => {
     if (!isHandshakeHello(frame)) return false
+    emitRelayEvent('handshake_start', {
+      deviceId: frame.device_id,
+      protocolVersion: frame.version,
+      secretValues: [frame.token],
+    })
     try {
       const authenticated = options.authenticateDevice?.(frame.token) ?? {
         capabilities: frame.capabilities ?? [],
         id: frame.device_id,
       }
       if (authenticated.id !== frame.device_id) {
+        emitRelayEvent('device_mismatch', {
+          deviceId: frame.device_id,
+          error: `authenticated device ${authenticated.id} did not match requested device ${frame.device_id}`,
+          errorCode: 'device_mismatch',
+          protocolVersion: frame.version,
+          secretValues: [frame.token],
+        })
         sendRelayFrame({
           payload: encodeClearFrame({ code: 'device_mismatch', type: 'e2ee_error' }),
           type: 'data',
@@ -325,6 +393,13 @@ export const createRelayConnector = (
 
       const requestedCapabilities = frame.capabilities ?? authenticated.capabilities
       if (!hasCapabilities(authenticated.capabilities, requestedCapabilities)) {
+        emitRelayEvent('capability_denied', {
+          deviceId: frame.device_id,
+          error: `requested capabilities denied: ${requestedCapabilities.join(',')}`,
+          errorCode: 'capability_denied',
+          protocolVersion: frame.version,
+          secretValues: [frame.token],
+        })
         sendRelayFrame({
           payload: encodeClearFrame({ code: 'capability_denied', type: 'e2ee_error' }),
           type: 'data',
@@ -355,7 +430,19 @@ export const createRelayConnector = (
         }),
         type: 'data',
       })
+      emitRelayEvent('handshake_ok', {
+        deviceId: frame.device_id,
+        protocolVersion: response.version === 2 ? 2 : 1,
+        secretValues: [frame.token],
+      })
     } catch (error) {
+      emitRelayEvent('handshake_failed', {
+        deviceId: frame.device_id,
+        error,
+        errorCode: 'handshake_failed',
+        protocolVersion: frame.version,
+        secretValues: [frame.token],
+      })
       sendRelayFrame({
         payload: encodeClearFrame({
           code: 'handshake_failed',
@@ -460,7 +547,12 @@ export const createRelayConnector = (
       let request: unknown
       try {
         request = decodeJson(plaintext)
-      } catch {
+      } catch (error) {
+        emitRelayEvent('decode_error', {
+          deviceId: session.deviceId,
+          error,
+          errorCode: 'json_parse_failed',
+        })
         // JSON 畸形：取不到 id，按 JSON-RPC 规范回 -32700 Parse error（id 为 null）。
         sendEncryptedResponse(session, {
           error: { code: -32700, message: 'Parse error' },
@@ -510,6 +602,10 @@ export const createRelayConnector = (
       sendEncryptedResponse(session, response)
       return
     }
+    emitRelayEvent('decode_error', {
+      error: 'No active session could decrypt data frame',
+      errorCode: 'unknown_session',
+    })
     sendRelayFrame({
       payload: encodeClearFrame({ code: 'unknown_session', type: 'e2ee_error' }),
       type: 'data',
@@ -522,6 +618,7 @@ export const createRelayConnector = (
     // 防御性兜底：handleEncryptedRpc 内部已捕获所有畸形输入，这里再加 .catch 确保任何意外异常
     // 都不会变成 unhandled rejection 触发全局 handler 的 process.exit（bug ③a）。
     void handleEncryptedRpc(frame.payload).catch((error) => {
+      emitRelayEvent('decode_error', { error, errorCode: 'encrypted_rpc_failed' })
       log('encrypted RPC handling failed', error)
     })
   }
@@ -556,7 +653,13 @@ export const createRelayConnector = (
       // 收到任意帧即证明连接还活着，刷新探活基准（①）。
       lastInboundAt = Date.now()
       const frame = parseRelayFrame(data)
-      if (!frame) return
+      if (!frame) {
+        emitRelayEvent('decode_error', {
+          error: 'Relay frame JSON parse failed',
+          errorCode: 'relay_frame_parse_failed',
+        })
+        return
+      }
       if (frame.type === 'joined') {
         reconnectDelayMs = reconnectBaseDelayMs
         status = {
@@ -566,6 +669,7 @@ export const createRelayConnector = (
           mode: 'connected',
         }
         startHeartbeat()
+        emitRelayEvent('peer_connected')
         return
       }
       if (frame.type === 'heartbeat' || frame.type === 'heartbeat_ack') {
@@ -589,6 +693,7 @@ export const createRelayConnector = (
       }
     })
     socket.on('error', (error) => {
+      emitRelayEvent('decode_error', { error, errorCode: 'socket_error' })
       status = {
         ...status,
         last_error: error.message,
@@ -598,6 +703,7 @@ export const createRelayConnector = (
     socket.on('close', () => {
       socket = null
       sessions.clear()
+      emitRelayEvent('peer_disconnected', { error: status.last_error ?? undefined })
       scheduleReconnect(status.last_error ?? 'Relay connection closed')
     })
   }

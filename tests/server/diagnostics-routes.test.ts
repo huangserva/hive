@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
@@ -9,6 +9,7 @@ import { getUiCookie } from '../helpers/ui-session.js'
 const servers: Array<Awaited<ReturnType<typeof startTestServer>>> = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   while (servers.length > 0) {
     await servers.pop()?.close()
   }
@@ -122,6 +123,148 @@ describe('diagnostics routes', () => {
     expect(packageText).toContain('config-summary.json')
     expect(packageText).toContain('[REDACTED]')
     expect(packageText).not.toContain('glm-export-secret')
+  })
+
+  test('redacts provider env secrets feishu and relay config secrets and proxy credentials', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+    const secrets = [
+      'openai-diagnostic-secret',
+      'gemini-diagnostic-secret',
+      'google-diagnostic-secret',
+      'aws-secret-diagnostic-secret',
+      'aws-session-diagnostic-token',
+      'relay-auth-diagnostic-secret',
+      'room-auth-diagnostic-secret',
+      'daemon-keypair-diagnostic-secret',
+      'daemon-signing-diagnostic-secret',
+      'feishu-app-diagnostic-secret',
+      'proxy-user:proxy-pass',
+      'turn-user-diagnostic-secret',
+      'turn-credential-diagnostic-secret',
+    ]
+    vi.stubEnv('OPENAI_API_KEY', secrets[0])
+    vi.stubEnv('GEMINI_API_KEY', secrets[1])
+    vi.stubEnv('GOOGLE_API_KEY', secrets[2])
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', secrets[3])
+    vi.stubEnv('AWS_SESSION_TOKEN', secrets[4])
+    vi.stubEnv('HTTPS_PROXY', `http://${secrets[10]}@proxy.example.test:8080`)
+    vi.stubEnv(
+      'HIVE_WEBRTC_ICE_SERVERS_JSON',
+      JSON.stringify([
+        {
+          credential: secrets[12],
+          urls: 'turn:turn.example.test:443',
+          username: secrets[11],
+        },
+      ])
+    )
+    writeFileSync(
+      join(server.dataDir, 'feishu.json'),
+      JSON.stringify({ app_id: 'feishu-app-id', app_secret: secrets[9] })
+    )
+    writeFileSync(
+      join(server.dataDir, 'relay.json'),
+      JSON.stringify({
+        enabled: true,
+        relay_auth_token: secrets[5],
+        relay_url: 'wss://relay.example.test',
+        room_auth_token: secrets[6],
+        room_id: 'room-id',
+        runtime_id: 'runtime-id',
+      })
+    )
+    writeFileSync(
+      join(server.dataDir, 'relay-keypair.json'),
+      JSON.stringify({ publicKey: 'daemon-public', secretKey: secrets[7] })
+    )
+    writeFileSync(
+      join(server.dataDir, 'relay-signing-keypair.json'),
+      JSON.stringify({ publicKey: 'daemon-signing-public', secretKey: secrets[8] })
+    )
+    writeRuntimeLog(
+      server.dataDir,
+      server.baseUrl,
+      `provider envs ${secrets.join(' ')} http://${secrets[10]}@proxy.example.test:8080 turn:turn.example.test:443\n`
+    )
+    server.store.insertMobileChatMessage(
+      workspace.id,
+      'outbound',
+      'system_event',
+      JSON.stringify({
+        command: `codex ${secrets[0]}`,
+        error: `failed with relay ${secrets[5]} and proxy http://${secrets[10]}@proxy.example.test:8080`,
+        event: 'dispatch_spawn_failed',
+        path: `/safe/bin:${secrets[1]}:/still-useful/bin`,
+        worker: 'Coder',
+      })
+    )
+
+    const diagnosticsResponse = await fetch(`${server.baseUrl}/api/diagnostics`, {
+      headers: { cookie },
+    })
+    expect(diagnosticsResponse.status).toBe(200)
+    const diagnosticsText = await diagnosticsResponse.text()
+    expect(diagnosticsText).toContain('[REDACTED]')
+    expect(diagnosticsText).toContain('/safe/bin')
+    expect(diagnosticsText).toContain('/still-useful/bin')
+    for (const secret of secrets) {
+      expect(diagnosticsText).not.toContain(secret)
+    }
+
+    const exportResponse = await fetch(`${server.baseUrl}/api/diagnostics/export`, {
+      headers: { cookie },
+    })
+    expect(exportResponse.status).toBe(200)
+    const packageText = Buffer.from(await exportResponse.arrayBuffer()).toString('utf8')
+    expect(packageText).toContain('[REDACTED]')
+    expect(packageText).toContain('/safe/bin')
+    expect(packageText).toContain('/still-useful/bin')
+    for (const secret of secrets) {
+      expect(packageText).not.toContain(secret)
+    }
+  })
+
+  test('includes relay connector handshake events in diagnostics', async () => {
+    const server = await startTestServer()
+    servers.push(server)
+    const cookie = await getUiCookie(server.baseUrl)
+    const workspace = await createWorkspace(server.baseUrl, cookie)
+    server.store.insertMobileChatMessage(
+      workspace.id,
+      'outbound',
+      'system_event',
+      JSON.stringify({
+        device_id: 'device-1',
+        error_code: 'handshake_failed',
+        error_message: 'signature check failed',
+        event: 'handshake_failed',
+        protocol_version: 'v2',
+        room_id: 'room-1',
+      })
+    )
+
+    const response = await fetch(`${server.baseUrl}/api/diagnostics`, {
+      headers: { cookie },
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      events: Array<{ payload: { event?: string; room_id?: string }; type: string }>
+    }
+    expect(body.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            event: 'handshake_failed',
+            room_id: 'room-1',
+          }),
+          type: 'handshake_failed',
+        }),
+      ])
+    )
   })
 
   test('redacts secrets with quotes backslashes and newlines before serializing diagnostics', async () => {

@@ -18,6 +18,7 @@ import { createHiveLogger, type HiveLogger } from '../server/logger.js'
 import { readPackageVersion } from '../server/package-version.js'
 import { loadRelayConfig } from '../server/relay-config.js'
 import { createRelayConnector, type RelayConnectorHandle } from '../server/relay-connector.js'
+import type { RelayConnectorDiagnosticEvent } from '../server/relay-connector-observability.js'
 import { createRelayRpcHandler, resolveWebRtcIceServers } from '../server/relay-rpc-handler.js'
 import { createVoiceStreamTtsHandler } from '../server/relay-voice-stream-tts.js'
 import { createRuntimeStore, type RuntimeStore } from '../server/runtime-store.js'
@@ -191,6 +192,21 @@ const formatListenError = (error: unknown, requestedPort: number) => {
   return error
 }
 
+const recordRelayConnectorDiagnosticEvent = (
+  store: RuntimeStore,
+  event: RelayConnectorDiagnosticEvent
+) => {
+  const workspaces = store.listWorkspaces()
+  const activeWorkspaceId = store.settings.getAppState('active_workspace_id')?.value
+  const targetWorkspaces =
+    activeWorkspaceId && workspaces.some((workspace) => workspace.id === activeWorkspaceId)
+      ? workspaces.filter((workspace) => workspace.id === activeWorkspaceId)
+      : workspaces
+  for (const workspace of targetWorkspaces) {
+    store.insertMobileChatMessage(workspace.id, 'outbound', 'system_event', JSON.stringify(event))
+  }
+}
+
 export const runHiveCommand = async (
   argv: string[],
   options: RunHiveCommandOptions = {}
@@ -246,6 +262,8 @@ export const runHiveCommand = async (
         createRelayRpcHandler({ runtimeInfo: { dataDir, port }, store }),
         {
           authenticateDevice: (token) => store.authenticateMobileDevice(token),
+          logger,
+          recordDiagnosticEvent: (event) => recordRelayConnectorDiagnosticEvent(store, event),
           voiceStreamHandler: createVoiceStreamTtsHandler({
             hasActiveWebRtcCall: (deviceId) => webRtcCallee.hasActiveCall(deviceId),
           }),

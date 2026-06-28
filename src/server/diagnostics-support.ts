@@ -3,6 +3,7 @@ import { basename, join } from 'node:path'
 
 import { buildAgentCliInstallPlan, SUPPORTED_AGENT_CLI_PRESETS } from './agent-cli-installer.js'
 import { getManualCliPath } from './agent-cli-manual-paths.js'
+import { isRelayConnectorEventName } from './relay-connector-observability.js'
 import type { RuntimeStore } from './runtime-store.js'
 import { loadSecretValues, redactObject, redactText } from './secret-redactor.js'
 import type { SecretEnvKey } from './secret-store.js'
@@ -111,7 +112,13 @@ const parseSystemEvent = (contentJson: string): Record<string, unknown> | null =
     const parsed = JSON.parse(contentJson) as unknown
     if (!parsed || typeof parsed !== 'object') return null
     const event = (parsed as Record<string, unknown>).event
-    if (event !== 'dispatch_spawn_failed' && event !== 'sentinel_alert') return null
+    if (
+      event !== 'dispatch_spawn_failed' &&
+      event !== 'sentinel_alert' &&
+      !isRelayConnectorEventName(event)
+    ) {
+      return null
+    }
     return parsed as Record<string, unknown>
   } catch {
     return null

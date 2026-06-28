@@ -32,11 +32,11 @@ describe('secret store', () => {
     store.set('GLM_API_KEY', 'glm-secret-value')
 
     expect(store.get('GLM_API_KEY')).toBe('glm-secret-value')
-    expect(store.listPresent()).toEqual({
-      ANTHROPIC_API_KEY: false,
-      ANTHROPIC_AUTH_TOKEN: false,
-      GLM_API_KEY: true,
-    })
+    const present = store.listPresent()
+    expect(present.GLM_API_KEY).toBe(true)
+    expect(present.ANTHROPIC_API_KEY).toBe(false)
+    expect(present.OPENAI_API_KEY).toBe(false)
+    expect(Object.values(present)).not.toContain('glm-secret-value')
     expect(mode(join(dataDir, 'secrets'))).toBe(0o700)
     expect(mode(join(dataDir, 'secrets', 'credentials'))).toBe(0o600)
   })
@@ -71,14 +71,34 @@ describe('secret store', () => {
     expect(injected).toEqual(['ANTHROPIC_API_KEY'])
     expect(env.GLM_API_KEY).toBe('explicit-env-wins')
     expect(env.ANTHROPIC_API_KEY).toBe('anthropic-secret')
-    expect(Object.keys(env).sort()).toEqual(['ANTHROPIC_API_KEY', 'GLM_API_KEY', 'NODE_ENV', 'PATH'])
+    expect(Object.keys(env).sort()).toEqual([
+      'ANTHROPIC_API_KEY',
+      'GLM_API_KEY',
+      'NODE_ENV',
+      'PATH',
+    ])
   })
 
-  test('limits supported secret keys to runtime credential env vars', () => {
+  test('supports the provider and runtime credential env vars used by diagnostics redaction', () => {
     expect([...SECRET_ENV_KEYS].sort()).toEqual([
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
+      'AWS_ACCESS_KEY_ID',
+      'AWS_SECRET_ACCESS_KEY',
+      'AWS_SESSION_TOKEN',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'DEEPSEEK_API_KEY',
+      'FEISHU_APP_SECRET',
+      'GEMINI_API_KEY',
       'GLM_API_KEY',
+      'GOOGLE_API_KEY',
+      'GROQ_API_KEY',
+      'HIVE_WEBRTC_ICE_SERVERS_JSON',
+      'MISTRAL_API_KEY',
+      'OPENAI_API_KEY',
+      'OPENROUTER_API_KEY',
+      'RELAY_AUTH_TOKEN',
+      'XAI_API_KEY',
     ])
   })
 })
