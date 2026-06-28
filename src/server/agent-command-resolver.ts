@@ -19,7 +19,7 @@ const createCommandNotFoundError = (command: string): NodeJS.ErrnoException =>
   })
 
 interface ResolvedSpawnCommand {
-  args: string[]
+  args: string[] | string
   command: string
 }
 
@@ -89,6 +89,9 @@ const quoteWindowsCommandArgument = (value: string) => `"${value.replace(/"/g, '
 const createWindowsCommandLine = (command: string, args: string[]) =>
   [command, ...args].map(quoteWindowsCommandArgument).join(' ')
 
+const createWindowsBatchCommandLine = (command: string, args: string[]) =>
+  `/d /s /c "${createWindowsCommandLine(command, args)}"`
+
 export const resolveSpawnCommand = (
   command: string,
   cwd: string,
@@ -99,7 +102,7 @@ export const resolveSpawnCommand = (
   const resolvedCommand = resolveCommandPath(command, cwd, env, platform)
   if (platform === 'win32' && isWindowsBatchFile(resolvedCommand)) {
     return {
-      args: ['/d', '/s', '/c', createWindowsCommandLine(resolvedCommand, args)],
+      args: createWindowsBatchCommandLine(resolvedCommand, args),
       command: getEnvValue(env, 'ComSpec', platform) ?? 'cmd.exe',
     }
   }
