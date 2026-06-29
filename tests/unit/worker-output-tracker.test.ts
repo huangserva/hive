@@ -55,6 +55,77 @@ describe('createLazyTerminalOutputMirror', () => {
     expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
   })
 
+  test('extracts last line from a tail window while preserving xterm overwrite semantics', async () => {
+    const prefix = `${'older line\n'.repeat(120_000)}noise before final\n`
+    const tail = 'download 100%\rOK\n'
+    const input = `${prefix}${tail}`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(tail))
+    expect(mirror.readStats().lastLineScannedLength).toBeLessThanOrEqual(16_384)
+  })
+
+  test('keeps tail text for an over-window final line ending in LF', async () => {
+    const input = `${'x'.repeat(17_000)}\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+    expect(mirror.readStats().lastLineScannedLength).toBeLessThanOrEqual(16_384)
+  })
+
+  test('keeps tail text for an over-window final line ending in CRLF', async () => {
+    const input = `${'x'.repeat(17_000)}\r\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+    expect(mirror.readStats().lastLineScannedLength).toBeLessThanOrEqual(16_384)
+  })
+
+  test('matches xterm when a tail-windowed overlong line is overwritten by bare CR', async () => {
+    const input = `${'x'.repeat(17_000)}\rOK\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+    expect(mirror.readStats().lastLineScannedLength).toBeLessThanOrEqual(16_384)
+  })
+
+  test('matches xterm delayed wrap when a full visual row is overwritten by bare CR', async () => {
+    const input = `${'x'.repeat(80)}\rOK\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+  })
+
+  test('matches xterm delayed wrap when two full visual rows are overwritten by bare CR', async () => {
+    const input = `${'x'.repeat(160)}\rOK\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+  })
+
+  test('matches xterm when a cut CSI fragment precedes the final visible line', async () => {
+    const prefix = 'x'.repeat(100)
+    const input = `${prefix}\u001b[31m${'y'.repeat(16_380)}\n`
+    const mirror = createLazyTerminalOutputMirror()
+
+    mirror.append(input)
+
+    expect(mirror.lastPtyLine()).toBe(await getXtermLastPtyLine(input))
+    expect(mirror.readStats().lastLineScannedLength).toBeLessThanOrEqual(16_384)
+  })
+
   test('matches xterm when clear-line CSI removes stale carriage-return tail text', async () => {
     const cases = ['download 100%\r\u001b[KOK\n', 'stale line\r\u001b[2Kfresh\n']
 

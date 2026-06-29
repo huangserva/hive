@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client'
 import './styles/globals.css'
 import { App } from './app.js'
 import { registerPreloadErrorRecovery } from './preload-recovery.js'
+import { ErrorBoundary } from './ui/ErrorBoundary.js'
+import { AppErrorFallback } from './ui/ErrorFallback.js'
 
 const container = document.getElementById('root')
 
@@ -15,6 +17,8 @@ registerPreloadErrorRecovery()
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary fallback={(error, reset) => <AppErrorFallback error={error} reset={reset} />}>
+      <App />
+    </ErrorBoundary>
   </StrictMode>
 )

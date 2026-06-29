@@ -11,11 +11,14 @@ import {
 import { type TerminalMirrorSize, TerminalStateMirror } from './terminal-state-mirror.js'
 
 interface ViewerState {
+  backpressureStartedAt: number | null
   clientId: string
   controlSocket: WebSocket | null
   flowState: ReturnType<typeof createTerminalOutputFlow> | null
   ioSocket: WebSocket | null
 }
+
+const BACKPRESSURE_PAUSE_WARN_MS = 1000
 
 interface RunState {
   backpressuredViewerIds: Set<string>
@@ -66,6 +69,17 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
 
   const maybeResumeRun = (runId: string, state: RunState, clientId: string) => {
     if (!state.backpressuredViewerIds.delete(clientId)) return
+    const viewer = state.viewers.get(clientId)
+    const startedAt = viewer?.backpressureStartedAt
+    if (viewer) viewer.backpressureStartedAt = null
+    if (startedAt !== null && startedAt !== undefined) {
+      const pausedMs = Date.now() - startedAt
+      if (pausedMs >= BACKPRESSURE_PAUSE_WARN_MS) {
+        console.warn(
+          `[hive] terminal backpressure pause run_id=${runId} client_id=${clientId} paused_ms=${pausedMs}`
+        )
+      }
+    }
     if (state.backpressuredViewerIds.size === 0) store.resumeTerminalRun(runId)
   }
 
@@ -81,7 +95,13 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
   const getOrCreateViewer = (state: RunState, clientId: string) => {
     let viewer = state.viewers.get(clientId)
     if (!viewer) {
-      viewer = { clientId, controlSocket: null, flowState: null, ioSocket: null }
+      viewer = {
+        backpressureStartedAt: null,
+        clientId,
+        controlSocket: null,
+        flowState: null,
+        ioSocket: null,
+      }
       state.viewers.set(clientId, viewer)
     }
     return viewer
@@ -195,6 +215,7 @@ export const createTerminalStreamHub = (store: RuntimeStore): TerminalStreamHub 
           if (backpressured) {
             const wasEmpty = state.backpressuredViewerIds.size === 0
             state.backpressuredViewerIds.add(clientId)
+            viewer.backpressureStartedAt ??= Date.now()
             if (wasEmpty) store.pauseTerminalRun(runId)
             return
           }

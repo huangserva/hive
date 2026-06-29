@@ -2,6 +2,10 @@ import { createRunOutputBuffer, MAX_RUN_OUTPUT_LENGTH } from './agent-manager-su
 import type { PtyOutputBus } from './pty-output-bus.js'
 import { TerminalStateMirror } from './terminal-state-mirror.js'
 
+const LAST_PTY_LINE_SCAN_WINDOW = 16_384
+const LAST_PTY_LINE_WARN_MS = 16
+const TERMINAL_LAST_LINE_COLUMNS = 80
+
 interface TrackedRun {
   mirror: LazyTerminalOutputMirror
   runId: string
@@ -22,39 +26,95 @@ export interface LazyTerminalOutputMirror {
   append: (chunk: string) => void
   dispose: () => void
   getSnapshot: () => Promise<string>
-  lastPtyLine: (maxLen?: number) => string | null
+  lastPtyLine: (maxLen?: number, context?: LastPtyLineContext) => string | null
   readStats: () => {
     buffer: ReturnType<ReturnType<typeof createRunOutputBuffer>['readStats']>
     bufferedLength: number
+    lastLineScannedLength: number
     materializeCount: number
   }
 }
 
+interface LastPtyLineContext {
+  agentId: string
+  runId: string
+  workspaceId: string
+}
+
+interface LastPtyLineScanWindow {
+  initialPendingWrap: boolean
+  initialCursor: number
+  input: string
+}
+
+const selectLastPtyLineScanWindow = (rawOutput: string): LastPtyLineScanWindow => {
+  if (rawOutput.length <= LAST_PTY_LINE_SCAN_WINDOW) {
+    return { input: rawOutput, initialCursor: 0, initialPendingWrap: false }
+  }
+  const windowStart = rawOutput.length - LAST_PTY_LINE_SCAN_WINDOW
+  let scanStart = windowStart
+  let hiddenCsiBytes = 0
+  const possibleCsiStart = rawOutput.lastIndexOf('\u001b[', windowStart)
+  if (possibleCsiStart >= Math.max(0, windowStart - 32)) {
+    const prefixFragment = rawOutput.slice(possibleCsiStart + 2, windowStart)
+    if (!/[a-zA-Z]/.test(prefixFragment)) {
+      const csiEnd = rawOutput.slice(windowStart).search(/[a-zA-Z]/)
+      if (csiEnd >= 0 && csiEnd <= 32) {
+        scanStart = windowStart + csiEnd + 1
+        hiddenCsiBytes = scanStart - possibleCsiStart
+      }
+    }
+  }
+  const previousLineBoundary = rawOutput.lastIndexOf('\n', windowStart - 1)
+  const omittedCurrentLineChars =
+    previousLineBoundary >= 0 ? scanStart - previousLineBoundary - 1 : scanStart
+  const visibleOmittedChars = Math.max(0, omittedCurrentLineChars - hiddenCsiBytes)
+  return {
+    input: rawOutput.slice(scanStart),
+    initialCursor: visibleOmittedChars % TERMINAL_LAST_LINE_COLUMNS,
+    initialPendingWrap:
+      visibleOmittedChars > 0 && visibleOmittedChars % TERMINAL_LAST_LINE_COLUMNS === 0,
+  }
+}
+
 const extractLastPtyLine = (rawOutput: string, maxLen: number) => {
-  const lines: string[] = []
-  let current: string[] = []
-  let cursor = 0
-  const pushLine = () => {
-    lines.push(current.join(''))
-    current = []
+  const {
+    input: scanInput,
+    initialCursor,
+    initialPendingWrap,
+  } = selectLastPtyLineScanWindow(rawOutput)
+  let currentRow: string[] = []
+  let lastNonEmptyRow: string | null = null
+  let cursor = initialCursor
+  let pendingWrap = initialPendingWrap
+  const rememberCurrentRow = () => {
+    const cleaned = currentRow.join('').trim()
+    if (cleaned.length > 0) lastNonEmptyRow = cleaned
+  }
+  const startNewRow = () => {
+    rememberCurrentRow()
+    currentRow = []
     cursor = 0
+    pendingWrap = false
   }
   const clearToEndOfLine = () => {
-    current = current.slice(0, cursor)
+    currentRow = currentRow.slice(0, cursor)
+    pendingWrap = false
   }
   const clearLine = () => {
-    current = []
+    currentRow = []
     cursor = 0
+    pendingWrap = false
   }
-  for (let index = 0; index < rawOutput.length; index += 1) {
-    const char = rawOutput[index]
-    if (char === '\u001b' && rawOutput[index + 1] === '[') {
-      const end = rawOutput.slice(index + 2).search(/[a-zA-Z]/)
+  for (let index = 0; index < scanInput.length; index += 1) {
+    const char = scanInput[index]
+    if (char === '\u001b' && scanInput[index + 1] === '[') {
+      const end = scanInput.slice(index + 2).search(/[a-zA-Z]/)
       if (end < 0) break
       const finalIndex = index + 2 + end
-      const final = rawOutput[finalIndex]
+      const final = scanInput[finalIndex]
       if (final === 'K') {
-        const parameter = rawOutput.slice(index + 2, finalIndex)
+        const parameter = scanInput.slice(index + 2, finalIndex)
         if (parameter === '2') clearLine()
         else clearToEndOfLine()
       }
@@ -62,8 +122,9 @@ const extractLastPtyLine = (rawOutput: string, maxLen: number) => {
       continue
     }
     if (char === '\r') {
-      if (rawOutput[index + 1] === '\n') {
-        pushLine()
+      pendingWrap = false
+      if (scanInput[index + 1] === '\n') {
+        startNewRow()
         index += 1
         continue
       }
@@ -71,19 +132,24 @@ const extractLastPtyLine = (rawOutput: string, maxLen: number) => {
       continue
     }
     if (char === '\n') {
-      pushLine()
+      pendingWrap = false
+      startNewRow()
       continue
     }
-    current[cursor] = char ?? ''
-    cursor += 1
+    if (pendingWrap) startNewRow()
+    currentRow[cursor] = char ?? ''
+    if (cursor >= TERMINAL_LAST_LINE_COLUMNS - 1) {
+      cursor = TERMINAL_LAST_LINE_COLUMNS
+      pendingWrap = true
+    } else {
+      cursor += 1
+    }
   }
-  lines.push(current.join(''))
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const cleaned = (lines[index] ?? '').trim()
-    if (cleaned.length === 0) continue
-    return cleaned.slice(0, maxLen)
+  rememberCurrentRow()
+  return {
+    line: lastNonEmptyRow ? lastNonEmptyRow.slice(0, maxLen) : null,
+    scannedLength: scanInput.length,
   }
-  return null
 }
 
 export const createLazyTerminalOutputMirror = ({
@@ -97,6 +163,7 @@ export const createLazyTerminalOutputMirror = ({
   let cachedSnapshot = ''
   let snapshotDirty = true
   let materializeCount = 0
+  let lastLineScannedLength = 0
 
   const readRawOutput = () => outputBuffer.read()
 
@@ -123,9 +190,22 @@ export const createLazyTerminalOutputMirror = ({
       materializeCount += 1
       return cachedSnapshot
     },
-    lastPtyLine(maxLen = 60) {
+    lastPtyLine(maxLen = 60, context) {
       if (lastLineDirty) {
-        cachedLastLine = extractLastPtyLine(readRawOutput(), maxLen)
+        const rawOutput = readRawOutput()
+        const startedAt = performance.now()
+        const result = extractLastPtyLine(rawOutput, maxLen)
+        const elapsedMs = performance.now() - startedAt
+        cachedLastLine = result.line
+        lastLineScannedLength = result.scannedLength
+        if (elapsedMs >= LAST_PTY_LINE_WARN_MS) {
+          const suffix = context
+            ? ` workspace_id=${context.workspaceId} agent_id=${context.agentId} run_id=${context.runId}`
+            : ''
+          console.warn(
+            `[hive] slow last_pty_line extraction${suffix} elapsed_ms=${elapsedMs.toFixed(1)} raw_chars=${rawOutput.length} scanned_chars=${result.scannedLength}`
+          )
+        }
         lastLineDirty = false
         materializeCount += 1
       }
@@ -136,6 +216,7 @@ export const createLazyTerminalOutputMirror = ({
       return {
         buffer: outputBuffer.readStats(),
         bufferedLength: raw.length,
+        lastLineScannedLength,
         materializeCount,
       }
     },
@@ -184,7 +265,9 @@ export const createWorkerOutputTracker = (outputBus: PtyOutputBus): WorkerOutput
     },
     getLastPtyLine(workspaceId, agentId) {
       const entry = tracked.get(trackerKey(workspaceId, agentId))
-      return entry ? entry.mirror.lastPtyLine() : null
+      return entry
+        ? entry.mirror.lastPtyLine(60, { agentId, runId: entry.runId, workspaceId })
+        : null
     },
     async getSnapshot(workspaceId, agentId) {
       const entry = tracked.get(trackerKey(workspaceId, agentId))

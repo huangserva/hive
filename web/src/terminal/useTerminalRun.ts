@@ -109,9 +109,13 @@ export const useTerminalRun = (runId: string, inputProfile: TerminalInputProfile
             const webglAddon = new webglModule.WebglAddon()
             webglAddon.onContextLoss(() => webglAddon.dispose())
             nextTerminal.loadAddon(webglAddon)
-          } catch {}
+          } catch (error) {
+            console.error('[hive] terminal WebGL addon initialization failed', error)
+          }
         })
-        .catch(() => {})
+        .catch((error) => {
+          console.error('[hive] terminal WebGL addon import failed', error)
+        })
 
       // Take over IME composition so xterm's built-in CompositionHelper does
       // not emit spurious DEL (0x7f) bytes after each commit. Without this,
