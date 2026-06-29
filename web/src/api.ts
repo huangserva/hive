@@ -98,7 +98,7 @@ export const initializeUiSession = async (): Promise<void> => {
   await response.json()
 }
 
-const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const response = await fetch(input, init)
   if (!(await isStaleUiSession(response))) return response
 
@@ -356,6 +356,36 @@ export const deleteWorkspace = async (workspaceId: string): Promise<void> => {
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, 'Failed to delete workspace'))
   }
+}
+
+export interface WorkspaceUploadResponse {
+  filename: string
+  mime_type: string
+  ok: boolean
+  path: string
+  size: number
+}
+
+export const uploadWorkspaceImage = async (
+  workspaceId: string,
+  input: { data: string; filename: string; mime_type: string }
+): Promise<WorkspaceUploadResponse> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/upload`, {
+    body: JSON.stringify(input),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to upload image'))
+  return (await response.json()) as WorkspaceUploadResponse
+}
+
+export const sendWorkspaceUserInput = async (workspaceId: string, text: string): Promise<void> => {
+  const response = await apiFetch(`/api/workspaces/${workspaceId}/user-input`, {
+    body: JSON.stringify({ text }),
+    headers: { 'content-type': 'application/json' },
+    method: 'POST',
+  })
+  if (!response.ok) throw new Error(await readErrorMessage(response, 'Failed to send input'))
 }
 
 export const startAgentRun = async (

@@ -1,11 +1,15 @@
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
+import { homedir } from 'node:os'
+import { basename, extname, join } from 'node:path'
 
 import {
   resolveCommandPresetLaunchConfig,
   resolveStartupCommandLaunchConfig,
 } from './agent-launch-resolver.js'
 import type { AgentLaunchConfigInput } from './agent-run-store.js'
-import { BadRequestError, ConflictError } from './http-errors.js'
+import { BadRequestError, ConflictError, NotFoundError } from './http-errors.js'
 import { autostartAgent, autostartOrchestrator } from './orchestrator-autostart.js'
 import { seedOrchestratorLaunchConfig } from './orchestrator-launch.js'
 import type { RoleTemplateRecord } from './role-template-store.js'
@@ -22,6 +26,10 @@ import { authenticateCliAgent, requireCommandForRole } from './team-authz.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { serializeTeamListItem } from './team-list-serializer.js'
 import { requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import {
+  WEB_TERMINAL_UPLOAD_JSON_BODY_LIMIT_BYTES,
+  WEB_TERMINAL_UPLOAD_MAX_BYTES,
+} from './upload-limits.js'
 import { validateWorkspacePath } from './workspace-path-validation.js'
 import { getOrchestratorId } from './workspace-store-support.js'
 
@@ -69,6 +77,86 @@ interface PatchWorkerBody {
   name?: unknown
   sentinel_interval_ms?: unknown
   thinking_level?: unknown
+}
+
+interface WorkspaceUploadBody {
+  data?: unknown
+  filename?: unknown
+  mime_type?: unknown
+}
+
+const sanitizeUploadFilename = (value: unknown): string => {
+  const raw = typeof value === 'string' && value.trim() ? value.trim() : 'upload'
+  const name = basename(raw).trim()
+  return name && name !== '.' && name !== '..' ? name : 'upload'
+}
+
+const RASTER_IMAGE_EXTENSIONS = new Set([
+  '.bmp',
+  '.gif',
+  '.heic',
+  '.heif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.webp',
+])
+
+const MIME_EXTENSION_FALLBACKS: Record<string, string> = {
+  'image/bmp': '.bmp',
+  'image/gif': '.gif',
+  'image/heic': '.heic',
+  'image/heif': '.heif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+}
+
+const isBase64Character = (charCode: number): boolean =>
+  (charCode >= 65 && charCode <= 90) ||
+  (charCode >= 97 && charCode <= 122) ||
+  (charCode >= 48 && charCode <= 57) ||
+  charCode === 43 ||
+  charCode === 47
+
+const isValidBase64UploadData = (value: string): boolean => {
+  if (value.length % 4 !== 0) return false
+  let paddingCount = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const charCode = value.charCodeAt(index)
+    if (charCode === 61) {
+      paddingCount += 1
+      if (paddingCount > 2) return false
+      continue
+    }
+    if (paddingCount > 0 || !isBase64Character(charCode)) {
+      return false
+    }
+  }
+  return true
+}
+
+const decodeBase64UploadData = (value: string): Buffer => {
+  const data = value.trim()
+  if (!isValidBase64UploadData(data)) {
+    throw new BadRequestError('data must be valid base64')
+  }
+  return Buffer.from(data, 'base64')
+}
+
+const getSafeRasterUploadExtension = (filename: string, mimeType: string): string => {
+  const ext = extname(filename).toLowerCase()
+  if (ext) {
+    if (!RASTER_IMAGE_EXTENSIONS.has(ext)) {
+      throw new BadRequestError('Unsupported image extension')
+    }
+    return ext
+  }
+  const fallback = MIME_EXTENSION_FALLBACKS[mimeType.toLowerCase()]
+  if (!fallback) {
+    throw new BadRequestError('Unsupported image extension')
+  }
+  return fallback
 }
 
 const getPatchedThinkingLevel = (value: unknown): string | null | undefined => {
@@ -415,6 +503,64 @@ export const workspaceRoutes: RouteDefinition[] = [
       const body = await readJsonBody<UserInputBody>(request)
       store.recordUserInput(workspaceId, `${workspaceId}:orchestrator`, body.text)
       sendJson(response, 202, { ok: true })
+    }
+  ),
+  route(
+    'POST',
+    '/api/workspaces/:workspaceId/upload',
+    async ({ params, request, response, runtimeInfo, store }) => {
+      const workspaceId = getRequiredParam(
+        response,
+        params,
+        'workspaceId',
+        'Workspace id is required'
+      )
+      if (!workspaceId) {
+        return
+      }
+
+      requireUiTokenFromRequest(request, store.validateUiToken)
+      if (!store.listWorkspaces().some((workspace) => workspace.id === workspaceId)) {
+        throw new NotFoundError(`Workspace not found: ${workspaceId}`)
+      }
+
+      const body = await readJsonBody<WorkspaceUploadBody>(request, {
+        limitBytes: WEB_TERMINAL_UPLOAD_JSON_BODY_LIMIT_BYTES,
+      })
+      if (typeof body.data !== 'string' || !body.data.trim()) {
+        throw new BadRequestError('data (base64) is required')
+      }
+
+      const filename = sanitizeUploadFilename(body.filename)
+      const mimeType =
+        typeof body.mime_type === 'string' && body.mime_type.trim()
+          ? body.mime_type.trim()
+          : 'application/octet-stream'
+      if (!mimeType.toLowerCase().startsWith('image/')) {
+        throw new BadRequestError('mime_type must be image/*')
+      }
+      const dataBuffer = decodeBase64UploadData(body.data)
+      if (dataBuffer.length > WEB_TERMINAL_UPLOAD_MAX_BYTES) {
+        throw new BadRequestError('File too large (max 20MB)')
+      }
+
+      const dataDir = runtimeInfo?.dataDir ?? join(homedir(), '.config', 'hive')
+      const uploadsDir = join(dataDir, 'uploads')
+      if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
+
+      const fileId = randomUUID()
+      const ext = getSafeRasterUploadExtension(filename, mimeType)
+      const storageName = `${fileId}${ext}`
+      const diskPath = join(uploadsDir, storageName)
+      writeFileSync(diskPath, dataBuffer)
+
+      sendJson(response, 200, {
+        filename,
+        mime_type: mimeType,
+        ok: true,
+        path: diskPath,
+        size: dataBuffer.length,
+      })
     }
   ),
   route(

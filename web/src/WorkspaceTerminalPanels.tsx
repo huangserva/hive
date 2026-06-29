@@ -4,6 +4,7 @@ import { listTerminalRuns, type TerminalRunSummary } from './api.js'
 import { useI18n } from './i18n.js'
 import { TerminalView } from './terminal/TerminalView.js'
 import { mergeTerminalRuns } from './terminal/useOptimisticTerminalRuns.js'
+import { orchestratorAgentId } from './terminal/useTerminalRuns.js'
 
 const REFRESH_INTERVAL_MS = 500
 
@@ -50,6 +51,9 @@ export const WorkspaceTerminalPanels = ({
     >
       {mergedRuns.map((run) => (
         <TerminalView
+          {...(run.agent_id === orchestratorAgentId(workspaceId)
+            ? { imageUploadWorkspaceId: workspaceId }
+            : {})}
           inputProfile={run.terminal_input_profile ?? 'default'}
           key={run.run_id}
           runId={run.run_id}

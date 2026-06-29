@@ -1,10 +1,13 @@
 import '@xterm/xterm/css/xterm.css'
 
+import { ImagePlus } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { TerminalInputProfile } from '../api.js'
 import type { TranslationKey } from '../i18n.js'
 import { useI18n } from '../i18n.js'
+import { Tooltip } from '../ui/Tooltip.js'
+import { useTerminalImageUpload } from './useTerminalImageUpload.js'
 import { useTerminalRun } from './useTerminalRun.js'
 
 const STATUS_KEYS: Record<string, TranslationKey> = {
@@ -14,6 +17,7 @@ const STATUS_KEYS: Record<string, TranslationKey> = {
 }
 
 interface TerminalViewProps {
+  imageUploadWorkspaceId?: string
   inputProfile?: TerminalInputProfile
   runId: string
   title: string
@@ -195,25 +199,50 @@ const useStablePortalHost = (runId: string, target: HTMLElement | null): HTMLEle
   return activated ? host : null
 }
 
-export const TerminalView = ({ inputProfile = 'default', runId, title }: TerminalViewProps) => {
+export const TerminalView = ({
+  imageUploadWorkspaceId,
+  inputProfile = 'default',
+  runId,
+  title,
+}: TerminalViewProps) => {
   const portalTarget = usePortalTarget(runId)
   const host = useStablePortalHost(runId, portalTarget)
 
   if (!host) return null
   return createPortal(
-    <TerminalPtyView inputProfile={inputProfile} runId={runId} title={title} />,
+    <TerminalPtyView
+      imageUploadWorkspaceId={imageUploadWorkspaceId}
+      inputProfile={inputProfile}
+      runId={runId}
+      title={title}
+    />,
     host
   )
 }
 
-const TerminalPtyView = ({ inputProfile = 'default', runId, title: _title }: TerminalViewProps) => {
+const TerminalPtyView = ({
+  imageUploadWorkspaceId,
+  inputProfile = 'default',
+  runId,
+  title: _title,
+}: TerminalViewProps) => {
   const { t } = useI18n()
+  const [imageInputError, setImageInputError] = useState<string | null>(null)
   const { containerRef, error, status } = useTerminalRun(runId, inputProfile)
+  const imageUpload = useTerminalImageUpload({
+    activeRunId: runId,
+    containerRef,
+    enabled: Boolean(imageUploadWorkspaceId),
+    onError: setImageInputError,
+    onUploaded: () => setImageInputError(null),
+    ...(imageUploadWorkspaceId ? { workspaceId: imageUploadWorkspaceId } : {}),
+  })
   const statusKey = STATUS_KEYS[status]
+  const visibleError = error ?? imageInputError
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
       <p className="sr-only">{statusKey ? t(statusKey) : status}</p>
-      {error ? (
+      {visibleError ? (
         <p
           role="alert"
           className="mono shrink-0 break-words px-3 py-2 text-xs"
@@ -223,7 +252,7 @@ const TerminalPtyView = ({ inputProfile = 'default', runId, title: _title }: Ter
             color: 'var(--status-red)',
           }}
         >
-          {error}
+          {visibleError}
         </p>
       ) : null}
       <div
@@ -231,6 +260,30 @@ const TerminalPtyView = ({ inputProfile = 'default', runId, title: _title }: Ter
         ref={containerRef}
         className="bg-crust h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden"
       />
+      {imageUploadWorkspaceId ? (
+        <>
+          <input
+            ref={imageUpload.fileInputRef}
+            accept="image/*"
+            className="sr-only"
+            type="file"
+            onChange={imageUpload.onFileInputChange}
+          />
+          <Tooltip
+            label={t(imageUpload.uploading ? 'terminal.imageUploading' : 'terminal.imageUpload')}
+          >
+            <button
+              type="button"
+              aria-label={t('terminal.imageUpload')}
+              className="float-action absolute right-3 bottom-3 z-10"
+              disabled={imageUpload.uploading}
+              onClick={imageUpload.openFilePicker}
+            >
+              <ImagePlus size={14} aria-hidden />
+            </button>
+          </Tooltip>
+        </>
+      ) : null}
     </div>
   )
 }
