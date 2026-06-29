@@ -1,6 +1,6 @@
 import type { BarcodeScanningResult } from 'expo-camera'
 
-import { parseConnectionQr, type ParsedConnectionQr } from './connection-qr'
+import { type ParsedConnectionQr, parseConnectionQr } from './connection-qr'
 
 export const resolveConnectionQrFromScanResults = (
   results: BarcodeScanningResult[]

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'vitest'
 
+import { SECRET_ENV_KEYS } from '../../src/server/secret-store.js'
 import { startTestServer } from '../helpers/test-server.js'
 import { getUiCookie } from '../helpers/ui-session.js'
 
@@ -40,11 +41,9 @@ describe('settings api', () => {
 
     expect(bodyText).not.toContain('glm-secret-from-ui')
     expect(JSON.parse(bodyText)).toEqual({
-      secrets: {
-        ANTHROPIC_API_KEY: { present: false },
-        ANTHROPIC_AUTH_TOKEN: { present: false },
-        GLM_API_KEY: { present: true },
-      },
+      secrets: Object.fromEntries(
+        SECRET_ENV_KEYS.map((key) => [key, { present: key === 'GLM_API_KEY' }])
+      ),
     })
   })
 

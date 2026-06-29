@@ -7,7 +7,11 @@
       "!**/dist",
       "!coverage",
       "!node_modules",
+      "!tmp",
       "!docs/mockups",
+      "!workflows",
+      "!desktop/electron/release",
+      "!packages/mobile/android",
       "!**/*.css",
       "!.hive/reports",
       "!.hive/templates"

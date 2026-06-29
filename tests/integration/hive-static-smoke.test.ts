@@ -69,13 +69,18 @@ describe('hive static smoke', () => {
 
       const curl = (args: string[]) =>
         new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('curl', args, (error, curlStdout, curlStderr) => {
-            if (error) {
-              reject(error)
-              return
+          execFile(
+            'curl',
+            args,
+            { maxBuffer: 5 * 1024 * 1024 },
+            (error, curlStdout, curlStderr) => {
+              if (error) {
+                reject(error)
+                return
+              }
+              resolve({ stderr: curlStderr, stdout: curlStdout })
             }
-            resolve({ stderr: curlStderr, stdout: curlStdout })
-          })
+          )
         })
 
       const sessionResponse = await curl([

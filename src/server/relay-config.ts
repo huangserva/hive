@@ -2,7 +2,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import { deriveRoomAuthToken } from '../../packages/relay/src/keygen.js'
 import {
   decodeBase64,
   encodeBase64,
@@ -11,6 +10,7 @@ import {
   type KeyPair,
 } from '../../packages/relay-crypto/src/index.js'
 import type { RelayConfig } from './relay-connector.js'
+import { deriveRoomAuthToken } from './relay-room-auth.js'
 
 type EnabledRelayConfigV1 = RelayConfig & {
   enabled: true
