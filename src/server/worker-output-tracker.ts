@@ -146,8 +146,12 @@ const extractLastPtyLine = (rawOutput: string, maxLen: number) => {
     }
   }
   rememberCurrentRow()
+  // lastNonEmptyRow is only assigned inside the rememberCurrentRow closure, so TS flow
+  // analysis narrows it to its `null` initializer here (closure writes are ignored).
+  // Re-assert the real type so the truthy branch narrows to string instead of never.
+  const lastLine = lastNonEmptyRow as string | null
   return {
-    line: lastNonEmptyRow ? lastNonEmptyRow.slice(0, maxLen) : null,
+    line: lastLine ? lastLine.slice(0, maxLen) : null,
     scannedLength: scanInput.length,
   }
 }
