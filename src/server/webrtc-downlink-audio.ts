@@ -57,11 +57,22 @@ type DecodeAudioToPcmFrames = (
   audio: Buffer,
   metadata: { format: string; mime: string }
 ) => Promise<WebRtcPcmAudioFrame[]>
+type WebRtcDownlinkPlaybackState = {
+  bytes?: number
+  frames?: number
+  generation: number
+  messageId?: string
+  state: 'closed' | 'error' | 'idle' | 'interrupted' | 'sending' | 'sent' | 'synthesizing'
+  textPreview?: string
+  turnId?: string | undefined
+  updatedAtMs: number
+}
 
 const WEBRTC_DOWNLINK_TTS_VOICE = 'zh-CN-XiaoxiaoNeural'
 const WEBRTC_DOWNLINK_FRAME_INTERVAL_MS = 10
 const DEFAULT_WEBRTC_DOWNLINK_GAIN = 3.0
 const INT16_SOFT_LIMIT = 32_767
+const PLAYBACK_STATE_TEXT_PREVIEW_LENGTH = 80
 
 interface WebRtcDownlinkAudioOptions {
   createTtsProvider?: () => LocalTtsProvider
@@ -120,6 +131,11 @@ const parseReplyText = (message: MobileChatMessage) => {
     return ''
   }
 }
+
+const summarizePlaybackText = (text: string) =>
+  text.length > PLAYBACK_STATE_TEXT_PREVIEW_LENGTH
+    ? `${text.slice(0, PLAYBACK_STATE_TEXT_PREVIEW_LENGTH)}...`
+    : text
 
 const createWrtcAudioTrack = async (): Promise<WebRtcDownlinkTrackSession> => {
   const moduleName = '@roamhq/wrtc'
@@ -228,9 +244,21 @@ export const createWebRtcDownlinkAudio = ({
     let queue = Promise.resolve()
     let closed = false
     let playbackGeneration = 0
+    let playbackState: WebRtcDownlinkPlaybackState = {
+      generation: playbackGeneration,
+      state: 'idle',
+      updatedAtMs: Date.now(),
+    }
     let pendingReplyCount = 0
     let pendingFrameTimer: ReturnType<typeof setTimeout> | null = null
     let resolvePendingFrameDelay: (() => void) | null = null
+
+    const setPlaybackState = (state: Omit<WebRtcDownlinkPlaybackState, 'updatedAtMs'>) => {
+      playbackState = {
+        ...state,
+        updatedAtMs: Date.now(),
+      }
+    }
 
     const clearPendingFrameDelay = () => {
       if (pendingFrameTimer) {
@@ -262,6 +290,10 @@ export const createWebRtcDownlinkAudio = ({
       if (closed) return
       const droppedPending = pendingReplyCount
       playbackGeneration += 1
+      setPlaybackState({
+        generation: playbackGeneration,
+        state: 'interrupted',
+      })
       clearPendingFrameDelay()
       logDiagnostic(
         logger,
@@ -289,13 +321,37 @@ export const createWebRtcDownlinkAudio = ({
           markStarted()
           if (closed || queuedGeneration !== playbackGeneration) return
           const sanitizedText = sanitizeForSpeech(text)
-          if (!sanitizedText) return
+          if (!sanitizedText) {
+            setPlaybackState({
+              generation: playbackGeneration,
+              state: 'idle',
+            })
+            return
+          }
+          setPlaybackState({
+            generation: queuedGeneration,
+            messageId: message.id,
+            state: 'synthesizing',
+            textPreview: summarizePlaybackText(sanitizedText),
+            turnId: latencyTurn?.turnId,
+          })
           markWebRtcVoiceLatency(latencyTurn?.turnId, { ttsStartAt: Date.now() })
           const result = await createTtsProvider().synthesize(sanitizedText, {
             voice: WEBRTC_DOWNLINK_TTS_VOICE,
           })
           markWebRtcVoiceLatency(latencyTurn?.turnId, { ttsEndAt: Date.now() })
-          if (!result || closed || queuedGeneration !== playbackGeneration) return
+          if (!result || closed || queuedGeneration !== playbackGeneration) {
+            if (!closed && queuedGeneration === playbackGeneration) {
+              setPlaybackState({
+                generation: queuedGeneration,
+                messageId: message.id,
+                state: 'idle',
+                textPreview: summarizePlaybackText(sanitizedText),
+                turnId: latencyTurn?.turnId,
+              })
+            }
+            return
+          }
           const frames = await (
             decodeAudioToPcmFrames ??
             ((audio, metadata) => decodeAudioToPcm48kFrames({ audio, env, metadata, tempRoot }))
@@ -304,6 +360,15 @@ export const createWebRtcDownlinkAudio = ({
             mime: result.mime,
           })
           if (closed || queuedGeneration !== playbackGeneration) return
+          setPlaybackState({
+            bytes: result.audio.byteLength,
+            frames: frames.length,
+            generation: queuedGeneration,
+            messageId: message.id,
+            state: 'sending',
+            textPreview: summarizePlaybackText(sanitizedText),
+            turnId: latencyTurn?.turnId,
+          })
           logDiagnostic(
             logger,
             `downlink audio pushing frames: call_id=${callId} message_id=${message.id} frames=${frames.length}`
@@ -343,8 +408,23 @@ export const createWebRtcDownlinkAudio = ({
             logger,
             `downlink audio pushed frames: call_id=${callId} message_id=${message.id} pushed=${pushed}`
           )
+          if (!closed && queuedGeneration === playbackGeneration) {
+            setPlaybackState({
+              bytes: result.audio.byteLength,
+              frames: pushed,
+              generation: queuedGeneration,
+              messageId: message.id,
+              state: 'sent',
+              textPreview: summarizePlaybackText(sanitizedText),
+              turnId: latencyTurn?.turnId,
+            })
+          }
         } catch (error) {
           markStarted()
+          setPlaybackState({
+            generation: playbackGeneration,
+            state: 'error',
+          })
           logger?.warn?.('failed to send WebRTC downlink audio', error)
         } finally {
           if (!latencyTurnCompleted) discardWebRtcVoiceLatencyTurn(latencyTurn?.turnId)
@@ -356,6 +436,10 @@ export const createWebRtcDownlinkAudio = ({
       async close() {
         if (closed) return
         closed = true
+        setPlaybackState({
+          generation: playbackGeneration,
+          state: 'closed',
+        })
         unsubscribe()
         clearPendingFrameDelay()
         try {
@@ -367,6 +451,9 @@ export const createWebRtcDownlinkAudio = ({
       },
       async flush() {
         await queue
+      },
+      getPlaybackState() {
+        return { ...playbackState }
       },
       interrupt,
       track: trackSession.track,

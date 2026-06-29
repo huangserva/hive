@@ -33,6 +33,7 @@ const emitMessage = (
 type TestDownlink = ReturnType<typeof createWebRtcDownlinkAudio>
 type TestDownlinkSession = NonNullable<Awaited<ReturnType<TestDownlink['startCall']>>> & {
   flush(): Promise<void>
+  getPlaybackState?: () => unknown
   interrupt(): void
 }
 
@@ -234,6 +235,110 @@ describe('WebRTC downlink audio', () => {
       ])
     )
     expect(markWebRtcVoiceLatency(turn.turnId, { ttsStartAt: 2_000 })).toBeNull()
+  })
+
+  test('exposes playback state while track downlink is synthesizing and sending audio', async () => {
+    let listener: ((workspaceId: string, message: MobileChatMessage) => void) | null = null
+    let resolveSynthesize:
+      | ((result: {
+          audio: Buffer
+          format: 'mp3'
+          mime: 'audio/mpeg'
+          provider: 'edge-tts'
+        }) => void)
+      | null = null
+    let resolvePush: (() => void) | null = null
+    const downlink = createWebRtcDownlinkAudio({
+      createTtsProvider: () => ({
+        detect: async () => ({ command: 'edge-tts', provider: 'edge-tts' }),
+        synthesize: () =>
+          new Promise((resolve) => {
+            resolveSynthesize = resolve
+          }),
+      }),
+      decodeAudioToPcmFrames: async () => [
+        {
+          bitsPerSample: 16,
+          channelCount: 1,
+          numberOfFrames: 480,
+          sampleRate: 48_000,
+          samples: new Int16Array([1]),
+        },
+      ],
+      env: {
+        ...process.env,
+        HIVE_WEBRTC_DOWNLINK_GAIN: '1',
+      },
+      store: {
+        registerMobileChatListener(nextListener) {
+          listener = nextListener
+          return () => {}
+        },
+      },
+      trackFactory: async () => ({
+        onData: () =>
+          new Promise<void>((resolve) => {
+            resolvePush = resolve
+          }),
+        track: {
+          kind: 'audio',
+        },
+      }),
+    })
+
+    const session = await startTestCall(downlink, {
+      callId: 'call-playback-state',
+      workspaceId: 'workspace-1',
+    })
+    expect(session.getPlaybackState?.()).toEqual(
+      expect.objectContaining({
+        generation: 0,
+        state: 'idle',
+      })
+    )
+
+    emitMessage(listener, 'workspace-1', createMessage('reply for echo suppression'))
+    const flush = session.flush()
+    await flushMicrotasks()
+
+    expect(session.getPlaybackState?.()).toEqual(
+      expect.objectContaining({
+        generation: 0,
+        messageId: 'message-1',
+        state: 'synthesizing',
+        textPreview: 'reply for echo suppression',
+      })
+    )
+
+    resolveSynthesize?.({
+      audio: Buffer.from('audio'),
+      format: 'mp3',
+      mime: 'audio/mpeg',
+      provider: 'edge-tts',
+    })
+    await flushMicrotasks()
+
+    expect(session.getPlaybackState?.()).toEqual(
+      expect.objectContaining({
+        bytes: 5,
+        frames: 1,
+        generation: 0,
+        messageId: 'message-1',
+        state: 'sending',
+      })
+    )
+
+    resolvePush?.()
+    await flush
+
+    expect(session.getPlaybackState?.()).toEqual(
+      expect.objectContaining({
+        frames: 1,
+        generation: 0,
+        messageId: 'message-1',
+        state: 'sent',
+      })
+    )
   })
 
   test('discards claimed WebRTC voice latency turn when TTS does not produce audio', async () => {
