@@ -282,10 +282,13 @@ export const createRuntimeStoreServices = (
       ? agentRuntime.peekAgentLaunchConfig(activeAgent.workspaceId, activeAgent.agent.id)
       : undefined
     if (options.agentManager && config) {
-      createPostStartInputWriter(options.agentManager, config.interactiveCommand ?? config.command)(
-        runId,
-        input
-      )
+      createPostStartInputWriter(
+        options.agentManager,
+        config.interactiveCommand ?? config.command,
+        {
+          allowExistingPrompt: true,
+        }
+      )(runId, input)
       return
     }
     options.agentManager?.writeInput(runId, input)

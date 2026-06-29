@@ -18,6 +18,7 @@ const COMMANDS_WITH_BRACKETED_PASTE = new Set(['claude', 'codex', 'opencode'])
 export const toBracketedPasteSubmission = (text: string) => `\u001b[200~${text}\u001b[201~`
 
 export interface PostStartInputWriterOptions {
+  allowExistingPrompt?: boolean
   onPasteAck?: () => void
   onPasteGaveUp?: () => void
 }
@@ -42,6 +43,15 @@ export const hasInteractivePromptReady = (output: string, command = '') => {
     /(?:^|[\r\n])\s*[❯›]\s*/u.test(output) ||
     (commandName === 'gemini' && hasGeminiPromptReady(output)) ||
     (commandName === 'opencode' && hasOpenCodePromptReady(output))
+  )
+}
+
+const hasInteractivePromptReadyAtTail = (output: string, command = '') => {
+  const commandName = getCommandName(command)
+  return (
+    /(?:^|[\r\n])\s*[❯›]\s*$/u.test(output) ||
+    (commandName === 'gemini' && /\bType your message\b[^\r\n]*$/u.test(output)) ||
+    (commandName === 'opencode' && /Ask anything[^\r\n]*$/u.test(output))
   )
 }
 
@@ -197,9 +207,21 @@ export const createPostStartInputWriter = (
         firstBusyAt !== null && Date.now() - firstBusyAt >= CLAUDE_BUSY_READY_TIMEOUT_MS
       const shouldKeepWaitingForClaudeBusy =
         isClaudeCommand(command) && firstBusyAt !== null && !claudeBusyTimedOut
-      const promptReady = hasInteractivePromptReady(outputSinceBaseline, command)
+      const promptReady =
+        hasInteractivePromptReady(outputSinceBaseline, command) ||
+        (options.allowExistingPrompt === true &&
+          output.length === readinessBaseline &&
+          !hasClaudeBusyOutput(outputSinceBaseline) &&
+          hasInteractivePromptReadyAtTail(output, command))
+      if (isClaudeCommand(command) && claudeBusyTimedOut && !promptReady) {
+        reportGaveUp()
+        return
+      }
       const timeoutFallbackReady =
-        canTimeoutBeforePromptReady(command) && timedOut && !shouldKeepWaitingForClaudeBusy
+        !isClaudeCommand(command) &&
+        canTimeoutBeforePromptReady(command) &&
+        timedOut &&
+        !shouldKeepWaitingForClaudeBusy
       if (promptReady || timeoutFallbackReady) {
         if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
           reportGaveUp()
@@ -226,7 +248,10 @@ export const createPostStartInputWriter = (
         )
         return
       }
-      if (timedOut && !shouldKeepWaitingForClaudeBusy) return
+      if (timedOut && !shouldKeepWaitingForClaudeBusy) {
+        if (isClaudeCommand(command)) reportGaveUp()
+        return
+      }
       setTimeout(tryWrite, READY_CHECK_INTERVAL_MS)
     }
     try {

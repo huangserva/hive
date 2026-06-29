@@ -195,11 +195,10 @@ export const createAgentStdinDispatcher = ({
     try {
       const config = getLaunchConfig(workspaceId, agentId)
       if (agentManager && config) {
-        createPostStartInputWriter(
-          agentManager,
-          config.interactiveCommand ?? config.command,
-          postStartWriterOptions(input)
-        )(run.runId, text)
+        createPostStartInputWriter(agentManager, config.interactiveCommand ?? config.command, {
+          ...postStartWriterOptions(input),
+          allowExistingPrompt: true,
+        })(run.runId, text)
       } else {
         agentManager?.writeInput(run.runId, text)
         input.onPasteAck?.()

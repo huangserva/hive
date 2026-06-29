@@ -195,4 +195,90 @@ describe('team prompt contract', () => {
       expect(run?.output.match(/SUBMITTED/g)?.length ?? 0).toBeGreaterThanOrEqual(2)
     }, 14_000)
   }, 20_000)
+
+  test('team send waits through Claude compact before delivering to the real PTY', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-compact-team-send-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeClaude = join(binDir, 'claude')
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "const PASTE_END = '\\u001b[201~'",
+        'let submitReadyAt = 0',
+        'let submissionCount = 0',
+        "process.stdout.write('❯ ')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('IN:' + chunk)",
+        '  if (chunk.includes(PASTE_END)) {',
+        '    process.stdout.write("\\n[Pasted text #1 +1 lines]\\n")',
+        '    submitReadyAt = Date.now() + 50',
+        '  }',
+        "  const isSubmit = submitReadyAt > 0 && (chunk === '\\r' || chunk === '\\n' || chunk === '\\r\\n')",
+        '  if (!isSubmit || Date.now() < submitReadyAt) return',
+        '  submissionCount += 1',
+        "  process.stdout.write('\\nSUBMITTED_' + submissionCount + '\\n')",
+        '  submitReadyAt = 0',
+        '  if (submissionCount === 1) {',
+        "    process.stdout.write('COMPACTING_AFTER_STARTUP\\nCompacting conversation…\\nesc to interrupt\\n')",
+        "    setTimeout(() => process.stdout.write('COMPACTED_AFTER_STARTUP\\n❯ '), 600)",
+        '    return',
+        '  }',
+        "  process.stdout.write('❯ ')",
+        '})',
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeClaude, 0o755)
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected default orchestrator')
+    }
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, { command: 'claude', args: [] })
+
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('SUBMITTED_1')
+      expect(run?.output).toContain('COMPACTING_AFTER_STARTUP')
+      expect(run?.output).not.toContain('COMPACTED_AFTER_STARTUP')
+    }, 4000)
+
+    const dispatch = await store.dispatchTaskByWorkerName(
+      workspace.id,
+      'Alice',
+      'compact 中派单必须等新提示符',
+      { fromAgentId: orchestrator.id }
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    const beforeReadyOutput = store.getActiveRunByAgentId(workspace.id, worker.id)?.output ?? ''
+    expect(beforeReadyOutput).not.toContain('compact 中派单必须等新提示符')
+
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('COMPACTED_AFTER_STARTUP')
+      expect(run?.output).toContain('compact 中派单必须等新提示符')
+      expect(run?.output).toContain('SUBMITTED_2')
+    }, 8000)
+    await waitFor(() => {
+      const record = store.listDispatches(workspace.id).find((item) => item.id === dispatch.id)
+      expect(record?.inputAcknowledgedAt).toEqual(expect.any(Number))
+      expect(record?.inputDeliveryFailedAt ?? null).toBeNull()
+    }, 2000)
+  }, 15_000)
 })

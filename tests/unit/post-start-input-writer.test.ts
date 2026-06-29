@@ -207,34 +207,64 @@ describe('post-start input writer', () => {
     expect(manager.writeInput).toHaveBeenCalledTimes(2)
   })
 
-  test('does not repeatedly paste when Claude stays busy after a missing acknowledgement', () => {
+  test('reports delivery failure instead of blind-pasting when Claude stays compact/busy', () => {
     vi.useFakeTimers()
     let output = 'Welcome back after restart\n❯ '
     const manager = {
       getRun: vi.fn(() => ({ output, status: 'running' })),
       writeInput: vi.fn(),
     }
+    const onPasteAck = vi.fn()
+    const onPasteGaveUp = vi.fn()
 
-    const write = createPostStartInputWriter(manager as never, 'claude')
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      onPasteAck,
+      onPasteGaveUp,
+    })
     write('run-1', 'payload')
 
     vi.advanceTimersByTime(7999)
     expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
 
     output += 'Compacting conversation…\nesc to interrupt\n'
     vi.advanceTimersByTime(1)
     expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(120_000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(1)
-    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '\u001b[200~payload\u001b[201~')
-
-    vi.advanceTimersByTime(3_000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(2)
-    expect(manager.writeInput).toHaveBeenNthCalledWith(2, 'run-1', '\r')
+    expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteAck).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(30_000)
-    expect(manager.writeInput).toHaveBeenCalledTimes(2)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
+  })
+
+  test('reports delivery failure instead of using timeout fallback for Claude without a fresh prompt', () => {
+    vi.useFakeTimers()
+    const manager = {
+      getRun: vi.fn(() => ({ output: 'Claude booting without prompt', status: 'running' })),
+      writeInput: vi.fn(),
+    }
+    const onPasteAck = vi.fn()
+    const onPasteGaveUp = vi.fn()
+
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      onPasteAck,
+      onPasteGaveUp,
+    })
+    write('run-1', 'payload')
+
+    vi.advanceTimersByTime(7999)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(1)
+    expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(onPasteAck).not.toHaveBeenCalled()
+    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
   })
 
   test('waits for Gemini prompt readiness and writes plain input without bracketed paste', () => {
@@ -353,6 +383,22 @@ describe('post-start input writer', () => {
     // CLI 真正就绪后追加一个【新】提示符，这时才注入。
     output += 'thinking...\n❯ '
     vi.advanceTimersByTime(50)
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
+  })
+
+  test('active dispatch can use the existing idle Claude prompt when explicitly allowed', () => {
+    vi.useFakeTimers()
+    const manager = {
+      getRun: vi.fn(() => ({ output: 'Welcome back\n❯ ', status: 'running' })),
+      writeInput: vi.fn(),
+    }
+
+    const write = createPostStartInputWriter(manager as never, 'claude', {
+      allowExistingPrompt: true,
+    })
+    write('run-1', 'payload')
+
     expect(manager.writeInput).toHaveBeenCalledTimes(1)
     expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
   })
