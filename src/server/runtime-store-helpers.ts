@@ -439,10 +439,12 @@ export const createRuntimeStoreServices = (
     findOpenDispatchById: dispatchLedgerStore.findOpenDispatchById,
     findLatestClosedDispatchForWorker: dispatchLedgerStore.findLatestClosedDispatchForWorker,
     insertMessage: messageLogStore.insertMessage,
+    ...(options.logger ? { logger: options.logger } : {}),
     listOpenDispatchesForWorkspace: dispatchLedgerStore.listOpenDispatchesForWorkspace,
     markDispatchCancelled: dispatchLedgerStore.markCancelled,
     markDispatchInputAcknowledged: dispatchLedgerStore.markInputAcknowledged,
     markDispatchInputDeliveryFailed: dispatchLedgerStore.markInputDeliveryFailed,
+    markDispatchLateReportForwarded: dispatchLedgerStore.markLateReportForwarded,
     markDispatchOrphaned: dispatchLedgerStore.markOrphaned,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
@@ -501,12 +503,10 @@ export const createRuntimeStoreServices = (
       options.logger?.warn('queued dispatch reconcile on startup failed', error)
     })
 
-  // 启动时收尾历史孤儿派单：runtime 重启后所有 worker 都是 stopped 且无 active run，
-  // 此时把卡在 submitted 已过期的孤儿统一标成 cancelled（tasks.md 同步），清掉噪音。
-  // 当前正在 working 的 worker 在重启瞬间也是 stopped，但其 dispatch 通常未过 staleness
-  // 阈值；真重启会中断在途 PTY，这些任务本就需重派，故收尾是合理的。
+  // 启动时收尾历史孤儿派单：worker 已删才破坏性 orphan；worker 仍存在但 stopped
+  // 只 surface 疑似孤儿，避免 runtime/lifecycle 抖动把仍在执行的长任务关掉。
   try {
-    const reconciled = teamOps.reconcileOrphanedDispatches()
+    const reconciled = teamOps.reconcileOrphanedDispatches({ caller: 'runtime-store-startup' })
     if (reconciled.length > 0) {
       reconcileAllAgentStatuses()
       options.logger?.info(`reconciled ${reconciled.length} orphaned submitted dispatch(es)`)

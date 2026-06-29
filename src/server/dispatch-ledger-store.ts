@@ -40,6 +40,7 @@ export interface DispatchRecord {
   id: string
   inputAcknowledgedAt?: number | null
   inputDeliveryFailedAt?: number | null
+  lateReportForwardedAt?: number | null
   reportedAt: number | null
   reportText: string | null
   sequence: number | null
@@ -65,6 +66,7 @@ interface DispatchRow {
   id: string
   input_acknowledged_at: number | null
   input_delivery_failed_at: number | null
+  late_report_forwarded_at: number | null
   reported_at: number | null
   report_text: string | null
   sequence: number
@@ -190,6 +192,7 @@ const toRecord = (row: DispatchRow): DispatchRecord => ({
   id: row.id,
   inputAcknowledgedAt: row.input_acknowledged_at,
   inputDeliveryFailedAt: row.input_delivery_failed_at,
+  lateReportForwardedAt: row.late_report_forwarded_at,
   reportedAt: row.reported_at,
   reportText: row.report_text,
   sequence: row.sequence,
@@ -214,6 +217,7 @@ export const createDispatchLedgerStore = (db: Database) => {
       id: randomUUID(),
       inputAcknowledgedAt: null,
       inputDeliveryFailedAt: null,
+      lateReportForwardedAt: null,
       reportedAt: null,
       reportText: null,
       sequence: null,
@@ -301,6 +305,28 @@ export const createDispatchLedgerStore = (db: Database) => {
        WHERE id = ?
          AND input_acknowledged_at IS NULL`
     ).run(failedAt, dispatchId)
+  }
+
+  const markLateReportForwarded = (dispatchId: string) => {
+    const forwardedAt = Date.now()
+    const result = db
+      .prepare(
+        `UPDATE dispatches
+         SET late_report_forwarded_at = ?
+         WHERE id = ?
+           AND late_report_forwarded_at IS NULL`
+      )
+      .run(forwardedAt, dispatchId)
+    if (result.changes === 0) return undefined
+    const row = db
+      .prepare(
+        `SELECT *
+         FROM dispatches
+         WHERE id = ?
+         LIMIT 1`
+      )
+      .get(dispatchId) as DispatchRow | undefined
+    return row ? toRecord(row) : undefined
   }
 
   const markReportOverdue = (dispatchId: string) => {
@@ -642,6 +668,7 @@ export const createDispatchLedgerStore = (db: Database) => {
     markCancelled,
     markInputAcknowledged,
     markInputDeliveryFailed,
+    markLateReportForwarded,
     markOrphaned,
     markReportOverdue,
     markReportedByWorker,

@@ -87,22 +87,56 @@ describe('cancelTask supports active dispatches', () => {
 })
 
 describe('reconcileOrphanedDispatches', () => {
-  test('marks a stale running dispatch orphaned when the worker is stopped, syncing tasks.md', async () => {
+  test('surfaces but does not orphan a stale stopped-worker dispatch when the worker still exists', async () => {
     const { services, worker, workspace, workspacePath } = setup()
     const dispatch = await seedSubmittedDispatch(services, workspace.id, worker.id, 'Orphan task')
 
-    // worker 从未启动 → stopped 且无 active run；staleMs:0 表示已过期。
+    const reconciled = services.teamOps.reconcileOrphanedDispatches({
+      staleMs: 0,
+    })
+
+    expect(reconciled).toEqual([])
+    expect(
+      services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
+    ).toBe('running')
+    const content = readTasks(workspacePath)
+    expect(content).not.toContain('orphan-submitted')
+    const events = services.mobileChatStore
+      .listChatMessages(workspace.id)
+      .filter((message) => message.message_type === 'system_event')
+      .map(
+        (message) =>
+          JSON.parse(message.content_json) as {
+            dispatch_id?: string
+            type?: string
+            worker_status?: string
+          }
+      )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        dispatch_id: dispatch.id,
+        type: 'suspected_orphan_dispatch',
+        worker_status: 'stopped',
+      })
+    )
+  })
+
+  test('still orphans a stale submitted dispatch immediately when the worker has been deleted', async () => {
+    const { services, workspace } = setup()
+    const dispatch = services.dispatchLedgerStore.createDispatch({
+      text: 'Submitted to deleted worker',
+      toAgentId: 'missing-worker',
+      workspaceId: workspace.id,
+    })
+    services.dispatchLedgerStore.markSubmitted(dispatch.id)
+
     const reconciled = services.teamOps.reconcileOrphanedDispatches({ staleMs: 0 })
 
     expect(reconciled.map((d) => d.id)).toEqual([dispatch.id])
     expect(reconciled[0]?.status).toBe('orphaned')
-    expect(reconciled[0]?.reportText).toContain('orphan-submitted')
     expect(services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)).toBe(
       undefined
     )
-    const content = readTasks(workspacePath)
-    expect(content).toContain(`- [~] **关羽** dispatch \`${dispatch.id.slice(0, 8)}\``)
-    expect(content).toContain('orphan-submitted')
   })
 
   test('leaves an in-flight running dispatch alone when the worker is not stopped', async () => {
@@ -320,11 +354,14 @@ describe('reconcileOrphanedDispatches', () => {
       workspaceId: workspace.id,
     })
 
-    expect(reconciled.map((d) => d.id)).toEqual([dispatch.id])
+    expect(reconciled).toEqual([])
+    expect(
+      services.dispatchLedgerStore.findOpenDispatchById(workspace.id, dispatch.id)?.status
+    ).toBe('running')
     // 另一 workspace 的孤儿不受影响。
     expect(
       services.dispatchLedgerStore.findOpenDispatchById(otherWorkspace.id, otherDispatch.id)?.status
     ).toBe('running')
-    expect(readTasks(workspacePath)).toContain('orphan-submitted')
+    expect(readTasks(workspacePath)).not.toContain('orphan-submitted')
   })
 })

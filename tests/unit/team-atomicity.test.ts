@@ -804,7 +804,7 @@ describe('team atomicity', () => {
     expect(insertMobileChatMessage).toHaveBeenCalledTimes(1)
   })
 
-  test('reportTask records a late report for a cancelled dispatch instead of throwing a bare 409', () => {
+  test('reportTask forwards a late report for a cancelled dispatch to orchestrator once', () => {
     const workspace = { id: 'workspace-1' }
     const worker = { id: 'worker-1', name: 'Alice', role: 'coder' }
     const dispatch = withDispatchDefaults({
@@ -824,12 +824,17 @@ describe('team atomicity', () => {
     })
     const insertMessage = vi.fn(() => ({ sequence: 1 }))
     const insertMobileChatMessage = vi.fn()
+    const markDispatchLateReportForwarded = vi.fn(() => ({
+      ...dispatch,
+      lateReportForwardedAt: Date.now(),
+    }))
+    const writeReportPrompt = vi.fn()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const ops = createTeamOperations({
       agentRuntime: {
         getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
-        writeReportPrompt: vi.fn(),
+        writeReportPrompt,
         writeSendPrompt: vi.fn(),
         writeUserInputPrompt: vi.fn(),
       } as never,
@@ -843,6 +848,7 @@ describe('team atomicity', () => {
       insertMobileChatMessage,
       listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
       markDispatchCancelled: vi.fn(),
+      markDispatchLateReportForwarded,
       markDispatchReportedByWorker: vi.fn(),
       markDispatchSubmitted: vi.fn(),
       workspaceStore: {
@@ -852,6 +858,7 @@ describe('team atomicity', () => {
 
     const result = ops.reportTask(workspace.id, worker.id, {
       dispatchId: dispatch.id,
+      requireActiveRun: true,
       requireDispatchId: true,
       status: 'success',
       text: 'Finished anyway',
@@ -859,10 +866,28 @@ describe('team atomicity', () => {
 
     expect(result).toMatchObject({
       dispatch,
-      forwardError: expect.stringContaining('already closed'),
-      forwarded: false,
+      forwardError: null,
+      forwarded: true,
       lateReport: true,
     })
+    expect(writeReportPrompt).toHaveBeenCalledTimes(1)
+    expect(writeReportPrompt).toHaveBeenCalledWith(
+      workspace.id,
+      worker.name,
+      worker.id,
+      expect.stringContaining('[迟到/恢复汇报]'),
+      [],
+      { requireActiveRun: true }
+    )
+    expect(writeReportPrompt).toHaveBeenCalledWith(
+      workspace.id,
+      worker.name,
+      worker.id,
+      expect.stringContaining('Finished anyway'),
+      [],
+      { requireActiveRun: true }
+    )
+    expect(markDispatchLateReportForwarded).toHaveBeenCalledWith(dispatch.id)
     expect(insertMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'Finished anyway',
@@ -876,6 +901,69 @@ describe('team atomicity', () => {
       'system_event',
       expect.stringContaining('"type":"late_worker_report"')
     )
+  })
+
+  test('reportTask does not forward a late report when the atomic claim is already taken', () => {
+    const workspace = { id: 'workspace-1' }
+    const worker = { id: 'worker-1', name: 'Alice', role: 'coder' }
+    const dispatch = withDispatchDefaults({
+      artifacts: [],
+      createdAt: Date.now() - 10_000,
+      deliveredAt: Date.now() - 9_000,
+      fromAgentId: `${workspace.id}:orchestrator`,
+      id: 'dispatch-1',
+      reportedAt: Date.now() - 1_000,
+      reportText: 'orphan-submitted: worker stopped without reporting',
+      sequence: 1,
+      status: 'orphaned',
+      submittedAt: Date.now() - 8_000,
+      text: 'Implement login',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const writeReportPrompt = vi.fn()
+    const markDispatchLateReportForwarded = vi.fn(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        writeReportPrompt,
+        writeSendPrompt: vi.fn(),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findDispatchById: vi.fn(() => dispatch),
+      findOpenDispatch: vi.fn(() => undefined),
+      findOpenDispatchById: vi.fn(),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      insertMobileChatMessage: vi.fn(),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchLateReportForwarded,
+      markDispatchReportedByWorker: vi.fn(),
+      markDispatchSubmitted: vi.fn(),
+      workspaceStore: {
+        getWorker: vi.fn(() => worker),
+      } as never,
+    })
+
+    const result = ops.reportTask(workspace.id, worker.id, {
+      dispatchId: dispatch.id,
+      requireActiveRun: true,
+      requireDispatchId: true,
+      text: 'Finished anyway',
+    })
+
+    expect(result).toMatchObject({
+      dispatch,
+      forwarded: false,
+      lateReport: true,
+    })
+    expect(markDispatchLateReportForwarded).toHaveBeenCalledWith(dispatch.id)
+    expect(writeReportPrompt).not.toHaveBeenCalled()
   })
 
   test('reportTask sends a mobile push notification after a dispatch is reported', () => {

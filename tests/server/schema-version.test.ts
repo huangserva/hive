@@ -207,6 +207,7 @@ describe('schema version', () => {
         'evidence_json',
         'input_acknowledged_at',
         'input_delivery_failed_at',
+        'late_report_forwarded_at',
         // M43 schema v33: 三个旁挂字段，默认 NULL；不破 8 态 status 维度。
         'review_status',
         'reviews_dispatch_id',
@@ -1699,6 +1700,36 @@ describe('schema version', () => {
     expect(() => {
       applySchemaVersion38(db)
       applySchemaVersion38(db)
+    }).not.toThrow()
+    expect(dispatchColumns(db).size).toBe(cols.size)
+    db.close()
+  })
+
+  test('late report forwarding schema v39 adds nullable forwarded marker + idempotent', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-schema-v39-'))
+    tempDirs.push(dataDir)
+    const store = createRuntimeStore({ dataDir })
+    stores.push(store)
+    const db = new Database(join(dataDir, 'runtime.sqlite'))
+
+    expect(db.prepare('SELECT version FROM schema_version WHERE version = ?').get(39)).toEqual({
+      version: 39,
+    })
+    const cols = dispatchColumns(db)
+    expect(cols.has('late_report_forwarded_at')).toBe(true)
+    const fullColInfo = db.prepare('PRAGMA table_info(dispatches)').all() as Array<{
+      dflt_value: string | null
+      name: string
+      notnull: number
+    }>
+    const info = fullColInfo.find((column) => column.name === 'late_report_forwarded_at')
+    expect(info?.notnull).toBe(0)
+    expect(info?.dflt_value).toBeNull()
+
+    const { applySchemaVersion39 } = await import('../../src/server/sqlite-schema-v39.js')
+    expect(() => {
+      applySchemaVersion39(db)
+      applySchemaVersion39(db)
     }).not.toThrow()
     expect(dispatchColumns(db).size).toBe(cols.size)
     db.close()

@@ -12,6 +12,7 @@ import {
   type ReviewStatus,
 } from './dispatch-ledger-store.js'
 import { BadRequestError, ConflictError } from './http-errors.js'
+import type { HiveLogger } from './logger.js'
 import type { MessageLogHandle, MessageLogRecord } from './message-log-store.js'
 import type {
   MobileChatDirection,
@@ -55,6 +56,7 @@ export interface TeamOperationsInput {
     toAgentId: string
   ) => DispatchRecord | undefined
   insertMessage: (record: MessageLogRecord) => MessageLogHandle
+  logger?: Pick<HiveLogger, 'info' | 'warn'>
   insertMobileChatMessage?: (
     workspaceId: string,
     direction: MobileChatDirection,
@@ -83,6 +85,7 @@ export interface TeamOperationsInput {
   }) => DispatchRecord | undefined
   markDispatchInputAcknowledged?: (dispatchId: string) => void
   markDispatchInputDeliveryFailed?: (dispatchId: string) => void
+  markDispatchLateReportForwarded?: (dispatchId: string) => DispatchRecord | undefined
   markDispatchSubmitted: (dispatchId: string) => void
   mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'> &
     Partial<Pick<MobilePushService, 'notifyOrchestratorForwardFailure'>>
@@ -187,6 +190,7 @@ export interface AbandonTaskInput {
 }
 
 export interface ReconcileOrphanedDispatchesInput {
+  caller?: string
   now?: number
   staleMs?: number
   workspaceId?: string
@@ -216,6 +220,7 @@ export interface ReportTaskResult {
   dispatch: DispatchRecord | null
   forwardError: string | null
   forwarded: boolean
+  lateReport?: boolean
 }
 
 export interface RecoverTaskResult {
@@ -317,12 +322,14 @@ export const createTeamOperations = ({
   findOpenDispatchById,
   findLatestClosedDispatchForWorker,
   insertMessage,
+  logger,
   insertMobileChatMessage,
   redactUserVisiblePayload = (value) => value,
   listOpenDispatchesForWorkspace,
   markDispatchCancelled,
   markDispatchInputAcknowledged,
   markDispatchInputDeliveryFailed,
+  markDispatchLateReportForwarded,
   markDispatchOrphaned,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
@@ -463,6 +470,18 @@ export const createTeamOperations = ({
       `[hive] late worker report recorded workspace_id=${workspaceId} worker=${worker.name} dispatch_id=${dispatch.id} status=${dispatch.status}`
     )
   }
+
+  const buildLateWorkerReportPrompt = (
+    worker: { name: string },
+    dispatch: DispatchRecord,
+    text: string
+  ) =>
+    [
+      `[迟到/恢复汇报] 来自 @${worker.name}（原派单已关闭: ${dispatch.status}，dispatch_id=${dispatch.id}）`,
+      text,
+    ]
+      .filter((part) => part.trim().length > 0)
+      .join('\n\n')
 
   const workerDispatchReservations = new Set<string>()
 
@@ -677,22 +696,73 @@ export const createTeamOperations = ({
     }
   }
 
-  // 判定一条 open dispatch 是否是「可安全收尾」的孤儿。只收明确孤儿：
-  // running/report_overdue + 已过 staleness 阈值 + 无 active run + （worker 已删 或 status==='stopped'）。
-  // worker 还在 working/idle（在途，可能正在做或马上 report）一律不动。
-  const isReconcilableOrphan = (
+  const logOrphanEvent = (
+    level: 'info' | 'warn',
+    event: string,
+    fields: Record<string, unknown>
+  ) => {
+    const line = `[hive] ${event} ${JSON.stringify(fields)}`
+    if (level === 'warn') logger?.warn(line)
+    else logger?.info(line)
+  }
+
+  const surfaceSuspectedOrphanDispatch = (
+    workspaceId: string,
+    dispatch: DispatchRecord,
+    input: {
+      activeRunPresent: boolean
+      caller: string
+      now: number
+      worker: { id: string; name: string; status: string }
+    }
+  ) => {
+    const ageMs = dispatch.submittedAt === null ? null : input.now - dispatch.submittedAt
+    insertMobileChatMessage?.(
+      workspaceId,
+      'outbound',
+      'system_event',
+      JSON.stringify({
+        active_run_present: input.activeRunPresent,
+        age_ms: ageMs,
+        caller: input.caller,
+        dispatch_id: dispatch.id,
+        dispatch_status: dispatch.status,
+        submitted_at: dispatch.submittedAt,
+        type: 'suspected_orphan_dispatch',
+        worker_id: input.worker.id,
+        worker_name: input.worker.name,
+        worker_status: input.worker.status,
+      })
+    )
+    logOrphanEvent('warn', 'dispatch_orphan_reconcile_suspected', {
+      active_run_present: input.activeRunPresent,
+      age_ms: ageMs,
+      caller: input.caller,
+      dispatch_id: dispatch.id,
+      dispatch_status: dispatch.status,
+      submitted_at: dispatch.submittedAt,
+      worker_id: input.worker.id,
+      worker_status: input.worker.status,
+      workspace_id: workspaceId,
+    })
+  }
+
+  // startup 止血：worker 已删才是可破坏性收尾的明确孤儿；
+  // worker 仍存在但 stopped 只 surface，不 markOrphaned。
+  const classifyOrphanCandidate = (
     workspaceId: string,
     dispatch: DispatchRecord,
     now: number,
     staleMs: number
-  ) => {
-    if (!isActiveDispatchStatus(dispatch.status) || dispatch.submittedAt === null) return false
-    if (now - dispatch.submittedAt < staleMs) return false
+  ): 'ignore' | 'orphan' | 'suspected_existing_worker' => {
+    if (!isActiveDispatchStatus(dispatch.status) || dispatch.submittedAt === null) return 'ignore'
+    if (now - dispatch.submittedAt < staleMs) return 'ignore'
     // 在途保护：worker 还有 active run = 合法在途，绝不收尾。
-    if (agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)) return false
-    // worker 已被删除 = 明确孤儿；否则必须是 stopped 态才算孤儿。
-    if (!workspaceStore.hasAgent(workspaceId, dispatch.toAgentId)) return true
+    if (agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)) return 'ignore'
+    if (!workspaceStore.hasAgent(workspaceId, dispatch.toAgentId)) return 'orphan'
     return workspaceStore.getWorker(workspaceId, dispatch.toAgentId).status === 'stopped'
+      ? 'suspected_existing_worker'
+      : 'ignore'
   }
 
   const requireReportOverdueDispatch = (workspaceId: string, dispatchId: string) => {
@@ -992,15 +1062,48 @@ export const createTeamOperations = ({
       return { dispatch, forwardError, forwarded: true }
     },
     reconcileOrphanedDispatches(input: ReconcileOrphanedDispatchesInput = {}) {
+      const caller = input.caller ?? 'unknown'
       const now = input.now ?? Date.now()
       const staleMs = input.staleMs ?? ORPHAN_SUBMITTED_STALE_MS
       const workspaceIds = input.workspaceId
         ? [input.workspaceId]
         : workspaceStore.listWorkspaces().map((workspace) => workspace.id)
       const reconciled: DispatchRecord[] = []
+      logOrphanEvent('info', 'dispatch_orphan_reconcile_start', {
+        caller,
+        stale_ms: staleMs,
+        workspace_ids: workspaceIds,
+      })
       for (const workspaceId of workspaceIds) {
         for (const dispatch of listOpenDispatchesForWorkspace(workspaceId)) {
-          if (!isReconcilableOrphan(workspaceId, dispatch, now, staleMs)) continue
+          const activeRunPresent = Boolean(
+            agentRuntime.getActiveRunByAgentId?.(workspaceId, dispatch.toAgentId)
+          )
+          const disposition = classifyOrphanCandidate(workspaceId, dispatch, now, staleMs)
+          if (disposition === 'suspected_existing_worker') {
+            const worker = workspaceStore.getWorker(workspaceId, dispatch.toAgentId)
+            surfaceSuspectedOrphanDispatch(workspaceId, dispatch, {
+              activeRunPresent,
+              caller,
+              now,
+              worker,
+            })
+            continue
+          }
+          if (disposition !== 'orphan') {
+            continue
+          }
+          logOrphanEvent('warn', 'dispatch_mark_orphaned', {
+            active_run_present: activeRunPresent,
+            caller,
+            dispatch_id: dispatch.id,
+            dispatch_status: dispatch.status,
+            submitted_at: dispatch.submittedAt,
+            worker_exists: false,
+            worker_id: dispatch.toAgentId,
+            worker_status: 'missing',
+            workspace_id: workspaceId,
+          })
           const cancelled = (markDispatchOrphaned ?? markDispatchCancelled)({
             dispatchId: dispatch.id,
             reason: ORPHAN_DISPATCH_CANCEL_REASON,
@@ -1102,10 +1205,50 @@ export const createTeamOperations = ({
             ...(status !== undefined ? { status } : {}),
             text,
           })
+          let forwardError: string | null = null
+          let forwarded = false
+          if (
+            closedDispatch.lateReportForwardedAt === null ||
+            closedDispatch.lateReportForwardedAt === undefined
+          ) {
+            const claimed = markDispatchLateReportForwarded
+              ? markDispatchLateReportForwarded(closedDispatch.id)
+              : closedDispatch
+            if (claimed) {
+              try {
+                const forwardOptions =
+                  input.requireActiveRun === undefined
+                    ? {}
+                    : { requireActiveRun: input.requireActiveRun }
+                agentRuntime.writeReportPrompt(
+                  workspaceId,
+                  worker.name,
+                  workerId,
+                  buildLateWorkerReportPrompt(worker, closedDispatch, text),
+                  artifacts,
+                  forwardOptions
+                )
+                forwarded = true
+              } catch (error) {
+                forwardError = reportForwardErrorMessage(error)
+                console.error('[hive] swallowed:teamReport.lateForward', error)
+                surfaceOrchestratorForwardFailure(workspaceId, {
+                  dispatchId: closedDispatch.id,
+                  error: forwardError,
+                  operation: 'report',
+                  workerName: worker.name,
+                })
+              }
+            } else {
+              forwardError = `Dispatch already closed (${closedDispatch.status}); late report already forwarded`
+            }
+          } else {
+            forwardError = `Dispatch already closed (${closedDispatch.status}); late report already forwarded`
+          }
           return {
             dispatch: closedDispatch,
-            forwardError: `Dispatch already closed (${closedDispatch.status}); late report recorded`,
-            forwarded: false,
+            forwardError,
+            forwarded,
             lateReport: true,
           }
         }
