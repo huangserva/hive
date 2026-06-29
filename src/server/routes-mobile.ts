@@ -44,7 +44,7 @@ import { sanitizeForSpeech } from './speech-text-sanitizer.js'
 import { summarizeStaleDispatches } from './stale-dispatch-status.js'
 import { enrichTeamList } from './team-list-enrichment.js'
 import { stripTerminalAnsi } from './terminal-state-mirror.js'
-import { readCookie, requireUiTokenFromRequest } from './ui-auth-helpers.js'
+import { readCookie } from './ui-auth-helpers.js'
 import { MOBILE_UPLOAD_JSON_BODY_LIMIT_BYTES, MOBILE_UPLOAD_MAX_BYTES } from './upload-limits.js'
 import {
   enqueueVoiceUnderstandingInput,
@@ -500,7 +500,7 @@ export const mobileRoutes: RouteDefinition[] = [
     })
   }),
   route('GET', '/api/mobile/tokens/:deviceId', ({ params, request, response, store }) => {
-    requireUiTokenFromRequest(request, store.validateUiToken)
+    requireUiSessionOrMobileAdmin(request, store)
     const deviceId = getRequiredParam(response, params, 'deviceId', 'Device id is required')
     if (!deviceId) return
     const device = store.listMobileDevices().find((item) => item.id === deviceId)

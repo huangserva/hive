@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,6 +36,37 @@ const createToken = async (
     body: (await response.json()) as { device_id: string; token: string },
     status: response.status,
   }
+}
+
+const requestWithHeaders = async (
+  baseUrl: string,
+  path: string,
+  headers: Record<string, string>
+) => {
+  const target = new URL(path, baseUrl)
+  return new Promise<{ body: string; statusCode: number }>((resolve, reject) => {
+    const request = httpRequest(
+      {
+        headers,
+        hostname: target.hostname,
+        method: 'GET',
+        path: target.pathname + target.search,
+        port: target.port,
+      },
+      (response) => {
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => {
+          body += chunk
+        })
+        response.on('end', () => {
+          resolve({ body, statusCode: response.statusCode ?? 0 })
+        })
+      }
+    )
+    request.on('error', reject)
+    request.end()
+  })
 }
 
 const createWorkspace = (
@@ -135,6 +167,43 @@ describe('mobile token flow integration', () => {
     }
   })
 
+  test('remote UI cookie cannot retrieve an existing device token, but mobile admin can', async () => {
+    const server = await startTestServer()
+    tempDirs.push(server.dataDir)
+    try {
+      const cookie = await getUiCookie(server.baseUrl)
+      const { body: created } = await createToken(server.baseUrl, cookie, [
+        'read_dashboard',
+        'send_prompt',
+      ])
+      const { body: admin } = await createToken(
+        server.baseUrl,
+        cookie,
+        ['admin_runtime'],
+        'Admin phone'
+      )
+
+      const remoteUiCookie = await requestWithHeaders(
+        server.baseUrl,
+        `/api/mobile/tokens/${created.device_id}`,
+        jsonHeaders({ cookie, host: 'attacker.example' })
+      )
+      expect(remoteUiCookie.statusCode).toBe(401)
+
+      const mobileAdmin = await requestWithHeaders(
+        server.baseUrl,
+        `/api/mobile/tokens/${created.device_id}`,
+        jsonHeaders({ host: 'attacker.example', token: admin.token })
+      )
+      expect(mobileAdmin.statusCode).toBe(200)
+      const body = JSON.parse(mobileAdmin.body) as { device: { id: string }; token: string }
+      expect(body.token).toBe(created.token)
+      expect(body.device.id).toBe(created.device_id)
+    } finally {
+      await server.close()
+    }
+  })
+
   test('existing device token retrieval requires UI auth', async () => {
     const server = await startTestServer()
     tempDirs.push(server.dataDir)
@@ -143,7 +212,7 @@ describe('mobile token flow integration', () => {
       const { body: created } = await createToken(server.baseUrl, cookie)
 
       const response = await fetch(`${server.baseUrl}/api/mobile/tokens/${created.device_id}`)
-      expect(response.status).toBe(403)
+      expect(response.status).toBe(401)
 
       const mobileAuthResponse = await fetch(
         `${server.baseUrl}/api/mobile/tokens/${created.device_id}`,
