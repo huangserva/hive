@@ -76,6 +76,15 @@ last_review: 2026-06-12
 
 ## 里程碑
 
+### M46 · web 终端远端粘贴图片喂 CLI agent（M41 手机能力的 web 端对偶）· 🔬 立项 2026-06-23（user 拍板"立项派单实现，范围锁 Claude orchestrator"）
+> **痛点**：web 端开 `https://106.14.227.192:9993`（远端自签证书裸 IP）无法粘贴图片——本地能粘是因 CLI agent 与人同机共享剪贴板，远端 CLI 在服务器读不到本地剪贴板，xterm 隧道只搬文字不搬图片字节。手机 M41 已用「上传 uploads/ → 注入 `[Image: source: 路径]`」解决同类问题，web 照搬。
+> - **深度分析 ✅**（cw worker dispatch `c6696fdd`，A 自做 code+实证 / B·D·E 内部 workflow 3 agent 并行）：报告 `reports/2026-06-23-web-terminal-image-paste-analysis.html` + research + ADR `decisions/2026-06-23-web-terminal-image-paste.md`（accepted）。PM 已逐条核实承重点：`POST /api/workspaces/:id/user-input`（routes-workspaces.ts:402，UI token 鉴权）真实存在、`recordUserInput→pty.write` 链属实、CC Read 工具实测能读磁盘 PNG、飞书 Read 指引文案（feishu-transport.ts:806）可复用、web 当前确无 /upload 路由（缺口确认）。
+> - **方案**：浏览器 `paste` 事件取 image blob（不依赖 secure context）→ 新增 `POST /api/workspaces/:id/upload`（UI token，复用 upload-limits + uploads 目录 + UUID 命名，web 不走 pendingUpload 暂存）→ 经既有 `/user-input`/`recordUserInput` 通道注入 `[Image: source: 路径]` + 显式 Read 指引文字。fallback：拖拽 / 文件选择器。**否决** xterm addon-image（仅文字 OSC52）+ 裸 `@/path`（触发 TUI 补全）。
+> - **本轮范围锁 Claude orchestrator 通道**（codex `--image`、gemini/opencode 暂缓）。
+> - **最大未知**：iOS Safari 真机 paste 取图可靠性（靠 fallback 兜底，需真机验）。**远端验硬规则**：必须在真 `106.14.227.192:9993` 验，不能只 localhost（M41 教训 [[feedback_verify_real_artifact_not_proxy_metric]]）。
+> - [~] 实现 + 测试（amy dispatch `4f6e6360` code-complete；review-fix dispatch `173de1bf` 已补无 active run 失败提示、web 20MB 上限、url 移除、光栅图片白名单与负面测试；待远端 `106.14.227.192:9993` 真机验 + commit）：新增 web `/upload` 真 HTTP 集成测；后端 UI token/base64/web 专用 20MB/uploads 落盘；前端 orchestrator 终端 paste/drop/file picker 上传并经 `/user-input` 注入 `[Image: source: path]` + Read 指引。未 commit。
+> 关联：M41（手机图片上传，本里程碑是其 web 端对偶）、飞书 image= 通道。
+
 ### M45 · worker compact 卡死自愈看门狗（idea-18，L1 机制）· 🔬 立项 2026-06-16（user 拍板"立，要解决"）· P0 code-complete 待审
 > **痛点**：worker（含 workflow agent）长跑中自身 compact → 丢失"有未完成派单"上下文 → idle 不 report，dispatch 顶 report_overdue 挂着；且状态机三态 + pty 分不清"真卡死 / 只是慢 / 产物没回传"。2026-06-16 一次会话内炸三次（andy 一次、马超两次），其中一次因误判"卡死"改派，导致两 worker 重复实现同一修复 + 后者覆盖了已过审版本（靠 mtime 查真相 + 补审才发现，补审反而多抓出一个真泄漏 bug）。
 > - **设计要点（idea-18 实测逼出）**：① 判定进展用文件 mtime / 语义进展，不信状态机三态或 pty 行；② 恢复动作必须真重启 worker 或发真实 PTY 中断/按键——team send 往 stdin 注入叫不醒 compact 卡死的 worker；③ 检测"未完成派单 + 一段时间无进展"→ 自包含重发原始任务 / 重启 → 重试 → 升级 Cockpit 红条；④ 改派"卡死"任务前必须确定性确认原 worker 已停（或先杀），防并发重复 + 覆盖过审代码。

@@ -5,7 +5,55 @@
 
 ## In progress
 
-> 🔬 **2026-06-15~16｜claude-workflow worker（idea-17，user 拍"很重要"）— ✅ 架构端到端验通 + L1/L2/L3 三层补齐 + 4010 已激活 live，#1~#4 全收口（当前活跃）**
+> ⏸️ **2026-06-24｜RUNBOOK·待物理在场时执行：systemd 重指 development 树 + 重启 hive（user 不敢远程操作，怕起不来无人到机房）**
+> **根因**：systemd `hive-serva.service` 启动的是 `~/hive-serva/dist`（最早 copy 的旧拷贝），而改代码/修 bug 全在 `~/development/hive-serva`（git 树）。两个文件夹互不相通 → 改了不生效、重启也没用（每次从旧拷贝起）。CLAUDE.md 说的「4010 重启激活某修复」对这个布局**一直是无效操作**。
+> **本机=192.168.1.3（内网），公网 `106.14.227.192:9993` 反代到本机 4010。headless（无 DISPLAY）→ 新建 workspace 默认调的本地文件夹选择器 zenity 必失败、旧代码误当「取消」→ 弹窗一闪消失。修复（headless 时改走网页内服务器目录浏览器 + M46 图片上传）已写好、测试绿。**
+> **构建状态（2026-06-24 04:26 已完成）**：`~/development/hive-serva` 的 `dist/`（服务端，带 fix）+ `web/dist/`（前端，带 fix）已新鲜构建。**若重启前又改过代码，先 `cd ~/development/hive-serva && pnpm build` 再重启。**
+> **⚠️ 破坏性**：重启 = 所有 worker 停 + orchestrator 会话断。重启后刷新 9993、在界面 [Restart] 把 agent 拉回来。
+> **执行（需 sudo，3 步，自包含不依赖临时文件）：**
+> ```bash
+> # 1) 备份原配置（回退用）
+> sudo cp /etc/systemd/system/hive-serva.service /etc/systemd/system/hive-serva.service.bak
+> # 2) 写入新配置（只改 WorkingDirectory + ExecStart 指向 development 树，其它原样）
+> sudo tee /etc/systemd/system/hive-serva.service >/dev/null <<'UNIT'
+> [Unit]
+> Description=HippoTeam runtime (hive) on 4090, port 4010
+> After=network-online.target
+> Wants=network-online.target
+>
+> [Service]
+> User=admin01
+> WorkingDirectory=/home/admin01/development/hive-serva
+> Environment=PATH=/home/admin01/.local/bin:/home/admin01/.nvm/versions/node/v22.23.0/bin:/usr/local/bin:/usr/bin:/bin
+> Environment=HTTPS_PROXY=http://127.0.0.1:7897
+> Environment=HTTP_PROXY=http://127.0.0.1:7897
+> Environment=NO_PROXY=127.0.0.1,localhost,::1
+> ExecStart=/home/admin01/.nvm/versions/node/v22.23.0/bin/node /home/admin01/development/hive-serva/dist/src/cli/hive.js --port 4010
+> Restart=always
+> RestartSec=5
+>
+> [Install]
+> WantedBy=multi-user.target
+> UNIT
+> # 3) 重载 + 重启
+> sudo systemctl daemon-reload && sudo systemctl restart hive-serva
+> ```
+> **验证**：开 9993 → 新建 workspace → 应弹出网页内服务器目录浏览器（不再一闪消失）；终端粘贴/拖图片测 M46。
+> **回退（新版起不来 / 9993 打不开）：**
+> ```bash
+> sudo cp /etc/systemd/system/hive-serva.service.bak /etc/systemd/system/hive-serva.service && sudo systemctl daemon-reload && sudo systemctl restart hive-serva
+> ```
+> **遗留隐患（修复后续加固，非阻塞）**：fix 靠「无 DISPLAY」判 headless；若哪天从带桌面会话启动（DISPLAY 有值），zenity 会弹到服务器物理屏、远程仍卡。更稳的彻底解=「检测到远程请求就永不用原生选择器」。另：两组 WIP（M46 图片上传 + 文件夹选择器）仍未 commit，review→commit 待办。
+>
+> 🖼️ **2026-06-23｜M46 web 终端远端粘贴图片喂 Claude orchestrator（user 拍板立项，范围锁 Claude orchestrator）— 实现中（当前活跃）**
+> **背景**：远端 `https://106.14.227.192:9993` 浏览器无法粘贴图片（本地可以=CLI 与人同机共享剪贴板；远端 CLI 在服务器读不到本地剪贴板，xterm 隧道只搬文字不搬图片字节）。手机 M41 已有同类解法（上传 uploads/ → `routes-mobile.ts:776` 注入路径标记），web 照搬。
+> - ✅ **深度分析 + ADR accepted**：cw worker（dispatch `c6696fdd`）跑通（A 自做 code+实证 / B·D·E 内部 workflow 3 agent 并行）。PM 逐条核实承重点属实（`/api/workspaces/:id/user-input` routes-workspaces.ts:402 UI token 真实存在、`recordUserInput→pty.write` 链属实、CC Read 实测能读磁盘 PNG、飞书 Read 文案 feishu-transport.ts:806 可复用、web 当前确无 /upload 路由）。产物 `reports/2026-06-23-web-terminal-image-paste-analysis.html` + research + ADR `decisions/2026-06-23-web-terminal-image-paste.md`（accepted）。plan.md M46 已立项。
+> - 🔧 **实现中**（amy，dispatch `4f6e6360`）：后端新增 `POST /api/workspaces/:id/upload`（UI token + 复用 upload-limits/uploads + path-traversal 防护）+ 前端终端区 paste 取图→上传→经 /user-input 注入 `[Image: source: 路径]` + Read 指引 + fallback（拖拽/文件选择器）+ 后端穿透真 HTTP 集成测。TDD，范围锁 Claude orchestrator，先不 commit。
+>   - ⚠️ **前一单 `7b268b93` 翻车（idea-18/M45 实例）**：amy（codex）resume 时卡在昨天旧单 `f8016b53`（管道连通性验证）上下文，把昨天那单又重报一遍撞 409，我的 M46 新单零进展顶 report_overdue。已 `team cancel` 清掉 phantom 单 + 重派 `4f6e6360`（明确叮嘱无视旧上下文）。若再卡需 [Restart] amy 清上下文。
+> - ⏳ **后续闸**：amy report → PM review → cw worker 跑 code-review-3x 独立审 → 远端 `106.14.227.192:9993` 真机验（含 iOS Safari fallback，最大未知）→ commit。
+> - **范围锁**：本轮只 Claude orchestrator 通道；codex `--image`、gemini/opencode 暂缓。
+>
+> 📦 **2026-06-15~16｜claude-workflow worker（idea-17，user 拍"很重要"）— ✅ shipped 2026-06-16，已归档（见 git + reports；残留 M45 看门狗本体待建见下）**
 >
 > **背景**：user 想把 Claude Code 的多 agent workflow（如 fireworks-design 40 个进程内 agent）跨窗口跑在 GLM-5.2 上（Opus 指挥 + GLM 乐手）。PM 切法：**不拆**进程内 agent，新增一类 worker 当黑盒——PM 派高层任务 → 它内部用内置 subagent 跑完整条流水 → report 交产物。HippoTeam 在 workflow 粒度编排。ADR `decisions/draft-2026-06-15-claude-workflow-worker.md`。
 > - ✅ **Phase 1 shipped `8d86b4c`**（关羽实现，钟馗 codex **三轮**审）：新 `claude-workflow` role + no-subagent 红线豁免挂【持久硬信号 workflow_allowed】（不读可编辑 description）+ GLM `ANTHROPIC_*` 路由真穿透 PTY（role_template_id→defaultEnv→launch config env_json→startEnv，token 仅 HIVE_WORKFLOW_ALLOWED=1 时 spawn 注入、密钥不落库）+ PATCH 保留 env/flag + schema v34。钟馗三轮揪出：空接→硬信号/env穿透→PATCH保留/v34→0 block。84 测含穿透。
@@ -115,6 +163,15 @@
 - [x] **关羽** dispatch `c25c1102` — B1 被钟馗复核打回——代码语义对,但测试是假的,返工补一个真测试。
 - [x] **赵云** dispatch `15a9ddad` — M3 被钟馗复核打回——1MiB tail 上限会截断大图，返工。
 - [x] **钟馗** dispatch `77e14a8d` — B1 和 M3 已按你上次复核返工，做最终复核。这是你打回后的返工，重点复现验证，别只看汇报。
+- [x] **amy** dispatch `f8016b53` — 管道连通性验证任务(低风险,几分钟即可)：跑一次 git log --oneline -5 和 npx vitest run tests/unit/fast-voice-reply.test.ts（若该测试文件不存在，改跑 grep -r…
+- [x] **Claude Workflow 运行器** dispatch `f0d496f1` — 跑工作流 code-review-3x，参数 file=src/server/fast-voice-reply.ts
+- [x] **Claude Workflow 运行器** dispatch `c6696fdd` — 深入分析：HippoTeam web 终端「远端浏览器粘贴图片喂给 CLI agent」的最佳实现路径，产出决策依据。用你的内部多 agent workflow 做深度分析，不要改生产代码（只读分析；为实证 A 可写最小临时实验脚本但跑完…
+- [~] **amy** dispatch `7b268b93` — 实现 M46：web 终端远端粘贴图片喂 Claude orchestrator。方案已深度分析+ADR accepted（decisions/2026-06-23-web-terminal-image-paste.md，报告 repor… ⊘ M46 实现单从未真正送达/接手（delivered null、report_overdue 零进展、零代码改动）；amy 卡在昨天旧单 f8016b53 上…
+- [x] **amy** dispatch `4f6e6360` — 【全新任务·请无视你之前任何关于"管道连通性验证/git log/vitest"的旧上下文，那是昨天的旧单已作废】
+- [x] **Claude Workflow 运行器** dispatch `aad7cbb5` — 深度调研：给 user 推荐一款现成的「员工(人) + AI agent 共同协调工作」软件，目标是能直接采用。用你的内部多 agent workflow 并行扫不同品类 + 真 web 搜 + 逐个考证候选再综合。这是横向技术选型，双产…
+- [x] **Claude Workflow 运行器** dispatch `557febb2` — 独立 code-review：amy 刚 code-complete 的 M46（web 终端远端粘贴图片喂 Claude orchestrator），未 commit。用你的内部多 agent workflow 从正确性/安全/简化三角…
+- [x] **amy** dispatch `173de1bf` — 【M46 fix 闸】cw 独立审你的 M46 完成，结论=可 commit 但先修几条。逐条修以下，TDD，范围别扩，改完别 commit。findings 带行号在下面。
+- [x] **amy** dispatch `f5213a3f` — 修 bug：远端/无头服务器上创建 workspace 卡死在"正在打开系统目录选择器…"。这是独立 bug，跟你在途的 M46 图片粘贴改动分开（尽量别碰 M46 那批文件）。TDD，改完别 commit。
 ## 近期归档（已 shipped，留作 build 史）
 
 > 📦 **2026-06-14｜媒体收发 + 聊天滚动体验全链路修复 sprint（✅ 全 shipped + user 真机验收，归档）**
