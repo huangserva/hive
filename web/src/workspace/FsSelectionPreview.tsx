@@ -2,18 +2,23 @@ import type { FsProbeResponse } from '../api.js'
 import { useI18n } from '../i18n.js'
 
 type FsSelectionPreviewProps = {
+  displayPath?: string
+  nameEditable?: boolean
   probe: FsProbeResponse | null
   suggestedName: string
   onSuggestedNameChange: (value: string) => void
 }
 
 export const FsSelectionPreview = ({
+  displayPath,
+  nameEditable = false,
   probe,
   suggestedName,
   onSuggestedNameChange,
 }: FsSelectionPreviewProps) => {
   const { t } = useI18n()
   const hasProbe = !!probe && probe.ok && probe.is_dir
+  const canEditName = hasProbe || nameEditable
   return (
     <div
       className="flex flex-col gap-2 rounded border p-3 text-xs"
@@ -35,7 +40,7 @@ export const FsSelectionPreview = ({
         ) : null}
       </div>
       <span className="mono truncate text-pri" data-testid="fs-preview-path">
-        {probe?.path ?? '—'}
+        {displayPath ?? probe?.path ?? '—'}
       </span>
       <label className="mt-1 flex flex-col gap-1 text-ter">
         <span className="text-xs uppercase tracking-wider">{t('workspace.field.name')}</span>
@@ -43,7 +48,7 @@ export const FsSelectionPreview = ({
           type="text"
           value={suggestedName}
           onChange={(event) => onSuggestedNameChange(event.target.value)}
-          disabled={!hasProbe}
+          disabled={!canEditName}
           className="mono rounded border px-2 py-1 text-sm text-pri disabled:opacity-50"
           style={{ background: 'var(--bg-0)', borderColor: 'var(--border)' }}
           data-testid="fs-preview-name-input"

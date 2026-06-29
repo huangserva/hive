@@ -108,9 +108,9 @@ export const AddWorkspaceDialog = ({ trigger, onClose, onCreate }: AddWorkspaceD
           return
         }
         if (!result.supported) {
-          // Platform has no native picker wired. Pop the compact confirm with
-          // the paste-path fallback expanded by default.
-          setStage({ kind: 'confirm', probe: null, pasteDefault: true })
+          // Native pickers run on the server host. In SSH/headless runtime
+          // sessions, send users straight to the browser-based server FS picker.
+          setStage({ kind: 'browse' })
           return
         }
         if (!result.probe?.ok || !result.probe.is_dir) {

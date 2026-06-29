@@ -7,6 +7,14 @@ import { type FsProbeResponse, probeDirectory } from './fs-browse.js'
 const MACOS_CANCEL_PATTERNS = [/-128/, /-1743/, /user canceled/i, /execution error/i]
 // zenity documents exit code 1 on Cancel. kdialog uses exit code 1 as well.
 const LINUX_CANCEL_EXIT_CODES = new Set([1])
+const LINUX_DISPLAY_ERROR_PATTERNS = [
+  /cannot open display/i,
+  /failed to open display/i,
+  /no display/i,
+  /gtk-warning/i,
+]
+const HEADLESS_PICKER_ERROR =
+  'Native folder picker is unavailable in this headless server session. Use the server directory browser or paste a server path.'
 
 type SpawnResult = {
   stderr: string
@@ -24,6 +32,7 @@ export type RunPickCommand = (
 ) => Promise<SpawnResult>
 
 export interface PickFolderOptions {
+  env?: NodeJS.ProcessEnv
   now?: () => number
   platform?: NodeJS.Platform
   runCommand?: RunPickCommand
@@ -82,6 +91,9 @@ const finalizeWithProbe = async (path: string): Promise<PickFolderResponse> => {
   return emptyResponse({ path: probe.path, probe })
 }
 
+const hasLinuxGraphicalSession = (env: NodeJS.ProcessEnv): boolean =>
+  Boolean(env.DISPLAY?.trim() || env.WAYLAND_DISPLAY?.trim())
+
 const macOsPick = async (run: RunPickCommand): Promise<PickFolderResponse> => {
   const script = 'POSIX path of (choose folder with prompt "Select Hive workspace")'
   const result = await run('osascript', ['-e', script], {})
@@ -106,7 +118,16 @@ const macOsPick = async (run: RunPickCommand): Promise<PickFolderResponse> => {
   return finalizeWithProbe(picked)
 }
 
-const linuxPick = async (run: RunPickCommand): Promise<PickFolderResponse> => {
+const linuxPick = async (
+  run: RunPickCommand,
+  env: NodeJS.ProcessEnv
+): Promise<PickFolderResponse> => {
+  if (!hasLinuxGraphicalSession(env)) {
+    return emptyResponse({
+      error: HEADLESS_PICKER_ERROR,
+      supported: false,
+    })
+  }
   const result = await run(
     'zenity',
     ['--file-selection', '--directory', '--title=Select Hive workspace'],
@@ -120,6 +141,12 @@ const linuxPick = async (run: RunPickCommand): Promise<PickFolderResponse> => {
   }
   if (result.timedOut) {
     return emptyResponse({ error: 'Folder picker timed out before a folder was selected.' })
+  }
+  if (LINUX_DISPLAY_ERROR_PATTERNS.some((pattern) => pattern.test(result.stderr))) {
+    return emptyResponse({
+      error: HEADLESS_PICKER_ERROR,
+      supported: false,
+    })
   }
   if (result.status !== 0 && LINUX_CANCEL_EXIT_CODES.has(result.status ?? 0)) {
     return emptyResponse({ canceled: true })
@@ -168,9 +195,10 @@ const windowsPick = async (run: RunPickCommand): Promise<PickFolderResponse> => 
 export const pickFolder = async (options: PickFolderOptions = {}): Promise<PickFolderResponse> => {
   const platform = options.platform ?? process.platform
   const run = options.runCommand ?? defaultRunCommand
+  const env = options.env ?? process.env
 
   if (platform === 'darwin') return macOsPick(run)
-  if (platform === 'linux') return linuxPick(run)
+  if (platform === 'linux') return linuxPick(run, env)
   if (platform === 'win32') return windowsPick(run)
   return emptyResponse({
     error: 'Native folder picker not supported on this platform. Use Advanced: paste path.',
