@@ -174,7 +174,7 @@ describe('AddWorkspaceDialog — native folder picker default flow', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  test('supported=false opens ConfirmDialog with paste-path expanded by default', async () => {
+  test('supported=false opens the server filesystem browser instead of the native picker fallback', async () => {
     stubFetch(() => ({
       canceled: false,
       error: null,
@@ -184,9 +184,10 @@ describe('AddWorkspaceDialog — native folder picker default flow', () => {
     }))
     render(<AddWorkspaceDialog trigger={1} onClose={() => {}} onCreate={() => {}} />)
 
-    const confirm = await screen.findByTestId('confirm-workspace-dialog')
-    // Paste-path input is visible without having to toggle — this is the fallback.
-    expect(within(confirm).getByTestId('confirm-workspace-paste-path')).toBeInTheDocument()
+    await screen.findByTestId('add-workspace-dialog')
+    expect(screen.queryByTestId('confirm-workspace-dialog')).toBeNull()
+    expect(screen.getByTestId('fs-breadcrumb')).toBeInTheDocument()
+    expect(await screen.findByTestId('fs-entry-alpha')).toBeInTheDocument()
   })
 
   test('probe.ok=false surfaces the error dialog with "Paste path instead" fallback', async () => {
@@ -392,7 +393,7 @@ describe('AddWorkspaceDialog — native folder picker default flow', () => {
     })
   })
 
-  test('paste-path fallback supplies the path when user did not pick a folder', async () => {
+  test('server browse paste-path fallback supplies the path when native picker is unsupported', async () => {
     stubFetch(() => ({
       canceled: false,
       error: null,
@@ -403,12 +404,13 @@ describe('AddWorkspaceDialog — native folder picker default flow', () => {
     const onCreate = vi.fn()
     render(<AddWorkspaceDialog trigger={1} onClose={() => {}} onCreate={onCreate} />)
 
-    await screen.findByTestId('confirm-workspace-dialog')
-    const pasteInput = screen.getByTestId('confirm-workspace-paste-path') as HTMLInputElement
+    await screen.findByTestId('add-workspace-dialog')
+    fireEvent.click(screen.getByRole('button', { name: /paste path/i }))
+    const pasteInput = screen.getByTestId('fs-manual-path') as HTMLInputElement
     fireEvent.change(pasteInput, { target: { value: '/abs/path/here' } })
-    fireEvent.change(screen.getByTestId('confirm-workspace-name'), { target: { value: 'custom' } })
+    fireEvent.change(screen.getByTestId('fs-preview-name-input'), { target: { value: 'custom' } })
 
-    fireEvent.click(screen.getByTestId('confirm-workspace-create'))
+    fireEvent.click(screen.getByTestId('add-workspace-create'))
     expect(onCreate).toHaveBeenCalledWith({
       commandPresetId: 'claude',
       name: 'custom',
