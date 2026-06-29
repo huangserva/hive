@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 
+import { applyRuntimeEnvDefaults } from '../../src/cli/hive.js'
 import { createAgentManager } from '../../src/server/agent-manager.js'
 import { resolveCockpitUnreviewedCode } from '../../src/server/cockpit-unreviewed-augment.js'
 import { createRuntimeStore } from '../../src/server/runtime-store.js'
@@ -41,8 +42,17 @@ beforeEach(() => {
   vi.unstubAllEnvs()
 })
 
-const setup = (options: { gateOn?: boolean } = {}) => {
-  if (options.gateOn) vi.stubEnv('HIVE_ACCEPT_GATE', '1')
+const setup = (options: { gate?: 'default' | 'on' | 'off'; gateOn?: boolean } = {}) => {
+  const gate =
+    options.gate ?? (options.gateOn === true ? 'on' : options.gateOn === false ? 'off' : 'default')
+  if (gate === 'on') {
+    vi.stubEnv('HIVE_ACCEPT_GATE', '1')
+  } else if (gate === 'off') {
+    vi.stubEnv('HIVE_ACCEPT_GATE', '0')
+  } else {
+    delete process.env.HIVE_ACCEPT_GATE
+    applyRuntimeEnvDefaults(process.env)
+  }
   const dataDir = mkdtempSync(join(tmpdir(), 'hive-m43-data-'))
   tempDirs.push(dataDir)
   const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
@@ -95,8 +105,24 @@ const findDispatchLine = (lines: string[], dispatchId: string) => {
 }
 
 describe('M43 accept-gate Phase 1 — real store integration', () => {
-  test('flag=0（默认）：reportTask 走旧路径——tasks.md 打 [x]，review_status 保持 NULL（零回归）', async () => {
-    const { store, workspace, workspacePath } = setup({ gateOn: false })
+  test('env 未设时启动默认开启：claude 真 src 改动进入 review pending', async () => {
+    const { store, workspace, workspacePath } = setup()
+    const coder = addClaudeCoder(store, workspace.id)
+    const dispatch = await store.dispatchTask(workspace.id, coder.id, '改 src/foo.ts')
+    store.reportTask(workspace.id, coder.id, {
+      dispatchId: dispatch.id,
+      text: '改了 src/foo.ts，新增测试',
+    })
+
+    const line = findDispatchLine(readTasksLines(workspacePath), dispatch.id)
+    expect(process.env.HIVE_ACCEPT_GATE).toBe('1')
+    expect(line).toMatch(/^- \[~\]/u)
+    const persisted = store.listDispatches(workspace.id).find((d) => d.id === dispatch.id)
+    expect(persisted?.reviewStatus).toBe('pending')
+  })
+
+  test('flag=0（显式关闭）：reportTask 走旧路径——tasks.md 打 [x]，review_status 保持 NULL（逃生阀）', async () => {
+    const { store, workspace, workspacePath } = setup({ gate: 'off' })
     const coder = addClaudeCoder(store, workspace.id)
     const dispatch = await store.dispatchTask(workspace.id, coder.id, '改 src/foo.ts')
     store.reportTask(workspace.id, coder.id, {
@@ -390,7 +416,7 @@ describe('M43 accept-gate Phase 1 — real store integration', () => {
   })
 
   test('flag=0 时 acceptTask 直接拒（accept gate disabled）', async () => {
-    const { store, workspace } = setup({ gateOn: false })
+    const { store, workspace } = setup({ gate: 'off' })
     const coder = addClaudeCoder(store, workspace.id)
     const coderDispatch = await store.dispatchTask(workspace.id, coder.id, '改 src/foo.ts')
     store.reportTask(workspace.id, coder.id, {

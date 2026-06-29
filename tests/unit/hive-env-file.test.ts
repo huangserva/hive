@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { loadRootEnvFile } from '../../src/cli/hive.js'
+import { applyRuntimeEnvDefaults, loadRootEnvFile } from '../../src/cli/hive.js'
 
 const tempDirs: string[] = []
 
@@ -96,5 +96,32 @@ describe('hive root env file loading', () => {
 
     expect(loadRootEnvFile({ cwd, env })).toBe(false)
     expect(env).toEqual({ NODE_ENV: 'test' })
+  })
+
+  it('defaults HIVE_ACCEPT_GATE to enabled when no explicit value is set', () => {
+    const env: NodeJS.ProcessEnv = { NODE_ENV: 'test' }
+
+    applyRuntimeEnvDefaults(env)
+
+    expect(env.HIVE_ACCEPT_GATE).toBe('1')
+  })
+
+  it('preserves an explicit HIVE_ACCEPT_GATE=0 escape hatch', () => {
+    const env: NodeJS.ProcessEnv = { HIVE_ACCEPT_GATE: '0', NODE_ENV: 'test' }
+
+    applyRuntimeEnvDefaults(env)
+
+    expect(env.HIVE_ACCEPT_GATE).toBe('0')
+  })
+
+  it('lets an explicit .env HIVE_ACCEPT_GATE=0 win before runtime defaults', () => {
+    const cwd = setupDir()
+    writeFileSync(join(cwd, '.env'), 'HIVE_ACCEPT_GATE=0\n', 'utf8')
+    const env: NodeJS.ProcessEnv = { NODE_ENV: 'test' }
+
+    expect(loadRootEnvFile({ cwd, env })).toBe(true)
+    applyRuntimeEnvDefaults(env)
+
+    expect(env.HIVE_ACCEPT_GATE).toBe('0')
   })
 })

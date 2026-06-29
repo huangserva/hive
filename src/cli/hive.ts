@@ -83,7 +83,14 @@ export const loadRootEnvFile = ({
   }
 }
 
+export const applyRuntimeEnvDefaults = (env: NodeJS.ProcessEnv = process.env) => {
+  if (env.HIVE_ACCEPT_GATE === undefined) {
+    env.HIVE_ACCEPT_GATE = '1'
+  }
+}
+
 loadRootEnvFile()
+applyRuntimeEnvDefaults()
 
 export const HIVE_USAGE = [
   'Usage:',
