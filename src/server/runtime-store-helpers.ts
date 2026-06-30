@@ -39,6 +39,7 @@ import { createSentinelHeartbeat } from './sentinel-heartbeat.js'
 import type { SentinelAlert, SentinelSpawnFailure } from './sentinel-rules.js'
 import { createSettingsStore } from './settings-store.js'
 import { createStalledDispatchNudge } from './stalled-dispatch-nudge.js'
+import { createStalledReportNudge } from './stalled-report-nudge.js'
 import { createTasksFileService } from './tasks-file.js'
 import { createTasksFileWatcher } from './tasks-file-watcher.js'
 import { createTeamOperations } from './team-operations.js'
@@ -70,6 +71,7 @@ export interface RuntimeStoreServices {
   sentinelAlertStore: ReturnType<typeof createSentinelAlertStore>
   sentinelHeartbeat: ReturnType<typeof createSentinelHeartbeat> | null
   stalledDispatchNudge: ReturnType<typeof createStalledDispatchNudge>
+  stalledReportNudge: ReturnType<typeof createStalledReportNudge>
   tasksFileWatcher: ReturnType<typeof createTasksFileWatcher>
   tasksFileWatchCallbacks: Set<(workspaceId: string, content: string) => void>
   tasksFileService: ReturnType<typeof createTasksFileService>
@@ -433,6 +435,14 @@ export const createRuntimeStoreServices = (
     ...(options.logger ? { logger: options.logger } : {}),
     ...(options.agentManager ? { writeRunInput: writeAgentRunInput } : {}),
   })
+  const stalledReportNudge = createStalledReportNudge({
+    injectNudge: (workspaceId, message) =>
+      agentRuntime.writeTasksNarrativeNudgePrompt(workspaceId, message),
+    listDispatchesForWorkspace: (workspaceId) =>
+      dispatchLedgerStore.listWorkspaceDispatches(workspaceId, { limit: 1_000 }),
+    listWorkspaces: () => workspaceStore.listWorkspaces(),
+    ...(options.logger ? { logger: options.logger } : {}),
+  })
   const teamOps = createTeamOperations({
     agentRuntime,
     createDispatch: dispatchLedgerStore.createDispatch,
@@ -448,6 +458,8 @@ export const createRuntimeStoreServices = (
     markDispatchInputAcknowledged: dispatchLedgerStore.markInputAcknowledged,
     markDispatchInputDeliveryFailed: dispatchLedgerStore.markInputDeliveryFailed,
     markDispatchLateReportForwarded: dispatchLedgerStore.markLateReportForwarded,
+    markDispatchReportAcknowledged: dispatchLedgerStore.markReportAcknowledged,
+    markDispatchReportDeliveryFailed: dispatchLedgerStore.markReportDeliveryFailed,
     markDispatchOrphaned: dispatchLedgerStore.markOrphaned,
     markDispatchReportedByWorker: dispatchLedgerStore.markReportedByWorker,
     markDispatchSubmitted: dispatchLedgerStore.markSubmitted,
@@ -491,6 +503,7 @@ export const createRuntimeStoreServices = (
   startExistingWorkspaceWatches()
   sentinelHeartbeat?.start()
   stalledDispatchNudge.start()
+  stalledReportNudge.start()
 
   // 启动时恢复 createDispatch→markSubmitted 之间崩溃留下的 queued dispatch：
   // 可重投的重新注入同 worker；目标 worker 不存在的收尾为 orphaned，避免永久卡 queued。
@@ -540,6 +553,7 @@ export const createRuntimeStoreServices = (
     sentinelAlertStore,
     sentinelHeartbeat,
     stalledDispatchNudge,
+    stalledReportNudge,
     tasksFileWatcher,
     tasksFileWatchCallbacks,
     tasksFileService,
@@ -701,6 +715,7 @@ export const createRuntimeStoreLifecycle = ({
       compactRecoveryWatchdog?.close()
       services.sentinelHeartbeat?.close()
       services.stalledDispatchNudge.close()
+      services.stalledReportNudge.close()
       services.shellRuntime.close()
       await services.agentRuntime.close()
       await services.tasksFileWatcher.close()

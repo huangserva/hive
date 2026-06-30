@@ -86,6 +86,8 @@ export interface TeamOperationsInput {
   markDispatchInputAcknowledged?: (dispatchId: string) => void
   markDispatchInputDeliveryFailed?: (dispatchId: string) => void
   markDispatchLateReportForwarded?: (dispatchId: string) => DispatchRecord | undefined
+  markDispatchReportAcknowledged?: (dispatchId: string) => void
+  markDispatchReportDeliveryFailed?: (dispatchId: string) => void
   markDispatchSubmitted: (dispatchId: string) => void
   mobilePushService?: Pick<MobilePushService, 'notifyWorkerDone'> &
     Partial<Pick<MobilePushService, 'notifyOrchestratorForwardFailure'>>
@@ -330,6 +332,8 @@ export const createTeamOperations = ({
   markDispatchInputAcknowledged,
   markDispatchInputDeliveryFailed,
   markDispatchLateReportForwarded,
+  markDispatchReportAcknowledged,
+  markDispatchReportDeliveryFailed,
   markDispatchOrphaned,
   markDispatchReportedByWorker,
   markDispatchSubmitted,
@@ -1164,8 +1168,18 @@ export const createTeamOperations = ({
           try {
             agentRuntime.writeStatusPrompt(workspaceId, worker.name, workerId, text, artifacts, {
               requireActiveRun: input.requireActiveRun,
+              onPasteAck: () => {
+                forwarded = true
+              },
+              onPasteGaveUp: () => {
+                surfaceOrchestratorForwardFailure(workspaceId, {
+                  dispatchId: null,
+                  error: 'Orchestrator status prompt delivery failed before paste acknowledgement',
+                  operation: 'status',
+                  workerName: worker.name,
+                })
+              },
             })
-            forwarded = true
           } catch (error) {
             forwardError = reportForwardErrorMessage(error)
             console.error('[hive] swallowed:teamStatus.forward', error)
@@ -1226,11 +1240,27 @@ export const createTeamOperations = ({
                   workerId,
                   buildLateWorkerReportPrompt(worker, closedDispatch, text),
                   artifacts,
-                  forwardOptions
+                  {
+                    ...forwardOptions,
+                    onPasteAck: () => {
+                      markDispatchReportAcknowledged?.(closedDispatch.id)
+                      forwarded = true
+                    },
+                    onPasteGaveUp: () => {
+                      markDispatchReportDeliveryFailed?.(closedDispatch.id)
+                      surfaceOrchestratorForwardFailure(workspaceId, {
+                        dispatchId: closedDispatch.id,
+                        error:
+                          'Orchestrator late report prompt delivery failed before paste acknowledgement',
+                        operation: 'report',
+                        workerName: worker.name,
+                      })
+                    },
+                  }
                 )
-                forwarded = true
               } catch (error) {
                 forwardError = reportForwardErrorMessage(error)
+                markDispatchReportDeliveryFailed?.(closedDispatch.id)
                 console.error('[hive] swallowed:teamReport.lateForward', error)
                 surfaceOrchestratorForwardFailure(workspaceId, {
                   dispatchId: closedDispatch.id,
@@ -1405,10 +1435,23 @@ export const createTeamOperations = ({
               ...(input.requireActiveRun === undefined
                 ? {}
                 : { requireActiveRun: input.requireActiveRun }),
+              onPasteAck: () => {
+                markDispatchReportAcknowledged?.(dispatch.id)
+                forwarded = true
+              },
+              onPasteGaveUp: () => {
+                markDispatchReportDeliveryFailed?.(dispatch.id)
+                surfaceOrchestratorForwardFailure(workspaceId, {
+                  dispatchId: dispatch.id,
+                  error: 'Orchestrator report prompt delivery failed before paste acknowledgement',
+                  operation: 'report',
+                  workerName: worker.name,
+                })
+              },
             })
-            forwarded = true
           } catch (error) {
             forwardError = reportForwardErrorMessage(error)
+            markDispatchReportDeliveryFailed?.(dispatch.id)
             console.error('[hive] swallowed:teamReport.forward', error)
             surfaceOrchestratorForwardFailure(workspaceId, {
               dispatchId: dispatch.id,
@@ -1419,6 +1462,7 @@ export const createTeamOperations = ({
           }
         } else {
           forwardError = 'Orchestrator PTY inactive, report recorded but not forwarded'
+          markDispatchReportDeliveryFailed?.(dispatch.id)
           surfaceOrchestratorForwardFailure(workspaceId, {
             dispatchId: dispatch.id,
             error: forwardError,

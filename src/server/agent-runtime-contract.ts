@@ -11,6 +11,12 @@ interface StartAgentOptions {
   source?: AgentLaunchSource
 }
 
+interface PromptDeliveryOptions {
+  onPasteAck?: () => void
+  onPasteGaveUp?: () => void
+  requireActiveRun?: boolean
+}
+
 export interface AgentRuntime {
   close: () => Promise<void>
   configureAgentLaunch: (
@@ -45,7 +51,7 @@ export interface AgentRuntime {
     workerId: string,
     text: string,
     artifacts: string[],
-    input?: { requireActiveRun?: boolean }
+    input?: PromptDeliveryOptions
   ) => void
   writeStatusPrompt: (
     workspaceId: string,
@@ -53,7 +59,7 @@ export interface AgentRuntime {
     workerId: string,
     text: string,
     artifacts: string[],
-    input?: { requireActiveRun?: boolean }
+    input?: PromptDeliveryOptions
   ) => void
   writeQuestionAnsweredPrompt: (
     workspaceId: string,

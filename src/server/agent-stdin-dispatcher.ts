@@ -19,6 +19,12 @@ interface SendPromptInput {
   workflowAllowed?: boolean
 }
 
+interface PromptDeliveryInput {
+  onPasteAck?: () => void
+  onPasteGaveUp?: () => void
+  requireActiveRun?: boolean
+}
+
 const postStartWriterOptions = (input: { onPasteAck?: () => void; onPasteGaveUp?: () => void }) => {
   const options: { onPasteAck?: () => void; onPasteGaveUp?: () => void } = {}
   if (input.onPasteAck) options.onPasteAck = input.onPasteAck
@@ -175,7 +181,7 @@ export const createAgentStdinDispatcher = ({
     workspaceId: string,
     agentId: string,
     text: string,
-    input: { onPasteAck?: () => void; onPasteGaveUp?: () => void; requireActiveRun?: boolean } = {}
+    input: PromptDeliveryInput = {}
   ) => {
     const run = registry
       .list()
@@ -214,7 +220,7 @@ export const createAgentStdinDispatcher = ({
       workerName: string,
       text: string,
       artifacts: string[],
-      input: { requireActiveRun?: boolean } = {}
+      input: PromptDeliveryInput = {}
     ) {
       writeToActiveAgentRun(
         workspaceId,
@@ -233,7 +239,7 @@ export const createAgentStdinDispatcher = ({
       workerName: string,
       text: string,
       artifacts: string[],
-      input: { requireActiveRun?: boolean } = {}
+      input: PromptDeliveryInput = {}
     ) {
       writeToActiveAgentRun(
         workspaceId,

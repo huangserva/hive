@@ -41,6 +41,8 @@ export interface DispatchRecord {
   inputAcknowledgedAt?: number | null
   inputDeliveryFailedAt?: number | null
   lateReportForwardedAt?: number | null
+  reportAcknowledgedAt?: number | null
+  reportDeliveryFailedAt?: number | null
   reportedAt: number | null
   reportText: string | null
   sequence: number | null
@@ -67,6 +69,8 @@ interface DispatchRow {
   input_acknowledged_at: number | null
   input_delivery_failed_at: number | null
   late_report_forwarded_at: number | null
+  report_acknowledged_at: number | null
+  report_delivery_failed_at: number | null
   reported_at: number | null
   report_text: string | null
   sequence: number
@@ -193,6 +197,8 @@ const toRecord = (row: DispatchRow): DispatchRecord => ({
   inputAcknowledgedAt: row.input_acknowledged_at,
   inputDeliveryFailedAt: row.input_delivery_failed_at,
   lateReportForwardedAt: row.late_report_forwarded_at,
+  reportAcknowledgedAt: row.report_acknowledged_at,
+  reportDeliveryFailedAt: row.report_delivery_failed_at,
   reportedAt: row.reported_at,
   reportText: row.report_text,
   sequence: row.sequence,
@@ -218,6 +224,8 @@ export const createDispatchLedgerStore = (db: Database) => {
       inputAcknowledgedAt: null,
       inputDeliveryFailedAt: null,
       lateReportForwardedAt: null,
+      reportAcknowledgedAt: null,
+      reportDeliveryFailedAt: null,
       reportedAt: null,
       reportText: null,
       sequence: null,
@@ -304,6 +312,26 @@ export const createDispatchLedgerStore = (db: Database) => {
        SET input_delivery_failed_at = ?
        WHERE id = ?
          AND input_acknowledged_at IS NULL`
+    ).run(failedAt, dispatchId)
+  }
+
+  const markReportAcknowledged = (dispatchId: string) => {
+    const acknowledgedAt = Date.now()
+    db.prepare(
+      `UPDATE dispatches
+       SET report_acknowledged_at = ?,
+           report_delivery_failed_at = NULL
+       WHERE id = ?`
+    ).run(acknowledgedAt, dispatchId)
+  }
+
+  const markReportDeliveryFailed = (dispatchId: string) => {
+    const failedAt = Date.now()
+    db.prepare(
+      `UPDATE dispatches
+       SET report_delivery_failed_at = ?
+       WHERE id = ?
+         AND report_acknowledged_at IS NULL`
     ).run(failedAt, dispatchId)
   }
 
@@ -454,7 +482,9 @@ export const createDispatchLedgerStore = (db: Database) => {
            reported_at = ?,
            report_text = ?,
            artifacts = ?,
-           evidence_json = ?
+           evidence_json = ?,
+           report_acknowledged_at = NULL,
+           report_delivery_failed_at = NULL
        WHERE id = ?`
     ).run(
       'completed',
@@ -470,6 +500,8 @@ export const createDispatchLedgerStore = (db: Database) => {
       artifacts: input.artifacts,
       evidence: input.evidence ?? [],
       reportedAt,
+      reportAcknowledgedAt: null,
+      reportDeliveryFailedAt: null,
       reportText: input.reportText,
       status: 'completed' as const,
     }
@@ -670,6 +702,8 @@ export const createDispatchLedgerStore = (db: Database) => {
     markInputDeliveryFailed,
     markLateReportForwarded,
     markOrphaned,
+    markReportAcknowledged,
+    markReportDeliveryFailed,
     markReportOverdue,
     markReportedByWorker,
     markSubmitted,

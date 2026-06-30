@@ -29,6 +29,13 @@ const getSubmitAfterPasteDelayMs = (text: string) =>
     Math.max(MIN_SUBMIT_AFTER_PASTE_DELAY_MS, Math.ceil(text.length / PASTE_CHARS_PER_DELAY_MS))
   )
 
+const getClaudeBusyReadyTimeoutMs = () => {
+  const raw = process.env.HIVE_CLAUDE_BUSY_READY_TIMEOUT_MS
+  if (!raw) return CLAUDE_BUSY_READY_TIMEOUT_MS
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : CLAUDE_BUSY_READY_TIMEOUT_MS
+}
+
 export const isInteractiveAgentCommand = (command: string) =>
   INTERACTIVE_COMMANDS.has(basename(command).toLowerCase())
 
@@ -204,7 +211,7 @@ export const createPostStartInputWriter = (
       }
       const timedOut = Date.now() - startedAt >= READY_TIMEOUT_MS
       const claudeBusyTimedOut =
-        firstBusyAt !== null && Date.now() - firstBusyAt >= CLAUDE_BUSY_READY_TIMEOUT_MS
+        firstBusyAt !== null && Date.now() - firstBusyAt >= getClaudeBusyReadyTimeoutMs()
       const shouldKeepWaitingForClaudeBusy =
         isClaudeCommand(command) && firstBusyAt !== null && !claudeBusyTimedOut
       const promptReady =

@@ -587,6 +587,7 @@ describe('team atomicity', () => {
     const markDispatchReportedByWorker = vi.fn(
       (): DispatchRecord => ({ ...dispatch, status: 'completed' })
     )
+    const markDispatchReportDeliveryFailed = vi.fn()
     const markTaskReported = vi.fn()
     const reportForwardError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const insertMobileChatMessage = vi.fn()
@@ -610,6 +611,7 @@ describe('team atomicity', () => {
       insertMobileChatMessage,
       listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
       markDispatchCancelled: vi.fn(),
+      markDispatchReportDeliveryFailed,
       markDispatchReportedByWorker,
       markDispatchSubmitted: vi.fn(),
       mobilePushService: {
@@ -636,6 +638,7 @@ describe('team atomicity', () => {
       workspaceId: workspace.id,
     })
     expect(markTaskReported).toHaveBeenCalledWith(workspace.id, worker.id)
+    expect(markDispatchReportDeliveryFailed).toHaveBeenCalledWith(dispatch.id)
     expect(deleteMessage).not.toHaveBeenCalled()
     expect(reportForwardError).toHaveBeenCalledWith(
       '[hive] swallowed:teamReport.forward',
@@ -667,6 +670,83 @@ describe('team atomicity', () => {
         workerName: 'Alice',
       })
     )
+  })
+
+  test('reportTask wires report delivery callbacks to dispatch ledger hooks', () => {
+    const store = createRuntimeStore()
+    const workspace = store.createWorkspace('/tmp/hive-alpha', 'Alpha')
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    const dispatch = withDispatchDefaults({
+      artifacts: [],
+      createdAt: Date.now(),
+      deliveredAt: null,
+      fromAgentId: `${workspace.id}:orchestrator`,
+      id: 'dispatch-1',
+      reportedAt: null,
+      reportText: null,
+      sequence: 1,
+      status: 'running',
+      submittedAt: Date.now(),
+      text: 'Implement login',
+      toAgentId: worker.id,
+      workspaceId: workspace.id,
+    })
+    const markDispatchReportAcknowledged = vi.fn()
+    const markDispatchReportDeliveryFailed = vi.fn()
+    const writeReportPrompt = vi.fn()
+
+    const ops = createTeamOperations({
+      agentRuntime: {
+        getActiveRunByAgentId: vi.fn(() => ({ runId: 'run-1' })),
+        writeReportPrompt,
+        writeSendPrompt: vi.fn(),
+        writeUserInputPrompt: vi.fn(),
+      } as never,
+      createDispatch: vi.fn(),
+      deleteDispatch: vi.fn(),
+      deleteMessage: vi.fn(),
+      findOpenDispatch: vi.fn(() => dispatch),
+      findOpenDispatchById: vi.fn(),
+      insertMessage: vi.fn(() => ({ sequence: 1 })),
+      listOpenDispatchesForWorkspace: vi.fn((): DispatchRecord[] => []),
+      markDispatchCancelled: vi.fn(),
+      markDispatchReportAcknowledged,
+      markDispatchReportDeliveryFailed,
+      markDispatchReportedByWorker: vi.fn(
+        (): DispatchRecord => ({
+          ...dispatch,
+          reportedAt: Date.now(),
+          reportText: 'Done',
+          status: 'completed',
+        })
+      ),
+      markDispatchSubmitted: vi.fn(),
+      workspaceStore: {
+        getWorker: store.getWorker,
+        markTaskReported: vi.fn(),
+      } as never,
+    })
+
+    const result = ops.reportTask(workspace.id, worker.id, {
+      requireActiveRun: true,
+      status: 'success',
+      text: 'Done',
+    })
+
+    expect(result).toMatchObject({
+      forwardError: null,
+      forwarded: false,
+    })
+    expect(writeReportPrompt).toHaveBeenCalledTimes(1)
+    const input = writeReportPrompt.mock.calls[0]?.[5]
+    expect(typeof input?.onPasteAck).toBe('function')
+    expect(typeof input?.onPasteGaveUp).toBe('function')
+
+    input?.onPasteAck?.()
+    input?.onPasteGaveUp?.()
+
+    expect(markDispatchReportAcknowledged).toHaveBeenCalledWith(dispatch.id)
+    expect(markDispatchReportDeliveryFailed).toHaveBeenCalledWith(dispatch.id)
   })
 
   test('cancelTask keeps dispatch open when cancel prompt cannot reach worker', () => {
@@ -828,7 +908,18 @@ describe('team atomicity', () => {
       ...dispatch,
       lateReportForwardedAt: Date.now(),
     }))
-    const writeReportPrompt = vi.fn()
+    const writeReportPrompt = vi.fn(
+      (
+        _workspaceId: string,
+        _workerName: string,
+        _workerId: string,
+        _text: string,
+        _artifacts: string[],
+        input?: { onPasteAck?: () => void }
+      ) => {
+        input?.onPasteAck?.()
+      }
+    )
     vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const ops = createTeamOperations({
@@ -877,7 +968,7 @@ describe('team atomicity', () => {
       worker.id,
       expect.stringContaining('[迟到/恢复汇报]'),
       [],
-      { requireActiveRun: true }
+      expect.objectContaining({ requireActiveRun: true })
     )
     expect(writeReportPrompt).toHaveBeenCalledWith(
       workspace.id,
@@ -885,7 +976,7 @@ describe('team atomicity', () => {
       worker.id,
       expect.stringContaining('Finished anyway'),
       [],
-      { requireActiveRun: true }
+      expect.objectContaining({ requireActiveRun: true })
     )
     expect(markDispatchLateReportForwarded).toHaveBeenCalledWith(dispatch.id)
     expect(insertMessage).toHaveBeenCalledWith(

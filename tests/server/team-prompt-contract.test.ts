@@ -30,6 +30,7 @@ const waitFor = async (assertion: () => void, timeoutMs = 2000, intervalMs = 25)
 
 afterEach(async () => {
   process.env.PATH = originalPath
+  delete process.env.HIVE_CLAUDE_BUSY_READY_TIMEOUT_MS
   await Promise.all(stores.splice(0).map((store) => store.close()))
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { force: true, recursive: true })
@@ -350,4 +351,142 @@ describe('team prompt contract', () => {
       expect(record?.inputDeliveryFailedAt ?? null).toBeNull()
     }, 2000)
   }, 18_000)
+
+  test('worker report records orchestrator delivery acknowledgement after bracketed paste lands', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-report-delivery-ack-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeClaude = join(binDir, 'claude')
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "const PASTE_END = '\\u001b[201~'",
+        "process.stdout.write('❯ ')",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('ORCH-IN:' + chunk)",
+        '  if (chunk.includes(PASTE_END)) process.stdout.write("\\n[Pasted text #1 +1 lines]\\n")',
+        "  if (chunk === '\\r' || chunk === '\\n' || chunk === '\\r\\n') process.stdout.write('\\nORCH-SUBMITTED\\n❯ ')",
+        '})',
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeClaude, 0o755)
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+    const workerScript = join(workspacePath, 'worker-echo.js')
+    writeFileSync(
+      workerScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => process.stdout.write('WORKER-IN:' + chunk))",
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) throw new Error('Expected default orchestrator')
+    store.configureAgentLaunch(workspace.id, orchestrator.id, { command: 'claude', args: [] })
+    await store.startAgent(workspace.id, orchestrator.id, { hivePort: '4010' })
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      command: process.execPath,
+      args: [workerScript],
+    })
+    const dispatch = await store.dispatchTask(workspace.id, worker.id, 'Implement report ack')
+    const result = store.reportTask(workspace.id, worker.id, {
+      dispatchId: dispatch.id,
+      requireActiveRun: true,
+      text: 'Done with report ack',
+    })
+    expect(result.forwarded).toBe(false)
+    expect(result.forwardError).toBeNull()
+
+    await waitFor(() => {
+      const row = store.listDispatches(workspace.id).find((item) => item.id === dispatch.id)
+      expect(row?.reportAcknowledgedAt).toEqual(expect.any(Number))
+      expect(row?.reportDeliveryFailedAt).toBeNull()
+      const run = store.getActiveRunByAgentId(workspace.id, orchestrator.id)
+      expect(run?.output).toContain('[Hive 系统消息：来自 @Alice 的汇报]')
+      expect(run?.output).toContain('Done with report ack')
+    }, 5000)
+  }, 10_000)
+
+  test('worker report marks delivery failed instead of claiming forwarded when orchestrator is compact-busy', async () => {
+    process.env.HIVE_CLAUDE_BUSY_READY_TIMEOUT_MS = '300'
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-report-delivery-fail-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeClaude = join(binDir, 'claude')
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "process.stdout.write('Compacting conversation…\\nesc to interrupt\\n')",
+        "process.stdin.on('data', (chunk) => process.stdout.write('UNEXPECTED-IN:' + chunk))",
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeClaude, 0o755)
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+    const workerScript = join(workspacePath, 'worker-echo.js')
+    writeFileSync(
+      workerScript,
+      [
+        "process.stdin.setEncoding('utf8')",
+        "process.stdin.on('data', (chunk) => process.stdout.write('WORKER-IN:' + chunk))",
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) throw new Error('Expected default orchestrator')
+    store.configureAgentLaunch(workspace.id, orchestrator.id, { command: 'claude', args: [] })
+    await store.startAgent(workspace.id, orchestrator.id, { hivePort: '4010' })
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, {
+      command: process.execPath,
+      args: [workerScript],
+    })
+    const dispatch = await store.dispatchTask(workspace.id, worker.id, 'Implement report failure')
+    const result = store.reportTask(workspace.id, worker.id, {
+      dispatchId: dispatch.id,
+      requireActiveRun: true,
+      text: 'Done but orch is compacting',
+    })
+
+    expect(result.forwarded).toBe(false)
+    expect(result.forwardError).toBeNull()
+    await waitFor(() => {
+      const row = store.listDispatches(workspace.id).find((item) => item.id === dispatch.id)
+      expect(row?.reportAcknowledgedAt).toBeNull()
+      expect(row?.reportDeliveryFailedAt).toEqual(expect.any(Number))
+      const events = store
+        .listMobileChatMessages(workspace.id)
+        .map((message) => message.content_json)
+      expect(events.join('\n')).toContain('"type":"orchestrator_forward_failed"')
+      expect(events.join('\n')).toContain('report prompt delivery failed')
+    }, 5000)
+  }, 10_000)
 })
