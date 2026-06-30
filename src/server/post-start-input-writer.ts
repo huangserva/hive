@@ -218,10 +218,11 @@ export const createPostStartInputWriter = (
         return
       }
       const timeoutFallbackReady =
-        !isClaudeCommand(command) &&
         canTimeoutBeforePromptReady(command) &&
         timedOut &&
-        !shouldKeepWaitingForClaudeBusy
+        !shouldKeepWaitingForClaudeBusy &&
+        (!isClaudeCommand(command) ||
+          (firstBusyAt === null && !hasClaudeBusyOutput(outputSinceBaseline)))
       if (promptReady || timeoutFallbackReady) {
         if (isClaudeCommand(command) && pasteAttempts >= CLAUDE_MAX_PASTE_ATTEMPTS) {
           reportGaveUp()

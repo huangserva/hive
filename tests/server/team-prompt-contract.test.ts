@@ -281,4 +281,73 @@ describe('team prompt contract', () => {
       expect(record?.inputDeliveryFailedAt ?? null).toBeNull()
     }, 2000)
   }, 15_000)
+
+  test('team send timeout-delivers to idle Claude when the tail is a permissions footer', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'hive-claude-permissions-footer-'))
+    const workspacePath = join(dataDir, 'workspace')
+    const binDir = join(dataDir, 'bin')
+    mkdirSync(workspacePath, { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    tempDirs.push(dataDir)
+
+    const fakeClaude = join(binDir, 'claude')
+    writeFileSync(
+      fakeClaude,
+      [
+        '#!/usr/bin/env node',
+        "process.stdin.setEncoding('utf8')",
+        'if (process.stdin.isTTY) process.stdin.setRawMode(true)',
+        "const PASTE_END = '\\u001b[201~'",
+        "const footer = '> \\nbypass permissions on · shift+tab to cycle · ← for agents\\n'",
+        "process.stdout.write('Claude Code\\n' + footer)",
+        "process.stdin.on('data', (chunk) => {",
+        "  process.stdout.write('IN:' + chunk)",
+        '  if (chunk.includes(PASTE_END)) {',
+        '    process.stdout.write("\\n[Pasted text #1 +1 lines]\\n")',
+        '  }',
+        "  if (chunk === '\\r' || chunk === '\\n' || chunk === '\\r\\n') {",
+        "    process.stdout.write('\\nSUBMITTED\\n' + footer)",
+        '  }',
+        '})',
+        'process.stdin.resume()',
+      ].join('\n')
+    )
+    chmodSync(fakeClaude, 0o755)
+    process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+    const store = createRuntimeStore({ agentManager: createAgentManager(), dataDir })
+    stores.push(store)
+    const workspace = store.createWorkspace(workspacePath, 'Alpha')
+    const orchestrator = store.getWorkspaceSnapshot(workspace.id).agents[0]
+    if (!orchestrator) {
+      throw new Error('Expected default orchestrator')
+    }
+
+    const worker = store.addWorker(workspace.id, { name: 'Alice', role: 'coder' })
+    store.configureAgentLaunch(workspace.id, worker.id, { command: 'claude', args: [] })
+
+    await store.startAgent(workspace.id, worker.id, { hivePort: '4010' })
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('bypass permissions on')
+    }, 4000)
+
+    const dispatch = await store.dispatchTaskByWorkerName(
+      workspace.id,
+      'Alice',
+      'permissions footer idle Claude must receive this dispatch',
+      { fromAgentId: orchestrator.id }
+    )
+
+    await waitFor(() => {
+      const run = store.getActiveRunByAgentId(workspace.id, worker.id)
+      expect(run?.output).toContain('permissions footer idle Claude must receive this dispatch')
+      expect(run?.output).toContain('SUBMITTED')
+    }, 13_000)
+    await waitFor(() => {
+      const record = store.listDispatches(workspace.id).find((item) => item.id === dispatch.id)
+      expect(record?.inputAcknowledgedAt).toEqual(expect.any(Number))
+      expect(record?.inputDeliveryFailedAt ?? null).toBeNull()
+    }, 2000)
+  }, 18_000)
 })

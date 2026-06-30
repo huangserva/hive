@@ -242,7 +242,7 @@ describe('post-start input writer', () => {
     expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
   })
 
-  test('reports delivery failure instead of using timeout fallback for Claude without a fresh prompt', () => {
+  test('uses timeout fallback for Claude without a fresh prompt when it is not compact/busy', () => {
     vi.useFakeTimers()
     const manager = {
       getRun: vi.fn(() => ({ output: 'Claude booting without prompt', status: 'running' })),
@@ -262,9 +262,10 @@ describe('post-start input writer', () => {
     expect(onPasteGaveUp).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(1)
-    expect(manager.writeInput).not.toHaveBeenCalled()
+    expect(manager.writeInput).toHaveBeenCalledTimes(1)
+    expect(manager.writeInput).toHaveBeenNthCalledWith(1, 'run-1', '[200~payload[201~')
     expect(onPasteAck).not.toHaveBeenCalled()
-    expect(onPasteGaveUp).toHaveBeenCalledTimes(1)
+    expect(onPasteGaveUp).not.toHaveBeenCalled()
   })
 
   test('waits for Gemini prompt readiness and writes plain input without bracketed paste', () => {
