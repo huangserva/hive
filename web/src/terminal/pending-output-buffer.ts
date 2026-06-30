@@ -17,6 +17,7 @@ export interface PendingOutputBuffer {
   bytes: () => number
   clear: () => void
   drain: () => PendingOutputEntry[]
+  drainBatch: (limit: number) => PendingOutputEntry[]
   droppedBytes: () => number
   droppedCount: () => number
   push: (entry: PendingOutputEntry) => void
@@ -65,6 +66,12 @@ export const createPendingOutputBuffer = (
     drain: () => {
       const drained = entries.splice(0)
       totalBytes = 0
+      return drained
+    },
+    drainBatch: (limit) => {
+      if (limit <= 0) return []
+      const drained = entries.splice(0, limit)
+      totalBytes -= drained.reduce((total, entry) => total + entry.bytes, 0)
       return drained
     },
     droppedBytes: () => droppedBytes,

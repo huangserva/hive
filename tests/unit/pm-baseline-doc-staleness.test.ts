@@ -46,14 +46,24 @@ const setMtimeDaysAgo = (filePath: string, daysAgo: number) => {
   const fd = fs.openSync(filePath, 'r')
   fs.futimesSync(fd, then / 1000, then / 1000)
   fs.closeSync(fd)
+  return then
 }
+
+const gitCommitOutput = (timestampMs: number, files: string[]) =>
+  [`__HIVE_COMMIT__${Math.floor(timestampMs / 1000)}`, ...files].join('\n')
 
 describe('pm-baseline-doc staleness', () => {
   test('module-map with mtime 1 day ago and 5 matching git changes produces staleReason', () => {
     const dir = setupBaseline()
     setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'module-map.md'), 1)
     mockExec.mockReturnValue(
-      'src/server/foo.ts\nsrc/server/bar.ts\nweb/src/App.tsx\nsrc/cli/main.ts\nweb/src/api.ts\n'
+      gitCommitOutput(Date.now(), [
+        'src/server/foo.ts',
+        'src/server/bar.ts',
+        'web/src/App.tsx',
+        'src/cli/main.ts',
+        'web/src/api.ts',
+      ])
     )
     const result = parseBaselineDoc(join(dir, '.hive', 'baseline'))
     const modMap = result.children.find((c) => c.filename === 'module-map.md')
@@ -96,21 +106,43 @@ describe('pm-baseline-doc staleness', () => {
     const dir = setupBaseline()
     setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'module-map.md'), 3)
     setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'risk-hotspots.md'), 2)
-    let callCount = 0
-    mockExec.mockImplementation(() => {
-      callCount++
-      if (callCount === 1) return 'a.ts\nb.ts\nc.ts\nd.ts\ne.ts\n'
-      return 'x.ts\ny.ts\n'
-    })
+    mockExec.mockReturnValue(
+      gitCommitOutput(Date.now(), [
+        'src/server/foo.ts',
+        'src/server/bar.ts',
+        'web/src/App.tsx',
+        'src/cli/main.ts',
+        'web/src/api.ts',
+      ])
+    )
     const result = parseBaselineDoc(join(dir, '.hive', 'baseline'))
     expect(result.staleHint).toContain('module-map.md')
     expect(result.staleHint).toContain('5 matching code changes')
   })
 
+  test('batched git output filters each baseline file by its own mtime', () => {
+    const dir = setupBaseline()
+    const moduleMtimeMs = setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'module-map.md'), 3)
+    const riskMtimeMs = setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'risk-hotspots.md'), 1)
+    mockExec.mockReturnValue(
+      [
+        gitCommitOutput((moduleMtimeMs + riskMtimeMs) / 2, ['src/server/recent.ts']),
+        gitCommitOutput(moduleMtimeMs - DAY, ['src/server/old.ts']),
+      ].join('\n')
+    )
+
+    const result = parseBaselineDoc(join(dir, '.hive', 'baseline'))
+    const modMap = result.children.find((c) => c.filename === 'module-map.md')
+    const riskHotspots = result.children.find((c) => c.filename === 'risk-hotspots.md')
+
+    expect(modMap?.staleReason).toBe('1 matching code changes')
+    expect(riskHotspots?.staleReason).toBeNull()
+  })
+
   test('stub file keeps "still a stub" regardless of git changes', () => {
     const dir = setupBaseline({ 'module-map.md': '# Module Map\n\n待 AI 起草' })
     setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'module-map.md'), 10)
-    mockExec.mockReturnValue('a.ts\nb.ts\n')
+    mockExec.mockReturnValue(gitCommitOutput(Date.now(), ['src/server/a.ts', 'src/server/b.ts']))
     const result = parseBaselineDoc(join(dir, '.hive', 'baseline'))
     const modMap = result.children.find((c) => c.filename === 'module-map.md')
     expect(modMap?.isStub).toBe(true)

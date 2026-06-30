@@ -69,13 +69,16 @@ describe('cockpit-doc staleness integration with aiActions', () => {
   test('stale baseline produces audit aiAction', () => {
     const dir = setupWorkspace()
     setMtimeDaysAgo(join(dir, '.hive', 'baseline', 'module-map.md'), 5)
-    mockExec.mockReturnValue('src/server/foo.ts\nsrc/server/bar.ts\nsrc/server/baz.ts\n')
+    mockExec.mockReturnValue(
+      `__HIVE_COMMIT__${Math.floor(Date.now() / 1000)}\nsrc/server/foo.ts\nsrc/server/bar.ts\nsrc/server/baz.ts\n`
+    )
     const result = parseCockpit(dir)
     const auditActions = result.aiActions.filter((a) => a.type === 'audit')
     expect(auditActions).toHaveLength(1)
     expect(auditActions[0]?.targetTab).toBe('baseline')
     expect(auditActions[0]?.priority).toBe('medium')
     expect(auditActions[0]?.text).toContain('matching code changes')
+    expect(mockExec).toHaveBeenCalledTimes(1)
   })
 
   test('no staleness produces no audit aiAction', () => {
@@ -88,7 +91,7 @@ describe('cockpit-doc staleness integration with aiActions', () => {
 
   test('new staleHint flows into aiActions text', () => {
     const dir = setupWorkspace({ 'module-map.md': '# Module Map\n\n待 AI 起草' })
-    mockExec.mockReturnValue('a.ts\nb.ts\n')
+    mockExec.mockReturnValue(`__HIVE_COMMIT__${Math.floor(Date.now() / 1000)}\na.ts\nb.ts\n`)
     const result = parseCockpit(dir)
     const auditActions = result.aiActions.filter((a) => a.type === 'audit')
     expect(auditActions).toHaveLength(1)

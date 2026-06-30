@@ -207,7 +207,10 @@ export const createApp = ({
     relayConnector?.pushEvent('dashboard_update', { workspace_id: workspaceId })
     try {
       const workspacePath = store.getWorkspaceSnapshot(workspaceId).summary.path
-      void notifyHighAiActions(workspaceId, parseCockpit(workspacePath).aiActions)
+      void notifyHighAiActions(
+        workspaceId,
+        parseCockpit(workspacePath, { source: 'mobile-high-ai-action-notifier' }).aiActions
+      )
     } catch (error) {
       logger?.error('mobile high aiAction notification failed', error)
     }

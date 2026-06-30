@@ -54,7 +54,7 @@ export const createCockpitWebSocketServer = (
   // M34：在 serve-cockpit 边界把 DB 派生的「未审代码改动」action 合并进 file-only 的 aiActions。
   // parseCockpit 仍只读文件（契约不破）；合并是 best-effort，失败回落纯文件快照、绝不阻断同步。
   const buildCockpitPayload = (workspaceId: string, workspacePath: string) => {
-    const cockpit = parseCockpit(workspacePath)
+    const cockpit = parseCockpit(workspacePath, { source: 'cockpit-websocket' })
     try {
       return {
         ...cockpit,

@@ -100,7 +100,7 @@ export const cockpitRoutes: RouteDefinition[] = [
     requireUiTokenFromRequest(request, store.validateUiToken)
 
     const workspace = store.getWorkspaceSnapshot(workspaceId)
-    const cockpit = parseCockpit(workspace.summary.path)
+    const cockpit = parseCockpit(workspace.summary.path, { source: 'routes-cockpit' })
     sendJson(response, 200, {
       ...cockpit,
       aiActions: augmentAiActionsWithSentinelAlerts(

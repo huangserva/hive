@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 
 import type { AIAction } from '../api.js'
 import { useI18n } from '../i18n.js'
+import { normalizeAiAction } from './cockpit-normalize.js'
 
 const priorityColor = (priority: AIAction['priority']) => {
   if (priority === 'high') return 'var(--status-red)'
@@ -56,8 +57,9 @@ export const ActionBar = ({
   onAction?: (action: AIAction) => void
 }) => {
   const { isFallback, t } = useI18n()
+  const normalizedActions = actions.map(normalizeAiAction)
   const [collapsed, setCollapsed] = useState(readInitialCollapsed)
-  const useLegacyLabels = isFallback && hasLocalizedActionLabels(actions)
+  const useLegacyLabels = isFallback && hasLocalizedActionLabels(normalizedActions)
   const toggleCollapsed = useCallback(() => {
     setCollapsed((current) => {
       const next = !current
@@ -82,7 +84,7 @@ export const ActionBar = ({
       >
         <Sparkles size={14} className="text-accent" />
         <span>{t('cockpit.actionBar.title')}</span>
-        <span className="text-ter tabular-nums">({actions.length})</span>
+        <span className="text-ter tabular-nums">({normalizedActions.length})</span>
         <span className="flex-1" />
         {collapsed ? (
           <ChevronRight size={14} className="text-ter" />
@@ -90,9 +92,9 @@ export const ActionBar = ({
           <ChevronDown size={14} className="text-ter" />
         )}
       </button>
-      {!collapsed && actions.length ? (
+      {!collapsed && normalizedActions.length ? (
         <div className="space-y-1.5">
-          {actions.slice(0, 10).map((action) => {
+          {normalizedActions.slice(0, 10).map((action) => {
             const labelKey = actionLabelKey(action.action)
             return (
               <div

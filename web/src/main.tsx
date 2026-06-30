@@ -7,6 +7,24 @@ import { registerPreloadErrorRecovery } from './preload-recovery.js'
 import { ErrorBoundary } from './ui/ErrorBoundary.js'
 import { AppErrorFallback } from './ui/ErrorFallback.js'
 
+window.addEventListener('error', (event) => {
+  console.error('[hive] window error', {
+    colno: event.colno,
+    filename: event.filename,
+    lineno: event.lineno,
+    message: event.message,
+    stack: event.error instanceof Error ? event.error.stack : undefined,
+  })
+})
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason
+  console.error('[hive] unhandled rejection', {
+    message: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  })
+})
+
 const container = document.getElementById('root')
 
 if (!container) {

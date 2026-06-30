@@ -7,7 +7,10 @@
 //
 // Type-only imports (erased at build) — no runtime cycle with api.ts.
 import type {
+  AIAction,
+  AIActionType,
   ArchivedMonth,
+  CockpitTargetTab,
   ParsedCockpit,
   ParsedPlan,
   PMTaskItem,
@@ -27,6 +30,28 @@ const asFiniteNumber = (value: unknown): number =>
 const asBoolean = (value: unknown): boolean => value === true
 const asStringArray = (value: unknown): string[] =>
   asArray<unknown>(value).filter((item): item is string => typeof item === 'string')
+
+const AI_ACTION_TYPES = new Set<AIActionType>([
+  'audit',
+  'decision',
+  'missing_impl_milestone',
+  'playbook',
+  'promote',
+  'question',
+  'sentinel_alert',
+  'unreviewed_code',
+])
+const AI_ACTION_TARGET_TABS = new Set<CockpitTargetTab>([
+  'baseline',
+  'decisions',
+  'ideas',
+  'plan',
+  'questions',
+  'reports',
+  'research',
+  'tasks',
+])
+const AI_ACTION_PRIORITIES = new Set<AIAction['priority']>(['high', 'low', 'medium'])
 
 // --- Nested element normalizers ---------------------------------------------
 // The render layer also hard-accesses element fields (month.files.map,
@@ -76,6 +101,28 @@ const normalizeTaskSection = (raw: unknown): PMTaskSection => {
   }
 }
 
+export const normalizeAiAction = (raw: unknown, index = 0): AIAction => {
+  const action = asObject(raw)
+  const rawPriority = action.priority
+  const rawTargetTab = action.targetTab
+  const rawType = action.type
+  const normalized: AIAction = {
+    action: asString(action.action),
+    id: asString(action.id) || `action:${index}`,
+    priority: AI_ACTION_PRIORITIES.has(rawPriority as AIAction['priority'])
+      ? (rawPriority as AIAction['priority'])
+      : 'low',
+    targetTab: AI_ACTION_TARGET_TABS.has(rawTargetTab as CockpitTargetTab)
+      ? (rawTargetTab as CockpitTargetTab)
+      : 'tasks',
+    text: asString(action.text),
+    type: AI_ACTION_TYPES.has(rawType as AIActionType) ? (rawType as AIActionType) : 'audit',
+  }
+  const href = asString(action.href)
+  if (href) normalized.href = href
+  return normalized
+}
+
 const normalizeScope = (value: unknown): ParsedPlan['scope'] => {
   if (!isObject(value)) return null
   return { in: asStringArray(value.in), out: asStringArray(value.out) }
@@ -107,7 +154,7 @@ export const normalizeCockpit = (raw: unknown): ParsedCockpit => {
   const tasks = asObject(cockpit.tasks)
   const readme = baseline.readme
   return {
-    aiActions: asArray(cockpit.aiActions),
+    aiActions: asArray(cockpit.aiActions).map(normalizeAiAction),
     archive: {
       months: asArray(archive.months).map(normalizeArchiveMonth),
       parseError: asStringOrNull(archive.parseError),

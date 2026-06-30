@@ -43,6 +43,31 @@ describe('normalizeCockpit', () => {
     expect(cockpit.research.totalCount).toBe(0)
   })
 
+  test('malformed aiActions are normalized before ActionBar can render them', () => {
+    const cockpit = normalizeCockpit({
+      aiActions: [
+        {
+          action: 42,
+          id: null,
+          priority: 'urgent',
+          targetTab: 'missing',
+          text: undefined,
+          type: 'unknown',
+        },
+      ],
+    })
+    expect(cockpit.aiActions).toEqual([
+      {
+        action: '',
+        id: 'action:0',
+        priority: 'low',
+        targetTab: 'tasks',
+        text: '',
+        type: 'audit',
+      },
+    ])
+  })
+
   test('a well-formed payload is preserved field-for-field', () => {
     const cockpit = normalizeCockpit({
       aiActions: [{ id: 'a1' }],

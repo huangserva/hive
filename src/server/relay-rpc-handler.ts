@@ -346,7 +346,7 @@ export const createRelayRpcHandler = (deps: RelayRpcHandlerDeps): RelayRpcHandle
       requireCapability(deps.store, deviceId, capabilities, 'read_dashboard')
       const workspaceId = readStringParam(params, 'workspace_id')
       const workspace = deps.store.getWorkspaceSnapshot(workspaceId)
-      const cockpit = parseCockpit(workspace.summary.path)
+      const cockpit = parseCockpit(workspace.summary.path, { source: 'relay-workspace-cockpit' })
       // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
       const aiActions = augmentAiActionsWithSentinelAlerts(
         resolveCockpitUnreviewedCode(deps.store, workspaceId).apply(cockpit.aiActions),

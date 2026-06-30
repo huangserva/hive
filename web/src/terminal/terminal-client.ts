@@ -8,6 +8,9 @@ import { parseTerminalControlFrame } from './terminal-control-frame.js'
 // live so pre-restore output can't accumulate indefinitely. The buffer cap is
 // the hard memory bound; this is the "don't wait forever" backstop.
 const RESTORE_TIMEOUT_MS = 15_000
+const PENDING_OUTPUT_DRAIN_BATCH_SIZE = 100
+const PENDING_OUTPUT_DRAIN_WARN_MS = 16
+const RESTORE_WARN_MS = 16
 
 const byteLength = (value: string) => new TextEncoder().encode(value).byteLength
 
@@ -64,6 +67,7 @@ export const createTerminalClient = ({
   let reconnectTimer: ReturnType<typeof window.setTimeout> | null = null
   let restoreTimer: ReturnType<typeof window.setTimeout> | null = null
   const pendingOutput = createPendingOutputBuffer(pendingOutputLimits)
+  let pendingOutputDrainScheduled = false
   // Output-ack bytes that could not be sent yet because the control socket was
   // not open. Without this, acks for dropped/buffered output before control opens
   // are lost forever → server terminal-flow-control unackedBytes stays high → PTY
@@ -86,8 +90,34 @@ export const createTerminalClient = ({
     }
   }
 
+  const schedulePendingOutputDrain = () => {
+    if (pendingOutputDrainScheduled || pendingOutput.size() === 0) return
+    pendingOutputDrainScheduled = true
+    const schedule =
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback: FrameRequestCallback) =>
+            window.setTimeout(() => callback(performance.now()), 0)
+    schedule(() => {
+      pendingOutputDrainScheduled = false
+      flushPendingOutput()
+    })
+  }
+
   const flushPendingOutput = () => {
-    for (const output of pendingOutput.drain()) onOutput(output.chunk, output.acknowledge)
+    const startedAt = performance.now()
+    const outputs = pendingOutput.drainBatch(PENDING_OUTPUT_DRAIN_BATCH_SIZE)
+    for (const output of outputs) onOutput(output.chunk, output.acknowledge)
+    const elapsedMs = performance.now() - startedAt
+    if (elapsedMs > PENDING_OUTPUT_DRAIN_WARN_MS) {
+      console.warn('[hive] terminal pending output drain slow', {
+        drained: outputs.length,
+        elapsedMs: Math.round(elapsedMs),
+        remaining: pendingOutput.size(),
+        runId,
+      })
+    }
+    schedulePendingOutputDrain()
   }
 
   const clearRestoreTimer = () => {
@@ -134,6 +164,7 @@ export const createTerminalClient = ({
     restored = false
     clearRestoreTimer()
     pendingOutput.clear()
+    pendingOutputDrainScheduled = false
     // Stale acks from a previous (dead) connection must not be sent to the fresh
     // flow controller, which starts at 0 unacked bytes.
     pendingAckBytes = 0
@@ -183,7 +214,15 @@ export const createTerminalClient = ({
       if (message.type === 'error') onError(message.message)
       if (message.type === 'restore') {
         clearRestoreTimer()
+        const restoreStartedAt = performance.now()
         onRestore(message.snapshot)
+        const restoreElapsedMs = performance.now() - restoreStartedAt
+        if (restoreElapsedMs > RESTORE_WARN_MS) {
+          console.warn('[hive] terminal restore slow', {
+            elapsedMs: Math.round(restoreElapsedMs),
+            runId,
+          })
+        }
         restored = true
         if (controlSocket?.readyState === WS_OPEN) {
           controlSocket.send(JSON.stringify({ type: 'restore_complete' }))

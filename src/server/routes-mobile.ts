@@ -132,7 +132,7 @@ export const buildMobileDashboard = (
   now: number = Date.now()
 ) => {
   const workspace = store.getWorkspaceSnapshot(workspaceId)
-  const cockpit = parseCockpit(workspace.summary.path)
+  const cockpit = parseCockpit(workspace.summary.path, { source: 'mobile-dashboard' })
   const milestone = activeMilestone(cockpit)
   const rawWorkers = store.listWorkers(workspaceId)
   const workers = enrichTeamList(workspaceId, store, rawWorkers).map((worker) => ({
@@ -630,7 +630,7 @@ export const mobileRoutes: RouteDefinition[] = [
       )
       if (!workspaceId) return
       const workspace = store.getWorkspaceSnapshot(workspaceId)
-      const cockpit = parseCockpit(workspace.summary.path)
+      const cockpit = parseCockpit(workspace.summary.path, { source: 'mobile-cockpit-route' })
       // M34：边界合并 DB 派生「未审」action（parseCockpit 仍 file-only；preset 经 resolveCommandPresetId 解析）。
       const aiActions = augmentAiActionsWithSentinelAlerts(
         resolveCockpitUnreviewedCode(store, workspaceId).apply(cockpit.aiActions),

@@ -112,4 +112,10 @@ describe('ActionBar', () => {
 
     expect(onAction).toHaveBeenCalledWith(action)
   })
+
+  test('does not crash when an action object has stale or missing fields', () => {
+    render(<ActionBar actions={[{ priority: 'urgent' } as unknown as AIAction]} />)
+    expect(screen.getByText('(1)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: actionBarHeaderName })).toBeInTheDocument()
+  })
 })

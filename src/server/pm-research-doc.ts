@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+
+import { readCachedTextFile } from './pm-file-cache.js'
 
 export interface PMResearchEntry {
   date: string
@@ -38,7 +40,7 @@ export const parseResearchDoc = (researchDir: string): ParsedResearch => {
       .filter((filename) => filename.endsWith('.md') && !filename.startsWith('.'))
       .map((filename) => {
         const filePath = join(researchDir, filename)
-        const raw = readFileSync(filePath, 'utf8')
+        const raw = readCachedTextFile(filePath)
         const mtime = statSync(filePath).mtime.toISOString()
         const fileInfo = parseFilename(filename)
         return {

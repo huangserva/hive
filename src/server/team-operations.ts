@@ -609,7 +609,7 @@ export const createTeamOperations = ({
         const promptWorker = workspaceStore.getWorker(workspaceId, workerId)
         const workspacePath = getWorkspacePath(workspaceId)
         const cockpitSnapshot = workspacePath
-          ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
+          ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath, { source: 'dispatch-input' }))
           : undefined
         markDispatchSubmitted(dispatch.id)
         const dispatchId = dispatch.id
@@ -881,7 +881,7 @@ export const createTeamOperations = ({
           : 'startup-reconcile'
       workspacePath = getWorkspacePath(workspaceId)
       const cockpitSnapshot = workspacePath
-        ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath))
+        ? buildWorkerCockpitSnapshot(parseCockpit(workspacePath, { source: 'accept-input' }))
         : undefined
       markDispatchSubmitted(dispatch.id)
       const dispatchId = dispatch.id

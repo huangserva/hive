@@ -62,6 +62,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -148,5 +149,32 @@ describe('terminal-client control frame validation (Blocking 2)', () => {
     control.open()
     expect(() => control.emit('not json {')).not.toThrow()
     expect(onRestore).not.toHaveBeenCalled()
+  })
+})
+
+describe('terminal-client restore output drain', () => {
+  test('pre-restore output drains in bounded batches without delaying new live output', () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      return window.setTimeout(() => callback(performance.now()), 16)
+    })
+    const { onOutput } = makeClient()
+    const io = ioSocket()
+    const control = controlSocket()
+    io.open()
+    control.open()
+
+    for (let index = 0; index < 101; index += 1) io.emit(`pending-${index}`)
+    control.emit(JSON.stringify({ snapshot: 'snap', type: 'restore' }))
+
+    expect(onOutput).toHaveBeenCalledTimes(100)
+
+    io.emit('live-after-restore')
+    expect(onOutput.mock.calls.at(-1)?.[0]).toBe('live-after-restore')
+
+    vi.advanceTimersByTime(16)
+    expect(onOutput).toHaveBeenCalledTimes(102)
+    expect(onOutput.mock.calls[100]?.[0]).toBe('live-after-restore')
+    expect(onOutput.mock.calls[101]?.[0]).toBe('pending-100')
   })
 })

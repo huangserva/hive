@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+
+import { readCachedTextFile } from './pm-file-cache.js'
 
 export interface BaselineFile {
   exists: boolean
@@ -65,12 +67,53 @@ const expandBracePattern = (pattern: string): string[] => {
 const toGitPathspec = (pattern: string): string =>
   /[*?[]/.test(pattern) ? `:(glob)${pattern}` : pattern
 
+interface ChangedFile {
+  path: string
+  timestampMs: number
+}
+
+const escapeRegExp = (value: string) => value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+
+const globPatternToRegExp = (pattern: string): RegExp => {
+  const expanded = expandBracePattern(pattern)
+  const alternatives = expanded.map((part) => {
+    let output = ''
+    for (let index = 0; index < part.length; index += 1) {
+      const char = part[index]
+      const next = part[index + 1]
+      if (char === '*' && next === '*') {
+        const afterNext = part[index + 2]
+        if (afterNext === '/') {
+          output += '(?:.*/)?'
+          index += 2
+        } else {
+          output += '.*'
+          index += 1
+        }
+      } else if (char === '*') {
+        output += '[^/]*'
+      } else if (char === '?') {
+        output += '[^/]'
+      } else {
+        output += escapeRegExp(char ?? '')
+      }
+    }
+    return output
+  })
+  return new RegExp(`^(?:${alternatives.join('|')})$`)
+}
+
+const matchesAnyPattern = (path: string, patterns: string[]): boolean => {
+  if (patterns.length === 0) return false
+  return patterns.some((pattern) => globPatternToRegExp(pattern).test(path))
+}
+
 const changedFilesSince = (
   workspacePath: string,
-  baselineMtimeMs: number,
+  oldestBaselineMtimeMs: number,
   patterns: string[]
-): string[] | null => {
-  const pathspecs = patterns.flatMap(expandBracePattern).map(toGitPathspec)
+): ChangedFile[] | null => {
+  const pathspecs = Array.from(new Set(patterns.flatMap(expandBracePattern).map(toGitPathspec)))
   if (pathspecs.length === 0) return []
 
   try {
@@ -78,9 +121,9 @@ const changedFilesSince = (
       'git',
       [
         'log',
-        `--since=${new Date(baselineMtimeMs).toISOString()}`,
+        `--since=${new Date(oldestBaselineMtimeMs).toISOString()}`,
         '--name-only',
-        '--pretty=format:',
+        '--pretty=format:__HIVE_COMMIT__%ct',
         '--',
         ...pathspecs,
       ],
@@ -91,14 +134,19 @@ const changedFilesSince = (
       }
     )
 
-    return Array.from(
-      new Set(
-        output
-          .split(/\r?\n/)
-          .map((line) => line.trim())
-          .filter(Boolean)
-      )
-    )
+    const changedByPath = new Map<string, number>()
+    let currentTimestampMs = 0
+    for (const rawLine of output.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      if (!line) continue
+      if (line.startsWith('__HIVE_COMMIT__')) {
+        currentTimestampMs = Number(line.slice('__HIVE_COMMIT__'.length)) * 1000
+        continue
+      }
+      const previous = changedByPath.get(line) ?? 0
+      changedByPath.set(line, Math.max(previous, currentTimestampMs))
+    }
+    return [...changedByPath.entries()].map(([path, timestampMs]) => ({ path, timestampMs }))
   } catch {
     return null
   }
@@ -123,7 +171,7 @@ export const parseBaselineDoc = (baselineDir: string): ParsedBaseline => {
     const workspacePath = dirname(dirname(baselineDir))
     const readmePath = join(baselineDir, 'README.md')
     if (existsSync(readmePath)) {
-      const raw = readFileSync(readmePath, 'utf8')
+      const raw = readCachedTextFile(readmePath)
       parsed.readme = { raw, title: titleFromMarkdown(raw, 'Baseline') }
     }
 
@@ -134,44 +182,79 @@ export const parseBaselineDoc = (baselineDir: string): ParsedBaseline => {
       }
     }
 
-    parsed.children = Array.from(knownFiles)
+    const childInputs = Array.from(knownFiles)
       .sort()
       .map((filename) => {
         const filePath = join(baselineDir, filename)
         if (!existsSync(filePath)) {
           return {
+            baselineMtimeMs: null,
+            raw: '',
             exists: false,
             filename,
-            isStub: false,
-            size: 0,
-            staleReason: null,
-            staleSince: null,
-            title: filename.replace(/\.md$/, ''),
           }
         }
-        const raw = readFileSync(filePath, 'utf8')
+        const raw = readCachedTextFile(filePath)
         const baselineMtimeMs = statSync(filePath).mtimeMs
-        const isStub = isStubContent(raw)
-        const changedFiles = changedFilesSince(
-          workspacePath,
-          baselineMtimeMs,
-          BASELINE_COVERAGE_MAP[filename] ?? []
-        )
-        const staleReason = isStub
-          ? 'still a stub'
-          : changedFiles && changedFiles.length > 0
-            ? `${changedFiles.length} matching code changes`
-            : null
-        return {
-          exists: true,
-          filename,
-          isStub,
-          size: lineCount(raw),
-          staleReason,
-          staleSince: staleReason ? baselineMtimeMs : null,
-          title: titleFromMarkdown(raw, filename.replace(/\.md$/, '')),
-        }
+        return { baselineMtimeMs, exists: true, filename, raw }
       })
+
+    const coveredPatterns = Array.from(
+      new Set(
+        childInputs
+          .filter((child) => child.exists)
+          .flatMap((child) => BASELINE_COVERAGE_MAP[child.filename] ?? [])
+      )
+    )
+    const oldestBaselineMtimeMs = Math.min(
+      ...childInputs
+        .map((child) => child.baselineMtimeMs)
+        .filter((mtimeMs): mtimeMs is number => typeof mtimeMs === 'number')
+    )
+    const allChangedFiles =
+      Number.isFinite(oldestBaselineMtimeMs) && coveredPatterns.length > 0
+        ? changedFilesSince(workspacePath, oldestBaselineMtimeMs, coveredPatterns)
+        : []
+
+    parsed.children = childInputs.map((child) => {
+      const filename = child.filename
+      if (!child.exists) {
+        return {
+          exists: false,
+          filename,
+          isStub: false,
+          size: 0,
+          staleReason: null,
+          staleSince: null,
+          title: filename.replace(/\.md$/, ''),
+        }
+      }
+      const raw = child.raw
+      const baselineMtimeMs = child.baselineMtimeMs ?? 0
+      const isStub = isStubContent(raw)
+      const patterns = BASELINE_COVERAGE_MAP[filename] ?? []
+      const changedFiles =
+        allChangedFiles === null
+          ? null
+          : allChangedFiles
+              .filter((file) => file.timestampMs >= baselineMtimeMs)
+              .filter((file) => matchesAnyPattern(file.path, patterns))
+              .map((file) => file.path)
+      const staleReason = isStub
+        ? 'still a stub'
+        : changedFiles && changedFiles.length > 0
+          ? `${changedFiles.length} matching code changes`
+          : null
+      return {
+        exists: true,
+        filename,
+        isStub,
+        size: lineCount(raw),
+        staleReason,
+        staleSince: staleReason ? baselineMtimeMs : null,
+        title: titleFromMarkdown(raw, filename.replace(/\.md$/, '')),
+      }
+    })
 
     const missing = parsed.children.filter((child) => !child.exists).length
     const stubs = parsed.children.filter((child) => child.isStub).length

@@ -1,15 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, test } from 'vitest'
 
 import { parseCockpit } from '../../src/server/cockpit-doc.js'
+import { clearPmFileCache } from '../../src/server/pm-file-cache.js'
 
 const tempDirs: string[] = []
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { force: true, recursive: true })
+  clearPmFileCache()
 })
 
 const setupWorkspace = (overrides: Record<string, string> = {}) => {
@@ -253,6 +255,19 @@ describe('parseCockpit tasks and research integration', () => {
     expect(result.research.entries).toHaveLength(1)
     expect(result.research.entries[0]?.title).toBe('Test Research')
     expect(result.research.totalCount).toBe(1)
+  })
+
+  test('cached PM file reads invalidate when a research file mtime changes', () => {
+    const dir = setupWorkspace()
+    const researchPath = join(dir, '.hive', 'research', '2026-05-20-test.md')
+    expect(parseCockpit(dir).research.entries[0]?.title).toBe('Test Research')
+
+    writeFileSync(researchPath, '# Updated Research\n\nContent.', 'utf8')
+    const updatedMtime = statSync(researchPath).mtime
+    const fs = require('node:fs') as typeof import('node:fs')
+    fs.utimesSync(researchPath, updatedMtime, new Date(updatedMtime.getTime() + 2000))
+
+    expect(parseCockpit(dir).research.entries[0]?.title).toBe('Updated Research')
   })
 
   test('reports section parsed from reports/ directory', () => {

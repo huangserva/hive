@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
-
+import { readCachedTextFile } from './pm-file-cache.js'
 import {
   extractPmDocDate,
   findPairedResearchNote,
@@ -31,7 +31,7 @@ export const detectOrphanReports = (hiveDir: string): OrphanReport[] => {
       if (
         !reportDate ||
         findPairedResearchNote(
-          { content: readFileSync(reportPath, 'utf8'), filename, path: reportPath },
+          { content: readCachedTextFile(reportPath), filename, path: reportPath },
           researchFiles
         )
       ) {

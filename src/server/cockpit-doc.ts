@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { type ParsedPlan, parsePlanDoc } from './plan-doc.js'
 import { type ParsedArchive, parseArchiveDoc } from './pm-archive-doc.js'
 import { type ParsedBaseline, parseBaselineDoc } from './pm-baseline-doc.js'
 import { type ParsedDecisions, parseDecisionsDoc } from './pm-decisions-doc.js'
+import { readOptionalCachedTextFile, snapshotPmFileCacheStats } from './pm-file-cache.js'
 import { type ParsedIdeas, type PMIdea, parseIdeasDoc } from './pm-ideas-doc.js'
 import {
   type ParsedQuestions,
@@ -63,9 +63,6 @@ export interface ParsedCockpit {
   reports: ParsedReports
   tasks: ParsedTasks
 }
-
-const readOptionalFile = (filePath: string) =>
-  existsSync(filePath) ? readFileSync(filePath, 'utf8') : ''
 
 const actionPriorityRank: Record<PMQuestionPriority, number> = {
   high: 0,
@@ -251,20 +248,32 @@ const buildAiActions = (
     .slice(0, 10)
 }
 
-export const parseCockpit = (workspacePath: string): ParsedCockpit => {
+export interface ParseCockpitOptions {
+  source?: string
+  warnThresholdMs?: number
+}
+
+export const parseCockpit = (
+  workspacePath: string,
+  { source = 'unknown', warnThresholdMs = 50 }: ParseCockpitOptions = {}
+): ParsedCockpit => {
+  const startedAt = performance.now()
+  const beforeStats = snapshotPmFileCacheStats()
   ensurePmDocs(workspacePath)
   const hiveDir = join(workspacePath, HIVE_DIR_NAME)
-  const plan = parsePlanDoc(readOptionalFile(join(hiveDir, 'plan.md')))
-  const questions = parseQuestionsDoc(readOptionalFile(join(hiveDir, 'open-questions.md')))
-  const tasks = parseTasksDoc(readOptionalFile(join(hiveDir, 'tasks.md')))
-  const ideas = parseIdeasDoc(readOptionalFile(join(hiveDir, 'ideas', 'inbox.md')))
+  const plan = parsePlanDoc(readOptionalCachedTextFile(join(hiveDir, 'plan.md')))
+  const questions = parseQuestionsDoc(
+    readOptionalCachedTextFile(join(hiveDir, 'open-questions.md'))
+  )
+  const tasks = parseTasksDoc(readOptionalCachedTextFile(join(hiveDir, 'tasks.md')))
+  const ideas = parseIdeasDoc(readOptionalCachedTextFile(join(hiveDir, 'ideas', 'inbox.md')))
   const baseline = parseBaselineDoc(join(hiveDir, 'baseline'))
   const decisions = parseDecisionsDoc(join(hiveDir, 'decisions'))
   const research = parseResearchDoc(join(hiveDir, 'research'))
   const reports = parseReportsDoc(join(hiveDir, 'reports'))
   const orphanReports = detectOrphanReports(hiveDir)
   const archive = parseArchiveDoc(join(hiveDir, 'archive'))
-  return {
+  const parsed = {
     aiActions: buildAiActions(questions, ideas, baseline, decisions, tasks, orphanReports, plan),
     archive,
     baseline,
@@ -277,4 +286,16 @@ export const parseCockpit = (workspacePath: string): ParsedCockpit => {
     reports,
     tasks,
   }
+  const elapsedMs = performance.now() - startedAt
+  if (elapsedMs > warnThresholdMs) {
+    const afterStats = snapshotPmFileCacheStats()
+    const fileReads = afterStats.hits + afterStats.misses - beforeStats.hits - beforeStats.misses
+    console.warn('[hive] parseCockpit slow', {
+      elapsedMs: Math.round(elapsedMs),
+      fileReads,
+      source,
+      workspacePath,
+    })
+  }
+  return parsed
 }
