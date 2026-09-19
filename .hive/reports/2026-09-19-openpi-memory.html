@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenPI 有没有给 Pi worker 增加“记忆”？</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#131a2b; --panel2:#192238; --text:#e8edf7; --muted:#9ba9c4; --line:#2b3855; --accent:#7dd3fc; --good:#86efac; --warn:#fbbf24; --no:#fca5a5; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:linear-gradient(135deg,#080d19,#10182c 55%,#0b1020); color:var(--text); font:15px/1.68 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { max-width:1180px; margin:auto; padding:42px 24px 72px; }
+    h1 { margin:0 0 14px; font-size:clamp(28px,4vw,46px); line-height:1.18; letter-spacing:-.02em; }
+    h2 { margin:38px 0 14px; font-size:23px; }
+    h3 { margin:22px 0 8px; font-size:17px; color:var(--accent); }
+    p { margin:8px 0; }
+    code { color:#c4b5fd; background:#0a0f1d; padding:.12em .35em; border-radius:5px; overflow-wrap:anywhere; }
+    .eyebrow { color:var(--accent); font-weight:700; letter-spacing:.12em; text-transform:uppercase; }
+    .verdict { margin:22px 0 12px; padding:22px 24px; border:1px solid #27759b; border-left:5px solid var(--accent); border-radius:12px; background:rgba(14,116,144,.15); font-size:20px; font-weight:750; }
+    .sub { color:var(--muted); max-width:900px; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin:18px 0; }
+    .card { padding:17px 18px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+    .card strong { display:block; color:var(--accent); margin-bottom:5px; }
+    .yes { color:var(--good); } .no { color:var(--no); } .warn { color:var(--warn); }
+    .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+    table { width:100%; border-collapse:collapse; min-width:920px; }
+    th,td { padding:13px 14px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); }
+    th { background:var(--panel2); color:var(--accent); font-size:13px; letter-spacing:.04em; }
+    tr:last-child td { border-bottom:0; }
+    ul,ol { padding-left:22px; }
+    li { margin:6px 0; }
+    .evidence { color:var(--muted); font-size:13px; }
+    .flow { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:10px; align-items:center; margin:18px 0; }
+    .flow div { padding:15px; border:1px solid var(--line); border-radius:10px; background:var(--panel); text-align:center; }
+    .flow .arrow { border:0; background:none; color:var(--accent); font-size:24px; padding:0; }
+    .callout { padding:16px 18px; border-radius:10px; background:#10192d; border:1px solid var(--line); }
+    footer { margin-top:42px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); padding-top:18px; }
+    @media (max-width:760px) { .flow { grid-template-columns:1fr; } .flow .arrow { transform:rotate(90deg); } main { padding:28px 15px 50px; } }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">OpenPI 源码调查 · 2026-09-19</div>
+  <h1>OpenPI 有没有给 Pi worker 增加“记忆”？</h1>
+  <div class="verdict">一句话结论：没有跨 Session 的长期记忆；OpenPI 的“连续性”是把工作状态绑定在 Pi Session / branch 的持久历史与生命周期上。</div>
+  <p class="sub">Tasks、Goal、Context Pivot 和 Session Browser 让同一个 Pi Session 更容易持续工作、恢复和切阶段；pi-intercom 让多个顶层 Session 互发消息。它们都不是 memory 文件、向量库或知识库，也不会让新 Session 自动回忆旧任务。</p>
+
+  <div class="cards">
+    <div class="card"><strong class="yes">同一 Session：会记得</strong>进程重启后 <code>/resume</code> 同一 Session，Tasks 与 Goal 会从 Session branch 的自定义 entries 恢复。</div>
+    <div class="card"><strong class="warn">切阶段：保留简报</strong>Context Pivot 用一份自包含 brief 替换活跃上下文；旧记录仍在原始 Session 历史里，但不会自动回到模型上下文。</div>
+    <div class="card"><strong class="no">新 Session：不会记得</strong>新开 Session 没有旧 Session 的 Tasks、Goal 或知识；Session Browser 只能预览并切换回旧 Session。</div>
+  </div>
+
+  <h2>逐项结论</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>能力</th><th>存了什么</th><th>存在哪里</th><th>能活多久 / 能否跨 Session</th><th>源码证据</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Tasks</strong></td>
+          <td>当前任务批次的快照：任务 id、subject、detail、状态、note，以及 revision / nextId。全部完成或丢弃后，当前快照重置为空；旧 entry 仍属于 Session 历史。</td>
+          <td>用 <code>pi.appendEntry("session-tasks", snapshot)</code> 写进 Pi 当前 Session 的自定义历史 entry；恢复时扫描当前 branch。</td>
+          <td><span class="yes">同一 Session 可恢复</span>：Pi 重启后 resume 同一 Session 仍在。fork 会继承分叉点之前的 branch 历史，此后各自分流。<span class="no">新 Session 没有</span>，也不存在全局 Tasks 仓库。</td>
+          <td class="evidence"><code>extensions/tasks/tasks.ts:1-25</code>；<code>extensions/tasks/index.ts:170-174</code>、<code>210-217</code>、<code>478-505</code>；<code>extensions/tasks/tasks.ts:249-328</code>、<code>454-467</code></td>
+        </tr>
+        <tr>
+          <td><strong>Goal</strong></td>
+          <td>objective、状态、token/time budget、用量、时间戳、原因、continuation 次数、blocked audit 等目标运行状态。</td>
+          <td>用 <code>pi.appendEntry("session-goal", snapshot)</code> 写进 Pi 当前 Session；恢复时扫描 branch，选择最新有效 snapshot。</td>
+          <td><span class="yes">同一 Session / branch 持久</span>，reload 或 resume 后 active goal 可继续；fork/tree 会继承但先 defer。<span class="no">新 Session 不继承</span>，不是跨任务目标库。</td>
+          <td class="evidence"><code>extensions/goal/state.ts:3-12</code>、<code>22-38</code>、<code>237-307</code>；<code>extensions/goal/controller.ts:144-153</code>、<code>624-628</code>；<code>extensions/goal/index.ts:407-447</code>；<code>SETUP.md:88-92</code></td>
+        </tr>
+        <tr>
+          <td><strong>Context Pivot</strong></td>
+          <td>调用者提供的一份自包含 brief，表示上一阶段已被主动压缩；随后发出“继续下一阶段”。</td>
+          <td>调用 Pi 的原生 <code>compact</code>，把 brief 设成 compaction summary，并故意使用不存在的 kept-entry id，使旧消息退出活跃上下文。</td>
+          <td>这是<span class="warn">同一 Session 内的压缩/阶段切换</span>，不是切换 Session。旧 entry 仍在底层 Session 历史文件，可人工取证；OpenPI 不会自动重载，普通 preview 也可能因不存在 kept id 而不展示 pivot 前消息。</td>
+          <td class="evidence"><code>extensions/context-pivot/index.ts:12</code>、<code>51-72</code>、<code>112-125</code>、<code>136-207</code>；<code>docs/decisions/0002-native-skill-lifecycle.md:22-25</code>、<code>42-44</code>；<code>extensions/sessions/preview-loader.ts:829-843</code></td>
+        </tr>
+        <tr>
+          <td><strong>Session Browser</strong></td>
+          <td>Session 元数据和按所选 Session 文件构造的 transcript preview。</td>
+          <td>通过 Pi 的 <code>SessionManager.list(ctx.cwd)</code> 枚举；从每个 Session 的 <code>path</code> 解析预览；选中后调用 <code>ctx.switchSession(path)</code>。</td>
+          <td><span class="warn">能预览、能切换，不能合并注入</span>。它会把当前工作切换成所选旧 Session，而不是把旧 Session 内容复制到当前 Session。</td>
+          <td class="evidence"><code>extensions/sessions/sessions.ts:3-12</code>；<code>extensions/sessions/index.ts:460-490</code>、<code>526-537</code>、<code>692-740</code>、<code>1135-1164</code>；<code>extensions/sessions/preview-loader.ts:716-827</code></td>
+        </tr>
+        <tr>
+          <td><strong>Clear Context</strong></td>
+          <td>不保存额外知识；只是把空闲态 Ctrl+C 路由到 Pi 原生 <code>/new</code>。</td>
+          <td>Session 的持久化、清理、transcript 生命周期仍由 Pi 管理。</td>
+          <td><span class="no">创建新 Session</span>，因此不会携带旧 Tasks / Goal 或旧上下文。</td>
+          <td class="evidence"><code>extensions/clear-context/index.ts:43-49</code>、<code>72-80</code></td>
+        </tr>
+        <tr>
+          <td><strong>pi-intercom</strong></td>
+          <td>顶层 Pi Session 之间的消息、发送/接收历史，以及短期离线邮箱；ask 另有带过期时间的控制记录。</td>
+          <td>已送达消息用 <code>pi.sendMessage</code> / <code>pi.appendEntry</code> 进入收发双方各自的 Pi Session 历史。离线 mailbox 是 broker 内存数组；pending ask 临时写在 <code>~/.pi/agent/intercom</code> 下。</td>
+          <td><span class="yes">是跨顶层 Session 通道</span>。但 mailbox 只在当前 broker 进程内保留，最多 256 条、断线保留 24h，broker 重启/关闭即丢；没有持久消息数据库，更不是共享知识库。</td>
+          <td class="evidence">独立仓库 <code>pi-intercom README.md:25-27</code>、<code>51-70</code>、<code>237-245</code>；<code>index.ts:1148-1154</code>、<code>1177-1201</code>、<code>2005-2028</code>；<code>broker/broker.ts:26-45</code>、<code>202-208</code>、<code>978-1032</code>、<code>1113-1162</code>、<code>1688-1698</code>；<code>broker/paths.ts:27-42</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Context Pivot：旧内容到底去哪了？</h2>
+  <div class="flow">
+    <div>长对话<br><span class="evidence">≥ 30K tokens 才允许 pivot</span></div><div class="arrow">→</div>
+    <div>模型提交自包含 brief<br><span class="evidence">不是向量检索，也不是自动知识抽取</span></div><div class="arrow">→</div>
+    <div>同一 Session 继续<br><span class="evidence">活跃上下文只带 brief</span></div>
+  </div>
+  <p class="callout"><strong>能否找回：</strong>底层 Pi Session 文件仍保留旧历史，所以可以人工读取原始记录；但对模型来说，pivot 前内容已经退出活跃上下文。OpenPI 没有自动召回、重新附着或精确保留机制。决议 0002 明确把 persistence、compaction、reconstruction 交给 Pi 原生生命周期，并明确不增加 body cache 或 compaction reattachment。</p>
+
+  <h2>为什么它不算“长期记忆”</h2>
+  <p>README 把这些能力称为“连续工作，而不是堆 Context”：Tasks 维护当前批次意图，Goal 维持目标到终态，Context Pivot 用简报进入下一阶段，Sessions 搜索/预览/切换。其权威事实仍是文件、Git、测试、产物和用户反馈。源码中没有发现跨 Session 的 memory 文件、embedding、向量库、知识索引或新 Session 自动召回路径。</p>
+  <p class="evidence">证据：<code>README.md:373-384</code>、<code>627</code>、<code>635-637</code>；<code>docs/decisions/0002-native-skill-lifecycle.md:12-25</code>、<code>40-44</code>。</p>
+
+  <h2>对 Hive 派出的 Pi worker 意味着什么</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>场景</th><th>装 OpenPI 后多了什么</th><th>仍然没有什么</th></tr></thead>
+      <tbody>
+        <tr><td>Hive 恢复同一个 Pi Session</td><td>结构化 Tasks、可续跑 Goal、目标预算/用量、主动阶段简报、方便查找并切回旧 Session。</td><td>不会把历史自动提炼成可跨任务检索的知识。</td></tr>
+        <tr><td>Hive 每次派活都新建 Pi Session</td><td>本次任务内的工作组织能力。</td><td>上一任务的 Tasks、Goal、偏好、经验和修复结论都不会自动出现。</td></tr>
+        <tr><td>多个顶层 Pi 同时协作</td><td>可选 pi-intercom 提供直接消息通道；已送达消息留在各自 Session 历史。</td><td>没有共享、耐久、可检索的团队记忆；离线 mailbox 也不耐 broker 重启。</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>最省事的跨任务记忆接法：Hive + MemOS CLI</h2>
+  <ol>
+    <li><strong>派活开始：</strong>由 Hive worker 启动模板执行一次 <code>memos search "&lt;用户原始任务&gt;" --format agent --detail simple</code>，把结果作为背景上下文注入新 Pi Session。</li>
+    <li><strong>任务结束：</strong>只有形成经验证、跨任务仍有用的结论时，执行一次 <code>memos add</code>；保存用户长期偏好、架构决议、确认过的根因与修复、可复用 SOP。</li>
+    <li><strong>职责分开：</strong>Hive 的任务账本和代码仓库继续做操作事实来源；OpenPI Tasks / Goal 管当前 Session 的执行状态；MemOS 管跨 Session 的长期经验。</li>
+  </ol>
+  <p class="callout">第一版无需修改 OpenPI：把 search/add 约束放进 Hive 的 Pi worker 启动与收尾提示即可。不要把 secret、原始聊天、临时进度或未经验证的猜测写进 MemOS。</p>
+
+  <h2>边界与盲区</h2>
+  <ul>
+    <li>本报告是静态源码审计，OpenPI 固定在 <code>f6b49ae</code>（2026-09-15）；未做 Pi 运行时 resume / fork 烟测。</li>
+    <li>Pi Session 文件的实际目录由 Pi 的 SessionManager 管理；OpenPI 只读取 manager 提供的 branch / path，没有自己定义一个全局 Session 数据库。</li>
+    <li>pi-intercom 是独立可选项目，本次补读其仓库当前检出 <code>199279a</code>；OpenPI 本身不会检测、安装、配置或迁移它（<code>README.md:552-560</code>）。</li>
+    <li>“可人工找回 pivot 前记录”指原始 Session 文件仍存在时的取证能力，不代表 OpenPI UI 或模型会自动召回。</li>
+  </ul>
+
+  <footer>调查对象：openpi-dev/openpi @ f6b49ae；补充对象：nicobailon/pi-intercom @ 199279a。报告生成日期：2026-09-19。</footer>
+</main>
+</body>
+</html>
