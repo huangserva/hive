@@ -4,6 +4,17 @@
 
 ## inbox（按加入时间倒序）
 
+### 2026-07-08 Orca 代码审计借鉴候选 — 🅿️ **user 拍板"先存档,暂不动手"**（不立 milestone/ADR,记此备查）
+
+- **idea-19 Orca(stablyai/orca) 借鉴候选**：源自 user 让 andy 跑代码级审计对比（6 面并行读两边真源码，报告 `reports/2026-07-03-orca-vs-hippoteam-codeaudit.html` + research 同名）。**PM 先前只读 README 的对比被 user 判片面**，代码审计翻盘 5 条（Orca 有真编排内核非单人 IDE / best-of-N 择优代码里不存在是 no-op / 只有单向 STT 听写无 WebRTC 语音 / 手机需 host 可达无出站隧道 / coordinator 是确定性状态机非 AI）。真分野=**调度智能在哪层**：Orca 写死 L1 代码，我们放 L2 提示词（AI-PM 即调度器）。
+- **借鉴候选（带代码证据，待 user 拍优先级再立项）**：
+  - 【第一梯队】① `node:sqlite` 替 `better-sqlite3`（工程价值最高，60 行适配器 API 1:1，**干掉一个原生插件 → 根治反复踩的 Windows 打包起即退/node-pty 重编译**，关联 [[project_windows_pty_exit_not_env]]）② Claude 实时用量单文件 fetcher（直读 `~/.claude/.credentials.json` token 打 anthropic usage 接口，**治 user Codex/额度黑盒痛点**，最快见效）③ `formatDiffComment` 行锚契约（34 行进 prompt，reviewer 反馈从整段重派降到行级，零治理风险）。
+  - 【第二梯队】usage scanner 升级 session-capture（Codex 总额可变坑）/ 账号注册表+选中态（叠加不替换 per-agent home）/ 熔断列化 / 任务 DAG `depends_on_dispatch_id`（"审必须在实现后"从 PM 记忆升成 SQL 约束）/ WebGL atlas recovery / worktree 异步化。
+  - **配额账号三阶段方案**：阶段1（1 文件）`usage-fetcher-claude.ts` 先 ship → 阶段2 usage-scanner + `usage_daily` 表 → 阶段3 `provider_accounts` 表 + workspace 级选中。**落地前必须精读 Orca `runtime-auth-service.ts`(69KB)+`runtime-home-service.ts`(55KB)**（andy 只 grep 未逐行=盲区）。
+  - **明确排除**（andy 判倒退/过度建设）：Orca per-account home（我们 per-agent home 更深）、Keychain（macOS-only）、GitHub 全套、注入式 follow-up（撞 dispatch lifecycle L1）。
+- **护城河代码坐实**：accept-gate 反自审 L1、.hive 文档治理、全双工 WebRTC 语音+barge-in、手机审批账本+飞书、E2EE 真 PFS、出站隧道手机可达——Orca 全无对标。
+- **Orca 浅克隆存 `/Users/huangzongning/development/orca-compare`**（要重审/精读盲区文件可直接读）。**promote 触发**：user 想治额度黑盒、或要根治 Windows 打包坑时，优先 idea-19 第一梯队。关联 [[feedback_research_no_current_state_lens]]、[[feedback_pursue_best_not_cheapest]]、idea-17（andy workflow 本体）。
+
 ### 2026-06-16 worker compact 卡死自愈 + "卡死 vs 慢"判定 — 一次会话内实测三连暴露 → ✅ **promoted（user 2026-06-16 拍板"立，要解决"）→ M45**
 
 - **idea-18 worker compact-recovery 看门狗（L1 机制）**：2026-06-16 首个 PM 编排 / GLM 执行的真任务（andy 跑 code-review-3x 审 agent-manager.ts，详见 `reports/2026-06-16-agent-manager-audit-code-review-3x.html`）+ 随后的 4 修复 sprint 中，**同一问题在一次会话里炸了三次**，逼出完整设计要点：

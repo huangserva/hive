@@ -98,7 +98,7 @@ last_review: 2026-06-12
 > **痛点**：worker report 了 = dispatch `reported`，但"完成"是软的——M34 只用启发式时序配对兜底。Rive 把它定义硬：report done ≠ task done，只进 reviewable；done 必须 explicit accept。直接硬化 HippoTeam 命根（实现→审查→修 环今天救过 Hermes 崩/symlink/视频黑屏多次）。
 > - [x] **设计 spike**（马超 `497717b1`）：方案 B 旁挂三字段（不动 8 态机，flag-gated 零回归）。产 `reports/2026-06-13-accept-gate-reviewer-verdict-design.html` + research + ADR `decisions/2026-06-13-accept-gate.md`。PM 验承重句（isOpen/isCompleted 仅 2 处用、tasks.md `[~]` 正则本就支持）。
 > - [x] **实现 Phase 1**（马超，`124c21b`）：schema v33（review_status/reviews_dispatch_id/accept_verdict）+ `team report --reviews --verdict` + `team accept --reason`（强制引用 reviewer）+ tasks.md `[~]`/`[x]` 闸 + unreviewed-code 精确 link 替启发式 + scope 只高风险代码 dispatch。**反铁律焊死**（钟馗 3 轮审）：accept 的 reviewer 必须真 reported + 审在 coder 之后（同毫秒 sequence tie-break）+ 真 link 本 coder，PM 无法用空单/旧单伪造"审过"。flag 默认关零回归。48 M43 测 + 宽回归绿。
-> - [ ] **Phase 2（deferred）**：Cockpit/mobile 一键 accept/reject UI + `listAllWorkspaceDispatches` 分页（现 limit 1000 历史量大可能假拒）+ idea-16 #1 evidence bundle。
+> - [~] **Phase 2（deferred）**：后端两项 code-complete 待审（2026-06-23，codex）：accept reviewer-link 校验去 1000 截断假拒（改精确前缀查询）+ idea-16 #1 evidence bundle 最小可用（`team report --evidence` / dispatch API / tasks.md / accept verdict snapshot，schema v37）。Cockpit/mobile 一键 accept/reject UI 仍 deferred。
 > 关联：M34（未审兜底，本里程碑把其启发式升级成显式 gate）、[[idea-16]]、idea-8/M33（evidence 链同源）。
 
 ### M41 · app 内视频/图片收发 + 内置可缩放播放 + 4G relay 传输（idea-15 promote）· ✅ shipped 2026-06-11~13（Phase 2 媒体走 relay 2026-06-13 user 真实 4G device-verify 通过：4010 重启后 media.get 在线，112KB 测试视频 4G 下载+播放成功）
