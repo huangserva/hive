@@ -3,6 +3,7 @@
 **日期**: 2026-09-19
 **状态**: 提案中（user 2026-09-19 口头认可方向："欧卡的这个方式比我们好多了"，待正式拍板 → 见 open-questions Q24）
 **关联**: plan.md → 待立 milestone（派单 / 汇报通道重构）
+**线上 issue**: https://github.com/huangserva/hive/issues/1（拍板在 issue 或 Orca 任务面板答复均可）
 **来源**: 2026-09-19 实测对比：PM 通过 Orca 派 codex 代码工程师同步 GitHub，全程未被打断；同日 user 反馈 hive 现有 `team report` 注入模式会打断输入
 
 ## 背景
