@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenPI × Pi 配合方式评估</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#121a2e; --line:#28344f; --text:#e8edf7; --muted:#9eabc2; --blue:#76a9ff; --green:#55d6a7; --amber:#f7c873; --purple:#bf9cff; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:linear-gradient(145deg,#080c18,#10182a 60%,#0b1020); color:var(--text); font:15px/1.7 ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+    main { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:48px 0 72px; }
+    h1 { margin:0 0 8px; font-size:clamp(30px,5vw,52px); letter-spacing:-.03em; }
+    h2 { margin:38px 0 14px; font-size:23px; }
+    h3 { margin:0 0 8px; font-size:17px; }
+    p { margin:8px 0; }
+    a { color:var(--blue); }
+    code { color:#d7e6ff; background:#0a1020; padding:.12em .38em; border-radius:5px; }
+    pre { margin:12px 0; padding:16px; overflow:auto; border:1px solid var(--line); border-radius:10px; background:#090e1b; color:#dce8ff; }
+    pre code { padding:0; background:transparent; }
+    .lede { color:var(--muted); font-size:18px; max-width:820px; }
+    .verdict { margin:24px 0; padding:18px 20px; border:1px solid #315b55; border-left:4px solid var(--green); border-radius:10px; background:#102522; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:14px; }
+    .card { padding:17px; border:1px solid var(--line); border-radius:12px; background:rgba(18,26,46,.92); }
+    .tag { display:inline-block; margin-right:7px; padding:2px 9px; border-radius:999px; color:#dfe9ff; background:#273759; font-size:12px; }
+    table { width:100%; border-collapse:collapse; overflow:hidden; border:1px solid var(--line); border-radius:10px; }
+    th,td { padding:11px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { color:#bed0ed; background:#17223a; }
+    tr:last-child td { border-bottom:0; }
+    .flow { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:18px 0; }
+    .node { padding:12px 15px; border:1px solid var(--line); border-radius:10px; background:#121a2e; }
+    .arrow { color:var(--purple); font-weight:700; }
+    .note { color:var(--muted); }
+    .warn { border-left:4px solid var(--amber); padding:10px 14px; background:#28200f; }
+    ul,ol { padding-left:22px; }
+    footer { margin-top:46px; padding-top:18px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <span class="tag">代码级调研</span><span class="tag">2026-09-19</span>
+  <h1>OpenPI × Pi：它们如何配合</h1>
+  <p class="lede">OpenPI 不是另一个需要和 Pi 对接的 Agent 服务。它是一个 Pi Package，直接加载到 Pi Coding Agent 内部，用 Pi 的 Extension API、Session、Provider、模型、Skills 与 Trust 边界增加多代理、Workflow、后台进程和本地 Web 工作台。</p>
+
+  <div class="verdict"><strong>结论：</strong>你当前机器可以直接安装。现有 Pi 为 <code>0.85.1</code>，OpenPI 最新 npm 版为 <code>0.8.1</code>，最低要求正是 Pi <code>0.85.1</code>、Node <code>22.19+</code>；本机 Node 为 <code>25.5.0</code>，且 <code>pi list</code> 显示尚未安装其他 package。推荐先用 npm 稳定版安装，保持默认 <code>explicit</code> 能力发现，完成四项 smoke 后再决定是否开启 <code>adaptive</code>。</div>
+
+  <h2>一、关系不是“两个进程互调”，而是宿主与扩展包</h2>
+  <div class="flow">
+    <div class="node"><strong>Pi Coding Agent</strong><br><span class="note">模型 / Provider / Session / 原生工具 / TUI</span></div>
+    <div class="arrow">→ 加载 package →</div>
+    <div class="node"><strong>OpenPI extensions</strong><br><span class="note">注册命令、工具、生命周期钩子</span></div>
+    <div class="arrow">→ 按意图启用 →</div>
+    <div class="node"><strong>高级执行面</strong><br><span class="note">Subagent / Workflow / Background / Web</span></div>
+  </div>
+
+  <table>
+    <thead><tr><th>由 Pi 提供</th><th>OpenPI 增加</th><th>组合后的实际行为</th></tr></thead>
+    <tbody>
+      <tr><td>Provider、模型注册表、认证</td><td>角色模型选择与子会话创建</td><td>子代理默认继承父会话 Provider/模型，也可按角色覆盖</td></tr>
+      <tr><td>Agent loop、Session、compaction</td><td>进程内 Child Session、结果回传与管理 UI</td><td>子代理拥有独立上下文，但仍是 Pi SDK Session</td></tr>
+      <tr><td>Extension API 与 package loader</td><td>一组 extensions、skills、themes 和 <code>openpi</code> CLI</td><td><code>pi install</code> 后，重启或 <code>/reload</code> 即加载</td></tr>
+      <tr><td>原生 read/bash/edit/write</td><td>按需能力网关</td><td>普通编码继续走 Pi 原生路径，高级工具不常驻</td></tr>
+      <tr><td>项目 Trust 与运行用户权限</td><td>子代理工具白名单、Workflow sandbox、worktree 隔离</td><td>权限只能收窄；worktree 是 Git 隔离，不是安全沙箱</td></tr>
+    </tbody>
+  </table>
+
+  <h2>二、代码里实际怎样接上 Pi</h2>
+  <div class="grid">
+    <section class="card"><h3>Package 声明</h3><p><code>package.json</code> 的 <code>pi.extensions = ["./extensions"]</code> 让 Pi 原生 package loader 载入扩展目录。OpenPI 把 Pi 的 <code>pi-ai</code>、<code>pi-coding-agent</code>、<code>pi-tui</code> 声明为 peer dependencies，不复制一套核心运行时。</p></section>
+    <section class="card"><h3>能力按需加载</h3><p><code>before_agent_start</code> 钩子分析用户意图；明确说“用子代理”“workflow”“后台运行”等时，才打开对应工具组。默认 <code>explicit</code>，可用 <code>/openpi-setup</code> 改为 <code>adaptive</code>。</p></section>
+    <section class="card"><h3>Subagent</h3><p>通过 Pi SDK 的 <code>createAgentSession()</code> 创建进程内独立 Session。它继承允许委派的工具、Skills 与项目说明；不会递归得到父级编排、交互或状态工具。</p></section>
+    <section class="card"><h3>Workflow</h3><p>Workflow 的控制脚本在受限 sandbox 中运行，使用 <code>agent()</code>、<code>pipeline()</code>、<code>parallel()</code> 调起 Pi Child Session，并保存 ledger、handoff、artifact 与运行图。</p></section>
+    <section class="card"><h3>后台终端</h3><p>OpenPI 管理长期子进程、日志、超时和进程树清理；完成结果通过 Pi 的消息机制进入 Session，不需要把 dev server 卡在主 Agent 的 Bash 调用里。</p></section>
+    <section class="card"><h3>Web 工作台</h3><p><code>/web</code> 或 <code>openpi web</code> 启动独立本地 Web runtime，默认绑定 <code>127.0.0.1</code>。Web 会话与当前终端 Pi 会话相互独立，不会接管终端对话。</p></section>
+  </div>
+
+  <h2>三、推荐落地方式</h2>
+  <p>建议从 npm 稳定版开始，因为 GitHub <code>main</code> 可能领先已发布制品，README 也明确提醒二者的运行资产不同。</p>
+  <pre><code># 1. 已核对：本机目前满足要求
+pi --version        # 0.85.1
+node --version      # v25.5.0
+pi list             # No packages installed.
+
+# 2. 安装稳定版
+pi install npm:@tt-a1i/openpi
+
+# 3. 核对唯一加载来源
+pi list
+
+# 4. 进入 Pi 后重载
+/reload
+
+# 5. 保持默认 explicit，查看/配置 OpenPI
+/openpi-setup</code></pre>
+
+  <p>第一次 smoke 建议依次验证：</p>
+  <ol>
+    <li><strong>普通 Pi：</strong>让它读一个文件并做一次普通修改，确认原生路径未被改变。</li>
+    <li><strong>后台：</strong>“在后台运行 dev server”，再用 <code>/ps</code> 看状态和日志并停止。</li>
+    <li><strong>子代理：</strong>“用子代理分别检查 API 和测试，最后汇总”，再用 <code>/subagents</code> 查看。</li>
+    <li><strong>Web：</strong>输入 <code>/web</code>，确认只绑定本机地址，创建独立 Web 会话。</li>
+  </ol>
+
+  <h2>四、什么时候用哪一层</h2>
+  <table>
+    <thead><tr><th>任务</th><th>用法</th><th>不建议</th></tr></thead>
+    <tbody>
+      <tr><td>普通读码、改单、跑短测试</td><td>继续用 Pi 原生工具</td><td>为了“看起来高级”强开多代理</td></tr>
+      <tr><td>dev server、watcher、长测试</td><td>Background Terminal</td><td>需要 stdin 的交互命令放后台</td></tr>
+      <tr><td>独立调研或审查</td><td>Subagent；写入并行时开 worktree</td><td>多个写代理共享同一 checkout</td></tr>
+      <tr><td>多阶段 fan-out、结构化综合</td><td>Workflow</td><td>把简单任务包装成复杂流程</td></tr>
+      <tr><td>浏览器工作台</td><td><code>/web</code> 或 <code>openpi web [workspace]</code></td><td>误以为 Web 和当前终端共享同一 Session</td></tr>
+    </tbody>
+  </table>
+
+  <h2>五、与 hive-serva 的关系</h2>
+  <p>OpenPI 最适合作为 <strong>Pi 这个 CLI 自身的能力层</strong>。如果未来把 Pi 加成 hive-serva 的 worker preset，链路应是：</p>
+  <pre><code>hive-serva（跨进程团队、账本、Cockpit、手机远控）
+  └─ Pi worker（顶层 CLI Session）
+       └─ OpenPI（Pi 内部的子代理 / Workflow / 后台进程）</code></pre>
+  <p>两层不要混成同一个调度器：hive 管顶层 worker、持久 dispatch 与人机协作；OpenPI 管单个 Pi worker 内部的短期并发和执行细节。OpenPI Child 不应直接冒充 hive worker，也不应把 OpenPI 的完成态当作 hive 的最终 accept 证据；最终仍应由 hive 的 ledger、测试结果和 reviewer 闸门收口。</p>
+
+  <h2>六、风险与边界</h2>
+  <div class="warn"><strong>权限边界：</strong>Pi 官方明确说明，它默认没有内建的文件系统、进程、网络或凭据权限沙箱，使用启动 Pi 的系统用户权限。OpenPI 的工具白名单、Workflow sandbox 和 worktree 解决的是能力面与隔离问题，不等同于完整系统沙箱。处理不可信仓库时仍应使用容器或更强隔离。</div>
+  <ul>
+    <li>当前 Pi 恰好在最低兼容版本；可先用，升级 Pi 时要重新 smoke package。</li>
+    <li><code>adaptive</code> 会允许模型自主加载能力，建议熟悉默认 <code>explicit</code> 后再开启。</li>
+    <li>Web 默认 loopback 安全边界较清晰；若未来转发端口，应额外设置 token 和 origin，不要直接暴露。</li>
+    <li>GitHub <code>main</code> 与 npm 发布物可能不同；稳定使用选 npm，开发/贡献才绑定本地 checkout。</li>
+  </ul>
+
+  <h2>七、建议决策</h2>
+  <p><strong>建议采纳：</strong>先把 OpenPI 作为 Pi package 安装到当前用户环境，保持默认 explicit，做四项 smoke；暂不改 hive-serva。等确认 Pi + OpenPI 的实际体验后，再单独评估“Pi 作为 hive worker preset”，避免一次同时引入 package 层与团队调度层两个变量。</p>
+
+  <footer>
+    <p>主要依据：<a href="https://github.com/openpi-dev/openpi">OpenPI 仓库</a>（README、SETUP、package manifest 与 extensions 源码，检出 f6b49ae）；<a href="https://github.com/earendil-works/pi">Pi 仓库</a>；npm 元数据（OpenPI 0.8.1、Pi 0.85.1）。本机环境采样：2026-09-19。</p>
+  </footer>
+</main>
+</body>
+</html>
