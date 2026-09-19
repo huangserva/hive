@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HippoTeam vs Orca · 协作交互模型与使用体验对比</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1f2630;
+    --text: #e6edf3;
+    --muted: #9aa7b4;
+    --line: #30363d;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #ffa657;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.68 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 40px 28px 88px; }
+  h1, h2, h3, h4 { line-height: 1.3; margin: 0 0 12px; }
+  h1 { font-size: 30px; }
+  h2 { font-size: 21px; margin-top: 40px; padding-top: 26px; border-top: 1px solid var(--line); }
+  h3 { font-size: 17px; margin-top: 26px; color: var(--accent); }
+  h4 { font-size: 14px; margin-top: 18px; color: var(--orange); }
+  p { margin: 8px 0 12px; }
+  ul, ol { margin: 8px 0 14px; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: rgba(110, 118, 129, 0.2);
+    border: 1px solid rgba(110, 118, 129, 0.22);
+    border-radius: 5px;
+    padding: 1px 5px;
+    word-break: break-all;
+  }
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+  .lead {
+    margin-top: 18px;
+    padding: 18px 20px;
+    background: linear-gradient(135deg, rgba(88,166,255,.16), rgba(188,140,255,.08));
+    border: 1px solid rgba(88,166,255,.35);
+    border-radius: 10px;
+    font-size: 15.5px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 20px 0 8px; }
+  .cards-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 20px 0 8px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card strong { display: block; margin-bottom: 6px; }
+  .card.hive { border-left: 3px solid var(--purple); }
+  .card.orca { border-left: 3px solid var(--accent); }
+  .muted { color: var(--muted); }
+  .pill {
+    display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); margin-right: 6px; white-space: nowrap;
+  }
+  .pill.green { color: var(--green); border-color: rgba(63,185,80,.4); background: rgba(63,185,80,.1); }
+  .pill.red { color: var(--red); border-color: rgba(248,81,73,.4); background: rgba(248,81,73,.1); }
+  .pill.yellow { color: var(--yellow); border-color: rgba(210,153,34,.4); background: rgba(210,153,34,.1); }
+  .pill.blue { color: var(--accent); border-color: rgba(88,166,255,.4); background: rgba(88,166,255,.1); }
+  .pill.purple { color: var(--purple); border-color: rgba(188,140,255,.4); background: rgba(188,140,255,.1); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0 8px; font-size: 13px; }
+  th, td { border: 1px solid var(--line); padding: 9px 11px; text-align: left; vertical-align: top; }
+  th { background: var(--panel-2); font-weight: 600; }
+  td.dim { background: rgba(88,166,255,.05); font-weight: 600; width: 132px; }
+  .warn {
+    border: 1px solid rgba(248,81,73,.35);
+    background: rgba(248,81,73,.07);
+    border-radius: 10px; padding: 14px 16px; margin: 16px 0;
+  }
+  .ok {
+    border: 1px solid rgba(63,185,80,.35);
+    background: rgba(63,185,80,.07);
+    border-radius: 10px; padding: 14px 16px; margin: 16px 0;
+  }
+  .note {
+    border: 1px solid rgba(210,153,34,.35);
+    background: rgba(210,153,34,.07);
+    border-radius: 10px; padding: 14px 16px; margin: 16px 0;
+  }
+  .anchor { font-size: 12.5px; color: var(--muted); }
+  .anchor code { font-size: 12px; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 26px 0; }
+  .tag { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>HippoTeam (hive-serva) vs Orca<br><span class="muted" style="font-size:20px">协作交互模型与使用体验对比</span></h1>
+<p class="meta">日期：2026-09-19 ｜ 场景：1 个老板 + 1 个 AI 主管（orchestrator / coordinator）+ N 个 AI worker</p>
+<p class="meta">前置审计（结论已采信，本次不重复审计代码）：<code>.hive/research/orca-vs-hive-codeaudit-2026-09-14.md</code>、<code>.hive/research/2026-07-03-orca-vs-hippoteam-codeaudit.md</code>、<code>.hive/decisions/draft-2026-09-19-worker-report-pull-not-push.md</code></p>
+<p class="meta">Orca 版本：CLI v1.4.205（本地 <code>/Users/huangzongning/development/orca-compare</code>）｜HippoTeam：<code>/Users/huangzongning/development/hive-serva</code></p>
+
+<div class="lead">
+<strong>一句话结论：</strong>两边的差别不在"谁功能多"，而在<strong>「主管的回合由谁发起」</strong>。
+HippoTeam 把主管的回合边界交给外部（worker 一 <code>team report</code>，runtime 就把正文粘贴 + 回车塞进主管终端，主管被迫开口）；
+Orca 把回合边界留给主管自己（worker 的汇报只是落库，主管主动 <code>check --wait</code> 拉）。
+这不是"push vs pull"的口号差异，而是<strong>老板正在主管终端里打字时，系统会不会替你按下回车</strong>的差异。
+代价也真实存在：Orca 换来了"零打扰 + 零进度感"，HippoTeam 换来了"高打扰 + 强可见性"。
+</div>
+
+<h2>一、先纠正一个容易记错的细节</h2>
+
+<p>原始观察是"hive 的 worker report 会被注入主管终端输入，Orca 的消息只落 inbox、coordinator 主动拉、从不碰终端输入"。前半句完全正确；后半句需要精确化，因为 Orca <strong>确实有一条会写 PTY 的通道</strong>，只是它是"指针"而不是"正文"，而且门禁极严：</p>
+
+<table>
+<tr><th style="width:180px">通道</th><th>Orca 的行为</th><th>门禁</th></tr>
+<tr>
+  <td><strong>正文通道</strong><br><span class="anchor">mailbox / DB</span></td>
+  <td>worker 的 <code>worker_done</code> / <code>escalation</code> / <code>question</code> 只写成 orchestration DB 里的行。主管必须自己 <code>orca orchestration check --wait</code> 才能拿到。</td>
+  <td>无（默认路径，一个字节都不写终端）</td>
+</tr>
+<tr>
+  <td><strong>指针通道</strong><br><span class="anchor">PTY write</span></td>
+  <td>写一行文本：<code>You have N orchestration messages. Run `orca orchestration check`.</code> 然后回车。<span class="anchor">（<code>mailbox-pointer-pty-write.ts</code> / <code>formatter.ts:121</code>）</span></td>
+  <td>
+    ① 必须 <code>leaf.lastAgentStatus === 'idle'</code> 且"观察到是活的"——主管在 <code>check --wait</code> 里（turn 进行中）时<strong>直接 return，不写</strong>（<code>mailbox-pointer-delivery.ts:46-49</code>）；<br>
+    ② 有未过滤 waiter（主管正阻塞等全部消息）时批为空、完全不发（<code>mailbox-pointer-eligibility.ts:20-24,47-49</code>）；<br>
+    ③ 已被 waiter 认领的类型从指针批里排除（同一函数）。
+  </td>
+</tr>
+</table>
+
+<div class="note">
+<strong>这个纠正很重要，因为它把对比从"谁写终端"变成了"谁在什么状态下写终端"。</strong><br>
+Orca 的语义是：<em>只有当主管空闲地坐在提示符前，才用一行指针提醒它去拉；主管一旦在干活（turn 中），任何东西都不许打断它。</em><br>
+HippoTeam 的语义是：<em>只要主管的 PTY 出现了新提示符（"看起来在等输入"），就把整份汇报粘贴进去并按回车。</em><br>
+两者面对的危险窗口是同一个（主管停在提示符上 + 人正在打字）。Orca 用"状态门禁 + 只写一行指针"把窗口压到很窄；HippoTeam 没有任何门禁，直接写正文 + 回车。
+</div>
+
+<h2>二、两侧定位</h2>
+
+<div class="cards">
+  <div class="card hive">
+    <strong>HippoTeam（hive-serva）</strong>
+    <p class="muted">一个 workspace 目录 + 每角色一个真 CLI 进程（Claude Code / Codex / OpenCode / Gemini）的<strong>多 agent 治理工作台</strong>。主管是 AI，治理规则写成 L1 代码（角色 ACL、accept gate、反自审校验）与 L2 提示词（<code>hive-team-guidance.ts</code> 的 17 条 ORCHESTRATOR_RULES）。PM 文档体系（plan / tasks / open-questions / decisions / research / reports / baseline）是它的第二张脸。</p>
+    <p><span class="pill purple">治理强</span><span class="pill purple">可见性强</span><span class="pill red">打扰强</span><span class="pill red">默认不隔离</span></p>
+  </div>
+  <div class="card orca">
+    <strong>Orca</strong>
+    <p class="muted">以 <strong>worktree 为一等公民</strong>的并行开发 IDE。主管（coordinator）也是一个真 CLI agent，靠 <code>orca orchestration</code> 一套动词编排：Task DAG、Dispatch、Run、decision gate、blocking ask、阻塞拉取。<strong>调度正确性</strong>由生命周期状态机 + mutation receipt 保证，而不是靠提示词。</p>
+    <p><span class="pill blue">编排正确性强</span><span class="pill blue">打扰极低</span><span class="pill blue">worktree 隔离</span><span class="pill yellow">治理无强制</span></p>
+  </div>
+</div>
+
+<h2>三、六维度总表</h2>
+
+<table>
+<tr>
+  <th style="width:118px">维度</th>
+  <th style="width:34%">HippoTeam 做法</th>
+  <th style="width:34%">Orca 做法</th>
+  <th>体感差异（老板视角）</th>
+</tr>
+<tr>
+  <td class="dim">① 派单</td>
+  <td>主管 <code>team send "&lt;worker-name&gt;" "&lt;task&gt;"</code>（按 name）。runtime 建 dispatch 行、写 tasks.md、把带 <code>dispatch_id</code> 的整段派单正文粘贴进 worker PTY + 回车。</td>
+  <td><code>worker-start --spec "..." --worktree current --agent codex</code> 一步建 Task + attempt + 终端 + 提示词注入；或 <code>task-create --deps</code> 先铺 DAG 再 <code>worker-start --task</code>。派单正文同样注入 worker PTY，但终端由 Orca 拥有并监督。</td>
+  <td>两边都是"注入终端"。差别在 Orca 派单前先落 Task 行（有 id、有依赖、有 outcome），HippoTeam 派单只落 dispatch 行。<strong>Orca 派单更"可追踪"，HippoTeam 派单更"随手"。</strong></td>
+</tr>
+<tr>
+  <td class="dim">② 汇报回流</td>
+  <td><strong>push。</strong><code>team report</code> → 落 ledger + 写 tasks.md + 手机 push + <strong>无条件把 <code>[Hive 系统消息：来自 @X 的汇报]</code> 粘贴进主管终端并按回车</strong>。主管的回合边界由 worker 决定。</td>
+  <td><strong>pull。</strong><code>worker_done</code> → 落 DB。主管阻塞在 <code>check --wait</code> 上等，拿到 FIFO 批（≤50 条）后必须 <code>--ack &lt;delivery_id&gt;</code> 才推进游标（未 ack 会重放同批）。空等待/超时是"检查点"，不是失败。</td>
+  <td><strong>这是最大的体感分水岭。</strong>HippoTeam：老板在主管窗口里打一半字，报告插进来 + 自动回车，老板的字被顶走/被提交。Orca：老板打字时主管若在 turn 中，一个字节都不会写进来。</td>
+</tr>
+<tr>
+  <td class="dim">③ 老板可见性</td>
+  <td>Topbar <strong>Cockpit 按钮带数字徽标</strong>（待办 AI action 数）→ 点开 12 个 tab 的抽屉：plan / tasks / questions / ideas / decisions / research / reports / timeline / baseline / archive / setup / diagnostics，每 tab 自带徽标。左侧 worker 卡片显示三态 + 队列徽标。待拍板落 <code>.hive/open-questions.md</code>（Questions tab）。另有飞书 / 手机 App 远程通道 + 高风险动作手机审批。</td>
+  <td>侧边栏每个 worktree 下的 agent row，row 主文案 = 该 worker 当前 Task 的标题；Agent Dashboard 有 <strong>Needs You / Working / Done / Idle</strong> 四桶计数；<code>orca worktree ps</code> 命令行能看 live / pty / unread + 终端预览。<strong>没有 tasks 面板，也没有 decision gate 的 UI</strong>（gate 只存在 orchestration DB 里）。</td>
+  <td>HippoTeam 是"<strong>结构化看板</strong>"：内容持久、可回溯、有优先级。Orca 是"<strong>实时仪表</strong>"：一眼看到谁在忙、谁卡住、哪条 worktree 有未读，但关掉终端后信息就没了。</td>
+</tr>
+<tr>
+  <td class="dim">④ 完成信号</td>
+  <td>worker 自报 <code>team report</code> 为主。客观侧证：dispatch ledger 8 态（含 <code>report_overdue</code> / <code>orphaned</code>）、tasks.md <code>[x]/[~]</code>、review_status 旁挂、以及 <code>unreviewed-code-status.ts</code> 的"未审代码"看板兜底（coder report 后 2 分钟宽限内无 reviewer dispatch → 硬亮）。</td>
+  <td>worker 自报 <code>worker_done --outcome succeeded|failed</code>，但<strong>状态机自动 settle</strong>，且明令"不许再补 <code>task-update --status completed</code>"。铁律：<strong>"Absence never authorizes stop, abandon, retry, or release"</strong>——只有 <code>exited</code> liveness / worker 自证进程退出 / 最后一轮没发 worker_done 才算正证据；<code>unverifiable</code> 只是"不知道"，必须继续等。turn 结束前 <code>worker-list --terminal-state reclaimable</code> 必须为空。</td>
+  <td>Orca 把"不许把不知道当成已完成/已停止"写成了 CLI 级的纪律，并直接吐出下一步 argv（<code>projection.nextAction</code>）。HippoTeam 有兜底看板，但"报告即完成"的默认路径仍然偏向相信自报。</td>
+</tr>
+<tr>
+  <td class="dim">⑤ 隔离与并行</td>
+  <td><strong>默认不隔离。</strong>一个 workspace = 一个目录，N 个 worker PTY 共享同一个 cwd；worktree 分层要 <code>HIVE_WORKER_WORKTREES=1</code> 才开。写冲突靠角色约定消化：worker 不 commit，PM 审完在主树 commit。并行度 = PTY 数。</td>
+  <td><strong>worktree 是一等公民。</strong>默认 <code>--worktree current</code>，可 <code>new-child</code> / <code>new-top-level</code>，可落 SSH / WSL / 远端 Orca server。每个 worker 一份独立 checkout + 独立分支。并行度 = worktree 数，物理隔离。</td>
+  <td>HippoTeam 并行靠"约定"，一旦两个 worker 碰同一文件就只能靠人眼发现；Orca 并行靠"文件系统"，冲突变成 git merge 的常规问题。</td>
+</tr>
+<tr>
+  <td class="dim">⑥ 治理</td>
+  <td><strong>L1 代码强制。</strong>角色 ACL（只有 orchestrator 能 <code>send/cancel/accept</code>，worker 只有 <code>report/status</code>）；<code>team accept</code> 必须引用 reviewer 的 dispatch_id 且过三重时序校验（详见下）；sentinel 独立角色；高风险动作（rm / git push / drop table）经手机审批。</td>
+  <td><strong>无 review 铁律。</strong>有的是编排纪律：生命周期 8 态 + mutation receipt + 失败不许盲目 relaunch（要读 <code>failedStage</code> / <code>residualResources</code>）+ "review-only 的 worker_done 只授权综合、不授权 coordinator 改文件" + nested worker 深度限制。</td>
+  <td>Orca 管"<strong>调度没做错</strong>"，HippoTeam 管"<strong>结论可信</strong>"。Orca 里"这行代码谁审过"没有任何记录，全靠主管自觉——这是它最大的一处空白。</td>
+</tr>
+</table>
+
+<h2>四、逐维度展开</h2>
+
+<h3>① 派单：都是注入 PTY，但 Orca 先落 Task</h3>
+
+<h4>怎么做</h4>
+<ul>
+<li><strong>HippoTeam</strong>：主管跑 <code>team send "&lt;worker-name&gt;" "&lt;task&gt;"</code>。runtime 建 dispatch 行 → 写 <code>.hive/tasks.md</code> → <code>writeSendPrompt</code> → <code>buildWorkerDispatchPayload</code> 拼出 <code>[Hive 系统消息：来自 @&lt;orch&gt; 的派单]</code> + 角色 + "你必须遵守" + <code>dispatch_id</code> + 任务正文 + <code>PM_DISPATCH_REMINDER</code> + worker capability manifest + Cockpit 快照 + <code>&lt;hive-system-reminder&gt;</code> 尾，整段粘贴进 worker PTY。</li>
+<li><strong>Orca</strong>：<code>worker-start --spec "..." --worktree current --agent codex --json</code> 一次调用同时创建 Task、attempt、终端、注入提示词，并接管资源所有权；复杂依赖先 <code>task-create --deps '[...]'</code> 铺 DAG，再用 <code>task-list --ready</code> 当"外部记忆"。<code>dispatch --inject</code> 是逃生口，被明确标注为"unmanaged"。</li>
+</ul>
+
+<h4>老板看到</h4>
+<ul>
+<li>HippoTeam：左侧 worker 卡片队列徽标 +1；Cockpit tasks tab 多一行 <code>- [ ]</code>。</li>
+<li>Orca：侧边栏对应 worktree 下多一个 agent row，row 主文案直接是 Task 标题；Dashboard 的 Working 桶 +1。</li>
+</ul>
+
+<h4>主管看到</h4>
+<ul>
+<li>HippoTeam：<code>team list</code> 返回 <code>name / role / status / pending_task_count / last_pty_line</code>（snake_case，spec §3.3 契约）。<strong>注意 <code>last_pty_line</code> 被明令"不是汇报"</strong>——它只是终端最后一行噪声，正式汇报只认 stdin 注入的那两种信封。</li>
+<li>Orca：<code>dispatch-show</code> / <code>task-list --ready --brief</code> / <code>worker-list --include-remote</code>，每行带 <code>projection.attention</code> 与 <code>projection.nextAction</code>（可直接执行的 argv）。</li>
+</ul>
+
+<h4>worker 看到</h4>
+<ul>
+<li>两边一样：一段被粘进终端的派单正文，末尾带强制汇报语法。HippoTeam 额外把 <code>PM 文档共维护要求</code> 一起塞进去（要求 worker 自己维护 plan / ADR / reports+research 双产出）。</li>
+</ul>
+
+<h3>② 汇报回流：push vs pull（本次对比的核心）</h3>
+
+<h4>HippoTeam 的 push 链路（会被打断的具体机制）</h4>
+<pre><code>worker: team report "&lt;result&gt;" --dispatch &lt;id&gt;
+  └─ team-operations.ts:1202 reportTask
+       ├─ 事务：dispatch → reported + report_text + evidence + sequence
+       ├─ 写 messages 表（worker_report）
+       ├─ review_status = 'pending'（accept gate 开且在 scope 内）
+       ├─ tasks.md recordDispatchDone → [x] / [~]
+       ├─ mobilePushService.notifyWorkerDone（手机推送）
+       └─ agentRuntime.writeReportPrompt(...)          ← 关键
+            └─ buildOrchestratorReportPayload()
+                 = "[Hive 系统消息：来自 @&lt;worker&gt; 的汇报]" + 正文 + "artifact: ..." + reminder 尾
+                 └─ createPostStartInputWriter(主管的 PTY)
+                      ├─ 等「baseline 之后出现新提示符 ❯ / ›」
+                      ├─ claude 额外处理 busy（Working / Thinking / Compacting），最长等 120s
+                      ├─ bracketed paste 整段文本（\e[200~ … \e[201~）
+                      ├─ 等 "[Pasted text #N" 回执（3s 超时）
+                      └─ 等 600–1500ms 后写 "\r"            ← 替老板按下了回车</code></pre>
+<div class="warn">
+<strong>危害点（file:line 可查）：</strong>注入器的就绪判断<strong>只看 PTY 输出</strong>（<code>post-start-input-writer.ts:218</code> 的 <code>hasInteractivePromptReady(outputSinceBaseline)</code>），<strong>完全没有"人是否正在输入"这个信号</strong>；随后 <code>:117</code> 的 <code>writeInput(runId, '\r')</code> 无条件提交。<br>
+于是：主管停在提示符上、老板正在打字 → 汇报正文被粘到光标处 + 回车提交 → 老板的半句话要么被吞、要么跟汇报拼成一条畸形输入发出去。<br>
+迟到报告也走同一条路：dispatch 已关时 <code>recordLateWorkerReport</code> + <code>lateReportForwardedAt</code> 去重后照样注入（<code>team-operations.ts:1237</code>）。
+</div>
+
+<h4>Orca 的 pull 链路</h4>
+<pre><code>worker: worker_done --outcome succeeded --evidence "..."     →  只写 DB 行
+coordinator: orca orchestration check --wait --types "worker_done,escalation,question" \
+                                    --timeout-ms 900000 --json
+  ├─ 返回本 Run 最老的一批 FIFO delivery（≤50 条）
+  ├─ 未 --ack 则原样重放同批（不会悄悄丢）
+  ├─ 空等待 / 超时 = 检查点，不是失败
+  └─ 连续 3 次空等待 → 改 worker-list --include-remote，按 projection.attention / nextAction 行动
+coordinator: orca orchestration check --ack &lt;delivery_id&gt; --wait ...   ← 只有 ack 才推进游标</code></pre>
+<p>在这整条链路里，主管的终端<strong>一个字节都没被写</strong>：因为主管始终在 turn 里（阻塞在 <code>check --wait</code>），而指针通道的门禁第一句就是"<code>lastAgentStatus</code> 必须是 idle 且观察到是活的"，否则直接 return。</p>
+
+<h4>老板看到</h4>
+<ul>
+<li>HippoTeam：主管窗口突然冒出一整块 <code>[Hive 系统消息：…]</code>，且已经被提交——老板来不及反应。</li>
+<li>Orca：什么都不会冒出来。老板要自己看侧边栏 agent row 从"working"变绿（Done），或者直接问主管。</li>
+</ul>
+
+<h4>主管看到</h4>
+<ul>
+<li>HippoTeam：汇报以"用户消息"形态出现在自己的输入流里，被迫开始一个新回合。主管没有"我先忙完再读"的权利。</li>
+<li>Orca：主管自己决定何时 <code>check</code>。可以先把手上一个 Task 的 <code>worker-release</code> 做完再拉下一批。</li>
+</ul>
+
+<h4>worker 看到</h4>
+<ul>
+<li>两边一样：发完就结束自己的回合。差别在 HippoTeam 的 worker 会立刻触发主管动作（连带触发一串下游派单），而 Orca 的 worker 发完就静默——它不知道主管什么时候读。</li>
+</ul>
+
+<div class="ok">
+<strong>这个差异的本质：</strong>HippoTeam 把"主管的回合边界"外包给了 worker；Orca 把它留给主管。
+前者换来了低延迟（报告一到主管立刻处理），后者换来了不被打断 + 主管可以自主排序。
+<strong>HippoTeam 已有的 ledger 字段（<code>delivered_at</code> / <code>report_acknowledged_at</code> / <code>report_delivery_failed_at</code>）说明这套"投递 vs 确认"模型其实已经具备，缺的只是"默认不注入"这一步。</strong>
+</div>
+
+<h3>③ 老板可见性：结构化看板 vs 实时仪表</h3>
+
+<h4>HippoTeam 的三层可见性</h4>
+<ol>
+<li><strong>Topbar 徽标</strong>：<code>Cockpit</code> 按钮旁一个数字，是 <code>buildAiActions</code> 合成出的待办数（high/medium questions、ADR drafts、orphan reports、缺实施的 design milestone、未审代码、sentinel 告警）。<strong>不打开也能看到"有事等你"。</strong></li>
+<li><strong>Cockpit 抽屉 12 tab</strong>：plan / tasks / questions / ideas / decisions / research / reports / timeline / baseline / archive / setup / diagnostics，每 tab 有独立徽标（tasks 计数、questions = high+medium、decisions = drafts+adopted…）。这是从 <code>.hive/</code> 下 10 个 Markdown 文档解析出来的，内容持久、可回溯、可 diff。</li>
+<li><strong>左侧 worker 卡片</strong>：三态 working / idle / stopped + 队列徽标 + 最后一行 PTY 输出（仅提示用）。</li>
+</ol>
+<p>待拍板事项 = <code>.hive/open-questions.md</code>（编号 Q1/Q2 + 优先级 🔴/🟠/🟢），由 <code>parseQuestionsDoc</code> 解析进 Questions tab，老板在 tab 里直接答复，答完会反向注入主管终端唤醒它（<code>buildOrchestratorQuestionAnsweredPayload</code>）。<br>
+另有两条远程通道：飞书（<code>team feishu reply</code>）和手机 App（<code>team mobile-reply</code>），以及高风险动作的<strong>手机审批闸</strong>（<code>team approve "动作描述" --risk high</code>，等 <code>ALLOWED/DENIED</code> 注入才继续）。</p>
+
+<h4>Orca 的可见性</h4>
+<ul>
+<li><strong>侧边栏 agent row</strong>：每个 worktree 下面挂它当前的 agent，row 主文案直接是 Task 标题/displayName（截断 80 / 160 字符）。这是老板在 Orca 里最接近"任务面板"的东西——<strong>本质是"活的 agent 列表"，不是任务列表</strong>：worker 一结束，row 就变绿/变灰，任务本身不再有位置。</li>
+<li><strong>Agent Dashboard</strong>：Needs You / Working / Done / Idle 四桶 + 计数，Needs You 用问号图标。这是老板一眼扫"哪里需要我"的地方。</li>
+<li><strong><code>orca worktree ps</code></strong>：命令行形式，每个 worktree 一行，带 <code>live:N</code> / <code>pty:yes|no</code> / <code>unread:yes|no</code> 和终端内容预览。适合脚本化和快速巡检。</li>
+</ul>
+<div class="warn">
+<strong>Orca 的空白：decision gate 和 pending question 没有任何 UI 面。</strong>
+<code>gate-create --task &lt;id&gt; --question "..." --options '[...]'</code> 建出的 gate 只写进 orchestration DB 的 <code>decision_gates</code> 表（<code>db/decision-gates/decision-gate-store.ts</code>）；在 renderer 里 grep <code>decision_gate</code> 结果为空。
+也就是说：<strong>Orca 的"待拍板"活在主管的终端 scrollback 里</strong>——老板关掉那个窗口，就只剩"问主管"这一条路。
+（顺带纠正：<code>OrchestrationPage.tsx</code> 不是真实面板，是营销用的功能墙动画。）
+</div>
+
+<h4>主管看到</h4>
+<ul>
+<li>HippoTeam：<code>team list</code> 的 <code>pending_task_count</code> + <code>last_pty_line</code>；以及被注入的汇报本身。</li>
+<li>Orca：<code>worker-list --include-remote --json</code>，每行带 <code>projection.attention.categories</code>（guidance / input / approval / failure / interruption / stale / unverifiable / root_completion）、<code>requiresAction</code>、以及可执行的 <code>nextAction</code> argv。</li>
+</ul>
+
+<h4>worker 看到</h4>
+<ul>
+<li>HippoTeam：自己那张卡片的状态和队列数（它看不到 Cockpit）。</li>
+<li>Orca：worker 通过 <code>check --terminal &lt;handle&gt;</code> 读主管的 follow-up，通过 <code>ask</code> 阻塞提问、超时后留一条 durable question 用 message ID 续问。</li>
+</ul>
+
+<h3>④ 完成信号：自报为主 vs 客观状态 + 不许把"不知道"当结论</h3>
+
+<h4>HippoTeam</h4>
+<ul>
+<li>默认：worker 自报 <code>team report</code> → dispatch 变 <code>reported</code>，tasks.md 打 <code>[x]</code>（accept gate 开且在 scope 内则打 <code>[~]</code> 表示待审）。</li>
+<li>客观侧证（重要，是 HippoTeam 的强项）：ledger 有 <code>report_overdue</code> / <code>orphaned</code> 态；<code>unreviewed-code-status.ts</code> 会在"coder report 了代码改动、但 2 分钟宽限内没有 reviewer dispatch 跟上"时，在看板硬亮一条"未审"action——<strong>不依赖 PM 记性，never-silent</strong>。</li>
+<li>但"报告即完成"仍是默认路径：worker 说完成了，主管倾向于信。</li>
+</ul>
+
+<h4>Orca</h4>
+<ul>
+<li>worker <code>worker_done --outcome succeeded|failed</code> 会<strong>自动 settle Task 和 Dispatch</strong>，并且明令"不许再补一条 <code>task-update --status completed</code>"——避免自报与状态机打架。</li>
+<li><strong>"Absence never authorizes stop, abandon, retry, or release"</strong> 是写进 agent 手册的铁律：<code>unverifiable</code>（包括 <code>worker-show</code> 报 <code>agentWait</code> 为 null）只是"不知道"，必须继续等；只有三种正证据能授权停/放弃/重试：<code>exited</code> liveness、worker 自己观察到进程退出、或者一份最终回合没发 worker_done 的 transcript。</li>
+<li>turn 结束条件是可枚举的：<code>worker-list --run &lt;run_id&gt; --terminal-state reclaimable</code> 必须返回空；每个已 settle 的终端必须显式 reuse / <code>worker-retain</code> / <code>worker-release</code> 三选一。</li>
+<li>状态变更都留 <code>mutation_receipts</code>，生命周期 8 态转移集中在 <code>lifecycle-transition.ts</code>，对账在 <code>lifecycle-reconciliation.ts</code>。</li>
+</ul>
+
+<div class="note">
+<strong>HippoTeam 可以低成本吸收的一条：</strong>把"完成"的判定从"worker 说完成了"改成"worker 说完成了 + 一个客观证据槽"。
+HippoTeam 的 <code>team report</code> 已经有 <code>--evidence</code> 参数、ledger 也已经有 <code>evidence_json</code> 字段，只是目前没有被当作判定依据。
+</div>
+
+<h3>⑤ 隔离与并行：约定 vs 文件系统</h3>
+
+<h4>HippoTeam：默认共享目录</h4>
+<p>一个 workspace 就是一个目录（<code>workspace.path</code>），所有 worker 的 PTY cwd 都指过去；worktree 分层只在 <code>HIVE_WORKER_WORKTREES=1</code> 时才启用（<code>agent-runtime.ts:53-57</code>，注释写明"默认关闭以保持向后兼容"）。写冲突靠角色约定消化：worker 不 commit，PM 审完在主树 commit。这条约定本身也写在 <code>unreviewed-code-status.ts</code> 的设计判定里。</p>
+<p><strong>代价</strong>：两个 worker 同时改同一个文件时，没有任何机制会拦住它们，只能靠老板/主管事后发现。并行度上限 = 能忍受的文件冲突数。</p>
+
+<h4>Orca：worktree 是一等公民</h4>
+<p>默认 <code>--worktree current</code>（不新开），但一旦需要隔离就是 <code>new-child</code> / <code>new-top-level</code>；还能落 SSH / WSL / 远端 Orca server。手册里一句话点明了它的默认观：<em>"A fresh worker means a fresh agent terminal, not a new Git worktree."</em>——即"新 worker ≠ 新 worktree"，只有真的需要 checkout 或文件系统冲突时才开。</p>
+<p><strong>代价</strong>：worktree 多了之后，老板要面对"哪个分支改了什么"的合并问题；Orca 给了 git 的常规工具，没有替老板做集成。</p>
+
+<h4>老板看到</h4>
+<ul>
+<li>HippoTeam：一个目录 + 一堆 worker 卡片；改动全部堆在同一个工作区，<code>git status</code> 是所有 worker 的混合结果。</li>
+<li>Orca：侧边栏按 worktree 分组，每组下面是它的 agent row；<code>orca worktree ps</code> 按 worktree 列出 live / unread / 终端预览。</li>
+</ul>
+
+<h4>主管看到</h4>
+<ul>
+<li>HippoTeam：<code>team list</code> 不区分目录，所有 worker 同一片土地。</li>
+<li>Orca：placement 是一等参数（<code>--worktree</code> / <code>--host</code>），主管在派单时就要决定落在哪个 checkout。</li>
+</ul>
+
+<h4>worker 看到</h4>
+<ul>
+<li>HippoTeam：cwd 就是 workspace 根目录，看得见别的 worker 的改动（也是它 commit 纪律存在的原因）。</li>
+<li>Orca：cwd 是自己那份 worktree，天然看不到别人。</li>
+</ul>
+
+<h3>⑥ 治理：管"结论可信" vs 管"调度没做错"</h3>
+
+<h4>HippoTeam 的 L1 强制（这是它最不可替代的部分）</h4>
+<ul>
+<li><strong>角色 ACL</strong>：只有 <code>orchestrator</code> 能 <code>send / list / cancel / recover / abandon / accept</code>；worker 只有 <code>report / status / help</code>。worker 想派活？协议层直接拒绝。</li>
+<li><strong>反自审铁律（三重校验）</strong>：<code>team accept --reason</code> 必须含 8 位以上 hex，且该 hex 必须命中本 workspace 内一条 <strong>reviewer 角色</strong>的 dispatch，并且：① 该 reviewer dispatch 必须真 reported；② reviewer 的 report 时间必须晚于被审 coder（同毫秒时用 <code>sequence</code> 严格大于来 tie-break）；③ 若 reviewer 自己设了 <code>reviews_dispatch_id</code>，必须等于当前这条 coder dispatch。<br>
+<span class="anchor">代码位置：<code>team-operations.ts:1490</code> 起；错误信息直接写着"PM 自审反铁律：必须引用钟馗或其他 reviewer 的 dispatch_id"。</span></li>
+<li><strong>未审代码兜底看板</strong>：不靠 PM 记性，见 ④。</li>
+<li><strong>sentinel 独立角色</strong>：专职巡查，走 <code>SENTINEL_RULES</code>，不允许承接派单汇报。</li>
+<li><strong>高风险动作手机审批</strong>：来自飞书/手机的指令触发 <code>rm</code> / <code>git push</code> / <code>drop table</code> 等动作前，必须先 <code>team approve --risk high</code> 并等注入的 <code>ALLOWED/DENIED</code>。</li>
+<li><strong>PM 文档共维护</strong>：调研类工作强制 <code>reports/*.html</code> + <code>research/*.md</code> 双产出，写进 worker 的派单提示词和 worker 规则里（不是靠事后补）。</li>
+</ul>
+
+<h4>Orca 的等价物：有纪律，但没有 review 强制</h4>
+<ul>
+<li>有：生命周期状态机 + <code>mutation_receipts</code> + 对账；<code>worker-start</code> 失败不许 relaunch，必须读 receipt 的 <code>failedStage</code> / <code>residualResources</code>；"review-only 的 <code>worker_done</code> 只授权综合，不授权 coordinator 改文件"；nested worker 深度上限。</li>
+<li><strong>没有</strong>：任何"必须由第二个 agent 审过才能标记完成"的机制。<code>worker_done</code> 一发就 settle，没有 accept gate、没有 reviewer 角色、没有未审代码看板。<strong>"这行代码谁审过"在 Orca 里没有任何记录。</strong></li>
+</ul>
+
+<h4>老板看到 / 主管看到 / worker 看到</h4>
+<ul>
+<li>HippoTeam 老板：Cockpit 的"未审代码"和"待确认 ADR"action 会硬亮；accept 被拒时能看到明确的 CLI 错误。</li>
+<li>HippoTeam 主管：<code>team accept</code> 可能因为引用不出 reviewer dispatch 而被直接拒——它不能糊弄过去。</li>
+<li>Orca 老板/主管：没有任何审查相关的强制或提示；是否 review 完全靠主管自律与老板追问。</li>
+</ul>
+
+<h2>五、最该借鉴的 3 件事（Orca → HippoTeam）</h2>
+
+<div class="cards-3">
+  <div class="card orca">
+    <strong>1. 汇报默认不注入，改成"落库 + 主管拉"</strong>
+    <p class="muted">把 <code>writeReportPrompt</code> 从 <code>reportTask</code> 的默认路径里摘掉，只保留 ledger 落库 + tasks.md + 手机 push + Cockpit 徽标。主管在自己的回合边界上主动拉。</p>
+    <p><strong>为什么值得做：</strong>现在的注入会在老板打字时替老板按回车，这是"系统对老板失礼"，也是 HippoTeam 最大的体感扣分项。<code>decisions/draft-2026-09-19-worker-report-pull-not-push.md</code> 已经拍了这个方向。</p>
+    <p><strong>已有地基：</strong>ledger 已有 <code>delivered_at</code> / <code>report_acknowledged_at</code> / <code>report_delivery_failed_at</code>；<code>writeReportPrompt</code> 已支持 <code>onPasteAck</code> / <code>onPasteGaveUp</code> 回调，语义上"投递"和"确认"是分开的。</p>
+  </div>
+  <div class="card orca">
+    <strong>2. 给主管一个阻塞式拉取动词（<code>check --wait</code> 等价物）</strong>
+    <p class="muted">让主管能说"我在这里等，直到有 worker_done / escalation / question"，超时是检查点不是失败；未 ack 的批次要重放而不是丢。</p>
+    <p><strong>为什么值得做：</strong>pull 模型必须有"等"的能力，否则主管只能靠轮询，反而更吵。而且阻塞等待天然提供 liveness 信号——主管在 <code>check --wait</code> 里，系统就知道"它在干活，别打扰它"。</p>
+    <p><strong>落地形态：</strong>worker 侧仍只 <code>team report/status</code>；主管侧加一个 <code>team wait --types ... --timeout</code>。注意 HippoTeam 的 worker ACL 是"只能 report/status"，新增动词必须放在 orchestrator 侧。</p>
+  </div>
+  <div class="card orca">
+    <strong>3. "缺席不是证据"写进 <code>team list</code> 输出</strong>
+    <p class="muted">Orca 的 <code>worker-list</code> 每行直接给 <code>projection.attention.categories</code> + <code>requiresAction</code> + 可执行的 <code>nextAction</code> argv，并明令"<code>unverifiable</code> 不授权 stop / abandon / retry / release"。</p>
+    <p><strong>为什么值得做：</strong>HippoTeam 的 <code>team list</code> 目前给 <code>status</code> + <code>pending_task_count</code> + <code>last_pty_line</code>，主管得自己推断"这个 stopped 是真退出还是只是没输出"。把 <code>report_overdue</code> / <code>orphaned</code> / <code>delivery_failed</code> 显式渲染成 <code>attention</code> 类别 + 建议动作，主管就不用靠猜。</p>
+  </div>
+</div>
+
+<h2>六、最不该丢的 3 件事（HippoTeam 独有）</h2>
+
+<div class="cards-3">
+  <div class="card hive">
+    <strong>1. 文件化、可浏览、可回溯的治理状态</strong>
+    <p class="muted">Cockpit 12 tab + Topbar 徽标 + <code>open-questions.md</code> / <code>decisions/</code> / <code>baseline/</code> / <code>reports/</code>+<code>research/</code> 双产出。</p>
+    <p><strong>Orca 的对应物：无。</strong>Orca 的待拍板（decision gate）和 pending question 根本没有 UI 面，只存在 DB 与终端 scrollback 里。HippoTeam 的看板是<strong>老板关掉终端之后仍然存在的东西</strong>——这是 pull 改造里最容易被顺手丢掉、但绝不能丢的部分。</p>
+  </div>
+  <div class="card hive">
+    <strong>2. 反自审的代码级强制（accept gate）</strong>
+    <p class="muted"><code>team accept --reason</code> 必须引用一条真 reported、时序在后、指向正确的 reviewer dispatch，同毫秒还要 <code>sequence</code> tie-break。</p>
+    <p><strong>Orca 的对应物：无。</strong>Orca 把"要不要 review"完全交给主管自觉，没有任何 L1 强制，也没有"这行代码谁审过"的记录。HippoTeam 如果为了 pull 模型去简化 <code>accept</code>，等于把最值钱的护栏拆了。</p>
+  </div>
+  <div class="card hive">
+    <strong>3. PM 文档共维护 + 跨 session 知识连续</strong>
+    <p class="muted">baseline（module-map / runtime-flows / state-storage / test-gates / risk-hotspots）+ ADR + plan-vs-actual review + 调研双产出，全部写进 worker 的派单提示词里强制执行。</p>
+    <p><strong>Orca 的对应物：无。</strong>Orca 的知识活在终端 scrollback 和 git 历史里；新 session 的 coordinator 只能重新读代码。HippoTeam 的 baseline 是"跨 session 不重新 grep"的答案。</p>
+  </div>
+</div>
+
+<h2>七、证据锚点</h2>
+
+<table>
+<tr><th style="width:210px">主题</th><th>位置</th></tr>
+<tr><td>汇报 push 注入的拼装</td><td class="anchor"><code>src/server/agent-stdin-dispatcher.ts:44-56</code>（<code>buildOrchestratorReportPayload</code>）、<code>:218-240</code>（<code>writeReportPrompt</code>）、<code>:124-166</code>（<code>buildWorkerDispatchPayload</code>）</td></tr>
+<tr><td>注入器就绪判断（无"人在打字"信号）</td><td class="anchor"><code>src/server/post-start-input-writer.ts:193-256</code>（<code>tryWrite</code>）、<code>:218</code>（只看 PTY 输出）、<code>:117</code>（无条件写 <code>\r</code>）</td></tr>
+<tr><td><code>reportTask</code> 全链路 / 迟到报告</td><td class="anchor"><code>src/server/team-operations.ts:1202</code>（入口）、<code>:1420-1426</code>（tasks.md + 手机 push）、<code>:1434</code>（<code>writeReportPrompt</code>）、<code>:1237</code>（迟到报告注入）</td></tr>
+<tr><td>反自审三重校验</td><td class="anchor"><code>src/server/team-operations.ts:1490</code> 起（<code>acceptTask</code>，hex 校验 + reviewer 角色 + 时序 + sequence tie-break）</td></tr>
+<tr><td>角色 ACL</td><td class="anchor"><code>src/server/team-authz.ts:14-22</code>（orchestrator / worker 命令集）</td></tr>
+<tr><td>主管规则 17 条 + worker 规则 + 提醒尾</td><td class="anchor"><code>src/server/hive-team-guidance.ts</code>（<code>ORCHESTRATOR_RULES</code> / <code>WORKER_RULES</code> / <code>ORCHESTRATOR_REMINDER_TAIL</code> / <code>PM_DISPATCH_REMINDER</code>）</td></tr>
+<tr><td>看板 action 合成 + 徽标</td><td class="anchor"><code>src/server/cockpit-doc.ts:150-230</code>（<code>buildAiActions</code>）、<code>web/src/layout/Topbar.tsx:57-65</code>（徽标）、<code>web/src/cockpit/CockpitTabs.tsx:48-58</code>（tab 徽标）、<code>web/src/cockpit/CockpitDrawer.tsx</code>（Radix Dialog 抽屉）</td></tr>
+<tr><td>worker 三态</td><td class="anchor"><code>web/src/worker/worker-status.ts:12-34</code>（<code>presentWorkerStatus</code>，spec §3.6 三态）</td></tr>
+<tr><td>未审代码兜底看板</td><td class="anchor"><code>src/server/unreviewed-code-status.ts</code>（2 分钟宽限 + role 判定 + report-only 反向排除）</td></tr>
+<tr><td>默认不隔离</td><td class="anchor"><code>src/server/agent-runtime.ts:53-57</code>（<code>HIVE_WORKER_WORKTREES=1</code> 才开 worktree）</td></tr>
+<tr><td>Orca 指针通道（唯一会写 PTY 的通道）</td><td class="anchor"><code>src/main/runtime/orchestration/mailbox-pointer-delivery.ts:46-49</code>（idle 门禁）、<code>mailbox-pointer-eligibility.ts:20-24,47-49</code>（未过滤 waiter 抢占 + 类型排除）、<code>mailbox-pointer-pty-write.ts</code> / <code>formatter.ts:121</code>（指针文本）</td></tr>
+<tr><td>Orca 侧边栏 agent row 主文案 = Task 标题</td><td class="anchor"><code>src/renderer/src/lib/agent-row-primary-text.ts:52-66</code>；<code>worktree-agent-orchestration-index.ts</code></td></tr>
+<tr><td>Orca Dashboard 四桶</td><td class="anchor"><code>src/renderer/src/components/sidebar/AgentDashboardSidebarEntry.tsx</code>、<code>src/shared/dashboard-snapshot.ts:16-25</code></td></tr>
+<tr><td>Orca attention 分类（含 <code>unverifiable</code> 不授权）</td><td class="anchor"><code>src/shared/orchestration-fleet-attention.ts:1-80</code></td></tr>
+<tr><td>Orca decision gate 无 UI</td><td class="anchor"><code>src/main/runtime/orchestration/db/decision-gates/decision-gate-store.ts</code>（仅 DB）；renderer 内 grep <code>decision_gate</code> 为空</td></tr>
+<tr><td>Orca 主管手册（canonical loop / completion accounting）</td><td class="anchor"><code>orca skills get orchestration --full</code>（本地副本 <code>/tmp/orca-orch-full.md</code>，794 行）；<code>skill-guides/orchestration/references/coordinator-loop.md</code>、<code>.../messaging-and-gates.md</code></td></tr>
+</table>
+
+<h2>八、盲区与未验证项</h2>
+<ul>
+<li><strong>Orca 的"人在打字"检测：确认不存在。</strong>在 <code>src/main</code> 与 <code>src/shared</code> 里 grep <code>userTyping / isTyping / localInput</code> 只命中无关模块。所以 Orca 也没有解决"老板正在打字"这件事——它只是把触发窗口压窄了（idle 门禁 + 只写一行指针 + 主管通常都在 turn 里）。<strong>不要把它当成"已经解决了打扰问题"。</strong></li>
+<li><strong>Orca 的 human-facing 交互没有实测</strong>：本次只读了代码与 agent 手册，没有在 GUI 里手动跑一遍"worker_done 后侧边栏 row 如何变化"、"Needs You 桶什么时候亮"。四桶计数与 row 主文案的结论来自代码，未做端到端目视确认。</li>
+<li><strong>Orca 的 <code>cloud/</code>（474 个文件）仍未读</strong>，沿用 2026-09-14 审计的同一盲区。若那边有老板侧的任务/审批 UI，本文的 ③ 结论需要修订。</li>
+<li><strong>Orca 的 decision gate 生命周期只读到 DB 层</strong>（create / resolve / timeout / list），没有确认"gate 是不是设计给人类拍的"。手册原文是"Use a gate only for a coordinator-owned Task-DAG decision"，倾向于 gate 是主管自己的 DAG 决策记忆，而非老板待办——但这一点没有反证。</li>
+<li><strong>HippoTeam 侧只做了静态阅读，没有起服务实测注入打断</strong>。危害路径（粘贴 + 自动回车顶掉老板输入）是从 <code>post-start-input-writer.ts</code> 的控制流推出的，未做"老板打字中触发 report"的实机复现。</li>
+<li><strong>本次未改动任何产品代码，未 commit。</strong></li>
+</ul>
+
+<hr>
+<p class="anchor">报告生成：2026-09-19 ｜ 对应 research note：<code>.hive/research/2026-09-19-orca-vs-hippoteam-collab-ux.md</code></p>
+
+</main>
+</body>
+</html>
